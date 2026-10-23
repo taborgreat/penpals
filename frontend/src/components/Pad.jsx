@@ -86,6 +86,8 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [penSeen, setPenSeen] = useState(false); // once a stylus writes, fingers scroll
   const [chaseOpen, setChaseOpen] = useState(false); // the chase settings panel
+  const [adjustOpen, setAdjustOpen] = useState(false); // the nib's sliders, in a dropdown
+  const adjustRef = useRef(null);
   const guideRef = useRef(null);
   const inkRef = useRef(null);
   const viewRef = useRef(null);
@@ -313,6 +315,18 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     v.addEventListener('wheel', onWheel, { passive: false });
     return () => v.removeEventListener('wheel', onWheel);
   }, [stepZoom]);
+
+  useEffect(() => {
+    if (!adjustOpen) return undefined;
+    const outside = (e) => { if (!adjustRef.current?.contains(e.target)) setAdjustOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setAdjustOpen(false); };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [adjustOpen]);
 
   // Hold Space over the pad to drag the page around.
   useEffect(() => {
@@ -545,6 +559,47 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
             </select>
           </label>
         )}
+        {nib !== 'pen' && (
+          <div className="popover-wrap" ref={adjustRef}>
+            <button type="button" className="adjust" aria-expanded={adjustOpen} onClick={() => setAdjustOpen((o) => !o)}>
+              Adjust ▾
+            </button>
+            {adjustOpen && (
+              <div className="popover" role="dialog" aria-label="Nib settings">
+                {nib === 'flex' && (
+                  <div className="controls">
+                    <label htmlFor="hairline">Hairline</label>
+                    <input id="hairline" type="range" min="0.6" max="3" step="0.1" value={flex.hairline} onChange={setFlexField('hairline')} />
+                    <span>{flex.hairline.toFixed(1)} px</span>
+
+                    <label htmlFor="maxWidth">Max width</label>
+                    <input id="maxWidth" type="range" min="2" max="30" step="1" value={flex.maxWidth} onChange={setFlexField('maxWidth')} />
+                    <span>{flex.maxWidth} px</span>
+
+                    <label htmlFor="swell">Swell over</label>
+                    <input id="swell" type="range" min="5" max="80" step="1" value={flex.swell} onChange={setFlexField('swell')} />
+                    <span>{flex.swell} px</span>
+
+                    <label htmlFor="slant">Slant</label>
+                    <input id="slant" type="range" min="40" max="90" step="1" value={flex.slant} onChange={setFlexField('slant')} />
+                    <span>{flex.slant}°</span>
+                  </div>
+                )}
+                {nib === 'broad' && (
+                  <div className="controls">
+                    <label htmlFor="angle">Nib angle</label>
+                    <input id="angle" type="range" min="0" max="180" step="5" value={angle} onChange={(e) => setAngle(num(e))} />
+                    <span>{angle}°</span>
+                  </div>
+                )}
+                <p className="hint">
+                  {nib === 'flex' && `Downstrokes along the slant swell over ${flex.swell} px and thin again before release; upstrokes stay hairline. A pressure pen drives the width instead.`}
+                  {nib === 'broad' && 'Thick and thin come from the direction you move against the fixed nib angle, like a real broad nib.'}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
         <span className="tool-sep" aria-hidden="true" />
         <label className="field">
           <span>Lines</span>
@@ -574,40 +629,6 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
           </div>
         </div>}
       </div>
-
-      {nib === 'flex' && (
-        <div className="controls">
-          <label htmlFor="hairline">Hairline</label>
-          <input id="hairline" type="range" min="0.6" max="3" step="0.1" value={flex.hairline} onChange={setFlexField('hairline')} />
-          <span>{flex.hairline.toFixed(1)} px</span>
-
-          <label htmlFor="maxWidth">Max width</label>
-          <input id="maxWidth" type="range" min="2" max="30" step="1" value={flex.maxWidth} onChange={setFlexField('maxWidth')} />
-          <span>{flex.maxWidth} px</span>
-
-          <label htmlFor="swell">Swell over</label>
-          <input id="swell" type="range" min="5" max="80" step="1" value={flex.swell} onChange={setFlexField('swell')} />
-          <span>{flex.swell} px</span>
-
-          <label htmlFor="slant">Slant</label>
-          <input id="slant" type="range" min="40" max="90" step="1" value={flex.slant} onChange={setFlexField('slant')} />
-          <span>{flex.slant}°</span>
-        </div>
-      )}
-      {nib === 'broad' && (
-        <div className="controls">
-          <label htmlFor="angle">Nib angle</label>
-          <input id="angle" type="range" min="0" max="180" step="5" value={angle} onChange={(e) => setAngle(num(e))} />
-          <span>{angle}°</span>
-        </div>
-      )}
-
-      {nib !== 'pen' && (
-        <p className="hint">
-          {nib === 'flex' && `Downstrokes along the slant swell over ${flex.swell} px and thin again before release; upstrokes stay hairline. A pressure pen drives the width instead.`}
-          {nib === 'broad' && 'Thick and thin come from the direction you move against the fixed nib angle, like a real broad nib.'}
-        </p>
-      )}
 
       <div className="pad-desk">
         <div className="pad-bar" ref={barRef}>

@@ -7,11 +7,18 @@ const MAX_STAGGER = 900;
 export const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 // How fast labels write, set by the footer's slider; remembered on this device.
+// A first visit writes slowly, so a newcomer can take in that it's all handwritten;
+// later visits use the default, and a speed picked on the slider always wins.
 const SPEED_KEY = 'penpals.writeSpeed';
+const VISITED_KEY = 'penpals.visited';
 const DEFAULT_SPEED = 0.75; // a touch slower than written-out-quick, so you can watch it
+const FIRST_VISIT_SPEED = 0.25;
 let speed = DEFAULT_SPEED;
 try {
-  speed = Number(localStorage.getItem(SPEED_KEY)) || DEFAULT_SPEED;
+  const picked = Number(localStorage.getItem(SPEED_KEY));
+  if (picked) speed = picked;
+  else if (!localStorage.getItem(VISITED_KEY)) speed = FIRST_VISIT_SPEED;
+  localStorage.setItem(VISITED_KEY, '1');
 } catch { /* the default */ }
 export const getWriteSpeed = () => speed;
 export function setWriteSpeed(v) {

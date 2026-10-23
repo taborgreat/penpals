@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../auth.jsx';
+import Hand from './Hand.jsx';
 
 export default function AuthForm() {
   const { login, register } = useAuth();
@@ -8,6 +9,11 @@ export default function AuthForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  // The tabs change colour when chosen; tell their handwriting to follow.
+  useEffect(() => {
+    window.dispatchEvent(new Event('penpals:recolor'));
+  }, [mode]);
 
   async function submit(e) {
     e.preventDefault();
@@ -24,20 +30,22 @@ export default function AuthForm() {
 
   return (
     <form className="stack card auth" onSubmit={submit}>
-      <div className="row">
-        <label><input type="radio" checked={mode === 'login'} onChange={() => setMode('login')} /> log in</label>
-        <label><input type="radio" checked={mode === 'register'} onChange={() => setMode('register')} /> register</label>
+      <div className="tabs auth-modes" role="group" aria-label="Log in or register">
+        <button type="button" className="mode-login" aria-pressed={mode === 'login'} onClick={() => setMode('login')}><Hand>log in</Hand></button>
+        <button type="button" className="mode-register" aria-pressed={mode === 'register'} onClick={() => setMode('register')}><Hand>register</Hand></button>
       </div>
-      <input placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
+      <label className="auth-field" htmlFor="auth-username"><Hand>username</Hand></label>
+      <input id="auth-username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
+      <label className="auth-field" htmlFor="auth-password"><Hand>password</Hand></label>
       <input
-        placeholder="password"
+        id="auth-password"
         type="password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
         required
       />
-      <button className="primary" disabled={busy}>{mode === 'login' ? 'Log in' : 'Create account'}</button>
+      <button className="primary" disabled={busy}>{mode === 'login' ? <Hand>Log in</Hand> : <Hand>Create account</Hand>}</button>
       {error && <p className="error">{error}</p>}
     </form>
   );

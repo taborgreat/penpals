@@ -5,6 +5,7 @@ import Profile from './pages/Profile.jsx';
 import Write from './pages/Write.jsx';
 import Inbox from './pages/Inbox.jsx';
 import HandStudio from './pages/HandStudio.jsx';
+import NotFound from './pages/NotFound.jsx';
 import Hand from './components/Hand.jsx';
 import Username from './components/Username.jsx';
 import WriteSpeed from './components/WriteSpeed.jsx';
@@ -13,7 +14,7 @@ import WriteSpeed from './components/WriteSpeed.jsx';
 function UserMenu() {
   const { user, loading, logout } = useAuth();
   if (loading) return null;
-  if (!user) return <span className="muted">not logged in</span>;
+  if (!user) return null;
   return (
     <>
       <Link to={`/u/${user.username}`} className="handle" title="Your profile"><Username name={user.username} /></Link>
@@ -46,7 +47,7 @@ export default function App() {
           <Route path="/write/:username" element={<Write />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/hand" element={<HandStudio />} />
-          <Route path="*" element={<p>Nothing here.</p>} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
       <footer className="site-foot">

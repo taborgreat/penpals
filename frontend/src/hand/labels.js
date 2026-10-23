@@ -11,6 +11,12 @@ export const HAND_LABELS = [
   'write',
   'mailbox',
   'log out',
+  // logging in (on the home page)
+  'log in',
+  'register',
+  'username',
+  'password',
+  'Create account',
   // home
   'Letters,',
   'by hand.',
@@ -21,6 +27,7 @@ export const HAND_LABELS = [
   { text: 'kept', name: 'kept-count' },
   'Top letters',
   // write, and every letter
+  'Preview, download & send',
   'Your letter',
   'Watch',
   'Stop',
@@ -55,6 +62,9 @@ export const HAND_LABELS = [
   'Unblock',
   // footer
   'Writing speed',
+  // a page that doesn't exist
+  'Nothing here.',
+  'Take me home',
   // your profile's settings
   'Colours',
   'Auto',

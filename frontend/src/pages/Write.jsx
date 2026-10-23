@@ -118,7 +118,7 @@ export default function Write() {
           <button type="button" aria-pressed={mode === 'pad'} onClick={() => switchMode('pad')}>Draw on screen</button>
           <button type="button" aria-pressed={mode === 'photo'} onClick={() => switchMode('photo')}>Photograph a page</button>
         </div>
-        <a href="#letter" className="jump">Preview, download &amp; send ↓</a>
+        <a href="#letter" className="jump"><Hand>Preview, download &amp; send ↓</Hand></a>
       </div>
 
       <section className="write-source">
