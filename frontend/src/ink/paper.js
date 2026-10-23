@@ -104,17 +104,22 @@ function parchment(w, h) {
 
 // Paper over a whole canvas that shows a page `pageW` × `pageH` page px
 // (the canvas may be larger or smaller, e.g. sized to the screen).
-export function paintPaper(ctx, id, pageW, pageH) {
+// `view` ({ ox, oy, scale }): the canvas is a view onto part of the page, its
+// top-left at page (ox, oy), `scale` canvas px per page px; only the page is papered.
+export function paintPaper(ctx, id, pageW, pageH, view = null) {
   const p = paperOf(id);
   const { width, height } = ctx.canvas;
+  const [x, y, w, h] = view
+    ? [-view.ox * view.scale, -view.oy * view.scale, pageW * view.scale, pageH * view.scale]
+    : [0, 0, width, height];
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (p.texture) {
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(parchment(Math.round(pageW), Math.round(pageH)), 0, 0, width, height);
+    ctx.drawImage(parchment(Math.round(pageW), Math.round(pageH)), x, y, w, h);
   } else {
     ctx.fillStyle = p.color;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(x, y, w, h);
   }
   ctx.restore();
 }

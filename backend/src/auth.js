@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
-import { users, sessions } from './db.js';
 import { config } from './config.js';
+import { getAccount } from './store/accounts.js';
+import { sessionUserId } from './store/sessions.js';
+
+export { createSession, deleteSession } from './store/sessions.js';
 
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 const KEY_LENGTH = 64;
@@ -18,14 +21,6 @@ export function verifyPassword(password, stored) {
   const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length, SCRYPT);
   return crypto.timingSafeEqual(actual, expected);
 }
-
-export async function createSession(userId) {
-  const token = crypto.randomBytes(32).toString('base64url');
-  await sessions.insertOne({ _id: token, userId, createdAt: new Date() });
-  return token;
-}
-
-export const deleteSession = (token) => sessions.deleteOne({ _id: token });
 
 export function setSessionCookie(res, token) {
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', maxAge: config.sessionTtlMs, path: '/' });
@@ -50,10 +45,9 @@ export async function sessionMiddleware(req, res, next) {
   req.user = null;
   const token = readCookie(req, COOKIE);
   if (token) {
-    const session = await sessions.findOne({ _id: token });
-    const user = session && (await users.findOne({ _id: session.userId }, { projection: { username: 1 } }));
-    if (user) {
-      req.user = { id: user._id, username: user.username };
+    const account = getAccount(await sessionUserId(token));
+    if (account) {
+      req.user = { id: account.id, username: account.username };
       req.sessionToken = token;
     }
   }

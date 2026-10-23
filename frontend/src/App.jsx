@@ -6,6 +6,7 @@ import Write from './pages/Write.jsx';
 import Inbox from './pages/Inbox.jsx';
 import HandStudio from './pages/HandStudio.jsx';
 import NotFound from './pages/NotFound.jsx';
+import BookViewer from './pages/BookViewer.jsx';
 import Hand from './components/Hand.jsx';
 import Username from './components/Username.jsx';
 import WriteSpeed from './components/WriteSpeed.jsx';
@@ -43,6 +44,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/u/:username" element={<Profile />} />
+          <Route path="/u/:username/:page" element={<Profile />} />
+          <Route path="/book" element={<BookViewer />} />
           <Route path="/write" element={<Write />} />
           <Route path="/write/:username" element={<Write />} />
           <Route path="/inbox" element={<Inbox />} />

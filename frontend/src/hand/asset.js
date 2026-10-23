@@ -91,7 +91,9 @@ export function makeHandAsset(data, text) {
 const decoded = new WeakMap();
 
 // The label as strokes in the shared format, in its own box's page px. Cached.
+// Book ink (book/ink.js inkAsset) arrives already decoded, as `asset.data`.
 export function handStrokes(asset) {
+  if (asset.data) return asset.data;
   let data = decoded.get(asset);
   if (data) return data;
   data = {

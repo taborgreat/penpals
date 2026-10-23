@@ -5,10 +5,10 @@ const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 
 export const config = {
   port: Number(process.env.PORT) || 3000,
-  mongoUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/penpals',
 
-  // Ink files live on disk (your 1 TB); Mongo only holds the metadata.
-  inkDir: process.env.INK_DIR || path.join(backendRoot, 'data', 'letters'),
+  // Everything lives in files here (see books.md): accounts, books, letters,
+  // sessions. There is no database.
+  dataDir: process.env.DATA_DIR || path.join(backendRoot, 'data'),
   frontendDist: path.resolve(backendRoot, '..', 'frontend', 'dist'),
 
   maxInkBytes: 2 * 1024 * 1024, // a processed letter is ~50-200 KB; anything bigger is a bug
@@ -20,11 +20,24 @@ export const config = {
   cleanupIntervalMs: 10 * 60 * 1000,
   sessionTtlMs: 30 * 24 * 60 * 60 * 1000,
 
-  // A signed name: the strokes of one short signature (a typical one is 1-4 KB).
-  signature: { maxBytes: 32 * 1024, maxStrokes: 300, maxNumbers: 24000 },
   // The colours a signature can be (frontend/src/hand/colors.js has their shades).
   signatureColors: ['graphite', 'wax', 'ink', 'forest', 'plum', 'ochre', 'teal', 'rose'],
 
+  // Books (books.md). A journal page is a fixed logical canvas; items sit on it
+  // in these units and the page is scaled to fit the screen.
+  book: {
+    pageWidth: 1000,
+    pageHeight: 1400,
+    maxPages: 40,
+    maxItemsPerPage: 400,
+    maxInkLineBytes: 1024 * 1024, // one stroke collection (a word, a drawing)
+    maxChainBytes: 50 * 1024 * 1024, // a whole ink chain
+    maxStrokes: 2000,
+    maxPoints: 120000,
+    visitorsCanDownload: false, // ruling: only the owner downloads their .book
+    defaultBackground: '#f6f1e7',
+  },
+
   papers: ['plain', 'white', 'cream', 'parchment'],
-  sources: ['photo', 'pad'], // pad = drawn on screen; not built yet, but it produces the same ink format
+  sources: ['photo', 'pad'],
 };

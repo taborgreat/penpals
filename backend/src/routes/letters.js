@@ -2,10 +2,12 @@ import { Router } from 'express';
 import multer from 'multer';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
-import { users, letters } from '../db.js';
 import { config } from '../config.js';
 import { requireAuth } from '../auth.js';
-import { inkPath, strokesPath, writeInk, writeStrokes, deleteInk } from '../storage.js';
+import { findByName, getAccount, updateAccount } from '../store/accounts.js';
+import {
+  allLetters, at, createLetter, deleteLetter, getLetter, inMail, inkPath, savedCount, strokesPath, updateLetter,
+} from '../store/letters.js';
 import { blockedEitherWay, blockedIds, canSeeProfile, hasBlocked, relation } from '../social.js';
 
 export const lettersRouter = Router();
@@ -39,10 +41,9 @@ function strokesInfo(buf, size) {
 }
 
 export function letterJson(l, viewer) {
-  const savedBy = l.savedBy ?? [];
-  const upvotes = l.upvotes ?? [];
+  const me = viewer?.id ?? null;
   return {
-    id: l._id,
+    id: l.id,
     from: l.from,
     to: l.to ?? null,
     width: l.width,
@@ -59,87 +60,78 @@ export function letterJson(l, viewer) {
     sentAt: l.sentAt ?? null,
     openedAt: l.openedAt ?? null,
     expiresAt: l.expiresAt ?? null,
-    kept: savedBy.length > 0,
-    saveCount: savedBy.length,
-    savedByMe: !!viewer && savedBy.some((s) => s.userId.equals(viewer.id)),
-    isMine: !!viewer && l.senderId.equals(viewer.id),
-    upvotes: upvotes.length,
-    upvotedByMe: !!viewer && upvotes.some((id) => id.equals(viewer.id)),
-    inkUrl: `/api/letters/${l._id}/ink`,
-    strokesUrl: l.hasStrokes ? `/api/letters/${l._id}/strokes` : null,
+    kept: l.savedBy.length > 0,
+    saveCount: l.savedBy.length,
+    savedByMe: !!me && l.savedBy.some((s) => s.userId === me),
+    isMine: !!me && l.senderId === me,
+    upvotes: l.upvotes.length,
+    upvotedByMe: !!me && l.upvotes.includes(me),
+    inkUrl: `/api/letters/${l.id}/ink`,
+    strokesUrl: l.hasStrokes ? `/api/letters/${l.id}/strokes` : null,
   };
 }
-
-const savedCount = (userId) => letters.countDocuments({ 'savedBy.userId': userId, inkDeleted: false });
 
 // Who may see a letter: its recipient while it is in the mail, its sender while
 // they keep it, and anyone who can see the profile of somebody keeping it.
 // Blocks hide letters both ways.
-async function canView(letter, user, now = new Date()) {
+function canView(letter, user, now = Date.now()) {
   const me = user?.id ?? null;
-  if (me && letter.recipientId?.equals(me) && letter.expiresAt > now) return true;
-  if (me && letter.senderId.equals(me) && letter.savedBy.some((s) => s.userId.equals(me))) return true;
+  if (me && letter.recipientId === me && at(letter.expiresAt) > now) return true;
+  if (me && letter.senderId === me && letter.savedBy.some((s) => s.userId === me)) return true;
   if (!letter.savedBy.length) return false;
-  if (me && !letter.senderId.equals(me) && (await blockedEitherWay(me, letter.senderId))) return false;
-  const keepers = await users
-    .find({ _id: { $in: letter.savedBy.map((s) => s.userId) } }, { projection: { private: 1, blocked: 1 } })
-    .toArray();
-  for (const keeper of keepers) if (await canSeeProfile(me, keeper)) return true;
-  return false;
+  if (me && letter.senderId !== me && blockedEitherWay(me, letter.senderId)) return false;
+  return letter.savedBy.some((s) => {
+    const keeper = getAccount(s.userId);
+    return keeper && canSeeProfile(me, keeper);
+  });
 }
 
-async function findLetter(req, res) {
-  const letter = await letters.findOne({ _id: req.params.id });
-  if (!letter || letter.inkDeleted) {
-    res.status(404).json({ error: 'That letter is gone.' });
-    return null;
-  }
+function findLetter(req, res) {
+  const letter = getLetter(req.params.id);
+  if (!letter) res.status(404).json({ error: 'That letter is gone.' });
   return letter;
 }
 
-// Nobody keeps it and it is not in the mail: the ink goes now, not at the next cleanup.
+// Nobody keeps it and it is not in the mail: it goes now, not at the next cleanup.
 async function deleteIfOrphan(id) {
-  const l = await letters.findOne({ _id: id });
-  if (!l || l.inkDeleted || l.savedBy.length || (l.recipientId && l.expiresAt > new Date())) return;
-  await deleteInk(id);
-  await letters.updateOne({ _id: id }, { $set: { inkDeleted: true } });
+  const l = getLetter(id);
+  if (!l || l.savedBy.length || inMail(l)) return;
+  await deleteLetter(id);
 }
 
-const findRecipient = (name) =>
-  users.findOne({ usernameLower: String(name).toLowerCase() }, { projection: { username: 1, private: 1, blocked: 1 } });
-
 // Why `me` may not write to `recipient`, or null when they may.
-async function sendRefusal(me, recipient) {
-  if (recipient._id.equals(me.id)) return { status: 400, error: 'You cannot write to yourself.' };
-  const meDoc = await users.findOne({ _id: me.id }, { projection: { blocked: 1 } });
-  if (hasBlocked(meDoc, recipient._id)) return { status: 403, error: 'You have blocked this scripter.' };
+function sendRefusal(me, recipient) {
+  if (recipient.id === me.id) return { status: 400, error: 'You cannot write to yourself.' };
+  if (hasBlocked(getAccount(me.id), recipient.id)) return { status: 403, error: 'You have blocked this scripter.' };
   if (hasBlocked(recipient, me.id)) return { status: 404, error: 'No such scripter.' };
-  if (recipient.private && (await relation(me.id, recipient._id)) !== 'friends') {
+  if (recipient.private && relation(me.id, recipient.id) !== 'friends') {
     return { status: 403, error: 'Only their friends can write to them.' };
   }
   return null;
 }
 
 // Two letters per rolling hour. Returns the 429 body, or null.
-async function rateLimit(meId, now) {
-  const since = new Date(now.getTime() - config.sendLimit.windowMs);
-  const recent = await letters
-    .find({ senderId: meId, sentAt: { $gt: since } }, { projection: { sentAt: 1 } })
-    .sort({ sentAt: 1 })
-    .toArray();
+function rateLimit(meId, now) {
+  const since = now - config.sendLimit.windowMs;
+  const recent = allLetters()
+    .filter((l) => l.senderId === meId && at(l.sentAt) > since)
+    .map((l) => at(l.sentAt))
+    .sort((a, b) => a - b);
   if (recent.length < config.sendLimit.count) return null;
   return {
     error: `You can only send ${config.sendLimit.count} letters an hour.`,
-    retryAt: new Date(recent[0].sentAt.getTime() + config.sendLimit.windowMs),
+    retryAt: new Date(recent[0] + config.sendLimit.windowMs).toISOString(),
   };
 }
 
 const delivery = (recipient, now) => ({
-  recipientId: recipient._id,
+  recipientId: recipient.id,
   to: recipient.username,
-  sentAt: now,
-  expiresAt: new Date(now.getTime() + config.unopenedTtlMs),
+  sentAt: new Date(now).toISOString(),
+  expiresAt: new Date(now + config.unopenedTtlMs).toISOString(),
 });
+
+const countSent = (userId) => updateAccount(userId, (a) => { a.lettersSent = (a.lettersSent ?? 0) + 1; });
 
 // Upload: multipart `ink` (PNG whose alpha is the writing), optional `strokes`
 // (the shared strokes file for the same page), `inkColor`, `paper`, `source`,
@@ -160,23 +152,24 @@ lettersRouter.post('/', requireAuth, upload, async (req, res) => {
   const display = strokes ? (config.displays.includes(req.body.display) ? req.body.display : 'strokes') : 'mask';
   const playable = !!strokes && req.body.playable !== '0' && req.body.playable !== 'false';
 
-  const now = new Date();
+  const now = Date.now();
   let recipient = null;
   if (String(to).trim()) {
-    recipient = await findRecipient(String(to).trim());
+    recipient = findByName(String(to).trim());
     if (!recipient) return res.status(404).json({ error: 'No such scripter.' });
-    const refusal = await sendRefusal(req.user, recipient);
+    const refusal = sendRefusal(req.user, recipient);
     if (refusal) return res.status(refusal.status).json({ error: refusal.error });
-    const limited = await rateLimit(req.user.id, now);
+    const limited = rateLimit(req.user.id, now);
     if (limited) return res.status(429).json(limited);
   }
-  const room = (await savedCount(req.user.id)) < config.maxSavedPerUser;
+  const room = savedCount(req.user.id) < config.maxSavedPerUser;
   if (!recipient && !room) {
     return res.status(400).json({ error: `Your profile already holds ${config.maxSavedPerUser} letters. Remove one first.` });
   }
 
-  const letter = {
-    _id: crypto.randomBytes(12).toString('base64url'),
+  const stamp = new Date(now).toISOString();
+  const letter = await createLetter({
+    id: crypto.randomBytes(12).toString('base64url'),
     senderId: req.user.id,
     from: req.user.username,
     width: size.width,
@@ -190,167 +183,159 @@ lettersRouter.post('/', requireAuth, upload, async (req, res) => {
     inkColor: inkColor.toLowerCase(),
     paper,
     source,
-    createdAt: now,
-    inkDeleted: false,
-    savedBy: room ? [{ userId: req.user.id, at: now }] : [],
+    createdAt: stamp,
+    savedBy: room ? [{ userId: req.user.id, at: stamp }] : [],
     upvotes: [],
-    upvoteCount: 0,
     openedAt: null,
     ...(recipient ? delivery(recipient, now) : { recipientId: null, to: null, sentAt: null, expiresAt: null }),
-  };
-
-  await writeInk(letter._id, inkFile.buffer);
-  if (strokesFile) await writeStrokes(letter._id, strokesFile.buffer);
-  try {
-    await letters.insertOne(letter);
-  } catch (err) {
-    await deleteInk(letter._id);
-    throw err;
-  }
+  }, inkFile.buffer, strokesFile?.buffer);
+  if (recipient) await countSent(req.user.id);
   res.status(201).json({ letter: letterJson(letter, req.user), kept: room });
 });
 
 // Letters waiting for me (unopened, or opened and still within their 24 h).
-lettersRouter.get('/inbox', requireAuth, async (req, res) => {
-  const hidden = await blockedIds(req.user.id);
-  const list = await letters
-    .find({ recipientId: req.user.id, senderId: { $nin: hidden }, expiresAt: { $gt: new Date() }, inkDeleted: false })
-    .sort({ sentAt: -1 })
-    .toArray();
+lettersRouter.get('/inbox', requireAuth, (req, res) => {
+  const hidden = new Set(blockedIds(req.user.id));
+  const list = allLetters()
+    .filter((l) => l.recipientId === req.user.id && !hidden.has(l.senderId) && inMail(l))
+    .sort((a, b) => at(b.sentAt) - at(a.sentAt));
   res.json({ letters: list.map((l) => letterJson(l, req.user)) });
 });
 
 // What I have sent lately (status only; the ink belongs to the recipient now).
-lettersRouter.get('/sent', requireAuth, async (req, res) => {
-  const list = await letters
-    .find({ senderId: req.user.id, sentAt: { $ne: null } })
-    .sort({ sentAt: -1 })
-    .limit(20)
-    .toArray();
+lettersRouter.get('/sent', requireAuth, (req, res) => {
+  const list = allLetters()
+    .filter((l) => l.senderId === req.user.id && l.sentAt)
+    .sort((a, b) => at(b.sentAt) - at(a.sentAt))
+    .slice(0, 20);
   res.json({ letters: list.map((l) => letterJson(l, req.user)) });
 });
 
 // Most upvoted kept letters that this viewer may see.
-lettersRouter.get('/top', async (req, res) => {
-  const rows = await letters
-    .find({ inkDeleted: false, 'savedBy.0': { $exists: true }, upvoteCount: { $gt: 0 } })
-    .sort({ upvoteCount: -1, createdAt: -1 })
-    .limit(30)
-    .toArray();
-  const visible = [];
-  for (const l of rows) {
-    if (visible.length >= 10) break;
-    if (await canView(l, req.user)) visible.push(l);
-  }
-  res.json({ letters: visible.map((l) => letterJson(l, req.user)) });
+lettersRouter.get('/top', (req, res) => {
+  const list = allLetters()
+    .filter((l) => l.savedBy.length && l.upvotes.length)
+    .sort((a, b) => b.upvotes.length - a.upvotes.length || at(b.createdAt) - at(a.createdAt))
+    .filter((l) => canView(l, req.user))
+    .slice(0, 10);
+  res.json({ letters: list.map((l) => letterJson(l, req.user)) });
 });
 
-lettersRouter.get('/:id', async (req, res) => {
-  const letter = await findLetter(req, res);
+lettersRouter.get('/:id', (req, res) => {
+  const letter = findLetter(req, res);
   if (!letter) return;
-  if (!(await canView(letter, req.user))) return res.status(403).json({ error: 'Not your letter.' });
+  if (!canView(letter, req.user)) return res.status(403).json({ error: 'Not your letter.' });
   res.json({ letter: letterJson(letter, req.user) });
 });
 
 // Send one of my letters to one person. A letter is sent once, ever.
 lettersRouter.post('/:id/send', requireAuth, async (req, res) => {
-  const letter = await findLetter(req, res);
+  const letter = findLetter(req, res);
   if (!letter) return;
-  if (!letter.senderId.equals(req.user.id)) return res.status(403).json({ error: 'Not your letter.' });
+  if (letter.senderId !== req.user.id) return res.status(403).json({ error: 'Not your letter.' });
   if (letter.recipientId) return res.status(400).json({ error: 'This letter has already been sent.' });
-
-  const recipient = await findRecipient(req.body?.to ?? '');
+  const recipient = findByName(req.body?.to ?? '');
   if (!recipient) return res.status(404).json({ error: 'No such scripter.' });
-  const refusal = await sendRefusal(req.user, recipient);
+  const refusal = sendRefusal(req.user, recipient);
   if (refusal) return res.status(refusal.status).json({ error: refusal.error });
-  const now = new Date();
-  const limited = await rateLimit(req.user.id, now);
+  const now = Date.now();
+  const limited = rateLimit(req.user.id, now);
   if (limited) return res.status(429).json(limited);
 
-  const fields = delivery(recipient, now);
-  const result = await letters.updateOne({ _id: letter._id, recipientId: null }, { $set: fields });
-  if (!result.modifiedCount) return res.status(409).json({ error: 'This letter has already been sent.' });
-  res.json({ letter: letterJson({ ...letter, ...fields }, req.user) });
+  let sent = false;
+  const updated = await updateLetter(letter.id, (l) => {
+    if (l.recipientId) return false;
+    Object.assign(l, delivery(recipient, now));
+    sent = true;
+    return true;
+  });
+  if (!sent) return res.status(409).json({ error: 'This letter has already been sent.' });
+  await countSent(req.user.id);
+  res.json({ letter: letterJson(updated, req.user) });
 });
 
 // Opening starts the 24 h clock.
 lettersRouter.post('/:id/open', requireAuth, async (req, res) => {
-  const letter = await findLetter(req, res);
+  const letter = findLetter(req, res);
   if (!letter) return;
-  if (!letter.recipientId?.equals(req.user.id)) return res.status(403).json({ error: 'Not your letter.' });
-  const now = new Date();
-  if (letter.expiresAt <= now) return res.status(410).json({ error: 'This letter has expired.' });
-  if (!letter.openedAt) {
-    const expiresAt = new Date(Math.min(letter.expiresAt.getTime(), now.getTime() + config.openedTtlMs));
-    await letters.updateOne({ _id: letter._id, openedAt: null }, { $set: { openedAt: now, expiresAt } });
-  }
-  res.json({ letter: letterJson(await letters.findOne({ _id: letter._id }), req.user) });
+  if (letter.recipientId !== req.user.id) return res.status(403).json({ error: 'Not your letter.' });
+  const now = Date.now();
+  if (at(letter.expiresAt) <= now) return res.status(410).json({ error: 'This letter has expired.' });
+  const updated = await updateLetter(letter.id, (l) => {
+    if (l.openedAt) return false;
+    l.openedAt = new Date(now).toISOString();
+    l.expiresAt = new Date(Math.min(at(l.expiresAt), now + config.openedTtlMs)).toISOString();
+    return true;
+  });
+  res.json({ letter: letterJson(updated, req.user) });
 });
 
 // The ink itself: a PNG whose alpha channel is the writing.
-lettersRouter.get('/:id/ink', async (req, res) => {
-  const letter = await findLetter(req, res);
+lettersRouter.get('/:id/ink', (req, res) => {
+  const letter = findLetter(req, res);
   if (!letter) return;
-  if (!(await canView(letter, req.user))) return res.status(403).json({ error: 'Not your letter.' });
+  if (!canView(letter, req.user)) return res.status(403).json({ error: 'Not your letter.' });
   res.set('Cache-Control', 'private, max-age=300');
   res.type('png');
-  res.sendFile(inkPath(letter._id));
+  res.sendFile(inkPath(letter.id));
 });
 
 // The strokes: weighted, timed pen paths (deflated binary).
-lettersRouter.get('/:id/strokes', async (req, res) => {
-  const letter = await findLetter(req, res);
+lettersRouter.get('/:id/strokes', (req, res) => {
+  const letter = findLetter(req, res);
   if (!letter) return;
   if (!letter.hasStrokes) return res.status(404).json({ error: 'This letter has no strokes.' });
-  if (!(await canView(letter, req.user))) return res.status(403).json({ error: 'Not your letter.' });
+  if (!canView(letter, req.user)) return res.status(403).json({ error: 'Not your letter.' });
   res.set('Cache-Control', 'private, max-age=300');
   res.type('application/octet-stream');
-  res.sendFile(strokesPath(letter._id));
+  res.sendFile(strokesPath(letter.id));
 });
 
 // Keep a letter on my profile forever (sender or recipient, max 10).
 lettersRouter.post('/:id/save', requireAuth, async (req, res) => {
-  const letter = await findLetter(req, res);
+  const letter = findLetter(req, res);
   if (!letter) return;
   const me = req.user.id;
-  const isRecipient = !!letter.recipientId && letter.recipientId.equals(me);
-  const isSender = letter.senderId.equals(me);
-  const now = new Date();
+  const isRecipient = letter.recipientId === me;
+  const isSender = letter.senderId === me;
+  const now = Date.now();
   if (!isRecipient && !isSender) return res.status(403).json({ error: 'Not your letter.' });
   if (isRecipient && !letter.openedAt) return res.status(400).json({ error: 'Open the letter first.' });
-  if (isRecipient && letter.expiresAt <= now) return res.status(410).json({ error: 'This letter has expired.' });
-
-  if (!letter.savedBy.some((s) => s.userId.equals(me))) {
-    if ((await savedCount(me)) >= config.maxSavedPerUser) {
+  if (isRecipient && at(letter.expiresAt) <= now) return res.status(410).json({ error: 'This letter has expired.' });
+  if (!letter.savedBy.some((s) => s.userId === me)) {
+    if (savedCount(me) >= config.maxSavedPerUser) {
       return res.status(400).json({ error: `Your profile already holds ${config.maxSavedPerUser} letters. Remove one first.` });
     }
-    await letters.updateOne({ _id: letter._id }, { $push: { savedBy: { userId: me, at: now } } });
+    await updateLetter(letter.id, (l) => {
+      if (l.savedBy.some((s) => s.userId === me)) return false;
+      l.savedBy.push({ userId: me, at: new Date(now).toISOString() });
+      return true;
+    });
   }
-  res.json({ ok: true, savedCount: await savedCount(me) });
+  res.json({ ok: true, savedCount: savedCount(me) });
 });
 
 lettersRouter.delete('/:id/save', requireAuth, async (req, res) => {
-  await letters.updateOne({ _id: req.params.id }, { $pull: { savedBy: { userId: req.user.id } } });
+  const me = req.user.id;
+  await updateLetter(req.params.id, (l) => {
+    const before = l.savedBy.length;
+    l.savedBy = l.savedBy.filter((s) => s.userId !== me);
+    return l.savedBy.length !== before;
+  });
   await deleteIfOrphan(req.params.id);
-  res.json({ ok: true, savedCount: await savedCount(req.user.id) });
+  res.json({ ok: true, savedCount: savedCount(me) });
 });
 
 // Upvote a kept letter (toggles). Not your own.
 lettersRouter.post('/:id/upvote', requireAuth, async (req, res) => {
-  const letter = await findLetter(req, res);
+  const letter = findLetter(req, res);
   if (!letter) return;
   const me = req.user.id;
-  if (letter.senderId.equals(me)) return res.status(400).json({ error: 'You cannot upvote your own letter.' });
+  if (letter.senderId === me) return res.status(400).json({ error: 'You cannot upvote your own letter.' });
   if (!letter.savedBy.length) return res.status(400).json({ error: 'Only letters kept on a profile can be upvoted.' });
-  if (!(await canView(letter, req.user))) return res.status(403).json({ error: 'Not your letter.' });
-
-  const added = await letters.updateOne(
-    { _id: letter._id, upvotes: { $ne: me } },
-    { $push: { upvotes: me }, $inc: { upvoteCount: 1 } },
-  );
-  if (!added.modifiedCount) {
-    await letters.updateOne({ _id: letter._id, upvotes: me }, { $pull: { upvotes: me }, $inc: { upvoteCount: -1 } });
-  }
-  const fresh = await letters.findOne({ _id: letter._id }, { projection: { upvotes: 1, upvoteCount: 1 } });
-  res.json({ upvotes: fresh.upvoteCount ?? 0, upvotedByMe: (fresh.upvotes ?? []).some((id) => id.equals(me)) });
+  if (!canView(letter, req.user)) return res.status(403).json({ error: 'Not your letter.' });
+  const updated = await updateLetter(letter.id, (l) => {
+    l.upvotes = l.upvotes.includes(me) ? l.upvotes.filter((id) => id !== me) : [...l.upvotes, me];
+  });
+  res.json({ upvotes: updated.upvotes.length, upvotedByMe: updated.upvotes.includes(me) });
 });

@@ -4,14 +4,14 @@ import { NIBS, PEN_SIZES, BROAD_SIZES, FLEX_PRESETS, GUIDES, PX_PER_MM, renderSt
 import { encodeInkPng } from '../ink/encode.js';
 import { PAPERS } from '../ink/paper.js';
 import { encodeStrokes } from '../ink/strokes.js';
-import { useChase } from './chase.js';
-import ChaseSettings, { ChaseZones } from './ChaseSettings.jsx';
+import WriteMode from './WriteMode.jsx';
+import { CHASE, setChase } from './chase.js';
+import ChaseSettings from './ChaseSettings.jsx';
 
 const PAGE_WIDTH = 1400; // same page width as a photographed letter
 const PAGES = { half: 905, full: 1811 };
 const FLEX_FIELDS = ['hairline', 'maxWidth', 'swell', 'slant'];
 const ZOOMS = [0.5, 0.75, 1, 1.5, 2, 3, 4, 6]; // × the width that fits; zooming in = smaller writing on the page
-const LINE_MODE_PX = 170; // how tall one line is on screen in line mode (less on short screens)
 const MAX_SCREEN_PX = 10e6; // cap per on-screen canvas, so a zoomed full page stays within memory
 const GUIDE_NAMES = { none: 'none', plain: 'ruled' };
 
@@ -58,17 +58,19 @@ function paintOne(canvas, stroke, k) {
 // means the page is empty.
 // `size` ({ width, height } in page px) makes it a compact pad on a page of
 // that size, for short things like a signature or a label: same nibs, lines,
-// undo and zoom, but no page sizes, chase or line zoom.
+// undo and zoom, but no page sizes or write mode.
 // The page is always PAGE_WIDTH px wide (or size.width); zoom only changes how big it is on
 // screen, so zooming in lets you write smaller and fit more on the page.
 // Like a document editor, the page sits in the flow of the page and the window
 // scrolls it; only sideways overflow (when zoomed in) scrolls inside the pad.
 // One finger writes, two fingers scroll; once a stylus is used, fingers only scroll.
-// Adaptive chase (chase.js) can make the page follow the pen along each line,
-// and line mode zooms in close on the line you're writing.
+// Write mode (WriteMode.jsx) is where letters are written: full screen, with
+// the chase (chase.js) sliding the page along the line under the pen. What is
+// written there is a draft until its Play; then it joins these strokes, the
+// letter is emitted at once and `onWritten` moves on to saving and sending.
 // Strokes are kept twice: in page pixels (what gets sent) and at screen
 // resolution (what you see), so the pad stays sharp at every zoom.
-export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint: hintText = null, paper = 'plain', onPaperChange = null }) {
+export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint: hintText = null, paper = 'plain', onPaperChange = null, onWritten = null }) {
   const [nib, setNib] = useState('flex');
   const [penSize, setPenSize] = useState('medium');
   const [flex, setFlex] = useState({ ...FLEX_PRESETS.copperplate });
@@ -79,12 +81,14 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
   const [page, setPage] = useState('half');
   const [strokeCount, setStrokeCount] = useState(0);
   const [steps, setSteps] = useState({ undo: 0, redo: 0 });
-  const [lineMode, setLineMode] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [cssWidth, setCssWidth] = useState(0); // on-screen width of the page
   const [hand, setHand] = useState(false); // the move tool
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [penSeen, setPenSeen] = useState(false); // once a stylus writes, fingers scroll
+  const [writing, setWriting] = useState(false); // in write mode
+  const [draftCount, setDraftCount] = useState(0); // strokes written in write mode, not yet played
+  const [chase, setChaseSettings] = useState(() => ({ ...CHASE })); // the chase's knobs, as the settings panel shows them
   const [chaseOpen, setChaseOpen] = useState(false); // the chase settings panel
   const [adjustOpen, setAdjustOpen] = useState(false); // the nib's sliders, in a dropdown
   const adjustRef = useRef(null);
@@ -92,15 +96,13 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
   const inkRef = useRef(null);
   const viewRef = useRef(null);
   const pageRef = useRef(null);
-  const barRef = useRef(null);
-  const endZoneRef = useRef(null);
   const layerRef = useRef(null); // committed strokes, page pixels
   const screenRef = useRef(null); // committed strokes, screen pixels
   const strokesRef = useRef([]);
   const historyRef = useRef([]); // { add: stroke } | { cleared: strokes }, newest last
   const futureRef = useRef([]); // what undo took back, for redo
-  const lineModeRef = useRef(false);
-  const lineBackRef = useRef(1); // the zoom to go back to when leaving line mode
+  const draftRef = useRef({ strokes: [], camera: null }); // write mode's draft, kept while you're out of it
+  const writingRef = useRef(false);
   const currentRef = useRef(null);
   const panRef = useRef(null);
   const touchesRef = useRef(new Map()); // fingers down on the pad
@@ -134,8 +136,15 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, ink.width, ink.height);
     ctx.drawImage(screen, 0, 0);
+    const k = scaleRef.current;
+    if (draftRef.current.strokes.length) { // waiting in write mode: shown faint
+      ctx.globalAlpha = 0.35;
+      ctx.setTransform(k, 0, 0, k, 0, 0);
+      for (const d of draftRef.current.strokes) renderStroke(ctx, d.stroke);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+    }
     if (currentRef.current) {
-      const k = scaleRef.current;
       ctx.setTransform(k, 0, 0, k, 0, 0);
       renderStroke(ctx, currentRef.current, true);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -152,8 +161,8 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     present();
   }, [present]);
 
-  // Encode the drawing a moment after the last change.
-  const scheduleEmit = useCallback(() => {
+  // Encode the drawing a moment after the last change (or after `wait` ms).
+  const scheduleEmit = useCallback((wait = 500) => {
     clearTimeout(emitTimer.current);
     const empty = !strokesRef.current.length;
     onResult(null, empty);
@@ -188,7 +197,7 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
         ms: Math.round(performance.now() - t0),
         source: 'pad',
       });
-    }, 500);
+    }, wait);
   }, [onResult, guide, spacing]);
 
   // A new page size means a new page layer; strokes are redrawn onto it.
@@ -239,8 +248,6 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     const pg = pageRef.current;
     next = Math.min(ZOOMS[ZOOMS.length - 1], Math.max(ZOOMS[0], next));
     if (!v || Math.abs(next - zoomRef.current) < 1e-4) return;
-    pg.style.transition = 'none'; // drop any chase slide so the page is measured where it really is
-    pg.style.transform = 'none';
     const before = pg.getBoundingClientRect();
     const x = ax ?? (Math.max(before.left, 0) + Math.min(before.right, window.innerWidth)) / 2;
     const y = ay ?? (Math.max(before.top, 0) + Math.min(before.bottom, window.innerHeight)) / 2;
@@ -252,53 +259,14 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     window.scrollBy(0, after.top + fy * after.height - y);
   }, []);
 
-  // To the next preset zoom; the chase can leave the zoom between presets.
+  // To the next preset zoom.
   const stepZoom = useCallback((dir, ax, ay) => {
     const z = zoomRef.current;
     const next = dir > 0
       ? ZOOMS.find((v) => v > z + 1e-3) ?? ZOOMS[ZOOMS.length - 1]
       : ZOOMS.findLast((v) => v < z - 1e-3) ?? ZOOMS[0];
-    setLineMode(false);
-    lineModeRef.current = false;
     zoomTo(next, ax, ay);
   }, [zoomTo]);
-
-  // One line's height in CSS px at the current zoom, for moving on to the next line.
-  const getLine = useCallback(
-    () => ({ step: (spacing * pageRef.current.offsetWidth) / pageW, lineMode: lineModeRef.current }),
-    [spacing],
-  );
-  const chase = useChase({ viewRef, pageRef, barRef, endZoneRef, pageWidth: pageW, pxPerMm: PX_PER_MM, getLine, active: !compact });
-
-  // Line mode: zoom in close on one line — the one you last wrote on, or the
-  // first — with its start at the near edge and the line a bit above the middle.
-  const enterLineMode = () => {
-    const v = viewRef.current;
-    const pg = pageRef.current;
-    const atFit = pg.offsetWidth / zoomRef.current; // page width at zoom 1
-    const linePx = Math.min(LINE_MODE_PX, window.innerHeight * 0.28);
-    const next = Math.min(ZOOMS[ZOOMS.length - 1], Math.max(1, (linePx * pageW) / (spacing * atFit)));
-    const rows = guideRows(guide === 'none' ? 'plain' : guide, spacing, height); // baselines
-    const last = strokesRef.current[strokesRef.current.length - 1]?.points.at(-1);
-    const base = (last && rows.find((r) => r >= last.y - spacing * 0.15)) ?? rows[0] ?? spacing;
-    lineBackRef.current = lineModeRef.current ? lineBackRef.current : zoomRef.current;
-    zoomTo(next);
-    setLineMode(true);
-    lineModeRef.current = true;
-    const r = pg.getBoundingClientRect();
-    const k = r.width / pageW;
-    const vr = v.getBoundingClientRect();
-    const inset = chase.settings.margin * PX_PER_MM * k;
-    if (chase.settings.dir === 'rtl') v.scrollLeft += r.right - inset - (Math.min(vr.right, window.innerWidth) - 24);
-    else v.scrollLeft += r.left + inset - (Math.max(vr.left, 0) + 24);
-    window.scrollBy(0, r.top + (base - spacing * 0.4) * k - window.innerHeight * 0.45);
-  };
-
-  const leaveLineMode = () => {
-    setLineMode(false);
-    lineModeRef.current = false;
-    zoomTo(lineBackRef.current);
-  };
 
   // Ctrl/⌘ + wheel (and trackpad pinch) zooms around the pointer.
   useEffect(() => {
@@ -392,7 +360,6 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touchesRef.current.size === 2) {
         currentRef.current = null; // the first finger was the start of a scroll, not a stroke
-        chase.cancel();
         present();
         const mid = fingersMid();
         startPan(mid.x, mid.y, true);
@@ -400,17 +367,14 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       }
       if (touchesRef.current.size > 2) return;
     }
-    chase.finishGlide(); // the page must be still before the pen lands
     if (hand || spaceHeld || e.button === 1) {
       startPan(e.clientX, e.clientY);
       return;
     }
     if (e.button !== 0 || panRef.current) return;
-    if (chase.maybeReturn(e.clientX)) return; // a press in the return zone goes back to the line start
     currentRef.current = { ...nibSettings(), points: [toPage(e)] };
     onResult(null);
     present();
-    chase.follow(e.clientX, e.clientY);
   };
 
   const onPointerMove = (e) => {
@@ -425,16 +389,11 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       return;
     }
     const cur = currentRef.current;
-    if (!cur) {
-      if (e.buttons === 0 && !chase.maybeReturn(e.clientX)) chase.track(toPage(e).x); // hovering mouse or pen
-      return;
-    }
+    if (!cur) return;
     const coalesced = e.nativeEvent.getCoalescedEvents?.();
     const events = coalesced?.length ? coalesced : [e];
     for (const ev of events) cur.points.push(toPage(ev));
     present();
-    chase.follow(e.clientX, e.clientY);
-    chase.track(cur.points[cur.points.length - 1].x);
   };
 
   const onPointerUp = (e) => {
@@ -453,16 +412,44 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     paintOne(screenRef.current, cur, scaleRef.current);
     present();
     changed(false);
-    const last = cur.points[cur.points.length - 1];
-    chase.settle(last.x, last.y);
   };
 
   // After any change to the strokes: counts, picture, and a new letter.
-  const changed = (repaint = true) => {
+  const changed = (repaint = true, wait = undefined) => {
     setStrokeCount(strokesRef.current.length);
     setSteps({ undo: historyRef.current.length, redo: futureRef.current.length });
     if (repaint) redraw();
-    scheduleEmit();
+    scheduleEmit(wait);
+  };
+
+  const enterWriting = () => {
+    writingRef.current = true;
+    setWriting(true);
+  };
+  const leaveWriting = () => {
+    writingRef.current = false;
+    setWriting(false);
+    setDraftCount(draftRef.current.strokes.length);
+    present();
+  };
+
+  // Write mode's Play: its draft joins the letter (each stroke undoable here
+  // as usual), the letter is emitted now, and the whole of it comes back to be played.
+  const commitDraft = () => {
+    const draft = draftRef.current.strokes;
+    draftRef.current.strokes = [];
+    for (const { stroke } of draft) {
+      strokesRef.current.push(stroke);
+      historyRef.current.push({ add: stroke });
+    }
+    if (draft.length) futureRef.current = [];
+    setDraftCount(0);
+    changed(true, 0);
+    return { width: pageW, height, strokes: timedStrokes(strokesRef.current) };
+  };
+  const writtenOut = () => {
+    leaveWriting();
+    onWritten?.();
   };
 
   const undo = () => {
@@ -496,7 +483,7 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
   keysRef.current = { undo, redo };
   useEffect(() => {
     const onKey = (e) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.target.closest?.('input, textarea, [contenteditable]')) return;
+      if (writingRef.current || !(e.ctrlKey || e.metaKey) || e.altKey || e.target.closest?.('input, textarea, [contenteditable]')) return;
       const key = e.key.toLowerCase();
       if (key === 'z' && !e.shiftKey) keysRef.current.undo();
       else if ((key === 'z' && e.shiftKey) || key === 'y') keysRef.current.redo();
@@ -515,8 +502,9 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
   const setFlexField = (field) => (e) => setFlex((f) => ({ ...f, [field]: Number(e.target.value) }));
   const num = (e) => Number(e.target.value);
   const panning = hand || spaceHeld;
-  const hint = hintText ? hintText : lineMode ? (chase.settings.on ? 'Line zoom: write along; the end of the line takes you to the next one.' : 'Line zoom: turn on Chase and the page follows you along the line.')
-    : chase.settings.on && zoom <= 1 ? 'Zoom in and the chase follows your pen along each line.'
+  const hint = hintText ? hintText
+    : draftCount ? `${draftCount} stroke${draftCount === 1 ? '' : 's'} waiting in the chase: they join the letter when you press Play there.`
+    : !compact && !strokeCount ? 'Choose your pen, then Chase: zoomed in on your line, and the page follows you along it.'
     : penSeen ? 'The pen writes; fingers scroll.'
       : zoom > 1 ? 'Hold Space and drag, use Move, or two fingers, to get around.' : 'Zoom in to write smaller and fit more on the page.';
 
@@ -631,7 +619,7 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       </div>
 
       <div className="pad-desk">
-        <div className="pad-bar" ref={barRef}>
+        <div className="pad-bar">
           <div className="cluster">
             <button type="button" onClick={undo} disabled={!steps.undo} title="Undo (Ctrl+Z)">Undo</button>
             <button type="button" onClick={redo} disabled={!steps.redo} title="Redo (Ctrl+Shift+Z)">Redo</button>
@@ -643,26 +631,17 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
             <div className="split">
               <button
                 type="button"
-                aria-pressed={chase.settings.on}
-                className="toggle"
-                onClick={() => chase.setSettings((c) => ({ ...c, on: !c.on }))}
-                title="Adaptive chase: the page follows your pen along the line"
+                aria-pressed={writing}
+                className="toggle write-enter"
+                onClick={enterWriting}
+                title="Chase: zoom in on your line, full screen, and the page follows your pen along it"
               >
-                Chase
+                {draftCount ? 'Chase · back to it' : 'Chase'}
               </button>
               <button type="button" aria-expanded={chaseOpen} aria-label="Chase settings" className="more" onClick={() => setChaseOpen((o) => !o)}>
                 ⚙
               </button>
             </div>
-            <button
-              type="button"
-              aria-pressed={lineMode}
-              className="toggle"
-              onClick={() => (lineMode ? leaveLineMode() : enterLineMode())}
-              title="Line zoom: zoom in close on the line you're writing"
-            >
-              Line zoom
-            </button>
             <span className="tool-sep" aria-hidden="true" />
             </>}
             <button type="button" aria-pressed={hand} className="toggle" onClick={() => setHand((h) => !h)} title="Drag to move around the page">
@@ -670,21 +649,20 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
             </button>
             <div className="zoom" role="group" aria-label="Zoom">
               <button type="button" onClick={() => stepZoom(-1)} disabled={zoom <= ZOOMS[0]} aria-label="Zoom out">−</button>
-              <button type="button" className="zoom-level" onClick={() => { setLineMode(false); lineModeRef.current = false; zoomTo(1); }} title="Fit the page to the width">
+              <button type="button" className="zoom-level" onClick={() => zoomTo(1)} title="Fit the page to the width">
                 {Math.abs(zoom - 1) < 1e-3 ? 'fit' : `${Math.round(zoom * 100)}%`}
               </button>
               <button type="button" onClick={() => stepZoom(1)} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} aria-label="Zoom in">+</button>
             </div>
           </div>
-          {chaseOpen && !compact && <ChaseSettings settings={chase.settings} onChange={chase.setSettings} />}
+          {chaseOpen && !compact && <ChaseSettings settings={chase} onChange={(patch) => setChaseSettings(setChase(patch))} />}
         </div>
         <div className="pad-view-wrap">
-          {chaseOpen && !compact && <ChaseZones settings={chase.settings} />}
           <div
             className="pad-view"
             ref={viewRef}
             onPointerEnter={() => { hoverRef.current = true; }}
-            onPointerLeave={() => { hoverRef.current = false; chase.track(null); }}
+            onPointerLeave={() => { hoverRef.current = false; }}
           >
             <div className="pad-page" ref={pageRef} style={{ width: `${zoom * 100}%` }}>
               <canvas ref={guideRef} className="guide" width={screenW} height={screenH} />
@@ -698,18 +676,28 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerUp}
               />
-              {!compact && chase.settings.on && chase.settings.endMm > 0 && (
-                <div
-                  ref={endZoneRef}
-                  className={`end-zone ${chase.settings.dir === 'rtl' ? 'at-left' : 'at-right'}`}
-                  style={{ width: `${((chase.settings.endMm * PX_PER_MM) / pageW) * 100}%` }}
-                  aria-hidden="true"
-                />
-              )}
             </div>
           </div>
         </div>
       </div>
+      {writing && (
+        <WriteMode
+          getStrokes={() => strokesRef.current}
+          draftRef={draftRef}
+          nib={nibSettings}
+          pageW={pageW}
+          height={height}
+          rows={guideRows(guide === 'none' ? 'plain' : guide, spacing, height)}
+          spacing={spacing}
+          guide={guide}
+          slant={chase.SLANT_GUIDES ? (nib === 'flex' ? flex.slant : chase.SLANT_DEG) : 0}
+          paper={paper}
+          inkColor={inkColor}
+          onLeave={leaveWriting}
+          onPlay={commitDraft}
+          onDone={writtenOut}
+        />
+      )}
     </div>
   );
 }

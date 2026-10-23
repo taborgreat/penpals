@@ -635,6 +635,80 @@ a:hover .username.signed, button:hover .username.signed, a:focus-visible .userna
 .studio-sample { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; }
 .studio .row { justify-content: flex-start; }
 
+/* ---------- Journal (books.md, Part B) ---------- */
+
+.journal { display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 10px; text-align: left; }
+.journal-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; }
+.journal-pages { display: flex; flex-wrap: wrap; gap: 6px; }
+.journal-pages [role='tab'] { padding: 5px 12px; font-size: 13px; font-family: var(--font-mono); background: var(--surface-2); border-color: var(--rule); color: var(--muted); }
+.journal-pages [role='tab'][aria-selected='true'] { background: var(--surface); color: var(--text); border-color: var(--text); }
+.journal-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+.journal-tools.selected-tools { border-color: var(--focus); }
+.journal-tools .field > span:first-child { font-size: 10px; }
+.swatches.small { gap: 5px; align-items: center; }
+.swatches.small button { width: 22px; height: 22px; }
+.swatches.small input[type='color'] { width: 30px; height: 24px; padding: 2px; }
+button.danger:hover:not(:disabled) { color: var(--wax); }
+.write-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 12px; }
+.write-panel .row { justify-content: flex-start; }
+.write-panel .spacer, .book-download .spacer { flex: 1; }
+.journal-empty { text-align: center; }
+
+/* A page: a fixed canvas scaled to fit, its writing placed on it. */
+.journal-page {
+  position: relative;
+  width: 100%;
+  border-radius: 3px;
+  box-shadow: var(--shadow-paper);
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.journal-page.editing { overflow: visible; outline: 1px dashed var(--rule-strong); outline-offset: 3px; }
+.ink-item { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; box-shadow: none; border-radius: 0; }
+.ink-item-art { position: relative; display: block; width: 100%; height: 100%; }
+.ink-item-art canvas { position: absolute; display: block; pointer-events: none; }
+button.ink-link { cursor: pointer; transition: transform 0.15s ease, filter 0.15s ease; }
+button.ink-link:hover { transform: translateY(-2px); filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.18)); border: 0; }
+button.ink-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+.ink-item.editable { cursor: move; touch-action: none; }
+.ink-item.editable:hover { outline: 1px dashed var(--rule-strong); outline-offset: 3px; }
+.ink-item.selected { outline: 2px dashed var(--focus); outline-offset: 4px; }
+.resize-handle {
+  position: absolute;
+  right: -11px;
+  bottom: -11px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--focus);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.link-badge {
+  position: absolute;
+  left: 0;
+  top: -1.9em;
+  padding: 1px 7px;
+  font: 500 11px var(--font-mono);
+  white-space: nowrap;
+  color: var(--ink-text);
+  background: var(--ink);
+  border-radius: 999px;
+  pointer-events: none;
+}
+.book-download { display: flex; align-items: center; justify-content: center; gap: 6px 12px; flex-wrap: wrap; }
+.book-viewer { display: flex; flex-direction: column; gap: 14px; }
+
 /* ---------- Not found ---------- */
 
 .not-found { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 8vh 0 4vh; }
@@ -832,13 +906,15 @@ canvas.corner-picker {
 
 .pad-view { overflow-x: auto; padding: 28px; }
 
+.pad-view-wrap { position: relative; }
+
 /* Toggle + settings in one pill. */
 .split { display: inline-flex; }
 .split > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split > button.more { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; padding: 6px 9px; }
 .split > button.more[aria-expanded='true'] { background: var(--surface-2); }
 
-/* Adaptive chase settings, opened from the pad bar. */
+/* Chase settings, opened from the pad bar. */
 .chase-panel {
   flex-basis: 100%;
   display: flex;
@@ -849,25 +925,41 @@ canvas.corner-picker {
 }
 .chase-panel .hint { font-size: 13px; max-width: 60em; }
 .chase-panel .row { justify-content: space-between; }
-.chase-panel .controls { max-width: 640px; margin: 0; grid-template-columns: max-content minmax(120px, 1fr) 9em; }
+.chase-panel .controls { max-width: 680px; margin: 0; grid-template-columns: max-content minmax(120px, 1fr) 11em; }
+.chase-panel label.inline { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 
-/* The end of the line on the page: reddens as the pen nears, fills while a return is pending. */
-.end-zone {
+/* Write mode ("monk mode"): the whole screen is the page; three buttons and nothing else. */
+.monk {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  background: var(--desk-deep);
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.monk canvas.monk-paper,
+.monk canvas.monk-ink { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.monk canvas.monk-ink { touch-action: none; cursor: crosshair; }
+/* The end of the line: redder the closer the pen gets, full while the next line is coming. */
+.monk-end {
   position: absolute;
-  top: 0;
-  bottom: 0;
   z-index: 1;
   pointer-events: none;
   opacity: 0;
+  background: linear-gradient(to right, rgba(192, 57, 43, 0), rgba(192, 57, 43, 0.3) 45%, rgba(192, 57, 43, 0.62));
 }
-.end-zone.at-right { right: 0; background: linear-gradient(to right, rgba(192, 57, 43, 0), rgba(192, 57, 43, 0.38)); }
-.end-zone.at-left { left: 0; background: linear-gradient(to left, rgba(192, 57, 43, 0), rgba(192, 57, 43, 0.38)); }
-.end-zone.pending::after {
+.monk-end.at-view { top: 0; bottom: 0; right: 0; }
+.monk-end.pending::after {
   content: 'next line ↵';
   position: absolute;
   top: var(--pending-y, 50%);
   left: 50%;
-  transform: translate(-50%, -150%);
+  transform: translateX(-50%);
   padding: 3px 8px;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -877,29 +969,38 @@ canvas.corner-picker {
   border-radius: 999px;
   white-space: nowrap;
 }
-
-/* The chase zones, drawn over the pad while the settings are open. */
-.pad-view-wrap { position: relative; }
-.chase-zones { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-.chase-zones .zone { position: absolute; top: 0; bottom: 0; }
-.chase-zones .zone.far { background: rgba(168, 53, 42, 0.12); }
-.chase-zones .zone.near { background: rgba(47, 79, 154, 0.12); }
-.chase-zones .land { position: absolute; top: 0; bottom: 0; border-left: 2px dashed rgba(47, 79, 154, 0.55); }
-.chase-zones span {
-  position: sticky;
-  top: 70px;
-  display: inline-block;
-  margin: 8px 6px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text);
+.monk canvas.monk-ink { z-index: 2; }
+.monk-bar {
+  position: absolute;
+  z-index: 3;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  left: calc(env(safe-area-inset-left, 0px) + 10px);
+  display: flex;
+  gap: 6px;
+  padding: 5px;
   background: var(--surface);
-  padding: 2px 6px;
-  border-radius: 4px;
-  opacity: 0.85;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: var(--shadow-soft);
 }
+.monk-bar button { padding: 7px 13px; font-size: 14px; }
+.monk-play {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 14px 14px;
+  background: var(--desk-deep);
+  cursor: pointer;
+}
+.monk-play-page { overflow: hidden; box-shadow: var(--shadow-paper); }
+.monk-play-page canvas { display: block; width: 100%; height: auto; }
+.monk-play p { margin: 0; font-size: 13px; font-style: italic; color: var(--muted); }
 .pad-page { position: relative; margin: 0 auto; box-shadow: var(--shadow-paper); }
 .pad-page canvas { width: 100%; height: auto; display: block; }
 .pad-page canvas.ink { position: absolute; left: 0; top: 0; touch-action: none; cursor: crosshair; }

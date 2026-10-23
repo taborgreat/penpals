@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { kb } from '../format.js';
 import LetterView from '../components/LetterView.jsx';
 import SendControl from '../components/SendControl.jsx';
 import Pad from '../components/Pad.jsx';
-import { makeHandAsset } from '../hand/asset.js';
+import { inkFromStrokes } from '../book/ink.js';
+import Journal from '../book/Journal.jsx';
 import { HandDrawn } from '../components/Hand.jsx';
 import { useSignature, setSignature } from '../hand/signatures.js';
 import { SIGNATURE_COLORS, colorVars } from '../hand/colors.js';
@@ -15,8 +16,12 @@ import Hand from '../components/Hand.jsx';
 import HandNumber from '../components/HandNumber.jsx';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 
+// A profile (books.md B1): your own shows your signature setting, Download my
+// book, and your journal to edit; someone else's shows their journal at once,
+// with the visitor actions. /u/<name>/<page> opens a page of the journal.
 export default function Profile() {
-  const { username } = useParams();
+  const { username, page } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [data, setData] = useState(null);
   const [social, setSocial] = useState(null); // only for my own profile
@@ -95,6 +100,23 @@ export default function Profile() {
       {!user && !u.hidden && <p className="muted">Log in to write to them.</p>}
 
       {isMe && <SignatureCard name={u.username} />}
+      {isMe && (
+        <p className="book-download">
+          <a className="button" href="/api/books/me/download" download={`${u.username}.book`}>↓ Download my book</a>
+          <span className="meta">your journal and signature as one .book file (no letters, no login) · <Link to="/book">open a .book</Link></span>
+        </p>
+      )}
+
+      {!u.hidden && (
+        <Journal
+          key={name}
+          name={name}
+          pageId={page ?? null}
+          editable={!!isMe}
+          onPage={(id) => navigate(id ? `/u/${encodeURIComponent(name)}/${encodeURIComponent(id)}` : `/u/${encodeURIComponent(name)}`)}
+        />
+      )}
+
       {isMe && social && <OwnControls social={social} act={act} />}
 
       {!u.hidden && (
@@ -138,12 +160,13 @@ function SignatureCard({ name }) {
   const shown = color ?? signature?.color ?? SIGNATURE_COLORS[0].id;
 
   async function save() {
-    const asset = result && makeHandAsset(result.strokesData, `@${name}`);
-    if (!asset) return;
+    const ink = result && inkFromStrokes(result.strokesData.strokes);
+    if (!ink) return;
     setBusy(true);
     setError(null);
     try {
-      const d = await api.put('/api/signatures/me', { signature: { ...asset, color: shown } });
+      // The signature is ink in your book; the skeleton points at it.
+      const d = await api.put('/api/signatures/me', { ink, color: shown });
       setSignature(name, d.signature);
       setSigning(false);
     } catch (err) {

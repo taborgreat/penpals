@@ -1,125 +1,116 @@
 import { Router } from 'express';
-import { users, letters, friendships } from '../db.js';
 import { requireAuth } from '../auth.js';
+import { allAccounts, findByName, getAccount, updateTwo, without, withId } from '../store/accounts.js';
+import { allLetters, at } from '../store/letters.js';
 import { letterJson } from './letters.js';
-import { blockedEitherWay, blockedIds, canSeeProfile, hasBlocked, pairKey, relation } from '../social.js';
+import { blockedEitherWay, blockedIds, canSeeProfile, hasBlocked, relation } from '../social.js';
 
 export const usersRouter = Router();
 
-const findUser = (name) =>
-  users.findOne(
-    { usernameLower: String(name).toLowerCase() },
-    { projection: { username: 1, createdAt: 1, private: 1, blocked: 1 } },
-  );
+const keptBy = (id) => allLetters().filter((l) => l.savedBy.some((s) => s.userId === id));
 
 // Homepage: every public scripter (minus anyone blocked either way), newest first.
-usersRouter.get('/', async (req, res) => {
-  const filter = { private: { $ne: true } };
-  if (req.user) {
-    const hidden = await blockedIds(req.user.id);
-    if (hidden.length) filter._id = { $nin: hidden };
-  }
-  const [list, sent, kept] = await Promise.all([
-    users.find(filter, { projection: { username: 1, createdAt: 1 } }).sort({ createdAt: -1 }).toArray(),
-    letters.aggregate([
-      { $match: { sentAt: { $ne: null } } },
-      { $group: { _id: '$senderId', n: { $sum: 1 } } },
-    ]).toArray(),
-    letters.aggregate([
-      { $match: { inkDeleted: false } },
-      { $unwind: '$savedBy' },
-      { $group: { _id: '$savedBy.userId', n: { $sum: 1 } } },
-    ]).toArray(),
-  ]);
-  const sentBy = new Map(sent.map((r) => [String(r._id), r.n]));
-  const keptBy = new Map(kept.map((r) => [String(r._id), r.n]));
+usersRouter.get('/', (req, res) => {
+  const hidden = new Set(req.user ? blockedIds(req.user.id) : []);
+  const list = allAccounts()
+    .filter((a) => !a.private && !hidden.has(a.id))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   res.json({
-    users: list.map((u) => ({
-      username: u.username,
-      createdAt: u.createdAt,
-      lettersSent: sentBy.get(String(u._id)) ?? 0,
-      savedCount: keptBy.get(String(u._id)) ?? 0,
+    users: list.map((a) => ({
+      username: a.username,
+      createdAt: a.createdAt,
+      lettersSent: a.lettersSent ?? 0,
+      savedCount: keptBy(a.id).length,
     })),
   });
 });
 
 // Profile: who they are plus the letters they keep. A private profile shows
 // only its name unless you are a friend. Someone who blocked you does not exist.
-usersRouter.get('/:username', async (req, res) => {
-  const user = await findUser(req.params.username);
+usersRouter.get('/:username', (req, res) => {
+  const user = findByName(req.params.username);
   if (!user) return res.status(404).json({ error: 'No such scripter.' });
   const me = req.user?.id ?? null;
-  if (me && !me.equals(user._id)) {
-    const meDoc = await users.findOne({ _id: me }, { projection: { blocked: 1 } });
-    if (hasBlocked(meDoc, user._id)) {
+  if (me && me !== user.id) {
+    if (hasBlocked(getAccount(me), user.id)) {
       return res.json({ user: { username: user.username, hidden: true, blockedByMe: true }, relation: 'none', saved: [] });
     }
     if (hasBlocked(user, me)) return res.status(404).json({ error: 'No such scripter.' });
   }
-  const rel = await relation(me, user._id);
-  if (!(await canSeeProfile(me, user))) {
+  const rel = relation(me, user.id);
+  if (!canSeeProfile(me, user)) {
     return res.json({ user: { username: user.username, private: true, hidden: true }, relation: rel, saved: [] });
   }
-
-  const [lettersSent, saved] = await Promise.all([
-    letters.countDocuments({ senderId: user._id, sentAt: { $ne: null } }),
-    letters.find({ 'savedBy.userId': user._id, inkDeleted: false }).toArray(),
-  ]);
-  const savedAt = (l) => l.savedBy.find((s) => s.userId.equals(user._id))?.at ?? l.createdAt;
-  saved.sort((a, b) => savedAt(b) - savedAt(a));
-
+  const savedAt = (l) => at(l.savedBy.find((s) => s.userId === user.id)?.at ?? l.createdAt);
+  const saved = keptBy(user.id).sort((a, b) => savedAt(b) - savedAt(a));
   res.json({
-    user: { username: user.username, createdAt: user.createdAt, lettersSent, private: !!user.private },
+    user: { username: user.username, createdAt: user.createdAt, lettersSent: user.lettersSent ?? 0, private: !!user.private },
     relation: rel,
     saved: saved.map((l) => letterJson(l, req.user)),
   });
 });
 
+const other = (req, res) => {
+  const them = findByName(req.params.username);
+  if (!them) res.status(404).json({ error: 'No such scripter.' });
+  return them;
+};
+
 // Send a friend request, or accept the one they sent you.
 usersRouter.post('/:username/friend', requireAuth, async (req, res) => {
-  const other = await findUser(req.params.username);
-  if (!other) return res.status(404).json({ error: 'No such scripter.' });
+  const them = other(req, res);
+  if (!them) return;
   const me = req.user.id;
-  if (other._id.equals(me)) return res.status(400).json({ error: 'That is you.' });
-  if (await blockedEitherWay(me, other._id)) return res.status(404).json({ error: 'No such scripter.' });
-
-  const key = pairKey(me, other._id);
-  const existing = await friendships.findOne({ key });
-  if (existing?.status === 'accepted') return res.json({ relation: 'friends' });
-  if (existing?.requester.equals(me)) return res.json({ relation: 'outgoing' });
-  if (existing) {
-    await friendships.updateOne({ _id: existing._id }, { $set: { status: 'accepted', acceptedAt: new Date() } });
-    return res.json({ relation: 'friends' });
-  }
-  try {
-    await friendships.insertOne({ key, users: [me, other._id], requester: me, status: 'pending', createdAt: new Date() });
-  } catch (err) {
-    if (err.code !== 11000) throw err;
-  }
-  res.json({ relation: 'outgoing' });
+  if (them.id === me) return res.status(400).json({ error: 'That is you.' });
+  if (blockedEitherWay(me, them.id)) return res.status(404).json({ error: 'No such scripter.' });
+  const result = await updateTwo(me, them.id, (A, B) => {
+    if (A.friends.includes(B.id)) return 'friends';
+    if (A.outgoing.includes(B.id)) return 'outgoing';
+    if (A.incoming.includes(B.id)) {
+      A.incoming = without(A.incoming, B.id);
+      B.outgoing = without(B.outgoing, A.id);
+      A.friends = withId(A.friends, B.id);
+      B.friends = withId(B.friends, A.id);
+      return 'friends';
+    }
+    A.outgoing = withId(A.outgoing, B.id);
+    B.incoming = withId(B.incoming, A.id);
+    return 'outgoing';
+  });
+  res.json({ relation: result });
 });
+
+const unfriend = (A, B) => {
+  for (const [x, y] of [[A, B], [B, A]]) {
+    x.friends = without(x.friends, y.id);
+    x.incoming = without(x.incoming, y.id);
+    x.outgoing = without(x.outgoing, y.id);
+  }
+};
 
 // Cancel a request, decline one, or unfriend.
 usersRouter.delete('/:username/friend', requireAuth, async (req, res) => {
-  const other = await findUser(req.params.username);
-  if (!other) return res.status(404).json({ error: 'No such scripter.' });
-  await friendships.deleteOne({ key: pairKey(req.user.id, other._id) });
+  const them = other(req, res);
+  if (!them) return;
+  if (them.id !== req.user.id) await updateTwo(req.user.id, them.id, unfriend);
   res.json({ relation: 'none' });
 });
 
 // Block: they vanish for you and you for them; any friendship ends.
 usersRouter.post('/:username/block', requireAuth, async (req, res) => {
-  const other = await findUser(req.params.username);
-  if (!other) return res.status(404).json({ error: 'No such scripter.' });
-  if (other._id.equals(req.user.id)) return res.status(400).json({ error: 'That is you.' });
-  await users.updateOne({ _id: req.user.id }, { $addToSet: { blocked: other._id } });
-  await friendships.deleteOne({ key: pairKey(req.user.id, other._id) });
+  const them = other(req, res);
+  if (!them) return;
+  if (them.id === req.user.id) return res.status(400).json({ error: 'That is you.' });
+  await updateTwo(req.user.id, them.id, (A, B) => {
+    unfriend(A, B);
+    A.blocked = withId(A.blocked, B.id);
+  });
   res.json({ ok: true });
 });
 
 usersRouter.delete('/:username/block', requireAuth, async (req, res) => {
-  const other = await findUser(req.params.username);
-  if (!other) return res.status(404).json({ error: 'No such scripter.' });
-  await users.updateOne({ _id: req.user.id }, { $pull: { blocked: other._id } });
+  const them = other(req, res);
+  if (!them) return;
+  if (them.id !== req.user.id) await updateTwo(req.user.id, them.id, (A) => { A.blocked = without(A.blocked, them.id); });
   res.json({ ok: true });
 });

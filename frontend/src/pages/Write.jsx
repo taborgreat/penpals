@@ -39,6 +39,11 @@ export default function Write() {
     else if (empty) setPreview(null);
   }, []);
 
+  // After write mode plays the letter: straight on to saving and sending it.
+  const toLetter = useCallback(() => {
+    requestAnimationFrame(() => document.getElementById('letter')?.scrollIntoView({ block: 'start' }));
+  }, []);
+
   function switchMode(next) {
     setMode(next);
     setResult(null);
@@ -122,7 +127,7 @@ export default function Write() {
       </div>
 
       <section className="write-source">
-        {mode === 'photo' ? <PhotoSource key={session} onResult={onResult} /> : <Pad key={session} onResult={onResult} inkColor={color} paper={paper} onPaperChange={setPaper} />}
+        {mode === 'photo' ? <PhotoSource key={session} onResult={onResult} /> : <Pad key={session} onResult={onResult} inkColor={color} paper={paper} onPaperChange={setPaper} onWritten={toLetter} />}
       </section>
 
       <section className="letter-section" id="letter">

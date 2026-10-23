@@ -184,3 +184,43 @@ either way, e.g. {page}, {user, page}, {url}.)
 skeleton), or only the current skeleton? A log is a second record of the same truth unless the skeleton is
 treated as derived from it.
 • Rotation of items: in or out.
+Rulings taken in this build (October 2026)
+Each open question above, as built. Each can be changed later; where a setting decides it, it's named.
+• What moves to files: everything. Accounts (login hash, friends, requests, blocks, letters-sent count),
+sessions, letters and books are all files under backend/data/. MongoDB is gone from the app; the only
+thing that still talks to it is backend/scripts/migrate-from-mongo.js, a one-time move that reads Mongo
+and never changes it. Indexes kept in memory (accounts by name, letters) and index/names.json are rebuilt
+from the files on every start, so none of them is ever the only record of anything (A6).
+• Who can download a .book: only its owner (config.book.visitorsCanDownload = false). Visitors can still
+read the same skeleton and ink through the API, since that is what they see on the page.
+• One file or two on the server: two (skeleton.json + ink.chain), joined into one .book on download.
+• Removing writing: it leaves the skeleton; its ink line stays in ink.chain, unreferenced. There is no purge
+yet. A purge would rewrite the chain, so if it's ever added it should be an offline tool, not part of the
+live server.
+• Where a letter's ink lives: inside the letter, not in anyone's chain. Each letter is a folder,
+data/letters/<id>/ (letter.json, ink.png, ink.strokes), deleted whole when the letter goes (24 h after
+opening, 90 days unopened, unless kept). So the held-until-opened model and append-only both hold.
+• What a button can link to: the owner's own pages ({"page": "<id>"}). The link field is an object, so
+{"user", "page"} and {"url"} can be added later without changing the format.
+• Limits: 40 pages per book, 400 items per page, one piece of ink up to 1 MB / 2000 strokes / 120 000
+points, a whole chain up to 50 MB (config.book). The canvas is a fixed logical page, 1000 × 1400 units,
+scaled to the screen. No private pages: the profile's own privacy (friends-only) covers the whole book.
+• Edit history: not kept. The current skeleton is the only record of the layout (no op log, so no second
+copy of the truth).
+• Rotation: out.
+
+Build notes: where the build differs from the text above, and why
+• Ink points are [x, y, w, t]: the third value is the ink's width at that point rather than raw pressure,
+because the pen models (flex, broad) turn pressure and direction into width, and width is what's drawn.
+A broad-nib stroke also carries "a", its nib angle.
+• Paths: data/ is backend/data/ (DATA_DIR). Letters are data/letters/<id>/ rather than
+users/<id>/letters/inbox/, because a letter can be unsent, or kept by its sender and its recipient,
+so it isn't in any one person's inbox.
+• skeleton.json also holds "signatureColor" (one of the eight signature colours) and "nextItem" (the
+counter for item ids, so an id is never reused). The signature edit ops are "signature" (an ink ref, or
+null) and "signature_color".
+• Edits: POST /api/books/me/edit { op, ..., base } -> { version } or 409 { stale, version }; new ink:
+POST /api/books/me/ink { ink, place, base }, appended and placed under the same per-person lock. The
+client shows an edit at once, sends edits one at a time, and on a stale reply reloads and retries once.
+• Viewing a .book: /book in the site opens a downloaded file locally (nothing is uploaded) and shows it
+as on the site, with buttons and playback.

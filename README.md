@@ -15,9 +15,15 @@ friendship is request + accept). Kept letters can be upvoted by anyone who can s
 them, which feeds the top-letters list. Blocking hides two people from each other
 and ends any friendship.
 
+Each profile is a **book** ([books.md](books.md)): a signature and a living
+journal of handwritten pages. Write anything anywhere, then move, resize,
+recolour it, or make it a button to another page; every page has its own link
+(`/u/<name>/<page>`). The owner can download their book as one `<name>.book`
+file and open it again at `/book`, without the site's data.
+
 ## Run it
 
-Needs Node 22+ and MongoDB (defaults to `mongodb://127.0.0.1:27017/penpals`).
+Needs Node 22+. There is no database: everything is files in `backend/data/` (see Storage).
 
 ```
 npm install
@@ -28,8 +34,12 @@ npm run dev
 - API: http://localhost:3000
 - From a phone on the same Wi-Fi: `http://<your-pc-ip>:5173`
 
-Environment: `PORT`, `MONGODB_URI`, `INK_DIR` (where the PNGs go, default `backend/data/letters`),
+Environment: `PORT`, `DATA_DIR` (where everything is stored, default `backend/data`),
 `API_URL` (where the Vite dev server proxies `/api`, default `http://localhost:3000`).
+
+Coming from the MongoDB version: `npm run migrate-from-mongo --workspace backend`
+(reads `MONGODB_URI`, default `mongodb://127.0.0.1:27017/penpals`, never changes it;
+refuses to run if `backend/data/users` already exists).
 
 Without Vite: `npm run build` then `npm start`. Express serves `frontend/dist` itself.
 
@@ -37,18 +47,42 @@ Without Vite: `npm run build` then `npm start`. Express serves `frontend/dist` i
 
 ```
 backend/src
-  server.js        Express app
-  config.js        limits, TTLs, paths
-  db.js            Mongo connection + indexes (users, sessions, letters)
+  server.js        Express app; rebuilds the in-memory indexes from the files on start
+  config.js        limits, TTLs, paths, book limits
+  files.js         atomic writes (temp + fsync + rename), fsynced appends, one writer per key
+  store/           accounts, sessions, books (skeleton + ink chain), ops, letters
   auth.js          scrypt passwords, cookie sessions
-  storage.js       ink files on disk
-  cleanup.js       deletes expired, unkept ink every 10 min
-  routes/          auth, users, letters
+  social.js        friends and blocks, from the account files
+  cleanup.js       deletes expired, unkept letters and old sessions every 10 min
+  routes/          auth, users, letters, social, signatures, books
+backend/scripts
+  migrate-from-mongo.js   one-time move from the old MongoDB storage
 frontend/src
   ink/             the pipeline (see below)
-  components/      CornerPicker, LetterView, AuthForm
-  pages/           Home, Profile, Write, Inbox
+  book/            the journal: ink chain format, edits, pages
+  hand/            handwritten labels and signatures
+  components/      Pad, LetterView, Hand, Username, ...
+  pages/           Home, Profile, Write, Inbox, HandStudio, BookViewer
 ```
+
+## Storage
+
+No database: the files are the storage, and anything kept in memory is rebuilt
+from them on start ([books.md](books.md), Part A).
+
+```
+backend/data/
+  users/<id>/account.json        private: login (scrypt hash), friends, requests, blocks
+  users/<id>/book/skeleton.json  pages, items, links, colours, signature ref (rewritten per edit)
+  users/<id>/book/ink.chain      append-only JSON lines, one stroke collection each
+  letters/<id>/                  letter.json + ink.png + ink.strokes (deleted with the letter)
+  sessions/<sha256>.json         login sessions (only a hash of each token)
+  index/names.json               name → id, rebuilt from the accounts on every start
+```
+
+Edits to a book go through one queue per person and are checked against the
+version the client had (a stale edit gets 409 and the client reloads). Every
+rewrite is temp-file + fsync + rename; the ink chain is only ever appended to.
 
 ## The letter format
 
@@ -145,6 +179,13 @@ baselines are stored as rows in the strokes file. Undo re-renders the stroke lis
 | POST/DELETE | `/api/users/:username/block` | block / unblock |
 | GET | `/api/social` | my friends, requests, blocks, privacy |
 | POST | `/api/social/private` | `{ private }` |
+| GET | `/api/books/:name` | a book's skeleton (`ETag` = its version) |
+| GET | `/api/books/:name/ink` | its ink chain (JSON lines) |
+| GET | `/api/books/:name/download` | `<name>.book` (owner only) |
+| POST | `/api/books/me/edit` | one edit `{ op, ..., base }` → `{ version }` or 409 stale |
+| POST | `/api/books/me/ink` | new ink `{ ink, place, base }`: appended, then placed |
+| GET | `/api/signatures?names=` | signatures (ink + colour) for many names at once |
+| PUT/DELETE | `/api/signatures/me`, PUT `/me/color` | sign, unsign, recolour |
 
 ## Next
 

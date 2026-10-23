@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { users } from '../db.js';
+import { createAccount, findByName } from '../store/accounts.js';
 import {
   hashPassword, verifyPassword, createSession, deleteSession,
   setSessionCookie, clearSessionCookie,
@@ -8,7 +8,7 @@ import {
 export const authRouter = Router();
 const USERNAME = /^[a-z0-9_]{2,20}$/i;
 
-const publicUser = (user) => ({ id: user._id, username: user.username });
+const publicUser = (account) => ({ id: account.id, username: account.username });
 
 authRouter.post('/register', async (req, res) => {
   const { username, password } = req.body ?? {};
@@ -18,33 +18,19 @@ authRouter.post('/register', async (req, res) => {
   if (typeof password !== 'string' || password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
-  const doc = {
-    username,
-    usernameLower: username.toLowerCase(),
-    passwordHash: hashPassword(password),
-    createdAt: new Date(),
-  };
-  try {
-    const { insertedId } = await users.insertOne(doc);
-    doc._id = insertedId;
-  } catch (err) {
-    if (err.code === 11000) return res.status(409).json({ error: 'That name is taken.' });
-    throw err;
-  }
-  setSessionCookie(res, await createSession(doc._id));
-  res.status(201).json({ user: publicUser(doc) });
+  const account = await createAccount({ username, passwordHash: hashPassword(password) });
+  setSessionCookie(res, await createSession(account.id));
+  res.status(201).json({ user: publicUser(account) });
 });
 
 authRouter.post('/login', async (req, res) => {
   const { username, password } = req.body ?? {};
-  const user = typeof username === 'string'
-    ? await users.findOne({ usernameLower: username.toLowerCase() })
-    : null;
-  if (!user || typeof password !== 'string' || !verifyPassword(password, user.passwordHash)) {
+  const account = typeof username === 'string' ? findByName(username) : null;
+  if (!account || typeof password !== 'string' || !verifyPassword(password, account.passwordHash)) {
     return res.status(401).json({ error: 'Wrong username or password.' });
   }
-  setSessionCookie(res, await createSession(user._id));
-  res.json({ user: publicUser(user) });
+  setSessionCookie(res, await createSession(account.id));
+  res.json({ user: publicUser(account) });
 });
 
 authRouter.post('/logout', async (req, res) => {

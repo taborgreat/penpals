@@ -111,19 +111,28 @@ export function timedStrokes(recorded) {
 // `width`/`height` are page pixels; the canvas is `scale` times that, sized to
 // the screen. Lines are placed in screen pixels, `lineWidth` device px wide, so
 // they stay crisp at any zoom instead of aliasing when CSS scales the canvas.
-export function drawGuides(ctx, width, height, { guide = 'plain', spacing = 56, slant = 0, paper = 'plain', scale = 1, lineWidth = 1 } = {}) {
+// `view` ({ ox, oy }): the canvas is a view onto part of the page, its
+// top-left at page (ox, oy); paper and lines are drawn only on the page.
+export function drawGuides(ctx, width, height, { guide = 'plain', spacing = 56, slant = 0, paper = 'plain', scale = 1, lineWidth = 1, view = null } = {}) {
   const W = ctx.canvas.width;
   const H = ctx.canvas.height;
+  const ox = view?.ox ?? 0;
+  const oy = view?.oy ?? 0;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  paintPaper(ctx, paper, width, height);
+  paintPaper(ctx, paper, width, height, view && { ox, oy, scale });
+  if (view) {
+    ctx.beginPath();
+    ctx.rect(-ox * scale, -oy * scale, width * scale, height * scale); // guides stay on the page
+    ctx.clip();
+  }
   const ratio = GUIDES[guide];
   if (!ratio) {
     ctx.restore();
     return;
   }
   const lw = Math.max(1, Math.round(lineWidth));
-  const snap = (y) => Math.round(y * scale) + (lw % 2 ? 0.5 : 0);
+  const snap = (y) => Math.round((y - oy) * scale) + (lw % 2 ? 0.5 : 0);
   const dash = Math.max(3, Math.round(7 * scale));
   ctx.lineWidth = lw;
   const line = (color, y, dashed = false) => {
@@ -142,8 +151,8 @@ export function drawGuides(ctx, width, height, { guide = 'plain', spacing = 56, 
     const unit = spacing / (asc + xh + desc);
     ctx.fillStyle = 'rgba(120, 150, 200, 0.07)';
     for (let top = 0; top < height; top += spacing) {
-      const waist = Math.round((top + asc * unit) * scale);
-      const base = Math.round((top + (asc + xh) * unit) * scale);
+      const waist = Math.round((top + asc * unit - oy) * scale);
+      const base = Math.round((top + (asc + xh) * unit - oy) * scale);
       ctx.fillRect(0, waist, W, base - waist);
     }
     for (let top = 0; top < height; top += spacing) {
@@ -159,8 +168,8 @@ export function drawGuides(ctx, width, height, { guide = 'plain', spacing = 56, 
     const run = height / Math.tan((slant * Math.PI) / 180);
     for (let x = -run; x < width; x += spacing * 2) {
       ctx.beginPath();
-      ctx.moveTo(x * scale, H);
-      ctx.lineTo((x + run) * scale, 0);
+      ctx.moveTo((x - ox) * scale, view ? (height - oy) * scale : H);
+      ctx.lineTo((x + run - ox) * scale, -oy * scale);
       ctx.stroke();
     }
   }
