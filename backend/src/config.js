@@ -20,6 +20,11 @@ export const config = {
   cleanupIntervalMs: 10 * 60 * 1000,
   sessionTtlMs: 30 * 24 * 60 * 60 * 1000,
 
-  papers: ['plain', 'white', 'cream'],
+  // A signed name: the strokes of one short signature (a typical one is 1-4 KB).
+  signature: { maxBytes: 32 * 1024, maxStrokes: 300, maxNumbers: 24000 },
+  // The colours a signature can be (frontend/src/hand/colors.js has their shades).
+  signatureColors: ['graphite', 'wax', 'ink', 'forest', 'plum', 'ochre', 'teal', 'rose'],
+
+  papers: ['plain', 'white', 'cream', 'parchment'],
   sources: ['photo', 'pad'], // pad = drawn on screen; not built yet, but it produces the same ink format
 };

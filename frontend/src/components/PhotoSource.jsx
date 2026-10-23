@@ -141,11 +141,19 @@ export default function PhotoSource({ onResult }) {
 
   return (
     <>
+      <div className="notice" role="note">
+        <strong>Heads up: this one is experimental.</strong> Photographing a page was the first idea for penpals, and
+        it's still rough — expect missed ink, smudges and odd playback. Writing on screen works much better and is
+        where the site went instead; this is here if you want to try it anyway.
+      </div>
       <p className="muted">
         Write on paper, then photograph the page. For the best result: page flat with all four corners in
         frame, even light with no shadow across it, a dark pen, and shoot straight down.
       </p>
-      <p><input type="file" accept="image/*" onChange={onFile} /></p>
+      <label className="dropzone">
+        <input type="file" accept="image/*" onChange={onFile} />
+        <span>{photo ? 'Choose a different photo' : 'Choose a photo of your page'}</span>
+      </label>
 
       {photo && corners && (
         <>

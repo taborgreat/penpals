@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -8,17 +8,20 @@ import SendControl from '../components/SendControl.jsx';
 import ScripterInput from '../components/ScripterInput.jsx';
 import PhotoSource from '../components/PhotoSource.jsx';
 import Pad from '../components/Pad.jsx';
+import Hand from '../components/Hand.jsx';
 import { PAPERS } from '../ink/index.js';
+import { paperCss } from '../ink/paper.js';
 
 // Make a letter from a photographed page or the drawing pad, then save it to
 // your profile, or save and send it in one go. `/write/:username` fills in the name.
 export default function Write() {
   const { username: presetTo = '' } = useParams();
   const { user, loading } = useAuth();
-  const [mode, setMode] = useState('photo'); // 'photo' | 'pad'
-  const [result, setResult] = useState(null); // see PhotoSource / Pad for the shape
+  const [mode, setMode] = useState('pad'); // 'pad' | 'photo'
+  const [result, setResult] = useState(null); // see PhotoSource / Pad for the shape; null while not ready
+  const [preview, setPreview] = useState(null); // the last finished result, shown while the next one is made
   const [inkColor, setInkColor] = useState(null); // null = detected (photo) or default
-  const [paper, setPaper] = useState('plain');
+  const [paper, setPaper] = useState('parchment');
   const [to, setTo] = useState(presetTo);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -26,11 +29,20 @@ export default function Write() {
   const [kept, setKept] = useState(true);
   const [session, setSession] = useState(0); // bumps to remount the source for "write another"
 
-  const color = inkColor ?? result?.detectedColor ?? '#1a1a1a';
+  const color = inkColor ?? (result ?? preview)?.detectedColor ?? '#1a1a1a';
+
+  // Sources report null while they work; the preview keeps the last letter
+  // until the next is ready (no blinking), and clears only when told it's empty.
+  const onResult = useCallback((next, empty = false) => {
+    setResult(next);
+    if (next) setPreview(next);
+    else if (empty) setPreview(null);
+  }, []);
 
   function switchMode(next) {
     setMode(next);
     setResult(null);
+    setPreview(null);
     setInkColor(null);
     setError(null);
   }
@@ -62,6 +74,7 @@ export default function Write() {
 
   function reset() {
     setResult(null);
+    setPreview(null);
     setSaved(null);
     setError(null);
     setInkColor(null);
@@ -73,9 +86,9 @@ export default function Write() {
 
   if (saved) {
     return (
-      <div className="stack">
+      <div className="stack narrow">
         <h1>{saved.sentAt ? `Sent to @${saved.to}` : 'On your profile'}</h1>
-        <p className="muted">
+        <p className="meta">
           {saved.strokesUrl ? `${saved.strokeCount} strokes, ${kb(saved.strokesBytes)}` : kb(saved.bytes)} · loaded back from the server, exactly as a recipient sees it
         </p>
         {!kept && <p className="muted">Your profile is full, so no copy was kept there.</p>}
@@ -89,67 +102,77 @@ export default function Write() {
     );
   }
 
-  const summary = result
-    ? [
-      `ink ${kb(result.png.size)}`,
-      result.strokesBlob && `strokes ${kb(result.strokesBlob.size)} (${result.strokeCount} strokes)`,
-      result.sourceBytes && `photo was ${kb(result.sourceBytes)}`,
-      `${result.ms} ms`,
-    ].filter(Boolean).join(' · ')
-    : mode === 'photo' ? 'Pick a photo to see the letter here.' : 'Draw something to see the letter here.';
+  const summary = !preview ? null : !result ? 'updating…' : [
+    `ink ${kb(result.png.size)}`,
+    result.strokesBlob && `strokes ${kb(result.strokesBlob.size)} (${result.strokeCount} strokes)`,
+    result.sourceBytes && `photo was ${kb(result.sourceBytes)}`,
+    `${result.ms} ms`,
+  ].filter(Boolean).join(' · ');
+  const empty = mode === 'photo' ? 'Pick a photo and your letter appears here.' : 'Start writing and your letter appears here.';
 
   return (
-    <>
-      <h1>Write</h1>
-      <div className="row">
-        <button type="button" disabled={mode === 'photo'} onClick={() => switchMode('photo')}>Photograph a page</button>
-        <button type="button" disabled={mode === 'pad'} onClick={() => switchMode('pad')}>Draw on screen</button>
+    <div className={`write ${mode}`}>
+      <h1 className="sr-only">Write a letter</h1>
+      <div className="write-head">
+        <div className="tabs" role="group" aria-label="How to write">
+          <button type="button" aria-pressed={mode === 'pad'} onClick={() => switchMode('pad')}>Draw on screen</button>
+          <button type="button" aria-pressed={mode === 'photo'} onClick={() => switchMode('photo')}>Photograph a page</button>
+        </div>
+        <a href="#letter" className="jump">Preview, download &amp; send ↓</a>
       </div>
 
-      {mode === 'photo' ? <PhotoSource key={session} onResult={setResult} /> : <Pad key={session} onResult={setResult} />}
+      <section className="write-source">
+        {mode === 'photo' ? <PhotoSource key={session} onResult={onResult} /> : <Pad key={session} onResult={onResult} inkColor={color} paper={paper} onPaperChange={setPaper} />}
+      </section>
 
-      <h2>Letter</h2>
-      <div className="row">
-        <label>
-          Ink colour <input type="color" value={color} onChange={(e) => setInkColor(e.target.value)} />
-        </label>
-        {inkColor && result?.detectedColor && <button type="button" onClick={() => setInkColor(null)}>use detected</button>}
-        <label>
-          Paper{' '}
-          <select value={paper} onChange={(e) => setPaper(e.target.value)}>
-            {Object.entries(PAPERS).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}
-          </select>
-        </label>
-      </div>
-      <p className="muted">{summary}</p>
-      {result && (
-        <LetterView
-          letter={{
-            inkUrl: result.png,
-            strokesData: result.strokesData,
-            display: result.display,
-            source: result.source,
-            playable: result.playable,
-            guides: result.guides,
-            inkColor: color,
-            paper,
-          }}
-        />
-      )}
+      <section className="letter-section" id="letter">
+        <h2><Hand>Your letter</Hand></h2>
+        <div className="row">
+          <label className="field">
+            <span>Ink</span>
+            <input type="color" value={color} onChange={(e) => setInkColor(e.target.value)} />
+          </label>
+          {inkColor && result?.detectedColor && <button type="button" className="quiet" onClick={() => setInkColor(null)}>use detected</button>}
+          <label className="field">
+            <span>Paper</span>
+            <select value={paper} onChange={(e) => setPaper(e.target.value)}>
+              {Object.entries(PAPERS).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}
+            </select>
+          </label>
+        </div>
+        {preview ? (
+          <LetterView
+            letter={{
+              inkUrl: preview.png,
+              strokesData: preview.strokesData,
+              display: preview.display,
+              source: preview.source,
+              playable: preview.playable,
+              guides: preview.guides,
+              inkColor: color,
+              paper,
+              from: user.username,
+            }}
+          />
+        ) : (
+          <div className="preview-empty" style={{ background: paperCss(paper) }}>{empty}</div>
+        )}
+        {summary && <p className="meta">{summary}</p>}
 
-      <div className="row">
-        <button type="button" disabled={!result || saving} onClick={() => save('')}>
-          {saving ? 'Saving…' : 'Save to my profile'}
-        </button>
-        <span className="muted">or</span>
-        <label>
-          send to <ScripterInput id="write-to" value={to} onChange={setTo} />
-        </label>
-        <button type="button" disabled={!result || saving || !to} onClick={() => save(to)}>
-          Save &amp; send
-        </button>
-      </div>
-      {error && <p className="error">{error}</p>}
-    </>
+        <div className="send-box">
+          <button type="button" className="primary" disabled={!result || saving} onClick={() => save('')}>
+            {saving ? 'Saving…' : 'Save to my profile'}
+          </button>
+          <span className="or">or send it</span>
+          <div className="row">
+            <ScripterInput id="write-to" value={to} onChange={setTo} />
+            <button type="button" className="seal" disabled={!result || saving || !to} onClick={() => save(to)}>
+              Save &amp; send
+            </button>
+          </div>
+        </div>
+        {error && <p className="error">{error}</p>}
+      </section>
+    </div>
   );
 }

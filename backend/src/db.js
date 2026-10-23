@@ -13,7 +13,8 @@ try {
 
 const db = client.db();
 
-// users:       { _id, username, usernameLower, passwordHash, createdAt, private, blocked: [userId] }
+// users:       { _id, username, usernameLower, passwordHash, createdAt, private, blocked: [userId],
+//                signature, signedAt }   (signature: see routes/signatures.js)
 // sessions:    { _id: token, userId, createdAt }            (TTL index expires them)
 // letters:     { _id: id, senderId, from, width, height, bytes, inkColor, paper, source,
 //                createdAt, inkDeleted, savedBy: [{ userId, at }], upvotes: [userId], upvoteCount,

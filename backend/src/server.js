@@ -8,6 +8,7 @@ import { authRouter } from './routes/auth.js';
 import { usersRouter } from './routes/users.js';
 import { lettersRouter } from './routes/letters.js';
 import { socialRouter } from './routes/social.js';
+import { signaturesRouter } from './routes/signatures.js';
 import { startCleanup } from './cleanup.js';
 
 await ensureInkDir();
@@ -21,6 +22,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/letters', lettersRouter);
 app.use('/api/social', socialRouter);
+app.use('/api/signatures', signaturesRouter);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Production: serve the built frontend (`npm run build`). In dev, Vite serves it and proxies /api here.

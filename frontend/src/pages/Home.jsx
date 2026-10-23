@@ -4,6 +4,8 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import AuthForm from '../components/AuthForm.jsx';
 import LetterView from '../components/LetterView.jsx';
+import Hand from '../components/Hand.jsx';
+import Username from '../components/Username.jsx';
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -18,19 +20,21 @@ export default function Home() {
 
   return (
     <>
-      <h1>penpals</h1>
-      <p className="muted">Every letter is handwritten. Photograph your page; only the ink travels.</p>
+      <div className="hero">
+        <h1><Hand>Letters,</Hand> <em><Hand>by hand.</Hand></em></h1>
+        <p className="lede"><Hand>Every letter is handwritten.</Hand> <Hand>Only the ink travels.</Hand></p>
+      </div>
       {!loading && !user && <AuthForm />}
 
-      <h2>Scripters</h2>
+      <h2><Hand>Scripters</Hand></h2>
       {error && <p className="error">{error}</p>}
       {users && users.length === 0 && <p className="muted">Nobody yet. Register and be the first.</p>}
       {users && (
-        <ul className="plain">
+        <ul className="people">
           {users.map((u) => (
             <li key={u.username}>
-              <Link to={`/u/${u.username}`}>@{u.username}</Link>{' '}
-              <span className="muted">{u.lettersSent} sent · {u.savedCount} kept</span>
+              <Link to={`/u/${u.username}`}><Username name={u.username} /></Link>
+              <span className="meta">{u.lettersSent} sent · {u.savedCount} kept</span>
             </li>
           ))}
         </ul>
@@ -38,11 +42,11 @@ export default function Home() {
 
       {top.length > 0 && (
         <>
-          <h2>Top letters</h2>
+          <h2><Hand>Top letters</Hand></h2>
           {top.map((l) => (
             <div key={l.id} className="stack">
               <LetterView letter={l} />
-              <p className="muted">by <Link to={`/u/${l.from}`}>@{l.from}</Link> · ▲ {l.upvotes}</p>
+              <p className="meta">by <Link to={`/u/${l.from}`}><Username name={l.from} /></Link> · ▲ {l.upvotes}</p>
             </div>
           ))}
         </>

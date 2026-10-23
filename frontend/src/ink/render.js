@@ -5,12 +5,9 @@
 
 import { decodeStrokes, renderStrokes, strokesDuration } from './strokes.js';
 import { layoutStrokes, scheduleSweep } from './sweep.js';
+import { PAPERS, paintPaper } from './paper.js';
 
-export const PAPERS = {
-  plain: { name: 'Plain', color: '#f7f3ea' },
-  white: { name: 'White', color: '#ffffff' },
-  cream: { name: 'Cream', color: '#f2e8d0' },
-};
+export { PAPERS };
 
 // Decode an ink PNG (URL or Blob) into an <img> drawImage can use.
 export function loadInk(src) {
@@ -55,12 +52,16 @@ function tinted(width, height, draw, inkColor) {
   return scratch;
 }
 
+// `paper` null = no paper: the ink alone on a transparent background.
 function compose(canvas, width, height, inkLayer, paper) {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = PAPERS[paper]?.color ?? PAPERS.plain.color;
-  ctx.fillRect(0, 0, width, height);
+  if (paper === null) {
+    ctx.drawImage(inkLayer, 0, 0);
+    return;
+  }
+  paintPaper(ctx, paper, width, height);
   ctx.globalCompositeOperation = 'multiply'; // like real ink on paper
   ctx.drawImage(inkLayer, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
@@ -89,7 +90,8 @@ const FAT = 6; // px added around a stroke when it is used to uncover the scan
 // whole, and at the end everything shows. Stroke times and directions play no
 // part in that, so any trace, old or new, reads top-left to bottom-right.
 // `getSpeed()` is read every frame, so a speed control can change it live.
-// Letters longer than 40 s are sped up to fit.
+// Letters longer than 40 s are sped up to fit. `reset()` + `drawAt(t)` with
+// rising t paint single moments, for exporting the playback frame by frame.
 export function createPlayer(canvas, { data, ink = null }, { inkColor = '#1a1a1a', paper = 'plain', getSpeed = () => 1 } = {}) {
   const { width, height } = data;
   const plan = ink ? scheduleSweep(layoutStrokes(data)) : null;
@@ -146,12 +148,18 @@ export function createPlayer(canvas, { data, ink = null }, { inkColor = '#1a1a1a
   };
 
   const frame = ink ? frameReveal : frameStrokes;
+  const reset = () => {
+    dctx.clearRect(0, 0, width, height);
+    doneCount = 0;
+  };
 
   return {
+    duration,
+    reset,
+    drawAt: frame,
     play(onDone) {
       this.stop();
-      dctx.clearRect(0, 0, width, height);
-      doneCount = 0;
+      reset();
       elapsed = 0;
       last = performance.now();
       const tick = () => {

@@ -1,4 +1,5 @@
 import { stampPath, broadPath } from './strokes.js';
+import { paintPaper } from './paper.js';
 
 // Nib models for the drawing pad. Pad strokes are recorded in page pixels
 // (1400 across a letter-width page, about 6.5 px per mm) as
@@ -21,10 +22,13 @@ export const NIBS = {
   broad: { name: 'Broad nib (italic / gothic)' },
 };
 
+export const PX_PER_MM = 1400 / 215.9; // pad pages are 1400 px across a letter-width page
+const MAX_PAUSE = 1500; // ms of thinking time kept between strokes on playback
+
 export const PEN_SIZES = { fine: 3, medium: 5, broad: 8 };
 export const BROAD_SIZES = { '1.5 mm': 10, '2.4 mm': 16, '3.8 mm': 25, '6.0 mm': 39 };
 export const FLEX_PRESETS = {
-  copperplate: { name: 'Copperplate (lots of spread)', hairline: 1.4, maxWidth: 14, swell: 25, slant: 55 },
+  copperplate: { name: 'Copperplate (lots of spread)', hairline: 1.4, maxWidth: 14, swell: 25, slant: 55, lineMm: 14 },
   spencerian: { name: 'Spencerian (little spread)', hairline: 1.2, maxWidth: 6, swell: 40, slant: 52 },
 };
 
@@ -79,48 +83,88 @@ export function toSharedStroke(stroke) {
   };
 }
 
+// Recorded pad strokes as the shared format, with real timing (long pauses capped).
+export function timedStrokes(recorded) {
+  const out = [];
+  let clock = 0;
+  let prevEnd = null;
+  for (const stroke of recorded) {
+    const s = toSharedStroke(stroke);
+    if (!s.points.length) continue;
+    const rawStart = s.points[0].t;
+    clock += prevEnd == null ? 0 : Math.min(MAX_PAUSE, Math.max(0, rawStart - prevEnd));
+    const base = clock;
+    for (const p of s.points) p.t = base + Math.max(0, p.t - rawStart);
+    clock = s.points[s.points.length - 1].t;
+    prevEnd = stroke.points[stroke.points.length - 1].t;
+    out.push(s);
+  }
+  return out;
+}
+
 // Paper with guide lines. Drawn on its own canvas so it never becomes ink.
 // A ratio guide such as 2:3:2 is ascender : x-height : descender, and one set
 // is `spacing` px tall: a dashed ascender line, the waist line, a dark
 // baseline, and the dashed descender line, which is the next set's ascender
-// line. Lines sit on whole pixels so they stay crisp.
-export function drawGuides(ctx, width, height, { guide = 'plain', spacing = 56, slant = 0, paper = '#fbf9f4' } = {}) {
-  ctx.fillStyle = paper;
-  ctx.fillRect(0, 0, width, height);
+// line. The x-height band is lightly shaded so the ratio reads at a glance.
+//
+// `width`/`height` are page pixels; the canvas is `scale` times that, sized to
+// the screen. Lines are placed in screen pixels, `lineWidth` device px wide, so
+// they stay crisp at any zoom instead of aliasing when CSS scales the canvas.
+export function drawGuides(ctx, width, height, { guide = 'plain', spacing = 56, slant = 0, paper = 'plain', scale = 1, lineWidth = 1 } = {}) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  paintPaper(ctx, paper, width, height);
   const ratio = GUIDES[guide];
-  if (!ratio) return;
-  ctx.lineWidth = 1;
-  const line = (color, y, dash = []) => {
-    const yy = Math.round(y) + 0.5;
+  if (!ratio) {
+    ctx.restore();
+    return;
+  }
+  const lw = Math.max(1, Math.round(lineWidth));
+  const snap = (y) => Math.round(y * scale) + (lw % 2 ? 0.5 : 0);
+  const dash = Math.max(3, Math.round(7 * scale));
+  ctx.lineWidth = lw;
+  const line = (color, y, dashed = false) => {
+    const yy = snap(y);
     ctx.strokeStyle = color;
-    ctx.setLineDash(dash);
+    ctx.setLineDash(dashed ? [dash, dash] : []);
     ctx.beginPath();
     ctx.moveTo(0, yy);
-    ctx.lineTo(width, yy);
+    ctx.lineTo(W, yy);
     ctx.stroke();
   };
   if (ratio.length === 0) {
-    for (let y = spacing; y < height; y += spacing) line('#9fb0c6', y);
+    for (let y = spacing; y < height; y += spacing) line('#8fa2bd', y);
   } else {
     const [asc, xh, desc] = ratio;
     const unit = spacing / (asc + xh + desc);
+    ctx.fillStyle = 'rgba(120, 150, 200, 0.07)';
     for (let top = 0; top < height; top += spacing) {
-      line('#c7d0dc', top, [6, 6]); // ascender line (the previous set's descender line)
-      line('#a9b6c8', top + asc * unit); // waist line
-      line('#6f8199', top + (asc + xh) * unit); // baseline
+      const waist = Math.round((top + asc * unit) * scale);
+      const base = Math.round((top + (asc + xh) * unit) * scale);
+      ctx.fillRect(0, waist, W, base - waist);
+    }
+    for (let top = 0; top < height; top += spacing) {
+      line('#b9c4d4', top, true); // ascender line (the previous set's descender line)
+      line('#9cabc2', top + asc * unit); // waist line
+      line('#5b7096', top + (asc + xh) * unit); // baseline
     }
   }
   ctx.setLineDash([]);
   if (slant) {
-    ctx.strokeStyle = '#e4e9f0';
+    ctx.lineWidth = Math.max(1, lw * 0.75);
+    ctx.strokeStyle = 'rgba(70, 90, 130, 0.13)'; // faint on any paper
     const run = height / Math.tan((slant * Math.PI) / 180);
     for (let x = -run; x < width; x += spacing * 2) {
       ctx.beginPath();
-      ctx.moveTo(x, height);
-      ctx.lineTo(x + run, 0);
+      ctx.moveTo(x * scale, H);
+      ctx.lineTo((x + run) * scale, 0);
       ctx.stroke();
     }
   }
+  ctx.restore();
 }
 
 // The baselines a guide puts on the page, as rows for the strokes file.

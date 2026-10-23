@@ -146,7 +146,9 @@ export function countPoints(data) {
 
 // Draw the strokes as black ink on `ctx`. With `until`, only what has been
 // written by that time (the stroke in progress is cut mid-segment).
-export function renderStrokes(ctx, data, { until = Infinity } = {}) {
+// `minWidth` (in the data's px) keeps thin strokes visible when drawn small;
+// `grow` widens every stroke, e.g. for an outline drawn underneath.
+export function renderStrokes(ctx, data, { until = Infinity, minWidth = 0, grow = 0 } = {}) {
   ctx.save();
   ctx.fillStyle = '#000';
   ctx.strokeStyle = '#000';
@@ -157,12 +159,12 @@ export function renderStrokes(ctx, data, { until = Infinity } = {}) {
     if (!pts.length) continue;
     ctx.beginPath();
     if (stroke.angle != null) {
-      broadPath(ctx, pts, pts[0].w, stroke.angle);
+      broadPath(ctx, pts, Math.max(pts[0].w, minWidth) + grow, stroke.angle);
       ctx.fill();
-      ctx.lineWidth = 0.8;
+      ctx.lineWidth = Math.max(0.8, minWidth) + grow;
       ctx.stroke();
     } else {
-      stampPath(ctx, pts, pts.map((p) => p.w));
+      stampPath(ctx, pts, pts.map((p) => Math.max(p.w, minWidth) + grow));
       ctx.fill();
     }
   }

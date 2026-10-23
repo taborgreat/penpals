@@ -5,6 +5,13 @@ import { useAuth } from '../auth.jsx';
 import { kb } from '../format.js';
 import LetterView from '../components/LetterView.jsx';
 import SendControl from '../components/SendControl.jsx';
+import Pad from '../components/Pad.jsx';
+import { makeHandAsset } from '../hand/asset.js';
+import { HandDrawn } from '../components/Hand.jsx';
+import { useSignature, setSignature } from '../hand/signatures.js';
+import { SIGNATURE_COLORS, colorVars } from '../hand/colors.js';
+import Username from '../components/Username.jsx';
+import Hand from '../components/Hand.jsx';
 
 export default function Profile() {
   const { username } = useParams();
@@ -58,19 +65,19 @@ export default function Profile() {
 
   return (
     <>
-      <h1>@{name} {u.private && <small className="muted">private</small>}</h1>
+      <h1><Username name={name} height={1.4} /> {u.private && <small className="badge quiet-badge">private</small>}</h1>
 
       {u.hidden ? (
         u.blockedByMe
           ? <p>You blocked this scripter. <button type="button" onClick={act(() => api.del(`/api/users/${name}/block`))}>Unblock</button></p>
           : <p className="muted">This profile is private. Only their friends can see it.</p>
       ) : (
-        <p className="muted">joined {new Date(u.createdAt).toLocaleDateString()} · {u.lettersSent} letters sent</p>
+        <p className="meta">joined {new Date(u.createdAt).toLocaleDateString()} · {u.lettersSent} letters sent</p>
       )}
 
       {user && !isMe && !u.blockedByMe && (
         <div className="row">
-          {!u.hidden && <Link to={`/write/${name}`}>Write @{name} a letter</Link>}
+          {!u.hidden && <Link to={`/write/${name}`} className="button primary">Write @{name} a letter</Link>}
           {relation === 'none' && <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}>Add friend</button>}
           {relation === 'outgoing' && <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}>Cancel friend request</button>}
           {relation === 'incoming' && (
@@ -85,18 +92,19 @@ export default function Profile() {
       )}
       {!user && !u.hidden && <p className="muted">Log in to write to them.</p>}
 
+      {isMe && <SignatureCard name={u.username} />}
       {isMe && social && <OwnControls social={social} act={act} />}
 
       {!u.hidden && (
         <>
-          <h2>Letters on this profile ({data.saved.length}/10)</h2>
-          {data.saved.length === 0 && <p className="muted">Nothing here yet.</p>}
+          <h2><Hand>Letters on this profile</Hand> ({data.saved.length}/10)</h2>
+          {data.saved.length === 0 && <p className="muted"><Hand>Nothing here yet.</Hand></p>}
           {data.saved.map((l) => (
             <div key={l.id} className="stack card">
               <LetterView letter={l} />
-              <p className="muted">
-                by @{l.from} · {new Date(l.createdAt).toLocaleDateString()} · {kb(l.bytes)}
-                {l.to ? ` · sent to @${l.to}` : isMe && l.isMine ? ' · not sent yet' : ''}
+              <p className="meta">
+                by <Username name={l.from} /> · {new Date(l.createdAt).toLocaleDateString()} · {kb(l.bytes)}
+                {l.to ? <> · sent to <Username name={l.to} /></> : isMe && l.isMine ? ' · not sent yet' : ''}
               </p>
               <div className="row">
                 {user && !l.isMine
@@ -113,12 +121,115 @@ export default function Profile() {
   );
 }
 
+const SIGN_PAGE = { width: 760, height: 470 }; // five ruled lines: sign on a middle one, with room above and below
+
+// Your signed name, which stands in for @name around the site. Signed on a
+// compact version of the letter pad, so every nib and setting is there.
+function SignatureCard({ name }) {
+  const signature = useSignature(name);
+  const [signing, setSigning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [color, setColor] = useState(null); // null = the signature's own
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const onResult = useCallback((r) => setResult(r), []);
+  const shown = color ?? signature?.color ?? SIGNATURE_COLORS[0].id;
+
+  async function save() {
+    const asset = result && makeHandAsset(result.strokesData, `@${name}`);
+    if (!asset) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const d = await api.put('/api/signatures/me', { signature: { ...asset, color: shown } });
+      setSignature(name, d.signature);
+      setSigning(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Signed already: the colour changes at once, no signing again.
+  async function pick(id) {
+    setColor(id);
+    if (!signature || signing) return;
+    setError(null);
+    try {
+      await api.put('/api/signatures/me/color', { color: id });
+      setSignature(name, { ...signature, color: id });
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm('Remove your signature? Your name will show as @' + name + ' again.')) return;
+    setError(null);
+    try {
+      await api.del('/api/signatures/me');
+      setSignature(name, null);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  if (signature === undefined) return null;
+  const editing = signing || !signature;
+  const swatches = (
+    <div className="field">
+      <span>Colour</span>
+      <div className="swatches" role="group" aria-label="Signature colour">
+        {SIGNATURE_COLORS.map((c) => (
+          <button key={c.id} type="button" title={c.name} aria-label={c.name} aria-pressed={shown === c.id} style={colorVars(c.id)} onClick={() => pick(c.id)} />
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="stack card signature-card">
+      <h2><Hand>Your signature</Hand></h2>
+      {editing ? (
+        <>
+          <p className="muted">Sign your name on a line. It stands in for @{name} everywhere your name shows up.</p>
+          {swatches}
+          <Pad
+            size={SIGN_PAGE}
+            onResult={onResult}
+            inkColor={SIGNATURE_COLORS.find((c) => c.id === shown).light}
+            hint="Sign on one of the lines. Zoom in for a finer hand."
+          />
+          <div className="row">
+            {signature && <button type="button" className="quiet" onClick={() => setSigning(false)}>Cancel</button>}
+            <button type="button" className="primary" onClick={save} disabled={!result || busy}>{busy ? 'Saving…' : 'Save signature'}</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="signature-show">
+            <span className="username signed" style={colorVars(shown)}>
+              <HandDrawn asset={signature} label={`@${name}`} fit={3} />
+            </span>
+          </p>
+          {swatches}
+          <div className="row">
+            <button type="button" onClick={() => setSigning(true)}>Sign again</button>
+            <button type="button" className="quiet" onClick={remove}>Remove</button>
+          </div>
+        </>
+      )}
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
 // Privacy switch and friend lists, shown only to the profile's owner.
 function OwnControls({ social, act }) {
   const friendLink = (n) => <Link key={n} to={`/u/${n}`}>@{n}</Link>;
   return (
     <div className="stack card">
-      <p><Link to="/write">Write a letter</Link></p>
+      <p><Link to="/write" className="button primary"><Hand>Write a letter</Hand></Link></p>
       <p>
         Your profile is <strong>{social.private ? 'private' : 'public'}</strong>.{' '}
         <button type="button" onClick={act(() => api.post('/api/social/private', { private: !social.private }))}>

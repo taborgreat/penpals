@@ -23,7 +23,7 @@ export default function AuthForm() {
   }
 
   return (
-    <form className="stack card" onSubmit={submit}>
+    <form className="stack card auth" onSubmit={submit}>
       <div className="row">
         <label><input type="radio" checked={mode === 'login'} onChange={() => setMode('login')} /> log in</label>
         <label><input type="radio" checked={mode === 'register'} onChange={() => setMode('register')} /> register</label>
@@ -37,7 +37,7 @@ export default function AuthForm() {
         autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
         required
       />
-      <button disabled={busy}>{mode === 'login' ? 'Log in' : 'Create account'}</button>
+      <button className="primary" disabled={busy}>{mode === 'login' ? 'Log in' : 'Create account'}</button>
       {error && <p className="error">{error}</p>}
     </form>
   );

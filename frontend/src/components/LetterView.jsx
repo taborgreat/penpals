@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadInk, loadStrokes, paintLetter, paintStrokes, createPlayer } from '../ink/render.js';
+import { letterPng, letterGif, download } from '../ink/export.js';
 
 // A letter "reborn", painted in its colour on paper: drawn letters from their
 // strokes, photographed letters from their ink PNG. Letters with strokes can be
@@ -8,6 +9,7 @@ import { loadInk, loadStrokes, paintLetter, paintStrokes, createPlayer } from '.
 // `letter`: { inkUrl, strokesUrl?, strokesData?, display, source, playable?, guides?, inkColor, paper }
 // where inkUrl / strokesUrl may be URLs or Blobs (the preview before saving),
 // and `guides` ({ rows, tilt }) draws the playback lines over the letter.
+// Any letter can be downloaded as a PNG, or as a GIF of it being written.
 export default function LetterView({ letter }) {
   const canvasRef = useRef(null);
   const playerRef = useRef(null);
@@ -76,12 +78,64 @@ export default function LetterView({ letter }) {
           <button type="button" className="watch" onClick={watch}>
             {playing ? '■ stop' : '▶ watch it being written'}
           </button>
-          <label className="muted">
+          <label className="meta">
             speed <input type="range" min="0.5" max="4" step="0.5" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} /> {speed}×
           </label>
         </div>
       )}
+      {asset && <Download asset={asset} letter={letter} animated={Boolean(asset.data && playable)} />}
     </div>
+  );
+}
+
+// Save the letter as a file: on its paper or transparent, whole page or cropped to the ink.
+function Download({ asset, letter, animated }) {
+  const [clear, setClear] = useState(false);
+  const [crop, setCrop] = useState(false);
+  const [progress, setProgress] = useState(null); // 0..1 while a GIF is being made
+  const [error, setError] = useState(null);
+  const opts = { inkColor: letter.inkColor ?? '#1a1a1a', paper: clear ? null : letter.paper ?? 'plain', crop };
+  const name = `penpals-${letter.from ? `${letter.from}-` : ''}${letter.id ?? 'letter'}${clear ? '-transparent' : ''}`;
+
+  async function png() {
+    setError(null);
+    try {
+      download(await letterPng(asset, opts), `${name}.png`);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function gif() {
+    setError(null);
+    setProgress(0);
+    try {
+      download(await letterGif(asset, { ...opts, onProgress: setProgress }), `${name}.gif`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProgress(null);
+    }
+  }
+
+  return (
+    <details className="download">
+      <summary>Download</summary>
+      <div className="row">
+        <label><input type="checkbox" checked={clear} onChange={(e) => setClear(e.target.checked)} /> transparent background</label>
+        <label><input type="checkbox" checked={crop} onChange={(e) => setCrop(e.target.checked)} /> crop to the ink</label>
+      </div>
+      <div className="row">
+        <button type="button" onClick={png}>PNG</button>
+        {animated && (
+          <button type="button" onClick={gif} disabled={progress !== null}>
+            {progress === null ? 'GIF (being written)' : `Making GIF… ${Math.round(progress * 100)}%`}
+          </button>
+        )}
+      </div>
+      {clear && animated && <p className="hint">Transparent GIFs have crisper edges than transparent PNGs; GIF can't do soft edges.</p>}
+      {error && <p className="error">{error}</p>}
+    </details>
   );
 }
 
