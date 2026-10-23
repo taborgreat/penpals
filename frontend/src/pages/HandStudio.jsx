@@ -8,57 +8,67 @@ import { download } from '../ink/export.js';
 
 const LABEL_PAGE = { width: 1100, height: 470 }; // five ruled lines: write on a middle one, with room above and below
 
+// A checklist entry: a text, or { text, name } when it needs a drawing of its own.
+const toEntry = (l) => (typeof l === 'string' ? { text: l, name: handName(l) } : { text: l.text, name: l.name ?? handName(l.text) });
+
 // Write the site's labels by hand. Pick a label, write it on one line of the
 // pad, and save: in development it goes straight into src/hand/drawn/ and
 // shows up around the site at once; otherwise it downloads to put there.
 export default function HandStudio() {
   const labels = useMemo(() => {
-    const listed = new Set(HAND_LABELS.map(handName));
-    const extra = Object.values(HAND).filter((a) => !listed.has(handName(a.text))).map((a) => a.text);
-    return [...HAND_LABELS, ...extra];
+    const listed = HAND_LABELS.map(toEntry);
+    const names = new Set(listed.map((e) => e.name));
+    const extra = Object.entries(HAND).filter(([n]) => !names.has(n)).map(([n, a]) => ({ text: a.text, name: n }));
+    return [...listed, ...extra];
   }, []);
-  const firstMissing = labels.find((t) => !HAND[handName(t)]);
-  const [text, setText] = useState(firstMissing ?? labels[0]);
+  const firstMissing = labels.find((e) => !HAND[e.name]);
+  const [entry, setEntry] = useState(firstMissing ?? labels[0]);
   const [custom, setCustom] = useState('');
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState(null);
   const [session, setSession] = useState(0);
-  const name = handName(text);
+  const { text, name } = entry;
   const saved = HAND[name];
-  const draft = useMemo(() => (result ? makeHandAsset(result.strokesData, text) : null), [result, text]);
+  const [scale, setScale] = useState(saved?.scale ?? 1);
+  const written = useMemo(() => (result ? makeHandAsset(result.strokesData, text) : null), [result, text]);
+  const draft = useMemo(() => (written ? { ...written, scale } : null), [written, scale]);
+  const savedScaled = useMemo(() => (saved ? { ...saved, scale } : null), [saved, scale]);
+  // Other drawn labels to compare sizes with.
+  const others = useMemo(() => Object.entries(HAND).filter(([n]) => n !== name).slice(0, 4), [name]);
   const onResult = useCallback((r) => setResult(r), []);
-  const done = labels.filter((t) => HAND[handName(t)]).length;
+  const done = labels.filter((e) => HAND[e.name]).length;
 
   function pick(next) {
-    if (!next.trim()) return;
-    setText(next.trim());
+    if (!next.text.trim()) return;
+    setEntry(next);
+    setScale(HAND[next.name]?.scale ?? 1);
     setResult(null);
     setStatus(null);
     setSession((s) => s + 1);
   }
 
-  async function save() {
-    if (!draft) return;
+  async function save(asset = draft) {
+    if (!asset) return;
     setStatus('Saving…');
     try {
       const res = await fetch('/__hand/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, asset: draft }),
+        body: JSON.stringify({ name, asset }),
       });
       if (res.status === 404 || res.status === 405) {
-        download(new Blob([JSON.stringify(draft)], { type: 'application/json' }), `${name}.json`);
+        download(new Blob([JSON.stringify(asset)], { type: 'application/json' }), `${name}.json`);
         setStatus(`Downloaded ${name}.json. Put it in frontend/src/hand/drawn/.`);
         return;
       }
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
-      setStatus(`Saved src/hand/drawn/${name}.json (${(JSON.stringify(draft).length / 1024).toFixed(1)} KB).`);
+      setStatus(`Saved src/hand/drawn/${name}.json (${(JSON.stringify(asset).length / 1024).toFixed(1)} KB).`);
     } catch (err) {
       setStatus(`Couldn't save: ${err.message}`);
     }
   }
 
-  const nextMissing = labels.find((t) => t !== text && !HAND[handName(t)]);
+  const nextMissing = labels.find((e) => e.name !== name && !HAND[e.name]);
 
   return (
     <div className="studio">
@@ -71,15 +81,15 @@ export default function HandStudio() {
       </div>
 
       <ul className="studio-labels">
-        {labels.map((t) => (
-          <li key={t}>
-            <button type="button" aria-pressed={t === text} className={HAND[handName(t)] ? 'drawn' : undefined} onClick={() => pick(t)}>
-              {HAND[handName(t)] ? '✓ ' : ''}{t}
+        {labels.map((e) => (
+          <li key={e.name}>
+            <button type="button" aria-pressed={e.name === name} className={HAND[e.name] ? 'drawn' : undefined} onClick={() => pick(e)} title={e.name}>
+              {HAND[e.name] ? '✓ ' : ''}{e.text}{e.name !== handName(e.text) ? ` (${e.name})` : ''}
             </button>
           </li>
         ))}
         <li>
-          <form className="row" onSubmit={(e) => { e.preventDefault(); pick(custom); setCustom(''); }}>
+          <form className="row" onSubmit={(e) => { e.preventDefault(); pick(toEntry(custom.trim())); setCustom(''); }}>
             <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="another label…" />
             <button type="submit" disabled={!custom.trim()}>Add</button>
           </form>
@@ -98,7 +108,7 @@ export default function HandStudio() {
         <h2>Preview</h2>
         {draft || saved ? (
           <div className="studio-samples">
-            {[draft && ['new', draft], saved && ['saved', saved]].filter(Boolean).map(([which, asset]) => (
+            {[draft && ['new', draft], savedScaled && ['saved', savedScaled]].filter(Boolean).map(([which, asset]) => (
               <div key={which} className="studio-sample">
                 <span className="meta">{which} · hover to replay</span>
                 <p className="row">
@@ -107,6 +117,13 @@ export default function HandStudio() {
                   <a href="#preview" onClick={(e) => e.preventDefault()}><HandDrawn asset={asset} label={text} /></a>
                 </p>
                 <p style={{ fontSize: 28 }}><HandDrawn asset={asset} label={text} /> <span className="muted">next to text</span></p>
+                {others.length > 0 && (
+                  <p className="studio-compare">
+                    {others.map(([n, a]) => <HandDrawn key={n} asset={a} label={a.text} />)}
+                    <HandDrawn asset={asset} label={text} />
+                    <span className="meta">next to your other labels</span>
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -114,8 +131,16 @@ export default function HandStudio() {
           <p className="muted">Write {text} above to see it here.</p>
         )}
         <div className="row">
-          <button type="button" className="primary" disabled={!draft} onClick={save}>Save {name}.json</button>
-          {nextMissing && <button type="button" onClick={() => pick(nextMissing)}>Next: {nextMissing} →</button>}
+          <label className="field">
+            <span>Size</span>
+            <input type="range" min="0.4" max="2.5" step="0.05" value={scale} onChange={(e) => setScale(Number(e.target.value))} />
+            <output>{Math.round(scale * 100)}%</output>
+          </label>
+          <button type="button" className="primary" disabled={!draft} onClick={() => save()}>Save {name}.json</button>
+          {!draft && saved && (saved.scale ?? 1) !== scale && (
+            <button type="button" onClick={() => save(savedScaled)}>Save the new size</button>
+          )}
+          {nextMissing && <button type="button" onClick={() => pick(nextMissing)}>Next: {nextMissing.text} →</button>}
           {status && <span className="meta">{status}</span>}
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadInk, loadStrokes, paintLetter, paintStrokes, createPlayer } from '../ink/render.js';
 import { letterPng, letterGif, download } from '../ink/export.js';
+import Hand from './Hand.jsx';
 
 // A letter "reborn", painted in its colour on paper: drawn letters from their
 // strokes, photographed letters from their ink PNG. Letters with strokes can be
@@ -75,8 +76,8 @@ export default function LetterView({ letter }) {
       <canvas ref={canvasRef} className="letter" />
       {asset?.data && playable && (
         <div className="row">
-          <button type="button" className="watch" onClick={watch}>
-            {playing ? '■ stop' : '▶ watch it being written'}
+          <button type="button" className="watch" onClick={watch} title={playing ? "Stop" : "Watch it being written"}>
+            {playing ? <>■ <Hand>Stop</Hand></> : <>▶ <Hand>Watch</Hand></>}
           </button>
           <label className="meta">
             speed <input type="range" min="0.5" max="4" step="0.5" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} /> {speed}×
@@ -129,7 +130,7 @@ function Download({ asset, letter, animated }) {
         <button type="button" onClick={png}>PNG</button>
         {animated && (
           <button type="button" onClick={gif} disabled={progress !== null}>
-            {progress === null ? 'GIF (being written)' : `Making GIF… ${Math.round(progress * 100)}%`}
+            {progress === null ? 'GIF (written out)' : `Making GIF… ${Math.round(progress * 100)}%`}
           </button>
         )}
       </div>

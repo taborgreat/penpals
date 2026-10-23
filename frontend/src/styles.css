@@ -19,6 +19,7 @@
   --air-blue: #2f4f9a;
   --focus: #3d6fd6;
   --link: #23365f;
+  --heading: #8a5a1c; /* section headings: a warm ochre so each section starts clearly */
   --shadow-soft: 0 1px 2px rgba(70, 50, 20, 0.06), 0 4px 14px -6px rgba(70, 50, 20, 0.18);
   --shadow-paper: 0 1px 1px rgba(70, 50, 20, 0.1), 0 3px 6px rgba(70, 50, 20, 0.06), 0 16px 32px -14px rgba(70, 50, 20, 0.4);
   --grain-opacity: 0.55;
@@ -48,6 +49,7 @@
     --air-blue: #5d7dc6;
     --focus: #8eaaf0;
     --link: #b9cbf2;
+    --heading: #d9a856;
     --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -8px rgba(0, 0, 0, 0.6);
     --shadow-paper: 0 1px 2px rgba(0, 0, 0, 0.4), 0 20px 40px -14px rgba(0, 0, 0, 0.75);
     --grain-opacity: 0.25;
@@ -72,6 +74,7 @@
   --air-blue: #5d7dc6;
   --focus: #8eaaf0;
   --link: #b9cbf2;
+  --heading: #d9a856;
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -8px rgba(0, 0, 0, 0.6);
   --shadow-paper: 0 1px 2px rgba(0, 0, 0, 0.4), 0 20px 40px -14px rgba(0, 0, 0, 0.75);
   --grain-opacity: 0.25;
@@ -146,7 +149,28 @@ a:hover { text-decoration-thickness: 2px; }
 }
 .brand:hover .stamp { transform: rotate(0deg) scale(1.03); }
 
-.nav { display: flex; gap: 22px; flex-wrap: wrap; }
+/* Write: the main thing to do, right by the logo. */
+.write-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 16px 6px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--ink-text);
+  background: var(--ink);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.18), var(--shadow-soft);
+  transform: rotate(-1.5deg);
+  transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+}
+.write-cta:hover { filter: brightness(1.1); transform: rotate(0deg) translateY(-1px); }
+.write-cta.active { box-shadow: 0 0 0 3px var(--desk), 0 0 0 5px var(--ink); }
+.write-cta .hand { font-size: 1.1em; }
+
+/* Everything about you: on the right. */
+.nav { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-left: auto; }
 .nav a {
   color: var(--text);
   text-decoration: none;
@@ -163,9 +187,8 @@ a:hover { text-decoration-thickness: 2px; }
 }
 .nav a.active:has(.hand) { text-decoration: none; box-shadow: inset 0 -2px 0 var(--wax); }
 
-.user-menu { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.user-menu { display: inline-flex; align-items: center; gap: 6px; }
 .user-menu .handle { font-family: var(--font-mono); font-size: 14px; text-decoration: none; }
-.site-head-inner > .muted { margin-left: auto; }
 
 .airmail {
   height: 6px;
@@ -176,6 +199,19 @@ a:hover { text-decoration-thickness: 2px; }
   );
   opacity: 0.85;
 }
+
+/* ---------- Footer ---------- */
+
+.site-foot {
+  display: flex;
+  justify-content: center;
+  padding: 18px 20px 28px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+}
+.write-speed { gap: 10px; }
+.write-speed input[type='range'] { width: 140px; }
+.write-speed .end { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 
 /* ---------- Page ---------- */
 
@@ -215,7 +251,7 @@ h2 {
   font-weight: 500;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--heading);
 }
 h2::before, h2::after { content: ''; flex: 1; height: 1px; background: var(--rule-strong); }
 
@@ -293,7 +329,45 @@ select {
 }
 select:hover, input:hover:not([type='range']) { border-color: var(--text); }
 
-input[type='range'] { accent-color: var(--ink); cursor: pointer; }
+/* Sliders: a slim rounded track and a paper-coloured handle with an ink rim.
+   A slider can set --pct to fill its track up to the handle. */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--ink) var(--pct, 0%), var(--rule-strong) var(--pct, 0%));
+}
+input[type='range']::-moz-range-track { height: 4px; border-radius: 999px; background: var(--rule-strong); }
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease;
+}
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+input[type='range']:hover::-webkit-slider-thumb, input[type='range']:focus-visible::-webkit-slider-thumb { transform: scale(1.18); }
+input[type='range']:focus-visible { outline: none; }
+input[type='range']:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(61, 111, 214, 0.35); }
+input[type='range']:disabled { opacity: 0.45; cursor: default; }
+.write-speed input[type='range']::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--ink); }
 input[type='radio'], input[type='checkbox'] { accent-color: var(--ink); }
 input[type='color'] {
   width: 40px;
@@ -451,8 +525,16 @@ canvas.letter { width: 100%; height: auto; display: block; border-radius: 2px; b
 /* <Hand>: a box the size of a line of text, the drawing hanging from its baseline. */
 .hand { position: relative; display: inline-block; line-height: 1; }
 .hand canvas { position: absolute; display: block; pointer-events: none; } /* placed past the box by Hand.jsx */
+.hand-number { display: inline-flex; align-items: baseline; gap: 0.06em; }
+/* Stats under a name: small, and on one line. */
+.stats { font-size: 11px; white-space: nowrap; }
+.stats .hand { font-size: 0.95em; }
+.studio-compare { display: flex; align-items: baseline; flex-wrap: wrap; gap: 14px; font-size: 18px; }
 h2 .hand { font-size: 1.7em; } /* section labels are small capitals; handwriting needs more room */
 .nav .hand { font-size: 1.15em; }
+.nav .mailbox-link .hand { font-size: 0.95em; }
+.nav .logout { margin-left: 4px; }
+.nav .logout:hover:not(:disabled), .nav .logout:focus-visible { background: var(--wax); color: var(--wax-text); }
 /* fit: the whole drawing in a box of its own shape, shrinking to fit narrow places. */
 .hand.fit { height: auto; max-width: 100%; vertical-align: middle; }
 

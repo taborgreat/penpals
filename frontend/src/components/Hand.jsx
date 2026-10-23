@@ -11,6 +11,7 @@ const HALO_PX = 1.25; // labels get an outline this wide (CSS px) in a contrasti
 // The canvas reaches this far (CSS px) past the drawing's box on every side, so
 // widened hairlines, outlines and strokes at the very edge are never cut off.
 const BLEED_PX = 6;
+const WRITE_IN_DEADLINE_MS = 2500; // a label not yet written in by then is written regardless
 const BLEED_STYLE = { left: -BLEED_PX, top: -BLEED_PX, width: `calc(100% + ${2 * BLEED_PX}px)`, height: `calc(100% + ${2 * BLEED_PX}px)` };
 
 // A tone to outline a colour with: dark behind light ink, light behind dark ink.
@@ -40,7 +41,8 @@ export default function Hand({ children, name, size = LINE_EM }) {
 export function HandDrawn({ asset, label, size = LINE_EM, fit = null, writeIn = true, halo = !fit }) {
   const boxRef = useRef(null);
   const canvasRef = useRef(null);
-  const k = Math.min(size / asset.line, MAX_EM / asset.h); // em per page px
+  // em per page px; `scale` is the label's own size, set in the studio so labels match
+  const k = (asset.scale ?? 1) * Math.min(size / asset.line, MAX_EM / asset.h);
   const em = (v) => `${(v * k).toFixed(4)}em`;
 
   useEffect(() => {
@@ -113,9 +115,17 @@ export function HandDrawn({ asset, label, size = LINE_EM, fit = null, writeIn = 
     };
 
     let unview = () => {};
+    let fallback = 0;
     if (writeIn && !reducedMotion()) {
       draw(0);
       unview = onFirstView(box, write);
+      // Never left blank: if it hasn't started writing by now, for any reason, write it.
+      fallback = setTimeout(() => {
+        if (shown === 0 && !isPlaying(player)) {
+          unview();
+          write();
+        }
+      }, WRITE_IN_DEADLINE_MS);
     } else {
       draw(1);
     }
@@ -136,6 +146,7 @@ export function HandDrawn({ asset, label, size = LINE_EM, fit = null, writeIn = 
     target.addEventListener('focusin', recolor);
     target.addEventListener('focusout', recolor);
     return () => {
+      clearTimeout(fallback);
       unview();
       unsize();
       window.removeEventListener('penpals:theme', recolor);

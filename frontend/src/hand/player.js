@@ -6,21 +6,48 @@ const MAX_STAGGER = 900;
 
 export const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
-// How long a label takes to write: quicker than it was written, within bounds.
-export const playMs = (dur) => Math.min(1100, Math.max(280, dur * 0.45));
+// How fast labels write, set by the footer's slider; remembered on this device.
+const SPEED_KEY = 'penpals.writeSpeed';
+const DEFAULT_SPEED = 0.75; // a touch slower than written-out-quick, so you can watch it
+let speed = DEFAULT_SPEED;
+try {
+  speed = Number(localStorage.getItem(SPEED_KEY)) || DEFAULT_SPEED;
+} catch { /* the default */ }
+export const getWriteSpeed = () => speed;
+export function setWriteSpeed(v) {
+  speed = v;
+  try {
+    localStorage.setItem(SPEED_KEY, String(v));
+  } catch { /* not remembered */ }
+}
+
+// How long a label takes to write: quicker than it was written, within bounds,
+// then at the chosen speed.
+export const playMs = (dur) => Math.min(1100, Math.max(280, dur * 0.45)) / speed;
 
 // One requestAnimationFrame loop for every label being written.
 // A player is { draw(progress 0..1) }.
 const playing = new Map(); // player → { t0, ms }
 let raf = 0;
 
+// A label that fails to draw is dropped on its own: the loop always carries on
+// for the rest, or one bad frame would leave every label after it blank.
 function tick(now) {
-  for (const [p, run] of playing) {
-    const k = Math.min(1, (now - run.t0) / run.ms);
-    p.draw(k);
-    if (k >= 1) playing.delete(p);
+  try {
+    for (const [p, run] of playing) {
+      const k = Math.min(1, Math.max(0, (now - run.t0) / run.ms));
+      try {
+        p.draw(k);
+      } catch (err) {
+        console.error('handwriting: could not draw a label', err);
+        playing.delete(p);
+        continue;
+      }
+      if (k >= 1) playing.delete(p);
+    }
+  } finally {
+    raf = playing.size ? requestAnimationFrame(tick) : 0;
   }
-  raf = playing.size ? requestAnimationFrame(tick) : 0;
 }
 
 export function play(player, ms) {

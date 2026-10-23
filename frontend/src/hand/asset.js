@@ -7,7 +7,8 @@
 // w, h: the ink's box in page px; base: the baseline's y in that box; line:
 // the ruled line spacing it was written on, which sets its size next to text;
 // dur: ms to write it. Per stroke, the first point is absolute and the rest
-// are deltas; x, y in half px, w in tenths of a px, t in ms.
+// are deltas; x, y in half px, w in tenths of a px, t in ms. Optional `scale`:
+// how big it shows next to text (1 = as written), set in the studio.
 
 const PAD = 4; // page px of margin around the ink
 const MAX_GAP = 120; // ms kept between strokes: labels write without long pauses

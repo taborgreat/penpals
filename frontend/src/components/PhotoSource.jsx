@@ -142,9 +142,8 @@ export default function PhotoSource({ onResult }) {
   return (
     <>
       <div className="notice" role="note">
-        <strong>Heads up: this one is experimental.</strong> Photographing a page was the first idea for penpals, and
-        it's still rough — expect missed ink, smudges and odd playback. Writing on screen works much better and is
-        where the site went instead; this is here if you want to try it anyway.
+        <strong>Experimental.</strong> Best for sharing something you've already written on paper. The automatic
+        parts (finding the ink, playback) are rough, so don't expect much from them.
       </div>
       <p className="muted">
         Write on paper, then photograph the page. For the best result: page flat with all four corners in
@@ -202,7 +201,7 @@ export default function PhotoSource({ onResult }) {
 
           <h2>Playback</h2>
           <p className="muted">
-            "Watch it being written" reads the page line by line, so it needs to know where your lines are.
+            "Watch" reads the page line by line, so it needs to know where your lines are.
             Auto finds ruled lines or the rows of writing; the dashed guides on the preview show what it found.
             If they are wrong, set the line height by hand, or turn playback off for this letter.
           </p>

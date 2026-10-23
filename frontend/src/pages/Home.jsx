@@ -5,6 +5,7 @@ import { useAuth } from '../auth.jsx';
 import AuthForm from '../components/AuthForm.jsx';
 import LetterView from '../components/LetterView.jsx';
 import Hand from '../components/Hand.jsx';
+import HandNumber from '../components/HandNumber.jsx';
 import Username from '../components/Username.jsx';
 
 export default function Home() {
@@ -34,7 +35,7 @@ export default function Home() {
           {users.map((u) => (
             <li key={u.username}>
               <Link to={`/u/${u.username}`}><Username name={u.username} /></Link>
-              <span className="meta">{u.lettersSent} sent · {u.savedCount} kept</span>
+              <span className="meta stats"><HandNumber value={u.lettersSent} /> <Hand name="sent-count">sent</Hand> · <HandNumber value={u.savedCount} /> <Hand name="kept-count">kept</Hand></span>
             </li>
           ))}
         </ul>
@@ -46,7 +47,7 @@ export default function Home() {
           {top.map((l) => (
             <div key={l.id} className="stack">
               <LetterView letter={l} />
-              <p className="meta">by <Link to={`/u/${l.from}`}><Username name={l.from} /></Link> · ▲ {l.upvotes}</p>
+              <p className="meta">by <Link to={`/u/${l.from}`}><Username name={l.from} /></Link> · ▲ <HandNumber value={l.upvotes} /></p>
             </div>
           ))}
         </>

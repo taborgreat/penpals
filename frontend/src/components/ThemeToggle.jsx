@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Hand from './Hand.jsx';
 
 const ORDER = ['auto', 'dark', 'light'];
 const KEY = 'penpals.theme';
@@ -23,7 +24,7 @@ export default function ThemeToggle() {
 
   return (
     <button type="button" className="quiet theme-toggle" onClick={next} title="Colour theme: auto follows your system">
-      {theme === 'auto' ? '◐ auto' : theme === 'dark' ? '☾ dark' : '☀ light'}
+      {theme === 'auto' ? <>◐ <Hand>Auto</Hand></> : theme === 'dark' ? <>☾ <Hand>Dark</Hand></> : <>☀ <Hand>Light</Hand></>}
     </button>
   );
 }

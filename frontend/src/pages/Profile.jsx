@@ -12,6 +12,8 @@ import { useSignature, setSignature } from '../hand/signatures.js';
 import { SIGNATURE_COLORS, colorVars } from '../hand/colors.js';
 import Username from '../components/Username.jsx';
 import Hand from '../components/Hand.jsx';
+import HandNumber from '../components/HandNumber.jsx';
+import ThemeToggle from '../components/ThemeToggle.jsx';
 
 export default function Profile() {
   const { username } = useParams();
@@ -69,25 +71,25 @@ export default function Profile() {
 
       {u.hidden ? (
         u.blockedByMe
-          ? <p>You blocked this scripter. <button type="button" onClick={act(() => api.del(`/api/users/${name}/block`))}>Unblock</button></p>
+          ? <p>You blocked this scripter. <button type="button" onClick={act(() => api.del(`/api/users/${name}/block`))}><Hand>Unblock</Hand></button></p>
           : <p className="muted">This profile is private. Only their friends can see it.</p>
       ) : (
-        <p className="meta">joined {new Date(u.createdAt).toLocaleDateString()} · {u.lettersSent} letters sent</p>
+        <p className="meta stats"><HandNumber value={u.lettersSent} /> <Hand name="sent-count">sent</Hand></p>
       )}
 
       {user && !isMe && !u.blockedByMe && (
         <div className="row">
-          {!u.hidden && <Link to={`/write/${name}`} className="button primary">Write @{name} a letter</Link>}
-          {relation === 'none' && <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}>Add friend</button>}
-          {relation === 'outgoing' && <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}>Cancel friend request</button>}
+          {!u.hidden && <Link to={`/write/${name}`} className="write-cta" title={`Write @${name} a letter`}><Hand>Write</Hand></Link>}
+          {relation === 'none' && <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}><Hand>Add friend</Hand></button>}
+          {relation === 'outgoing' && <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}><Hand>Cancel friend request</Hand></button>}
           {relation === 'incoming' && (
             <>
-              <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}>Accept friend request</button>
-              <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}>Decline</button>
+              <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}><Hand>Accept friend request</Hand></button>
+              <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}><Hand>Decline</Hand></button>
             </>
           )}
-          {relation === 'friends' && <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}>Unfriend</button>}
-          <button type="button" onClick={act(() => api.post(`/api/users/${name}/block`))}>Block</button>
+          {relation === 'friends' && <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}><Hand>Unfriend</Hand></button>}
+          <button type="button" onClick={act(() => api.post(`/api/users/${name}/block`))}><Hand>Block</Hand></button>
         </div>
       )}
       {!user && !u.hidden && <p className="muted">Log in to write to them.</p>}
@@ -97,7 +99,7 @@ export default function Profile() {
 
       {!u.hidden && (
         <>
-          <h2><Hand>Letters on this profile</Hand> ({data.saved.length}/10)</h2>
+          <h2><Hand>Letters on this profile</Hand> (<HandNumber value={data.saved.length} />/<HandNumber value={10} />)</h2>
           {data.saved.length === 0 && <p className="muted"><Hand>Nothing here yet.</Hand></p>}
           {data.saved.map((l) => (
             <div key={l.id} className="stack card">
@@ -108,9 +110,9 @@ export default function Profile() {
               </p>
               <div className="row">
                 {user && !l.isMine
-                  ? <button type="button" onClick={act(() => api.post(`/api/letters/${l.id}/upvote`))}>{l.upvotedByMe ? '▲ upvoted' : '▲ upvote'} {l.upvotes}</button>
-                  : <span className="muted">▲ {l.upvotes}</span>}
-                {isMe && <button type="button" onClick={() => remove(l)}>Remove from my profile</button>}
+                  ? <button type="button" onClick={act(() => api.post(`/api/letters/${l.id}/upvote`))}>{l.upvotedByMe ? '▲ upvoted' : '▲ upvote'} <HandNumber value={l.upvotes} /></button>
+                  : <span className="muted">▲ <HandNumber value={l.upvotes} /></span>}
+                {isMe && <button type="button" onClick={() => remove(l)}><Hand>Remove from my profile</Hand></button>}
               </div>
               {isMe && l.isMine && <SendControl letter={l} onSent={load} />}
             </div>
@@ -201,8 +203,8 @@ function SignatureCard({ name }) {
             hint="Sign on one of the lines. Zoom in for a finer hand."
           />
           <div className="row">
-            {signature && <button type="button" className="quiet" onClick={() => setSigning(false)}>Cancel</button>}
-            <button type="button" className="primary" onClick={save} disabled={!result || busy}>{busy ? 'Saving…' : 'Save signature'}</button>
+            {signature && <button type="button" className="quiet" onClick={() => setSigning(false)}><Hand>Cancel</Hand></button>}
+            <button type="button" className="primary" onClick={save} disabled={!result || busy}>{busy ? 'Saving…' : <Hand>Save signature</Hand>}</button>
           </div>
         </>
       ) : (
@@ -214,8 +216,8 @@ function SignatureCard({ name }) {
           </p>
           {swatches}
           <div className="row">
-            <button type="button" onClick={() => setSigning(true)}>Sign again</button>
-            <button type="button" className="quiet" onClick={remove}>Remove</button>
+            <button type="button" onClick={() => setSigning(true)}><Hand>Sign again</Hand></button>
+            <button type="button" className="quiet" onClick={remove}><Hand>Remove</Hand></button>
           </div>
         </>
       )}
@@ -229,11 +231,14 @@ function OwnControls({ social, act }) {
   const friendLink = (n) => <Link key={n} to={`/u/${n}`}>@{n}</Link>;
   return (
     <div className="stack card">
-      <p><Link to="/write" className="button primary"><Hand>Write a letter</Hand></Link></p>
+      <p><Link to="/write" className="write-cta" title="Write a letter"><Hand>Write</Hand></Link></p>
+      <p>
+        <Hand>Colours</Hand>: <ThemeToggle />
+      </p>
       <p>
         Your profile is <strong>{social.private ? 'private' : 'public'}</strong>.{' '}
         <button type="button" onClick={act(() => api.post('/api/social/private', { private: !social.private }))}>
-          {social.private ? 'Make public' : 'Make private'}
+          {social.private ? <Hand>Make public</Hand> : <Hand>Make private</Hand>}
         </button>
       </p>
       <p className="muted">Private means off the homepage; only friends can see your letters or write to you.</p>
@@ -243,8 +248,8 @@ function OwnControls({ social, act }) {
           {social.incoming.map((n) => (
             <span key={n}>
               {friendLink(n)}{' '}
-              <button type="button" onClick={act(() => api.post(`/api/users/${n}/friend`))}>accept</button>{' '}
-              <button type="button" onClick={act(() => api.del(`/api/users/${n}/friend`))}>decline</button>{' '}
+              <button type="button" onClick={act(() => api.post(`/api/users/${n}/friend`))}><Hand>accept</Hand></button>{' '}
+              <button type="button" onClick={act(() => api.del(`/api/users/${n}/friend`))}><Hand>decline</Hand></button>{' '}
             </span>
           ))}
         </p>
@@ -256,7 +261,7 @@ function OwnControls({ social, act }) {
           Blocked:{' '}
           {social.blocked.map((n) => (
             <span key={n}>
-              @{n} <button type="button" onClick={act(() => api.del(`/api/users/${n}/block`))}>unblock</button>{' '}
+              @{n} <button type="button" onClick={act(() => api.del(`/api/users/${n}/block`))}><Hand>unblock</Hand></button>{' '}
             </span>
           ))}
         </p>

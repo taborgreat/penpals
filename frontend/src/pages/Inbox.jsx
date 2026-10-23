@@ -70,7 +70,7 @@ export default function Inbox() {
           <LetterView letter={current} />
           <div className="row">
             <button type="button" onClick={() => toggleSave(current)}>
-              {current.savedByMe ? 'Remove from my profile' : 'Keep on my profile'}
+              {current.savedByMe ? <Hand>Remove from my profile</Hand> : <Hand>Keep on my profile</Hand>}
             </button>
             <button type="button" onClick={() => setCurrent(null)}><Hand>Close</Hand></button>
           </div>
