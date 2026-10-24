@@ -5,8 +5,14 @@ import Hand from '../components/Hand.jsx';
 export default function NotFound() {
   return (
     <div className="not-found">
-      <h1><Hand>Nothing here.</Hand></h1>
-      <p><Link to="/"><Hand>Take me home</Hand></Link></p>
+      <h1>
+        <Hand>Nothing here.</Hand>
+      </h1>
+      <p>
+        <Link to="/">
+          <Hand>Take me home</Hand>
+        </Link>
+      </p>
     </div>
   );
 }

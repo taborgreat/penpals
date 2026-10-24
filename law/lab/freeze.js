@@ -79,8 +79,10 @@ export function decide(report) {
     const stitcher = rate(r.attackers.stitcher, (d) => d <= t);
     const impostor = rate(r.attackers.impostor, (d) => d <= t);
     if (tracer !== null && tracer > GATE.tracer) problems.push(`${name}: at t=${t} a tracer gets in ${(tracer * 100).toFixed(1)}% of the time (gate ${GATE.tracer * 100}%)`);
-    if (stitcher !== null && stitcher > GATE.stitcher) problems.push(`${name}: at t=${t} the stitcher gets in ${(stitcher * 100).toFixed(1)}% of the time (gate ${GATE.stitcher * 100}%): the deciding number`);
-    if (impostor !== null && impostor > GATE.impostorWarn) notes.push(`${name}: at t=${t} someone else writing the phrase matches ${(impostor * 100).toFixed(1)}% of the time; the password is what stops them`);
+    if (stitcher !== null && stitcher > GATE.stitcher)
+      problems.push(`${name}: at t=${t} the stitcher gets in ${(stitcher * 100).toFixed(1)}% of the time (gate ${GATE.stitcher * 100}%): the deciding number`);
+    if (impostor !== null && impostor > GATE.impostorWarn)
+      notes.push(`${name}: at t=${t} someone else writing the phrase matches ${(impostor * 100).toFixed(1)}% of the time; the password is what stops them`);
     let code = null;
     try {
       code = makeCode(CODES[arm].m, t, CODES[arm].n);
@@ -91,7 +93,10 @@ export function decide(report) {
     out.radii[name] = t;
     if (code) out.codes[name] = { id: code.id, k: code.k };
     // Would the other quantizations pass where this one does not? (that would be a code change, not a constant)
-    for (const [center, reliable, label] of [[false, false, 'fixed bins'], [true, true, 'centred + reliable bits']]) {
+    for (const [center, reliable, label] of [
+      [false, false, 'fixed bins'],
+      [true, true, 'centred + reliable bits'],
+    ]) {
       const alt = find(arm, center, reliable);
       const at = alt && pickRadius(alt, { perDevice: arm === 'B' });
       if (at === null || at === undefined) continue;
@@ -104,9 +109,11 @@ export function decide(report) {
       const perDevice = Object.fromEntries(Object.entries(r.perDevice ?? {}).map(([d, ds]) => [d, rate(ds, (x) => x > t)]));
       const oneCovers = cross !== null && cross <= GATE.frr;
       out.devices = { perDevice, cross, oneCovers };
-      notes.push(oneCovers
-        ? `one sketch covers both devices (cross-device FRR ${(cross * 100).toFixed(1)}%)`
-        : `each device needs its own rhythm (cross-device FRR ${cross === null ? '–' : (cross * 100).toFixed(1)}%): the cap of ${SKETCH_CAP} holds ${Math.floor(SKETCH_CAP / 2)} rhythms for each of two devices`);
+      notes.push(
+        oneCovers
+          ? `one sketch covers both devices (cross-device FRR ${(cross * 100).toFixed(1)}%)`
+          : `each device needs its own rhythm (cross-device FRR ${cross === null ? '–' : (cross * 100).toFixed(1)}%): the cap of ${SKETCH_CAP} holds ${Math.floor(SKETCH_CAP / 2)} rhythms for each of two devices`,
+      );
     }
   }
   return { ok: problems.length === 0, problems, notes, ...out };
@@ -135,7 +142,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(1);
   }
   const d = decide(JSON.parse(fs.readFileSync(file, 'utf8')));
-  console.log(`radii: phrase ${d.radii.phrase ?? '–'} (${d.codes.phrase?.id ?? '–'}, r ${d.codes.phrase?.k ?? '–'} bits), page ${d.radii.page ?? '–'} (${d.codes.page?.id ?? '–'}, r ${d.codes.page?.k ?? '–'} bits)`);
+  console.log(
+    `radii: phrase ${d.radii.phrase ?? '–'} (${d.codes.phrase?.id ?? '–'}, r ${d.codes.phrase?.k ?? '–'} bits), page ${d.radii.page ?? '–'} (${d.codes.page?.id ?? '–'}, r ${d.codes.page?.k ?? '–'} bits)`,
+  );
   for (const n of d.notes) console.log(`  note: ${n}`);
   for (const p of d.problems) console.log(`  GATE: ${p}`);
   if (!d.ok) {

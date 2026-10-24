@@ -4,8 +4,12 @@ import { startApp, client } from './helpers.js';
 import { person, register, signIn, K, U, H, b64url, fromB64url } from './device.js';
 
 let app;
-before(async () => { app = await startApp(); });
-after(async () => { await app.close(); });
+before(async () => {
+  app = await startApp();
+});
+after(async () => {
+  await app.close();
+});
 beforeEach(() => app.resetLimits());
 
 test('register by writing your name: one request pair, a session, a key on file, no password anywhere', async () => {
@@ -77,8 +81,11 @@ test('replays and forgeries are refused: nonce, origin, other key', async () => 
   const b2 = await c.post('/api/auth/begin', { username: 'cy' });
   const other = K.skFromK(new Uint8Array(32).fill(9));
   const bad = await c.post('/api/auth/login', {
-    username: 'cy', nonce: b2.data.nonce, origin: c.origin,
-    proof: b64url(K.authProof(other, { purpose: 'login', origin: c.origin, nonce: fromB64url(b2.data.nonce, 32), username: '' })), login: {},
+    username: 'cy',
+    nonce: b2.data.nonce,
+    origin: c.origin,
+    proof: b64url(K.authProof(other, { purpose: 'login', origin: c.origin, nonce: fromB64url(b2.data.nonce, 32), username: '' })),
+    login: {},
   });
   assert.equal(bad.status, 401);
   // no Origin header at all
@@ -95,7 +102,14 @@ test('a registration signature must be the name, on sheet 0, sealed by the regis
   dee.sk = K.skFromK(dee.K);
   dee.pk = K.publicKeyOf(dee.sk);
   const r = H.newR();
-  const sketches = [H.makeSketch('phrase', r, [1, 2, 3].map((s) => H.readingOf('phrase', S.write(dee.writer, dee.phrase, s)))), H.makeSketch('page', r, [H.readingOf('page', S.write(dee.writer, 'the quick brown fox', 1))])];
+  const sketches = [
+    H.makeSketch(
+      'phrase',
+      r,
+      [1, 2, 3].map((s) => H.readingOf('phrase', S.write(dee.writer, dee.phrase, s))),
+    ),
+    H.makeSketch('page', r, [H.readingOf('page', S.write(dee.writer, 'the quick brown fox', 1))]),
+  ];
   const input = U.unlockInput('dee', r, dee.password);
   const { blind, blinded } = U.blindInput(input);
   const begin = await c.post('/api/auth/register/begin', { username: 'dee', blinded: b64url(blinded) });
@@ -150,14 +164,23 @@ test('a held name and a challenge both expire', async () => {
   assert.equal((await c.get('/api/auth/name/gus')).data.free, false);
   const later = Date.now() + config.auth.pendingTtlMs + 1;
   assert.equal(isHeld('gus', later), false);
-  assert.throws(() => takeHeld('gus', begin.data.nonce, later), (e) => e.code === 'not_held');
+  assert.throws(
+    () => takeHeld('gus', begin.data.nonce, later),
+    (e) => e.code === 'not_held',
+  );
   sweepHeld(later);
   assert.equal(isHeld('gus'), false, 'swept');
   holdName('gus', 'x'); // and it can be held again
   // a challenge past its time is refused, and used up
   const { nonce } = issueNonce('login', 'someone');
-  assert.throws(() => takeNonce(nonce, 'login', 'someone', Date.now() + config.auth.nonceTtlMs + 1), (e) => e.code === 'bad_nonce');
-  assert.throws(() => takeNonce(nonce, 'login', 'someone'), (e) => e.code === 'bad_nonce');
+  assert.throws(
+    () => takeNonce(nonce, 'login', 'someone', Date.now() + config.auth.nonceTtlMs + 1),
+    (e) => e.code === 'bad_nonce',
+  );
+  assert.throws(
+    () => takeNonce(nonce, 'login', 'someone'),
+    (e) => e.code === 'bad_nonce',
+  );
 });
 
 test('no password: name, phrase and hand open it; turning a password backup on makes it needed', async () => {
@@ -179,7 +202,12 @@ test('no password: name, phrase and hand open it; turning a password backup on m
   const keyring = U.newKeyring('gil', gil.K, U.unlockKey(U.finalizeOutput(input, blind, fromB64url(ev.data.evaluated[0], 32)), kdf), kdf, { password: true });
   const put = async (signer, purpose = 'keyring') => {
     const ch = await c.post('/api/auth/challenge', { purpose });
-    return c.put('/api/auth/keyring', { nonce: ch.data.nonce, origin: c.origin, keyring, proof: b64url(K.authProof(signer, { purpose: 'keyring', origin: c.origin, nonce: fromB64url(ch.data.nonce, 32), username: '' })) });
+    return c.put('/api/auth/keyring', {
+      nonce: ch.data.nonce,
+      origin: c.origin,
+      keyring,
+      proof: b64url(K.authProof(signer, { purpose: 'keyring', origin: c.origin, nonce: fromB64url(ch.data.nonce, 32), username: '' })),
+    });
   };
   assert.equal((await put(K.skFromK(new Uint8Array(32).fill(4)))).status, 401, 'another key cannot re-lock it');
   assert.equal((await put(gil.sk, 'sketch')).data.code, 'bad_nonce', 'a challenge for another purpose does not do');

@@ -17,14 +17,28 @@ export default function ThemeToggle() {
     try {
       if (t === 'auto') localStorage.removeItem(KEY);
       else localStorage.setItem(KEY, t);
-    } catch { /* not remembered */ }
+    } catch {
+      /* not remembered */
+    }
     setTheme(t);
     window.dispatchEvent(new Event('penpals:theme'));
   }
 
   return (
     <button type="button" className="quiet theme-toggle" onClick={next} title="Colour theme: auto follows your system">
-      {theme === 'auto' ? <>◐ <Hand>Auto</Hand></> : theme === 'dark' ? <>☾ <Hand>Dark</Hand></> : <>☀ <Hand>Light</Hand></>}
+      {theme === 'auto' ? (
+        <>
+          ◐ <Hand>Auto</Hand>
+        </>
+      ) : theme === 'dark' ? (
+        <>
+          ☾ <Hand>Dark</Hand>
+        </>
+      ) : (
+        <>
+          ☀ <Hand>Light</Hand>
+        </>
+      )}
     </button>
   );
 }

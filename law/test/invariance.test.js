@@ -12,7 +12,9 @@ const T = (c) => (c ? EXP8[Math.min(c[2] >> 2, 2047)] : 255);
 
 // The same straight motion (vx, vy tenths per ms), sampled every `period` ms.
 function line(period, vx, vy, ms = 1600) {
-  const x = [], y = [], t = [];
+  const x = [],
+    y = [],
+    t = [];
   for (let tt = 0; tt <= ms; tt += period) {
     x.push(100 + vx * tt);
     y.push(100 + vy * tt);
@@ -29,7 +31,11 @@ test('sampling rate does not change the ink: the same motion at 62.5, 125 and 25
   assert.equal(h[1], h[2]);
   // diagonally, rounding moves a stamp by at most a half-tenth: the ink differs by under 2/255 on average
   const m = [16, 8, 4].map((p) => cellsOf(line(p, 2, 1)));
-  for (const [a, b] of [[0, 1], [1, 2], [0, 2]]) {
+  for (const [a, b] of [
+    [0, 1],
+    [1, 2],
+    [0, 2],
+  ]) {
     const keys = new Set([...m[a].keys(), ...m[b].keys()]);
     let sum = 0;
     for (const k of keys) sum += Math.abs(T(m[a].get(k)) - T(m[b].get(k)));
@@ -42,14 +48,26 @@ test('sampling rate does not change the ink: the same motion at 62.5, 125 and 25
 
 test('a dwell spreads about evenly in every direction (isotropy)', () => {
   const n = 120;
-  const dwell = decodeActs(encodeActs({
-    orgX: 20, orgY: 20,
-    strokes: [{ hasP: false, kind: 0, synthP: false, x: Array(n).fill(500), y: Array(n).fill(500), t: Array.from({ length: n }, (_, i) => i * 10), p: null, pens: [{ at: 0, ...PENS.medium }] }],
-  }));
+  const dwell = decodeActs(
+    encodeActs({
+      orgX: 20,
+      orgY: 20,
+      strokes: [{ hasP: false, kind: 0, synthP: false, x: Array(n).fill(500), y: Array(n).fill(500), t: Array.from({ length: n }, (_, i) => i * 10), p: null, pens: [{ at: 0, ...PENS.medium }] }],
+    }),
+  );
   for (const key of ['iso1', 'iso2', 'iso3']) {
     const m = cellsOf(dwell, key);
     const c = 2 * 20 + 100;
-    const radii = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]].map(([dx, dy]) => {
+    const radii = [
+      [1, 0],
+      [1, 1],
+      [0, 1],
+      [-1, 1],
+      [-1, 0],
+      [-1, -1],
+      [0, -1],
+      [1, -1],
+    ].map(([dx, dy]) => {
       let r = 0;
       while ((m.get(`${c + dy * (r + 1)},${c + dx * (r + 1)}`)?.[2] ?? 0) >= 12) r++;
       return dx && dy ? r * Math.SQRT2 : r;

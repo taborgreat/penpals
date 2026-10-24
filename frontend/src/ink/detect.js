@@ -89,10 +89,7 @@ function boundaryPoints(labels, label, width, height) {
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
       if (labels[i] !== label) continue;
-      const onEdge =
-        x === 0 || y === 0 || x === width - 1 || y === height - 1 ||
-        labels[i - 1] !== label || labels[i + 1] !== label ||
-        labels[i - width] !== label || labels[i + width] !== label;
+      const onEdge = x === 0 || y === 0 || x === width - 1 || y === height - 1 || labels[i - 1] !== label || labels[i + 1] !== label || labels[i - width] !== label || labels[i + width] !== label;
       if (onEdge) points.push({ x, y });
     }
   }
@@ -224,7 +221,10 @@ function plausible(quad, blobArea) {
     const a = quad[(i + 3) % 4];
     const b = quad[i];
     const c = quad[(i + 1) % 4];
-    const v1x = a.x - b.x, v1y = a.y - b.y, v2x = c.x - b.x, v2y = c.y - b.y;
+    const v1x = a.x - b.x,
+      v1y = a.y - b.y,
+      v2x = c.x - b.x,
+      v2y = c.y - b.y;
     const cos = (v1x * v2x + v1y * v2y) / (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y) || 1);
     const degrees = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
     if (degrees < 30 || degrees > 150) return false;

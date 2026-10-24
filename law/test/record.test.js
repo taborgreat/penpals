@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeInk, makeOpen, checkInkBody, verifySealed, verifySeedFor, verifyOpenFor, regrow, makeLogin, checkLoginBody } from '../record.js';
+import { makeInk, makeOpen, checkInkBody, verifySealed, verifySeedFor, regrow, makeLogin, checkLoginBody } from '../record.js';
 import { verifyBook, verifyProof } from '../verify.js';
 import { skFromK, publicKeyOf, newSheetId, sheetSeed, proofOf, SHEET_ZERO } from '../keys.js';
 import { b64url, fromB64url, jcs } from '../tags.js';
@@ -29,7 +29,7 @@ test('a sealed record checks, and any change to it does not', () => {
   assert.throws(() => verifySeedFor(line.ink, sheetSeed(sk2, sheet)), /seed/);
 });
 
-test('the paper is the key\'s: regrowing with the seed gives exactly the sealed facts', () => {
+test("the paper is the key's: regrowing with the seed gives exactly the sealed facts", () => {
   const sheet = newSheetId();
   const { line, seed } = makeInk({ sk, pk, sheet, use: 'book', family, acts });
   assert.equal(regrow(line.ink, seed).ok, true);
@@ -59,11 +59,29 @@ test('a .book verifies offline: sealed lines, an open sheet regrown, and tamperi
   const page = makeInk({ sk, pk, sheet: newSheetId(), use: 'book', family, acts });
   const pageLine = { id: 'k_000002', made: '2026-10-23T00:00:01.000Z', ...page.line };
   const later = { id: 'k_000003', made: '2026-10-23T00:00:02.000Z', open: page.line.ink.sheet, ref: 'k_000002', ...makeOpen(sk, page.D, page.line.ink.sheet, page.seed) };
-  const head = { book: 2, name, key: b64url(pk), law: 2, version: 3, signature: 'k_000001', paperFamily: family, home: 'home', nextItem: 2, pages: { home: { background: '#ffffff', items: [{ id: 'i1', ink: 'k_000002', x: 10, y: 10, scale: 64 }] } } };
+  const head = {
+    book: 2,
+    name,
+    key: b64url(pk),
+    law: 2,
+    version: 3,
+    signature: 'k_000001',
+    paperFamily: family,
+    home: 'home',
+    nextItem: 2,
+    pages: { home: { background: '#ffffff', items: [{ id: 'i1', ink: 'k_000002', x: 10, y: 10, scale: 64 }] } },
+  };
   const text = [head, sigLine, pageLine, later].map((l) => JSON.stringify(l)).join('\n') + '\n';
   const report = verifyBook(text);
   assert.equal(report.ok, true, JSON.stringify(report.problems.concat(report.results.filter((r) => r.error).map((r) => r.error))));
-  assert.deepEqual(report.results.map((r) => [r.sealed, r.open, r.regrown]), [[true, true, true], [true, true, true], [false, true, null]]);
+  assert.deepEqual(
+    report.results.map((r) => [r.sealed, r.open, r.regrown]),
+    [
+      [true, true, true],
+      [true, true, true],
+      [false, true, null],
+    ],
+  );
   // one changed point in the page's acts: that line fails, the book does not check
   const acts2 = fromB64url(page.line.ink.acts);
   acts2[acts2.length - 1] ^= 1;

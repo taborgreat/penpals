@@ -30,11 +30,7 @@ export default function Write() {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <p>Log in first to write a letter.</p>;
-  return (
-    <KeyGate>
-      {(writer) => <Writer key={writer.publicKey} writer={writer} user={user} />}
-    </KeyGate>
-  );
+  return <KeyGate>{(writer) => <Writer key={writer.publicKey} writer={writer} user={user} />}</KeyGate>;
 }
 
 function Writer({ writer, user }) {
@@ -55,7 +51,8 @@ function Writer({ writer, user }) {
 
   // Letters are written on your book's paper family (its fibers are each sheet's own).
   useEffect(() => {
-    api.get(`/api/books/${encodeURIComponent(user.username)}`)
+    api
+      .get(`/api/books/${encodeURIComponent(user.username)}`)
       .then((d) => setFamily(d.skeleton.paperFamily ?? DEFAULT_FAMILY))
       .catch(() => setFamily(DEFAULT_FAMILY));
   }, [user.username]);
@@ -139,46 +136,66 @@ function Writer({ writer, user }) {
       <div className="stack narrow">
         <h1>{saved.sentAt ? `Sent to @${saved.to}` : 'On your profile'}</h1>
         <p className="meta">
-          {saved.kind === 'pad' ? `sealed by your key · ${kb(saved.bytes)} of strokes` : saved.strokesUrl ? `${saved.strokeCount} strokes, ${kb(saved.strokesBytes)}` : kb(saved.bytes)} · loaded back from the server, exactly as a recipient sees it
+          {saved.kind === 'pad' ? `sealed by your key · ${kb(saved.bytes)} of strokes` : saved.strokesUrl ? `${saved.strokeCount} strokes, ${kb(saved.strokesBytes)}` : kb(saved.bytes)} · loaded back
+          from the server, exactly as a recipient sees it
         </p>
         {!kept && <p className="muted">Your profile is full, so no copy was kept there.</p>}
         <LetterView letter={saved} />
         <SendControl letter={saved} defaultTo={presetTo} onSent={setSaved} />
         <p>
           <Link to={`/u/${user.username}`}>your profile</Link> ·{' '}
-          <button type="button" onClick={reset}>write another</button>
+          <button type="button" onClick={reset}>
+            write another
+          </button>
         </p>
       </div>
     );
   }
 
   const ready = mode === 'pad' ? strokes > 0 : !!photo;
-  const summary = mode === 'photo' && preview ? (!photo ? 'updating…' : [
-    `ink ${kb(photo.png.size)}`,
-    photo.strokesBlob && `strokes ${kb(photo.strokesBlob.size)} (${photo.strokeCount} strokes)`,
-    photo.sourceBytes && `photo was ${kb(photo.sourceBytes)}`,
-    `${photo.ms} ms`,
-  ].filter(Boolean).join(' · ')) : null;
+  const summary =
+    mode === 'photo' && preview
+      ? !photo
+        ? 'updating…'
+        : [
+            `ink ${kb(photo.png.size)}`,
+            photo.strokesBlob && `strokes ${kb(photo.strokesBlob.size)} (${photo.strokeCount} strokes)`,
+            photo.sourceBytes && `photo was ${kb(photo.sourceBytes)}`,
+            `${photo.ms} ms`,
+          ]
+            .filter(Boolean)
+            .join(' · ')
+      : null;
 
   return (
     <div className={`write ${mode}`}>
       <h1 className="sr-only">Write a letter</h1>
       <div className="write-head">
         <div className="tabs" role="group" aria-label="How to write">
-          <button type="button" aria-pressed={mode === 'pad'} onClick={() => switchMode('pad')}>Draw on screen</button>
-          <button type="button" aria-pressed={mode === 'photo'} onClick={() => switchMode('photo')}>Photograph a page</button>
+          <button type="button" aria-pressed={mode === 'pad'} onClick={() => switchMode('pad')}>
+            Draw on screen
+          </button>
+          <button type="button" aria-pressed={mode === 'photo'} onClick={() => switchMode('photo')}>
+            Photograph a page
+          </button>
         </div>
-        <a href="#letter" className="jump"><Hand>Send ↓</Hand></a>
+        <a href="#letter" className="jump">
+          <Hand>Send ↓</Hand>
+        </a>
       </div>
 
       <section className="write-source">
-        {mode === 'photo'
-          ? <PhotoSource key={session} onResult={onPhoto} />
-          : ink && <Pad key={sheet.sheet} ink={ink} inkColor={color} paper={paper} onPaperChange={setPaper} onWritten={toLetter} onChange={setStrokes} />}
+        {mode === 'photo' ? (
+          <PhotoSource key={session} onResult={onPhoto} />
+        ) : (
+          ink && <Pad key={sheet.sheet} ink={ink} inkColor={color} paper={paper} onPaperChange={setPaper} onWritten={toLetter} onChange={setStrokes} />
+        )}
       </section>
 
       <section className="letter-section" id="letter">
-        <h2><Hand>Your letter</Hand></h2>
+        <h2>
+          <Hand>Your letter</Hand>
+        </h2>
         <div className="row">
           {mode === 'photo' ? (
             <label className="field">
@@ -191,32 +208,43 @@ function Writer({ writer, user }) {
               <InkWell value={color} onChange={setInkColor} />
             </span>
           )}
-          {mode === 'photo' && inkColor && photo?.detectedColor && <button type="button" className="quiet" onClick={() => setInkColor(null)}>use detected</button>}
+          {mode === 'photo' && inkColor && photo?.detectedColor && (
+            <button type="button" className="quiet" onClick={() => setInkColor(null)}>
+              use detected
+            </button>
+          )}
           <label className="field">
             <span>Paper</span>
             <select value={paper} onChange={(e) => setPaper(e.target.value)}>
-              {Object.entries(PAPERS).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}
+              {Object.entries(PAPERS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.name}
+                </option>
+              ))}
             </select>
           </label>
         </div>
         {mode === 'pad' && <p className="muted">On the pad, the colour is the ink in your pen: change it before you write (colours mix while wet).</p>}
-        {mode === 'photo' && (preview ? (
-          <LetterView
-            letter={{
-              inkUrl: preview.png,
-              strokesData: preview.strokesData,
-              display: preview.display,
-              source: preview.source,
-              playable: preview.playable,
-              guides: preview.guides,
-              inkColor: color,
-              paper,
-              from: user.username,
-            }}
-          />
-        ) : (
-          <div className="preview-empty" style={{ background: paperCss(paper) }}>Pick a photo and your letter appears here.</div>
-        ))}
+        {mode === 'photo' &&
+          (preview ? (
+            <LetterView
+              letter={{
+                inkUrl: preview.png,
+                strokesData: preview.strokesData,
+                display: preview.display,
+                source: preview.source,
+                playable: preview.playable,
+                guides: preview.guides,
+                inkColor: color,
+                paper,
+                from: user.username,
+              }}
+            />
+          ) : (
+            <div className="preview-empty" style={{ background: paperCss(paper) }}>
+              Pick a photo and your letter appears here.
+            </div>
+          ))}
         {summary && <p className="meta">{summary}</p>}
 
         <div className="send-box">

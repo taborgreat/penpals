@@ -53,7 +53,7 @@ function remember(account) {
 
 const saveNames = () => writeJson(namesFile, Object.fromEntries([...byName].sort()));
 
-export const getAccount = (id) => (id ? byId.get(String(id)) ?? null : null);
+export const getAccount = (id) => (id ? (byId.get(String(id)) ?? null) : null);
 export const findByName = (name) => getAccount(byName.get(String(name ?? '').toLowerCase()));
 export const findByKey = (key) => getAccount(byKey.get(String(key ?? '')));
 export const allAccounts = () => [...byId.values()];

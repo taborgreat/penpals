@@ -23,8 +23,20 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,19}$/;
 const freshPhrase = () => Array.from(crypto.getRandomValues(new Uint32Array(4)), (v) => wordlist[v % 2048]).join(' ');
 const guessDevice = () => (window.matchMedia?.('(pointer: coarse)').matches && window.innerWidth < 800 ? 'phone' : 'desktop');
 const store = {
-  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: fine */ } },
+  get: (k) => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set: (k, v) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch {
+      /* private mode: fine */
+    }
+  },
 };
 
 async function save(sample) {
@@ -36,7 +48,15 @@ async function save(sample) {
 
 // Strokes of a saved sample, back in page units (to trace over).
 function strokesOf(actsB64) {
-  const bytes = Uint8Array.from(atob(actsB64.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(actsB64.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+  const bytes = Uint8Array.from(
+    atob(
+      actsB64
+        .replace(/-/g, '+')
+        .replace(/_/g, '/')
+        .padEnd(Math.ceil(actsB64.length / 4) * 4, '='),
+    ),
+    (c) => c.charCodeAt(0),
+  );
   const rec = decodeActs(bytes);
   return rec.strokes.map((s) => ({ points: [...s.x].map((x, i) => ({ x: rec.orgX + x / 10, y: rec.orgY + s.y[i] / 10 })) }));
 }
@@ -51,8 +71,17 @@ export default function HandLab() {
   const [msg, setMsg] = useState(null);
   const [corpusLetters, setCorpusLetters] = useState(null);
 
-  const refresh = useCallback(() => fetch('/__lab/list').then((r) => r.json()).then(setList).catch(() => setList([])), []);
-  useEffect(() => { refresh(); }, [refresh]);
+  const refresh = useCallback(
+    () =>
+      fetch('/__lab/list')
+        .then((r) => r.json())
+        .then(setList)
+        .catch(() => setList([])),
+    [],
+  );
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
   useEffect(() => {
     store.set('penpals.lab.person', person);
     setPhrase(store.get(`penpals.lab.phrase.${person}`) ?? list.find((s) => s.person === person && s.task === 'B')?.text ?? '');
@@ -77,7 +106,17 @@ export default function HandLab() {
     try {
       const acts = strokesToActs(strokes, PEN);
       if (!acts) throw new Error('nothing written');
-      const file = await save({ person, device, session: task.task === 'trace' || task.task === 'impostor' ? 1 : session, task: task.task, text: task.text, target: task.target, arm: task.arm, acts: b64url(acts), ...extra });
+      const file = await save({
+        person,
+        device,
+        session: task.task === 'trace' || task.task === 'impostor' ? 1 : session,
+        task: task.task,
+        text: task.text,
+        target: task.target,
+        arm: task.arm,
+        acts: b64url(acts),
+        ...extra,
+      });
       setMsg(`Saved ${file}`);
       setTask(null);
       refresh();
@@ -135,9 +174,8 @@ export default function HandLab() {
     <div className="stack" style={{ maxWidth: 1040, margin: '0 auto' }}>
       <h1>Hand lab</h1>
       <p className="muted">
-        Phase 0 of Living Ink: does a hand, read through the ink on the calibration paper, reliably open a key, and not for a tracer or
-        a stitcher? Each person writes about ten sessions on a phone (thumb, write mode with the chase) and ten on a desktop (mouse or pen).
-        Samples are saved to <code>law/lab/samples/</code> on this computer; nothing goes to the site.
+        Phase 0 of Living Ink: does a hand, read through the ink on the calibration paper, reliably open a key, and not for a tracer or a stitcher? Each person writes about ten sessions on a phone
+        (thumb, write mode with the chase) and ten on a desktop (mouse or pen). Samples are saved to <code>law/lab/samples/</code> on this computer; nothing goes to the site.
       </p>
 
       <div className="row" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
@@ -155,51 +193,85 @@ export default function HandLab() {
         </label>
         <label className="field" style={{ flex: 1, minWidth: 260 }}>
           <span>{person || 'This person'}'s secret phrase (written every session, the same each time)</span>
-          <input value={phrase} onChange={(e) => { setPhrase(e.target.value); store.set(`penpals.lab.phrase.${person}`, e.target.value); }} placeholder="a short phrase only they would write" />
+          <input
+            value={phrase}
+            onChange={(e) => {
+              setPhrase(e.target.value);
+              store.set(`penpals.lab.phrase.${person}`, e.target.value);
+            }}
+            placeholder="a short phrase only they would write"
+          />
         </label>
       </div>
       <p className="hint">In the real sign-in this phrase is never typed, shown or sent. The lab keeps its text only so the stitcher attack can be tested.</p>
 
-      {!valid ? <p>Pick a person name (letters, numbers, dashes).</p> : (
+      {!valid ? (
+        <p>Pick a person name (letters, numbers, dashes).</p>
+      ) : (
         <>
-          <h2>Session {session} on {device}</h2>
+          <h2>
+            Session {session} on {device}
+          </h2>
           <div className="row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" disabled={doneNow('A')} onClick={() => start({ task: 'A', text: freshPhrase() })}>{doneNow('A') ? '✓ ' : ''}A: a fresh phrase</button>
-            <button type="button" disabled={doneNow('B') || phrase.trim().split(/\s+/).length < 2} onClick={() => start({ task: 'B', text: phrase.trim() })}>{doneNow('B') ? '✓ ' : ''}B: your phrase</button>
+            <button type="button" disabled={doneNow('A')} onClick={() => start({ task: 'A', text: freshPhrase() })}>
+              {doneNow('A') ? '✓ ' : ''}A: a fresh phrase
+            </button>
+            <button type="button" disabled={doneNow('B') || phrase.trim().split(/\s+/).length < 2} onClick={() => start({ task: 'B', text: phrase.trim() })}>
+              {doneNow('B') ? '✓ ' : ''}B: your phrase
+            </button>
             {PAGE_SESSIONS.includes(session) && (
-              <button type="button" disabled={doneNow('PAGE')} onClick={() => start({ task: 'PAGE', text: CALIBRATION_TEXT })}>{doneNow('PAGE') ? '✓ ' : ''}The calibration page</button>
+              <button type="button" disabled={doneNow('PAGE')} onClick={() => start({ task: 'PAGE', text: CALIBRATION_TEXT })}>
+                {doneNow('PAGE') ? '✓ ' : ''}The calibration page
+              </button>
             )}
           </div>
           <p className="hint">Do A and B in each session{PAGE_SESSIONS.includes(session) ? ', and the page' : ''}. B moves the session on, so do it last.</p>
 
           <h2>Once per person (on a desktop)</h2>
           <div className="row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" disabled={hasCorpus} onClick={() => start({ task: 'corpus' })}>{hasCorpus ? '✓ ' : ''}Public writing: the alphabet and a pangram</button>
+            <button type="button" disabled={hasCorpus} onClick={() => start({ task: 'corpus' })}>
+              {hasCorpus ? '✓ ' : ''}Public writing: the alphabet and a pangram
+            </button>
           </div>
           <h2>Attacks (on a desktop)</h2>
           <div className="row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {people.filter((p) => phraseOf(p)).map((p) => (
-              <button key={p} type="button" onClick={() => start({ task: 'impostor', target: p, text: phraseOf(p) })}>Write {p}'s phrase</button>
-            ))}
+            {people
+              .filter((p) => phraseOf(p))
+              .map((p) => (
+                <button key={p} type="button" onClick={() => start({ task: 'impostor', target: p, text: phraseOf(p) })}>
+                  Write {p}'s phrase
+                </button>
+              ))}
           </div>
           {traceable.length > 0 && (
             <label className="field" style={{ marginTop: 8 }}>
               <span>Trace someone's sample</span>
-              <select value="" onChange={async (e) => {
-                const s = traceable.find((x) => x.file === e.target.value);
-                if (!s) return;
-                const full = await fetch(`/__lab/sample?file=${encodeURIComponent(s.file)}`).then((r) => r.json());
-                start({ task: 'trace', target: s.person, arm: s.task, text: s.text, background: strokesOf(full.acts) });
-              }}>
+              <select
+                value=""
+                onChange={async (e) => {
+                  const s = traceable.find((x) => x.file === e.target.value);
+                  if (!s) return;
+                  const full = await fetch(`/__lab/sample?file=${encodeURIComponent(s.file)}`).then((r) => r.json());
+                  start({ task: 'trace', target: s.person, arm: s.task, text: s.text, background: strokesOf(full.acts) });
+                }}
+              >
                 <option value="">— pick a sample —</option>
-                {traceable.map((s) => <option key={s.file} value={s.file}>{s.person} · {s.task} · {s.device} · session {s.session}</option>)}
+                {traceable.map((s) => (
+                  <option key={s.file} value={s.file}>
+                    {s.person} · {s.task} · {s.device} · session {s.session}
+                  </option>
+                ))}
               </select>
             </label>
           )}
         </>
       )}
 
-      {msg && <p className={msg.startsWith('Not') ? 'error' : 'muted'} role="status">{msg}</p>}
+      {msg && (
+        <p className={msg.startsWith('Not') ? 'error' : 'muted'} role="status">
+          {msg}
+        </p>
+      )}
 
       {task && task.task !== 'corpus' && (device !== 'phone' || task.task === 'trace' || task.task === 'impostor') && (
         <section>
@@ -214,7 +286,9 @@ export default function HandLab() {
             busy={busy}
             onSave={(strokes) => finish(strokes)}
           />
-          <button type="button" className="quiet" onClick={() => setTask(null)}>Cancel</button>
+          <button type="button" className="quiet" onClick={() => setTask(null)}>
+            Cancel
+          </button>
         </section>
       )}
 
@@ -233,13 +307,20 @@ export default function HandLab() {
               <LabPad key="pangram" width={1000} height={300} baselines={[190]} busy={busy} onSave={finishCorpus} />
             </>
           )}
-          <button type="button" className="quiet" onClick={() => { setTask(null); setCorpusLetters(null); }}>Cancel</button>
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => {
+              setTask(null);
+              setCorpusLetters(null);
+            }}
+          >
+            Cancel
+          </button>
         </section>
       )}
 
-      {task && ['A', 'B', 'PAGE'].includes(task.task) && device === 'phone' && (
-        <PhoneTask task={task} busy={busy} onSave={(strokes) => finish(strokes)} onCancel={() => setTask(null)} />
-      )}
+      {task && ['A', 'B', 'PAGE'].includes(task.task) && device === 'phone' && <PhoneTask task={task} busy={busy} onSave={(strokes) => finish(strokes)} onCancel={() => setTask(null)} />}
 
       <h2>Collected</h2>
       <Summary list={list} />
@@ -247,13 +328,14 @@ export default function HandLab() {
   );
 }
 
-const taskTitle = (t) => ({
-  A: 'A: write this fresh phrase',
-  B: 'B: write your phrase',
-  PAGE: 'The calibration page',
-  impostor: `Write ${t.target}'s phrase, in your own hand`,
-  trace: `Trace ${t.target}'s ${t.arm} sample`,
-}[t.task]);
+const taskTitle = (t) =>
+  ({
+    A: 'A: write this fresh phrase',
+    B: 'B: write your phrase',
+    PAGE: 'The calibration page',
+    impostor: `Write ${t.target}'s phrase, in your own hand`,
+    trace: `Trace ${t.target}'s ${t.arm} sample`,
+  })[t.task];
 
 // On a phone: the real write mode with the chase, recording acts through capture.js.
 function PhoneTask({ task, onSave, onCancel }) {
@@ -286,7 +368,9 @@ function PhoneTask({ task, onSave, onCancel }) {
         onDone={onCancel}
       />
       {createPortal(
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1001, pointerEvents: 'none', padding: '6px 10px', background: 'rgba(251,248,241,0.92)', fontSize: 18, textAlign: 'center' }}>
+        <div
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1001, pointerEvents: 'none', padding: '6px 10px', background: 'rgba(251,248,241,0.92)', fontSize: 18, textAlign: 'center' }}
+        >
           {task.text} <span style={{ opacity: 0.6 }}>(▶ Play saves)</span>
         </div>,
         document.body,
@@ -300,15 +384,27 @@ function Summary({ list }) {
   if (!people.length) return <p className="muted">Nothing yet.</p>;
   return (
     <table>
-      <thead><tr><th>person</th><th>phone A/B/page</th><th>desktop A/B/page</th><th>corpus</th><th>attacks made</th></tr></thead>
+      <thead>
+        <tr>
+          <th>person</th>
+          <th>phone A/B/page</th>
+          <th>desktop A/B/page</th>
+          <th>corpus</th>
+          <th>attacks made</th>
+        </tr>
+      </thead>
       <tbody>
         {people.map((p) => {
           const n = (d, t) => list.filter((s) => s.person === p && (d === 'desktop' ? s.device !== 'phone' : s.device === d) && s.task === t).length;
           return (
             <tr key={p}>
               <td>{p}</td>
-              <td>{n('phone', 'A')}/{n('phone', 'B')}/{n('phone', 'PAGE')}</td>
-              <td>{n('desktop', 'A')}/{n('desktop', 'B')}/{n('desktop', 'PAGE')}</td>
+              <td>
+                {n('phone', 'A')}/{n('phone', 'B')}/{n('phone', 'PAGE')}
+              </td>
+              <td>
+                {n('desktop', 'A')}/{n('desktop', 'B')}/{n('desktop', 'PAGE')}
+              </td>
               <td>{list.some((s) => s.person === p && s.task === 'corpus') ? '✓' : ''}</td>
               <td>{list.filter((s) => s.person === p && (s.task === 'impostor' || s.task === 'trace')).length}</td>
             </tr>

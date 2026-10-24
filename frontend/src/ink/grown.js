@@ -51,7 +51,11 @@ export const viewAt = (line, views = 0) => {
 const looks = new Map(); // `${sheet}@${scale}:${age}:${views}` → Promise<object URL>
 export function growLook(body, seed, scale, view = { ageH: 0, views: 0 }) {
   const k = `${body.sheet}@${scale}:${view.ageH}:${view.views}`;
-  if (!looks.has(k)) looks.set(k, ask({ type: 'look', body, seed, scale, view }).then(({ box, rgba }) => urlOf(box[2], box[3], rgba)));
+  if (!looks.has(k))
+    looks.set(
+      k,
+      ask({ type: 'look', body, seed, scale, view }).then(({ box, rgba }) => urlOf(box[2], box[3], rgba)),
+    );
   return looks.get(k);
 }
 
@@ -59,5 +63,5 @@ export function growLook(body, seed, scale, view = { ageH: 0, views: 0 }) {
 // cells); 'relief' lights the top. → { url, width, height }
 export async function depthHere(body, seed, { mode, cut = null, view = { ageH: 0, views: 0 } }) {
   const d = await ask({ type: 'depth', body, seed, mode, cut, view });
-  return { url: await urlOf(d.width, d.height, d.rgba), width: d.width, height: d.height };
+  return { url: await urlOf(d.width, d.height, d.rgba), width: d.width, height: d.height, rgba: new Uint8Array(d.rgba.buffer, d.rgba.byteOffset, d.rgba.byteLength) };
 }

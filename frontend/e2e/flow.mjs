@@ -26,18 +26,32 @@ const server = spawn(process.execPath, ['src/server.js'], {
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
-server.stdout.on('data', (d) => { serverLog += d; });
-server.stderr.on('data', (d) => { serverLog += d; });
+server.stdout.on('data', (d) => {
+  serverLog += d;
+});
+server.stderr.on('data', (d) => {
+  serverLog += d;
+});
 await new Promise((resolve, reject) => {
   const t = setTimeout(() => reject(new Error(`server did not start: ${serverLog}`)), 20000);
-  server.stdout.on('data', () => { if (serverLog.includes('listening')) { clearTimeout(t); resolve(); } });
+  server.stdout.on('data', () => {
+    if (serverLog.includes('listening')) {
+      clearTimeout(t);
+      resolve();
+    }
+  });
 });
 
 let vite = null;
 if (process.argv.includes('--dev')) {
   process.env.API_URL = base;
   const { createServer } = await import('vite');
-  vite = await createServer({ root: path.join(root, 'frontend'), configFile: path.join(root, 'frontend', 'vite.config.js'), logLevel: 'error', server: { port: 5199, host: 'localhost', strictPort: true } });
+  vite = await createServer({
+    root: path.join(root, 'frontend'),
+    configFile: path.join(root, 'frontend', 'vite.config.js'),
+    logLevel: 'error',
+    server: { port: 5199, host: 'localhost', strictPort: true },
+  });
   await vite.listen();
   base = 'http://localhost:5199';
   console.log('(through the Vite dev server)');
@@ -84,6 +98,7 @@ async function draw(page, canvas, strokes, ms = 9) {
   // a pad shown in 3D: write where the page is in the view (its middle), by ray onto the page
   const lit = page.locator('.pad-scene canvas.scene-canvas').first();
   if (await lit.isVisible().catch(() => false)) {
+    await lit.evaluate((el) => el.scrollIntoView({ block: 'center' })); // all of it on screen: no stroke falls past the window's edge
     const v = await lit.boundingBox();
     b = { x: v.x + v.width * 0.24, y: v.y + v.height * 0.4, width: v.width * 0.52, height: v.height * 0.22 };
   }
@@ -111,51 +126,90 @@ const tries = { login: 0, unlock: 0 };
 
 // Write the phrase (and type the password, if the account has one) until it opens (a person tries again too).
 // What an element shows on screen (the scene may draw straight into its own
-// canvas, which has no 2D picture to read): `fn(d, w, h)` over its pixels, in the page.
+// canvas, which has no 2D picture to read): `fn(d, w, h)` over its pixels, here
+// (the page decodes the screenshot; the site's CSP allows no eval in it).
 async function onScreen(page, selector, fn) {
   const png = await page.locator(selector).first().screenshot();
-  return page.evaluate(async ({ b64, src }) => {
+  const { w, h, b64 } = await page.evaluate(async (src) => {
     const img = new Image();
-    img.src = `data:image/png;base64,${b64}`;
+    img.src = `data:image/png;base64,${src}`;
     await img.decode();
     const c = document.createElement('canvas');
     c.width = img.width;
     c.height = img.height;
     const g = c.getContext('2d');
     g.drawImage(img, 0, 0);
-    return (0, eval)(`(${src})`)(g.getImageData(0, 0, img.width, img.height).data, img.width, img.height);
-  }, { b64: png.toString('base64'), src: fn.toString() });
+    const d = g.getImageData(0, 0, img.width, img.height).data;
+    let s = '';
+    for (let i = 0; i < d.length; i += 0x8000) s += String.fromCharCode.apply(null, d.subarray(i, i + 0x8000));
+    return { w: img.width, h: img.height, b64: btoa(s) };
+  }, png.toString('base64'));
+  return fn(new Uint8Array(Buffer.from(b64, 'base64')), w, h);
 }
 async function untilOnScreen(page, selector, fn, timeout = 60000) {
-  for (const end = Date.now() + timeout; ; ) {
-    if (await onScreen(page, selector, fn).catch(() => false)) return;
-    if (Date.now() > end) throw new Error(`${selector} never showed what was looked for`);
+  let why = 'not yet';
+  for (const end = Date.now() + timeout; ;) {
+    if (
+      await onScreen(page, selector, fn).catch((err) => {
+        why = err.message.split('\n')[0];
+        return false;
+      })
+    )
+      return;
+    if (Date.now() > end) throw new Error(`${selector} never showed what was looked for (${why})`);
     await page.waitForTimeout(500);
   }
 }
 
 async function openByWriting(page, { unlock, done, password = '' }) {
-  const submit = () => page.getByRole('button', { name: unlock ? 'Unlock' : /Log in/ }).last().click();
+  const submit = () =>
+    page
+      .getByRole('button', { name: unlock ? 'Unlock' : /Log in/ })
+      .last()
+      .click();
   for (let attempt = 1; attempt <= 5; attempt++) {
     if (!unlock) await page.fill('#in-name', 'tabor');
     await draw(page, pad(page), phrase(0.002));
     await submit();
     tries[unlock ? 'unlock' : 'login']++;
-    if (password && await page.getByText('This account also asks for its password.').waitFor({ timeout: 30000 }).then(() => true, () => false)) {
+    if (
+      password &&
+      (await page
+        .getByText('This account also asks for its password.')
+        .waitFor({ timeout: 30000 })
+        .then(
+          () => true,
+          () => false,
+        ))
+    ) {
       await page.fill('#in-pw', password); // the writing is kept: only the password was missing
       await submit();
     }
-    if (await done().then(() => true, () => false)) return;
-    console.log(`  attempt ${attempt}:`, await page.locator('.signin .error').textContent().catch(() => '?'));
+    if (
+      await done().then(
+        () => true,
+        () => false,
+      )
+    )
+      return;
+    console.log(
+      `  attempt ${attempt}:`,
+      await page
+        .locator('.signin .error')
+        .textContent()
+        .catch(() => '?'),
+    );
   }
   throw new Error(unlock ? 'could not unlock by writing the phrase' : 'could not log in by writing the phrase');
 }
 
 const webgl = !process.argv.includes('--no-webgl');
 const webgpu = webgl && process.argv.includes('--webgpu');
-const browser = await chromium.launch(webgpu
-  ? { channel: 'chromium', args: ['--enable-unsafe-webgpu'] }
-  : { args: webgl ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--disable-webgl', '--disable-webgl2', '--disable-3d-apis'] });
+const browser = await chromium.launch(
+  webgpu
+    ? { channel: 'chromium', args: ['--enable-unsafe-webgpu'] }
+    : { args: webgl ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--disable-webgl', '--disable-webgl2', '--disable-3d-apis'] },
+);
 if (!webgl) console.log('(WebGL off: the flat look everywhere)');
 if (webgpu) console.log('(the full Chromium, on the GPU: the scene with WebGPU)');
 let failed = null;
@@ -175,11 +229,16 @@ try {
   const slow = process.argv.includes('--slow') ? await context.newCDPSession(page) : null;
   if (slow) await slow.send('Emulation.setCPUThrottlingRate', { rate: 8 });
   page.on('pageerror', (err) => console.log('  [page error]', err.message));
-  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`  [console ${m.type()}]`, m.text()); });
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning') console.log(`  [console ${m.type()}]`, m.text());
+  });
   await page.goto(base);
 
   step('register: a name, and no password (the hand is enough)');
-  await page.getByRole('button', { name: /register/i }).first().click();
+  await page
+    .getByRole('button', { name: /register/i })
+    .first()
+    .click();
   await page.fill('#reg-name', 'tabor');
   await page.getByText('free', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Next' }).click();
@@ -200,10 +259,13 @@ try {
     await keep.click();
   }
   step('register: sign the name');
-  await page.getByText('Now sign your name').waitFor({ timeout: 30000 }).catch(async (err) => {
-    console.log('  on the page:', await page.locator('.register .error, .register .meta').allTextContents());
-    throw err;
-  });
+  await page
+    .getByText('Now sign your name')
+    .waitFor({ timeout: 30000 })
+    .catch(async (err) => {
+      console.log('  on the page:', await page.locator('.register .error, .register .meta').allTextContents());
+      throw err;
+    });
   await draw(page, pad(page), scribble(1, 3));
   await page.getByRole('button', { name: 'Done' }).click();
   step('register: the calibration page');
@@ -233,6 +295,7 @@ try {
   await page.getByRole('button', { name: /Write/ }).filter({ hasText: '✎' }).click();
   await page.getByRole('button', { name: 'Oak gall' }).click();
   await draw(page, pad(page), scribble(1, 2));
+  if (await page.getByRole('button', { name: 'Undo', exact: true }).first().isDisabled()) throw new Error('the oak gall did not land on the pad');
   await page.getByRole('button', { name: 'Water brush' }).click();
   await draw(page, pad(page), scribble(1, 1));
   await page.getByRole('button', { name: 'Into the paper' }).click();
@@ -243,10 +306,18 @@ try {
     // the lit scene lies over the pad, always in 3D; a stroke written in it, by ray onto the page
     const lit = page.locator('.pad-scene canvas.scene-canvas');
     await lit.waitFor({ timeout: 30000 });
-    await page.waitForFunction(() => { const c = document.querySelector('.pad-scene canvas.scene-canvas'); return c && c.width > 10; }, null, { timeout: 30000 });
+    await page.waitForFunction(
+      () => {
+        const c = document.querySelector('.pad-scene canvas.scene-canvas');
+        return c && c.width > 10;
+      },
+      null,
+      { timeout: 30000 },
+    );
     const drawnBy = await page.locator('.pad-scene .scene-view').getAttribute('data-gpu');
     if (drawnBy !== (webgpu ? 'webgpu' : 'webgl2')) throw new Error(`the scene is drawn with ${drawnBy}`);
     console.log(`   the lit pad, drawn with ${drawnBy === 'webgpu' ? 'WebGPU' : 'WebGL2'}`);
+    await lit.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     const sb = await lit.boundingBox();
     await page.mouse.move(sb.x + sb.width * 0.4, sb.y + sb.height * 0.5);
     await page.mouse.down();
@@ -257,14 +328,27 @@ try {
     // show the moments of your own sheet as it is written: its ink banded by when it went down
     // (counted by the view: the candles flicker, so the pixels are no measure)
     await page.locator('.scene-tools-host').getByRole('button', { name: 'Moments' }).click();
-    await page.waitForFunction(() => Number(document.querySelector('.pad-scene .scene-view')?.dataset.banded) > 0, null, { timeout: 60000 });
+    await page
+      .waitForFunction(() => Number(document.querySelector('.pad-scene .scene-view')?.dataset.banded) > 0, null, { timeout: 60000 })
+      .catch(async (err) => {
+        const v = page.locator('.pad-scene .scene-view');
+        const [banded, timed] = [await v.getAttribute('data-banded'), await v.getAttribute('data-timed')];
+        throw new Error(`the moments never showed (${banded} cells dark of ${timed} with a moment): ${err.message}`);
+      });
     const padBands = await page.locator('.pad-scene .scene-view').getAttribute('data-banded');
     await page.locator('.scene-tools-host').getByRole('button', { name: 'Moments' }).click();
     console.log(`   the pad shows the moments of what is written so far (${padBands} cells in dark bands)`);
     // low power: the scene stands down to the flat look, and comes back on the charger
-    await page.evaluate(() => { e2eBattery.charging = false; e2eBattery.level = 0.1; e2eBattery.dispatchEvent(new Event('chargingchange')); });
+    await page.evaluate(() => {
+      window.e2eBattery.charging = false;
+      window.e2eBattery.level = 0.1;
+      window.e2eBattery.dispatchEvent(new Event('chargingchange'));
+    });
     await page.locator('.pad-scene').waitFor({ state: 'detached', timeout: 30000 });
-    await page.evaluate(() => { e2eBattery.charging = true; e2eBattery.dispatchEvent(new Event('chargingchange')); });
+    await page.evaluate(() => {
+      window.e2eBattery.charging = true;
+      window.e2eBattery.dispatchEvent(new Event('chargingchange'));
+    });
     await page.locator('.pad-scene canvas.scene-canvas').waitFor({ timeout: 30000 });
     console.log('   on low battery the pad goes flat; charging, the scene is back');
   } else {
@@ -276,7 +360,14 @@ try {
   await page.locator('.journal-page .ink-item').first().waitFor({ timeout: 60000 });
   const look = await lookReply;
   if (!/\.L2-a0-e0-/.test(look.headers().etag ?? '')) throw new Error(`the look is not a fresh law 2 look: ${look.headers().etag}`);
-  const placed = await page.evaluate(async () => (await (await fetch('/api/books/tabor/ink')).text()).trim().split('\n').map((l) => JSON.parse(l)).at(-1).ink);
+  const placed = await page.evaluate(
+    async () =>
+      (await (await fetch('/api/books/tabor/ink')).text())
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l))
+        .at(-1).ink,
+  );
   if (placed.law !== 2) throw new Error(`new writing should be law 2, not ${placed.law}`);
   const format = Buffer.from(placed.acts, 'base64url')[4];
   const { decodeActs } = await import('penpals-law/v2/acts');
@@ -296,7 +387,8 @@ try {
     console.log('   the journal page shows it in the scene');
     // its page lies under its sheets, not the desk: most of what the view shows is paper
     const paperShare = await onScreen(page, '.journal-scene', (d) => {
-      let paper = 0, all = 0;
+      let paper = 0,
+        all = 0;
       for (let i = 0; i < d.length; i += 4 * 11) {
         all++;
         if (!(Math.abs(d[i] - d[i + 1]) < 8 && Math.abs(d[i + 1] - d[i + 2]) < 8 && d[i] < 200)) paper++; // not the desk's grey
@@ -305,13 +397,57 @@ try {
     });
     if (paperShare < 0.35) throw new Error(`the journal page shows mostly the desk, not its page (${Math.round(paperShare * 100)}% paper)`);
     // and the page itself does not run off to the side
-    const wide = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, view: window.innerWidth, img: [...document.querySelectorAll('img.signature-look')].map((i) => ({ src: i.getAttribute('src'), nat: [i.naturalWidth, i.naturalHeight], css: [Math.round(i.getBoundingClientRect().width), Math.round(i.getBoundingClientRect().height)], style: i.getAttribute('style'), parent: i.parentElement.className + ' ' + (i.parentElement.getAttribute('style') ?? '') })).slice(0, 3), widest: [...document.querySelectorAll('body *')].map((e) => [Math.round(e.getBoundingClientRect().right), e.tagName + '.' + e.className]).sort((x, y) => y[0] - x[0]).slice(0, 4) }));
+    const wide = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth,
+      view: window.innerWidth,
+      img: [...document.querySelectorAll('img.signature-look')]
+        .map((i) => ({
+          src: i.getAttribute('src'),
+          nat: [i.naturalWidth, i.naturalHeight],
+          css: [Math.round(i.getBoundingClientRect().width), Math.round(i.getBoundingClientRect().height)],
+          style: i.getAttribute('style'),
+          parent: i.parentElement.className + ' ' + (i.parentElement.getAttribute('style') ?? ''),
+        }))
+        .slice(0, 3),
+      widest: [...document.querySelectorAll('body *')]
+        .map((e) => [Math.round(e.getBoundingClientRect().right), e.tagName + '.' + e.className])
+        .sort((x, y) => y[0] - x[0])
+        .slice(0, 4),
+    }));
     if (wide.scroll > wide.view + 2) throw new Error(`the page runs ${wide.scroll - wide.view}px off to the side: ${JSON.stringify(wide.widest)} ${JSON.stringify(wide.img)}`);
     await page.locator('.journal-page').screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-journal.png') });
     // your own sheet on the page: its moments too
     await page.locator('.journal-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
     await page.waitForFunction(() => Number(document.querySelector('.journal-scene')?.dataset.banded) > 0, null, { timeout: 60000 });
     console.log(`   and its moments, banded (${await page.locator('.journal-scene').getAttribute('data-banded')} cells)`);
+    // a visitor's page loads by the senses: the journal out of view asks for nothing; scrolled to, it asks for what it shows
+    const visitor = await browser.newContext({ viewport: { width: 1280, height: 150 } }); // (only the top bar fits: the journal is out of view)
+    try {
+      const v = await visitor.newPage();
+      const asked = [];
+      v.on('request', (r) => {
+        if (r.url().includes('/api/books/tabor/look/')) asked.push(r.url());
+      });
+      await v.goto(`${base}/u/tabor`);
+      await v.locator('.journal-scene').waitFor({ state: 'attached', timeout: 60000 });
+      if (await v.locator('.journal-scene').isVisible()) {
+        const top = (await v.locator('.journal-scene').boundingBox()).y;
+        if (top < 150) throw new Error(`the visitor check needs the journal below the fold (it is at ${top})`);
+      }
+      await v.waitForTimeout(3000);
+      if (asked.length) throw new Error(`the journal, out of view, asked for ${asked.length} looks: ${asked.join(' ')}`);
+      const scene = v.waitForRequest((r) => r.url().includes('/api/books/tabor/look/') && r.url().includes('mode=scene'), { timeout: 30000 });
+      await v.locator('.journal-scene').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await scene;
+      await untilOnScreen(v, '.journal-scene', (d) => {
+        let ink = 0;
+        for (let i = 0; i < d.length; i += 4 * 7) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 45) ink++;
+        return ink > 20;
+      });
+      console.log(`   a visitor's journal, out of view, asks for nothing; in view, ${asked.length} request(s): ${asked.map((u) => u.replace(/^.*\/look\/[^?]*/, '')).join(' ')}`);
+    } finally {
+      await visitor.close();
+    }
     await page.getByRole('button', { name: 'Back to editing' }).click();
     await page.locator('.journal-page .ink-item').first().click(); // selected again, for walking back
   } else if (await page.locator('.journal-scene').count()) throw new Error('with WebGL off the journal shows the flat look');
@@ -326,7 +462,14 @@ try {
   await page.locator('.trace dt', { hasText: 'settled' }).waitFor({ timeout: 60000 });
   console.log('  ', (await page.locator('.trace').innerText()).replace(/\s+/g, ' ').slice(0, 220), '…');
   await page.getByRole('button', { name: /^Side view/ }).click();
-  await page.waitForFunction(() => { const i = document.querySelector('.depth-view img'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 60000 });
+  await page.waitForFunction(
+    () => {
+      const i = document.querySelector('.depth-view img');
+      return i && i.complete && i.naturalWidth > 0;
+    },
+    null,
+    { timeout: 60000 },
+  );
   const sideW = await page.locator('.depth-view img').evaluate((i) => `${i.naturalWidth}×${i.naturalHeight}`);
   if (webgl) {
     await page.getByRole('button', { name: 'Scene', exact: true }).click();
@@ -341,15 +484,19 @@ try {
       const mid = [...lum].sort((a, b) => a - b)[lum.length >> 1];
       return lum.filter((v) => v > 1.6 * mid).length;
     };
+    await page.locator('.walk-back-scene').evaluate((el) => el.scrollIntoView({ block: 'center' })); // the drag stays on screen
     await page.waitForTimeout(800);
     const before = await onScreen(page, '.walk-back-scene', paperSeen);
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Cut' }).click();
     const wb = await page.locator('.walk-back-scene canvas.scene-canvas').boundingBox();
-    await page.mouse.move(wb.x + wb.width * 0.2, wb.y + wb.height * 0.5);
+    // across the sheet's middle: one half of it is cut away, however thin the sheet
+    await page.mouse.move(wb.x + wb.width * 0.5, wb.y + wb.height * 0.15);
     await page.mouse.down();
-    await page.mouse.move(wb.x + wb.width * 0.8, wb.y + wb.height * 0.5, { steps: 8 });
+    await page.mouse.move(wb.x + wb.width * 0.5, wb.y + wb.height * 0.85, { steps: 8 });
     await page.mouse.up();
-    await untilOnScreen(page, '.walk-back-scene', new Function('d', `return (${paperSeen})(d) < ${before} * 0.85 - 20;`));
+    await untilOnScreen(page, '.walk-back-scene', (d) => paperSeen(d) < before * 0.85 - 20).catch(async (err) => {
+      throw new Error(`${err.message}: ${await onScreen(page, '.walk-back-scene', paperSeen)} paper pixels after the cut, ${before} before`);
+    });
     console.log(`   side view ${sideW}; the sheet in the scene, its moments banded, cut through`);
   } else console.log(`   side view ${sideW}`);
   await page.getByRole('button', { name: 'Close' }).click();
@@ -386,10 +533,17 @@ try {
   await tab.getByText('On your profile').waitFor({ timeout: 60000 });
   await tab.waitForResponse((r) => r.url().includes('/look') && r.status() === 200, { timeout: 60000 }).catch(() => null);
   if (webgl) {
-    await tab.locator('.letter-scene canvas').waitFor({ timeout: 60000 }).catch(() => null);
+    await tab
+      .locator('.letter-scene canvas')
+      .waitFor({ timeout: 60000 })
+      .catch(() => null);
     await tab.waitForTimeout(1500);
-    const lb = await tab.locator('.pad-letter').first().boundingBox().catch(() => null);
-    console.log(`   the letter in the scene: ${lb ? `${Math.round(lb.width)}×${Math.round(lb.height)}` : 'not shown'}${await tab.locator('.letter-scene').count() ? ', lit' : ''}`);
+    const lb = await tab
+      .locator('.pad-letter')
+      .first()
+      .boundingBox()
+      .catch(() => null);
+    console.log(`   the letter in the scene: ${lb ? `${Math.round(lb.width)}×${Math.round(lb.height)}` : 'not shown'}${(await tab.locator('.letter-scene').count()) ? ', lit' : ''}`);
     if (!lb || lb.width < 50) throw new Error('the letter has no size');
     await tab.locator('.pad-letter').first().scrollIntoViewIfNeeded();
     await tab.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-letter.png') });
@@ -408,7 +562,13 @@ try {
   const file = path.join(dataDir, 'tabor.book');
   await dl.saveAs(file);
   const v = spawnSync(process.execPath, [path.join(root, 'law', 'bin', 'verify.js'), file], { encoding: 'utf8' });
-  console.log(v.stdout.trim().split('\n').map((l) => `  ${l}`).join('\n'));
+  console.log(
+    v.stdout
+      .trim()
+      .split('\n')
+      .map((l) => `  ${l}`)
+      .join('\n'),
+  );
   if (v.status !== 0) throw new Error('the downloaded book does not check');
 
   step('open the .book in the viewer: it checks here too');
@@ -424,8 +584,20 @@ try {
   for (let attempt = 1; ; attempt++) {
     await draw(page, page.locator('.password-setting .pad canvas.ink').first(), phrase(0.002));
     await page.getByRole('button', { name: 'Save' }).click();
-    if (await page.locator('.password-setting strong', { hasText: 'on' }).waitFor({ timeout: 60000 }).then(() => true, () => false)) break;
-    const said = await page.locator('.password-setting .error').textContent().catch(() => '?');
+    if (
+      await page
+        .locator('.password-setting strong', { hasText: 'on' })
+        .waitFor({ timeout: 60000 })
+        .then(
+          () => true,
+          () => false,
+        )
+    )
+      break;
+    const said = await page
+      .locator('.password-setting .error')
+      .textContent()
+      .catch(() => '?');
     if (attempt === 5) throw new Error(`could not add the password: ${said}`);
     console.log(`  attempt ${attempt}:`, said); // (the pad starts again; the passwords stay)
   }
@@ -438,12 +610,21 @@ try {
   if (err.ok) {
     console.log(`\n${err.message}`);
   } else {
-  failed = err;
-  console.error('\nFAILED:', err.message);
-  const shot = path.join(os.tmpdir(), 'penpals-e2e-failed.png');
-  await globalThis.e2ePage?.screenshot({ path: shot, fullPage: true }).then(() => console.error('screenshot:', shot)).catch(() => {});
-  console.error('on the page:', await globalThis.e2ePage?.locator('.error').allTextContents().catch(() => []));
-  console.error(serverLog.split('\n').slice(-20).join('\n'));
+    failed = err;
+    console.error('\nFAILED:', err.message);
+    const shot = path.join(os.tmpdir(), 'penpals-e2e-failed.png');
+    await globalThis.e2ePage
+      ?.screenshot({ path: shot, fullPage: true })
+      .then(() => console.error('screenshot:', shot))
+      .catch(() => {});
+    console.error(
+      'on the page:',
+      await globalThis.e2ePage
+        ?.locator('.error')
+        .allTextContents()
+        .catch(() => []),
+    );
+    console.error(serverLog.split('\n').slice(-20).join('\n'));
   }
 } finally {
   await browser.close();

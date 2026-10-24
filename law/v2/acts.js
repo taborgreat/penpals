@@ -20,10 +20,7 @@
 // A pen act at atAct = i sets the pen from act i on (for the segment i → i+1).
 // The first stroke's first act carries a full pen act (mask 0x3f, or 0x7f with spatter).
 
-import {
-  MAX_STROKES, MAX_ACTS, MAX_DURATION, MAX_GAP, MAX_DT, MAX_ORG, MAX_COORD, MAX_SIZE, MIN_SIZE, MAX_FLEX,
-  MAX_PATH_WORK, STEP_HT, BROAD_T_HT, NIB_BROAD, SCALE_ONE,
-} from '../v1/constants.js';
+import { MAX_STROKES, MAX_ACTS, MAX_DURATION, MAX_GAP, MAX_DT, MAX_ORG, MAX_COORD, MAX_SIZE, MIN_SIZE, MAX_FLEX, MAX_PATH_WORK, STEP_HT, BROAD_T_HT, NIB_BROAD, SCALE_ONE } from '../v1/constants.js';
 import { LawError, ceilDiv } from '../v1/int.js';
 import { MAX_DROPS, DROP_R_MAX } from './constants.js';
 
@@ -136,9 +133,15 @@ export function encodeActs(rec) {
 }
 
 function penMask(pen) {
-  return (pen.nib !== undefined ? 1 : 0) | (pen.size !== undefined ? 2 : 0) | (pen.flex !== undefined ? 4 : 0)
-    | (pen.flow !== undefined ? 8 : 0) | (pen.rgb !== undefined ? 16 : 0) | (pen.angle !== undefined ? 32 : 0)
-    | (pen.spatter !== undefined ? SPATTER : 0);
+  return (
+    (pen.nib !== undefined ? 1 : 0) |
+    (pen.size !== undefined ? 2 : 0) |
+    (pen.flex !== undefined ? 4 : 0) |
+    (pen.flow !== undefined ? 8 : 0) |
+    (pen.rgb !== undefined ? 16 : 0) |
+    (pen.angle !== undefined ? 32 : 0) |
+    (pen.spatter !== undefined ? SPATTER : 0)
+  );
 }
 
 // --- decode (validates every canonical rule) ---
@@ -281,7 +284,7 @@ export function precheck(rec, scale = SCALE_ONE) {
       const widest = pen.size + (pen.nib === 1 ? pen.flex : 0);
       const r = ceilDiv(Math.max(widest, pen.nib === NIB_BROAD ? BROAD_T_HT / 2 : 0) * scale, SCALE_ONE) + 10; // ht, generous
       const cells = (2 * ceilDiv(r, 10) + 2) ** 2;
-      const len = (Math.abs(s.x[i] - s.x[i - 1]) + Math.abs(s.y[i] - s.y[i - 1])) * 2 * scale / SCALE_ONE;
+      const len = ((Math.abs(s.x[i] - s.x[i - 1]) + Math.abs(s.y[i] - s.y[i - 1])) * 2 * scale) / SCALE_ONE;
       const stamps = ceilDiv(len, STEP_HT) + ceilDiv(s.t[i] - s.t[i - 1], 10) + 1;
       work += stamps * cells + (pen.spatter ? MAX_DROPS * drop : 0);
     }
@@ -289,4 +292,3 @@ export function precheck(rec, scale = SCALE_ONE) {
   if (work > MAX_PATH_WORK) throw new LawError('cost', 'this writing is too heavy to simulate');
   return work;
 }
-

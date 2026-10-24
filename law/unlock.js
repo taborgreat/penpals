@@ -60,7 +60,9 @@ export function openKeyring(keyring, username, key) {
     if (o.kind !== 'hand') continue;
     try {
       return xchacha20poly1305(key, fromB64url(o.nonce, 24), aad(username)).decrypt(fromB64url(o.ct));
-    } catch { /* not this one */ }
+    } catch {
+      /* not this one */
+    }
   }
   return null;
 }
@@ -71,11 +73,20 @@ export const evaluateBlinded = (serverKey, blinded) => oprf.blindEvaluate(server
 
 // Shape checks the server applies before storing a keyring (it cannot read it).
 export function checkKeyring(k) {
-  const ok = k && k.v === 1 && k.kdf && k.kdf.alg === KDF.alg && k.kdf.t === KDF.t && k.kdf.m === KDF.m && k.kdf.p === KDF.p
-    && typeof k.kdf.salt === 'string' && fromB64url(k.kdf.salt).length === 16
-    && Array.isArray(k.openers) && k.openers.length >= 1 && k.openers.length <= 4
-    && k.openers.every((o) => o && o.kind === 'hand' && (o.password === undefined || typeof o.password === 'boolean')
-      && fromB64url(o.nonce).length === 24 && fromB64url(o.ct).length === 48);
+  const ok =
+    k &&
+    k.v === 1 &&
+    k.kdf &&
+    k.kdf.alg === KDF.alg &&
+    k.kdf.t === KDF.t &&
+    k.kdf.m === KDF.m &&
+    k.kdf.p === KDF.p &&
+    typeof k.kdf.salt === 'string' &&
+    fromB64url(k.kdf.salt).length === 16 &&
+    Array.isArray(k.openers) &&
+    k.openers.length >= 1 &&
+    k.openers.length <= 4 &&
+    k.openers.every((o) => o && o.kind === 'hand' && (o.password === undefined || typeof o.password === 'boolean') && fromB64url(o.nonce).length === 24 && fromB64url(o.ct).length === 48);
   if (!ok) throw new Error('bad keyring');
   return { v: 1, kdf: { ...k.kdf }, openers: k.openers.map((o) => ({ kind: o.kind, password: o.password !== false, nonce: o.nonce, ct: o.ct })) };
 }

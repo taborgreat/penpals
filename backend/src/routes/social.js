@@ -22,6 +22,8 @@ socialRouter.get('/', (req, res) => {
 // Private: off the homepage, and only friends can see the profile or write to it.
 socialRouter.post('/private', async (req, res) => {
   const value = !!req.body?.private;
-  await updateAccount(req.user.id, (a) => { a.private = value; });
+  await updateAccount(req.user.id, (a) => {
+    a.private = value;
+  });
   res.json({ private: value });
 });

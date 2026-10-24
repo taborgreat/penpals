@@ -27,9 +27,15 @@ function UserMenu() {
   if (!user) return null;
   return (
     <>
-      <Link to={`/u/${user.username}`} className="handle" title="Your profile"><Username name={user.username} /></Link>
-      <NavLink to="/inbox" className="mailbox-link"><Hand>mailbox</Hand></NavLink>
-      <button type="button" className="quiet logout" onClick={logout}><Hand>log out</Hand></button>
+      <Link to={`/u/${user.username}`} className="handle" title="Your profile">
+        <Username name={user.username} />
+      </Link>
+      <NavLink to="/inbox" className="mailbox-link">
+        <Hand>mailbox</Hand>
+      </NavLink>
+      <button type="button" className="quiet logout" onClick={logout}>
+        <Hand>log out</Hand>
+      </button>
     </>
   );
 }
@@ -40,9 +46,15 @@ export default function App() {
     <AuthProvider>
       <header className="site-head">
         <div className="site-head-inner">
-          <Link to="/" className="brand" aria-label="penpals home: the scripters"><span className="stamp"><Hand>penpals</Hand></span></Link>
+          <Link to="/" className="brand" aria-label="penpals home: the scripters">
+            <span className="stamp">
+              <Hand>penpals</Hand>
+            </span>
+          </Link>
           {/* The one thing to do here: write. Everything about you is on the right. */}
-          <NavLink to="/write" className="write-cta"><Hand>Write</Hand></NavLink>
+          <NavLink to="/write" className="write-cta">
+            <Hand>Write</Hand>
+          </NavLink>
           <nav className="nav">
             <UserMenu />
           </nav>
@@ -60,10 +72,46 @@ export default function App() {
           <Route path="/write/:username" element={<Write />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/hand" element={<HandStudio />} />
-          {HandLab && <Route path="/hand-lab" element={<Suspense fallback={null}><HandLab /></Suspense>} />}
-          {LawCheck && <Route path="/law-check" element={<Suspense fallback={null}><LawCheck /></Suspense>} />}
-          {SceneCheck && <Route path="/scene-check" element={<Suspense fallback={null}><SceneCheck /></Suspense>} />}
-          {PadCheck && <Route path="/pad-check" element={<Suspense fallback={null}><PadCheck /></Suspense>} />}
+          {HandLab && (
+            <Route
+              path="/hand-lab"
+              element={
+                <Suspense fallback={null}>
+                  <HandLab />
+                </Suspense>
+              }
+            />
+          )}
+          {LawCheck && (
+            <Route
+              path="/law-check"
+              element={
+                <Suspense fallback={null}>
+                  <LawCheck />
+                </Suspense>
+              }
+            />
+          )}
+          {SceneCheck && (
+            <Route
+              path="/scene-check"
+              element={
+                <Suspense fallback={null}>
+                  <SceneCheck />
+                </Suspense>
+              }
+            />
+          )}
+          {PadCheck && (
+            <Route
+              path="/pad-check"
+              element={
+                <Suspense fallback={null}>
+                  <PadCheck />
+                </Suspense>
+              }
+            />
+          )}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

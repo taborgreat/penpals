@@ -21,6 +21,7 @@
 import * as THREE from 'three';
 import { frame } from './camera.js';
 import { toHalf } from './half.js';
+import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
 
 export const CHUNK = 128; // cells a side
 const APRON = 4; // cells each chunk also holds of its neighbours: edges sample the same values (no seams)
@@ -31,13 +32,14 @@ const PAPER = new THREE.Color(0.965, 0.945, 0.905);
 const DESK = new THREE.Color(0.32, 0.29, 0.26); // the table (plain for now; light-waves grows its wood)
 const WAX = new THREE.Color(0.86, 0.8, 0.66);
 const WICK = new THREE.Color(0.05, 0.04, 0.035);
-const STAGE = 16; // a live upload's largest rectangle: one tile
+const STAGE = TILE; // a live upload's largest rectangle: one tile
+const MAX_RECTS = 64; // live rectangles a chunk queues before it is sent whole instead
 
 // What the scene costs, for the benches (e2e/perf.mjs): frames drawn, the time
 // spent drawing them (copies included; with globalThis.__sceneSync, WebGL2 waits
 // for the GPU too, so the time is the whole frame's), texture bytes uploaded,
 // chunks baked.
-export const stats = { frames: 0, renderMs: 0, uploadBytes: 0, bakes: 0, chunks: 0, prepareMs: 0, mainMs: 0 };
+export const stats = { frames: 0, renderMs: 0, uploadBytes: 0, bakes: 0, chunks: 0, prepareMs: 0, mainMs: 0, tiles: 0, tilesMs: 0 };
 globalThis.__sceneStats = stats;
 const SYNC_PX = new Uint8Array(4);
 
@@ -82,13 +84,20 @@ function generic() {
   const d = new Uint8Array(n * n);
   let s = 0x2545f491;
   const rnd = () => {
-    s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    s >>>= 0;
     return s / 4294967296;
   };
   for (let i = 0; i < n * n; i++) d[i] = 40 + Math.floor(rnd() * 60);
-  for (let k = 0; k < 900; k++) { // a few fibers
-    let x = rnd() * n, y = rnd() * n;
-    const a = rnd() * Math.PI, len = 8 + rnd() * 24;
+  for (let k = 0; k < 900; k++) {
+    // a few fibers
+    let x = rnd() * n,
+      y = rnd() * n;
+    const a = rnd() * Math.PI,
+      len = 8 + rnd() * 24;
     for (let t = 0; t < len; t++) {
       d[(Math.floor(y + n) % n) * n + (Math.floor(x + n) % n)] = 150;
       x += Math.cos(a);
@@ -158,8 +167,12 @@ function stages() {
 
 // A chunk's footprint, written only to the stencil.
 const MASK = new THREE.MeshBasicMaterial({
-  colorWrite: false, depthWrite: false, stencilWrite: true, stencilRef: 1,
-  stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp,
+  colorWrite: false,
+  depthWrite: false,
+  stencilWrite: true,
+  stencilRef: 1,
+  stencilFunc: THREE.AlwaysStencilFunc,
+  stencilZPass: THREE.ReplaceStencilOp,
 });
 
 // Geometry for each level of detail, shared by every chunk.
@@ -173,7 +186,9 @@ const SLIVER = 0.3 / CHUNK;
 function chunkGrid(n) {
   const ts = [...Array.from({ length: n + 1 }, (_, k) => k / n), 1 + SLIVER];
   const m = ts.length;
-  const pos = new Float32Array(m * m * 3), uv = new Float32Array(m * m * 2), index = [];
+  const pos = new Float32Array(m * m * 3),
+    uv = new Float32Array(m * m * 2),
+    index = [];
   for (let j = 0; j < m; j++) {
     for (let i = 0; i < m; i++) {
       const k = j * m + i;
@@ -231,9 +246,17 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   // frame, so the three heavy shaders are made while the page loads, not at the
   // pen's first touch.
   const stand = {
-    heightTex: K.blank.half, colorTex: K.blank.color, detailTex: K.blank.byte, bandTex: K.blank.byte,
-    surfRT: baked.surface, shadeRT: baked.shade, realDetail: 0, cellPx: 1,
-    valid: new THREE.Vector4(2, 2, 3, 3), origin: new THREE.Vector2(), size: 1,
+    heightTex: K.blank.half,
+    colorTex: K.blank.color,
+    detailTex: K.blank.byte,
+    bandTex: K.blank.byte,
+    surfRT: baked.surface,
+    shadeRT: baked.shade,
+    realDetail: 0,
+    cellPx: 1,
+    valid: new THREE.Vector4(2, 2, 3, 3),
+    origin: new THREE.Vector2(),
+    size: 1,
   };
   stand.mats = own ? { chunk: gpu.chunkMaterial(lights, K, stand), surface: gpu.surfaceBake(lights, K, stand), shade: gpu.shadeBake(lights, K, stand) } : mats;
   let warm = new THREE.Mesh(lodGeo[2], stand.mats.chunk);
@@ -277,7 +300,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   function makeChunk(sheet, cx, cy) {
     const n = TEXN * TEXN;
     const c = {
-      cx, cy,
+      cx,
+      cy,
       h: new Uint16Array(n * 4).fill(HALF_ZERO), // heights, half floats: (top, above, depth, flags)
       col: new Uint8Array(n * 4),
       det: new Uint8Array(n),
@@ -296,15 +320,20 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
     c.surfRT = bakeTarget(THREE.HalfFloatType);
     c.shadeRT = bakeTarget(THREE.UnsignedByteType);
     // the part of the chunk inside the sheet's box (with the sliver where the sheet goes on)
-    const s0 = (sheet.x0 - cx * CHUNK) / CHUNK, s1 = (sheet.x0 + sheet.w - cx * CHUNK) / CHUNK;
-    const t0 = (sheet.y0 - cy * CHUNK) / CHUNK, t1 = (sheet.y0 + sheet.h - cy * CHUNK) / CHUNK;
-    const u0 = Math.max(0, s0), u1 = Math.min(1 + SLIVER, s1);
-    const v0 = Math.max(0, t0), v1 = Math.min(1 + SLIVER, t1);
+    const s0 = (sheet.x0 - cx * CHUNK) / CHUNK,
+      s1 = (sheet.x0 + sheet.w - cx * CHUNK) / CHUNK;
+    const t0 = (sheet.y0 - cy * CHUNK) / CHUNK,
+      t1 = (sheet.y0 + sheet.h - cy * CHUNK) / CHUNK;
+    const u0 = Math.max(0, s0),
+      u1 = Math.min(1 + SLIVER, s1);
+    const v0 = Math.max(0, t0),
+      v1 = Math.min(1 + SLIVER, t1);
     // cut only at the sheet's own edges: a pixel on a chunk's edge may be shaded
     // at its centre, just outside, and a cut there would leave a hairline hole
     c.valid = new THREE.Vector4(s0 > 0 ? s0 : -1, t0 > 0 ? t0 : -1, s1 < 1 + SLIVER ? s1 : 2, t1 < 1 + SLIVER ? t1 : 2);
     const size = CHUNK * sheet.cellPx;
-    const left = sheet.origin[0] + (cx * CHUNK - sheet.x0) * sheet.cellPx, top = sheet.origin[1] + (cy * CHUNK - sheet.y0) * sheet.cellPx;
+    const left = sheet.origin[0] + (cx * CHUNK - sheet.x0) * sheet.cellPx,
+      top = sheet.origin[1] + (cy * CHUNK - sheet.y0) * sheet.cellPx;
     c.origin = new THREE.Vector2(left, -top);
     c.size = size;
     if (own) c.mats = { chunk: gpu.chunkMaterial(lights, K, c), surface: gpu.surfaceBake(lights, K, c), shade: gpu.shadeBake(lights, K, c) };
@@ -338,12 +367,18 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   // own and the neighbours whose apron reaches it, with the overlap in the
   // rectangle's cells and in the chunk's texels.
   function eachHolder(sheet, x0, y0, x1, y1, fn) {
-    const kx0 = Math.floor((x0 - CHUNK + APRON) / CHUNK) + 1, kx1 = Math.floor((x1 - 1 + APRON) / CHUNK);
-    const ky0 = Math.floor((y0 - CHUNK + APRON) / CHUNK) + 1, ky1 = Math.floor((y1 - 1 + APRON) / CHUNK);
+    const kx0 = Math.floor((x0 - CHUNK + APRON) / CHUNK) + 1,
+      kx1 = Math.floor((x1 - 1 + APRON) / CHUNK);
+    const ky0 = Math.floor((y0 - CHUNK + APRON) / CHUNK) + 1,
+      ky1 = Math.floor((y1 - 1 + APRON) / CHUNK);
     for (let ky = ky0; ky <= ky1; ky++) {
       for (let kx = kx0; kx <= kx1; kx++) {
-        const ox = kx * CHUNK - APRON, oy = ky * CHUNK - APRON; // the cell at the chunk's texel 0
-        const ax = Math.max(x0, ox), ay = Math.max(y0, oy), bx = Math.min(x1, ox + TEXN), by = Math.min(y1, oy + TEXN);
+        const ox = kx * CHUNK - APRON,
+          oy = ky * CHUNK - APRON; // the cell at the chunk's texel 0
+        const ax = Math.max(x0, ox),
+          ay = Math.max(y0, oy),
+          bx = Math.min(x1, ox + TEXN),
+          by = Math.min(y1, oy + TEXN);
         if (ax < bx && ay < by) fn(chunkAt(sheet, kx, ky), ax, ay, bx, by, ox, oy);
       }
     }
@@ -352,26 +387,43 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   // Cells into the chunks, from a box of half-float heights and RGBA colour
   // (w × h cells, x0, y0 in the sheet's cells), as whole rows.
   function putBox(sheet, x0, y0, w, h, hf, rgba, live) {
-    const cx0 = Math.max(x0, sheet.x0), cy0 = Math.max(y0, sheet.y0);
-    const cx1 = Math.min(x0 + w, sheet.x0 + sheet.w), cy1 = Math.min(y0 + h, sheet.y0 + sheet.h);
+    const cx0 = Math.max(x0, sheet.x0),
+      cy0 = Math.max(y0, sheet.y0);
+    const cx1 = Math.min(x0 + w, sheet.x0 + sheet.w),
+      cy1 = Math.min(y0 + h, sheet.y0 + sheet.h);
     if (cx0 >= cx1 || cy0 >= cy1) return;
     eachHolder(sheet, cx0, cy0, cx1, cy1, (c, ax, ay, bx, by, ox, oy) => {
       const n = bx - ax;
       for (let y = ay; y < by; y++) {
-        const src = (y - y0) * w + (ax - x0), dst = (y - oy) * TEXN + (ax - ox);
+        const src = (y - y0) * w + (ax - x0),
+          dst = (y - oy) * TEXN + (ax - ox);
         c.h.set(hf.subarray(src * 4, (src + n) * 4), dst * 4);
         c.col.set(rgba.subarray(src * 4, (src + n) * 4), dst * 4);
       }
-      if (live && !c.full) c.rects.push(ax - ox, ay - oy, n, by - ay);
-      else c.full = true;
+      if (live && !c.full && c.rects.length < MAX_RECTS * 4) c.rects.push(ax - ox, ay - oy, n, by - ay);
+      else {
+        c.full = true; // (out of sight, live rectangles wait: past a few, the whole chunk goes up once)
+        c.rects.length = 0;
+      }
     });
   }
 
   function slab(sheet) {
-    const w = sheet.w * sheet.cellPx, h = sheet.h * sheet.cellPx;
+    const w = sheet.w * sheet.cellPx,
+      h = sheet.h * sheet.cellPx;
     const geo = new THREE.BufferGeometry();
-    const x0 = sheet.origin[0], y0 = -sheet.origin[1], x1 = x0 + w, y1 = y0 - h, z0 = 0, z1 = -SLAB_PX;
-    const quads = [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]];
+    const x0 = sheet.origin[0],
+      y0 = -sheet.origin[1],
+      x1 = x0 + w,
+      y1 = y0 - h,
+      z0 = 0,
+      z1 = -SLAB_PX;
+    const quads = [
+      [x0, y0, x1, y0],
+      [x1, y0, x1, y1],
+      [x1, y1, x0, y1],
+      [x0, y1, x0, y0],
+    ];
     const pos = [];
     for (const [ax, ay, bx, by] of quads) pos.push(ax, ay, z0, bx, by, z0, bx, by, z1, ax, ay, z0, bx, by, z1, ax, ay, z1);
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -379,8 +431,13 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   }
 
   // Upload what changed and bake what needs it, for every chunk of every sheet.
+  // WebGPU writes a changed rectangle straight from the chunk's arrays into its
+  // texture (each three.js copy is a queue submission of its own); WebGL2 goes
+  // through the staging tile.
+  const device = own ? renderer.backend.device : null;
+  const onGpu = (tex) => (device ? renderer.backend.get(tex).texture : null);
   function prepare() {
-    const st = stages();
+    const st = device ? null : stages();
     for (const s of sheets.values()) {
       for (const c of s.chunks.values()) {
         if (c.full) {
@@ -391,8 +448,27 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
           c.surfDirty = true;
           stats.uploadBytes += TEXN * TEXN * 12;
         } else if (c.rects.length) {
+          const ht = onGpu(c.heightTex),
+            ct = onGpu(c.colorTex);
+          if (device && !(ht && ct)) {
+            // (not on the GPU yet: the whole chunk goes up with its first draw)
+            c.heightTex.needsUpdate = true;
+            c.colorTex.needsUpdate = true;
+            c.rects.length = 0;
+          }
           for (let i = 0; i < c.rects.length; i += 4) {
-            const x = c.rects[i], y = c.rects[i + 1], w = c.rects[i + 2], h = c.rects[i + 3];
+            const x = c.rects[i],
+              y = c.rects[i + 1],
+              w = c.rects[i + 2],
+              h = c.rects[i + 3];
+            const at = (y * TEXN + x) * 4;
+            if (device) {
+              const size = { width: w, height: h };
+              device.queue.writeTexture({ texture: ht, origin: { x, y } }, c.h, { offset: at * c.h.BYTES_PER_ELEMENT, bytesPerRow: TEXN * 4 * c.h.BYTES_PER_ELEMENT, rowsPerImage: h }, size);
+              device.queue.writeTexture({ texture: ct, origin: { x, y } }, c.col, { offset: at, bytesPerRow: TEXN * 4, rowsPerImage: h }, size);
+              stats.uploadBytes += w * h * 12;
+              continue;
+            }
             for (let r = 0; r < h; r++) {
               const from = ((y + r) * TEXN + x) * 4;
               st.h.image.data.set(c.h.subarray(from, from + w * 4), r * STAGE * 4);
@@ -436,12 +512,14 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
     }
     renderer.setRenderTarget(null);
   }
+  // (WebGL2 bakes into one shared target and copies: a chunk's own target would be a
+  // framebuffer of its own to set up; WebGPU's passes are cheap to aim anywhere)
   function bake(c, kind, into) {
     bakeQuad.material = c.mats?.[kind] ?? mats[kind];
     bakeQuad.userData.c = c;
-    renderer.setRenderTarget(baked[kind]);
+    renderer.setRenderTarget(own ? into : baked[kind]);
     renderer.render(bakeScene, bakeCam);
-    renderer.copyTextureToTexture(baked[kind].texture, into.texture);
+    if (!own) renderer.copyTextureToTexture(baked[kind].texture, into.texture);
     stats.bakes++;
   }
 
@@ -499,7 +577,10 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
     setTiles(id, tiles) {
       const s = sheets.get(id);
       if (!s) return;
-      for (const t of tiles) putBox(s, t.tx * 16, t.ty * 16, 16, 16, t.hf ?? EMPTY_TILE, t.rgba, true);
+      const t0 = performance.now();
+      for (const t of tiles) putBox(s, t.tx * TILE, t.ty * TILE, TILE, TILE, t.hf ?? EMPTY_TILE, t.rgba, true);
+      stats.tiles += tiles.length;
+      stats.tilesMs += performance.now() - t0;
     },
     // The paper's own detail (own and open sheets: law/v2/scene.js paperDetail), over the box.
     setDetail(id, detail, box) {
@@ -570,7 +651,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
         flame.material.brightness.value = Math.min(1, l.night) * flick;
       });
       // the shade is baked again when the light has really moved (not for the flicker)
-      const d = lights.sunDir.value, p = lights.candlePos.value;
+      const d = lights.sunDir.value,
+        p = lights.candlePos.value;
       lightKey = [d.x, d.y, d.z, p[0].x, p[0].y, p[0].z, p[1].x, p[1].y, p[1].z].map((v) => Math.round(v * 400)).join();
     },
     // The cut (page px, a → b): everything on the far side is cut away and the
@@ -586,7 +668,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       held.clippingPlanes = cut ? [clip] : [];
       if (!cut) return;
       const [a, b] = cut.line;
-      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const dx = b[0] - a[0],
+        dy = b[1] - a[1];
       const len = Math.hypot(dx, dy) || 1;
       // keep the near side (toward the viewer's left of a → b)
       const normal = new THREE.Vector3(dy / len, dx / len, 0);
@@ -627,7 +710,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       if (direct && renderer.domElement.parentNode !== host) host.insertBefore(renderer.domElement, host.firstChild);
       if (direct && !wasDirect) ctx.clearRect(0, 0, target.width, target.height);
       wasDirect = direct;
-      if (shared.size[0] !== w || shared.size[1] !== h) { // (setting it costs, even unchanged)
+      if (shared.size[0] !== w || shared.size[1] !== h) {
+        // (setting it costs, even unchanged)
         renderer.setSize(w, h, false);
         shared.size = [w, h];
       }
@@ -636,7 +720,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       const toW = (p) => new THREE.Vector3(p[0], -p[1], p[2]);
       let camera;
       if (cam.mode === '2d') {
-        const halfW = cam.view / 2, halfH = halfW / aspect;
+        const halfW = cam.view / 2,
+          halfH = halfW / aspect;
         ortho.left = -halfW;
         ortho.right = halfW;
         ortho.top = halfH;
@@ -677,13 +762,15 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
         renderer.setRenderTarget(null);
         scene.add(warm);
       }
-      const rests = lights.rests.array, onPage = lights.onPage.array;
+      const rests = lights.rests.array,
+        onPage = lights.onPage.array;
       for (const v of rests) v.set(0, 0, 0, 0);
       for (const v of onPage) v.set(0, 0, 0, 0);
       let k = 0;
       for (const sh of sheets.values()) {
         if (k >= rests.length) break;
-        const x0 = sh.origin[0], y1 = -sh.origin[1];
+        const x0 = sh.origin[0],
+          y1 = -sh.origin[1];
         (groundSize ? onPage : rests)[k++].set(x0, y1 - sh.h * sh.cellPx, x0 + sh.w * sh.cellPx, y1);
       }
       if (groundSize) rests[0].set(0, -groundSize[1], groundSize[0], 0);
@@ -749,7 +836,9 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       baked.shade.dispose();
       if (own) for (const m of Object.values(stand.mats)) m.dispose();
     },
-    get camera() { return cam3; },
+    get camera() {
+      return cam3;
+    },
     host,
     invalidate,
   };
@@ -771,4 +860,4 @@ function settleDirect() {
   for (const v of on) if (v !== next && v !== was) v.invalidate();
 }
 
-const EMPTY_TILE = new Uint16Array(256 * 4).fill(HALF_ZERO);
+const EMPTY_TILE = new Uint16Array(TILE * TILE * 4).fill(HALF_ZERO);

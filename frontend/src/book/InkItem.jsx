@@ -1,21 +1,41 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { onFirstView, onResize, reducedMotion } from '../hand/player.js';
-import { pathsOf } from './ink.js';
+import { pathsOf, SCALE_ONE } from './ink.js';
+import { useNear } from '../scene/useNear.js';
+import { MAX_LOD } from 'penpals-law/v2/scene';
 
 const REVEAL_MS = { min: 600, max: 4000 };
 
 // One piece of writing: its look (the settled ink, `src`), filling its box,
 // revealed along its strokes the first time it is seen (the strokes are public;
 // the paper they were grown on is not). `src` may be a promise of a URL (a
-// look grown on this device); `null` draws the strokes alone.
-export default function InkItem({ src, body }) {
+// look grown on this device); `null` draws the strokes alone. Out of sight it is
+// not asked for, and let go a while after it leaves (cleanup-and-speed.md §5b);
+// shown small, the server's look comes at the level of detail the screen can show
+// (`scale`: the size it is grown at, 64 = as written).
+export default function InkItem({ src, body, scale = SCALE_ONE }) {
   const boxRef = useRef(null);
   const canvasRef = useRef(null);
   const imgRef = useRef(null); // the last look that loaded (kept while the next loads: no blink on resize)
+  const near = useNear(boxRef);
+  const [finer, setFiner] = useState(0); // bumped when it is shown bigger than its look's detail
 
   useEffect(() => {
     const box = boxRef.current;
     const canvas = canvasRef.current;
+    if (!near) {
+      // out of sight a while: nothing drawn, nothing held
+      imgRef.current = null;
+      canvas.width = canvas.height = 0;
+      return undefined;
+    }
+    // the coarsest look that still gives each screen pixel its own (law/v2/scene.js MAX_LOD)
+    const lodNow = () => {
+      const dev = box.getBoundingClientRect().width * (window.devicePixelRatio || 1);
+      const natural = (body.box[2] * scale) / SCALE_ONE;
+      return dev > 0 ? Math.max(0, Math.min(MAX_LOD, Math.floor(Math.log2(natural / dev)))) : 0;
+    };
+    let lod = 0;
     const paths = pathsOf(body);
     let shown = 0;
     let raf = 0;
@@ -94,6 +114,10 @@ export default function InkItem({ src, body }) {
         draw(1);
         return;
       }
+      if (typeof url === 'string' && url.startsWith('/api/')) {
+        lod = lodNow();
+        if (lod) url = `${url}${url.includes('?') ? '&' : '?'}lod=${lod}`;
+      }
       const img = new Image();
       img.decoding = 'async';
       img.onload = () => {
@@ -102,18 +126,24 @@ export default function InkItem({ src, body }) {
         imgRef.current = img;
         start();
       };
-      img.onerror = () => { if (alive && !imgRef.current) draw(1); };
+      img.onerror = () => {
+        if (alive && !imgRef.current) draw(1);
+      };
       img.src = url;
     });
     if (imgRef.current) draw(shown || 1);
-    const unsize = onResize(box, () => draw(shown || 1));
+    const unsize = onResize(box, () => {
+      if (lod && lodNow() < lod)
+        setFiner((v) => v + 1); // shown bigger: a finer look
+      else draw(shown || 1);
+    });
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
       unview();
       unsize();
     };
-  }, [src, body]);
+  }, [src, body, near, finer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <span ref={boxRef} className="ink-item-art">

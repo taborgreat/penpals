@@ -50,10 +50,7 @@ export async function encodeInkPng(mask) {
   view.setUint32(4, height);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 4; // colour type: grey + alpha
-  return new Blob(
-    [SIGNATURE, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', new Uint8Array(0))],
-    { type: 'image/png' },
-  );
+  return new Blob([SIGNATURE, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', new Uint8Array(0))], { type: 'image/png' });
 }
 
 // Apply PNG filter `type` to `cur` (with `prev` as the row above) into `out`.

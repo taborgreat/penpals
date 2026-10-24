@@ -55,13 +55,28 @@ export async function register({ key, username, password, phraseReadings, pageRe
   const unlockKey = await stretch(U.finalizeOutput(input, blind, fromB64url(begin.evaluated, 32)), kdf);
   const keyring = U.newKeyring(username, key.K, unlockKey, kdf, { password: !!password });
   const { line, D } = R.sealSettled({
-    sk: key.sk, pk: key.pk, sheet: K.SHEET_ZERO, use: 'signature', family: signature.family,
-    acts: signature.settled.acts, seed: signature.seed, box: signature.settled.box, facts: signature.settled.facts, name: username, law: signature.settled.law,
+    sk: key.sk,
+    pk: key.pk,
+    sheet: K.SHEET_ZERO,
+    use: 'signature',
+    family: signature.family,
+    acts: signature.settled.acts,
+    seed: signature.seed,
+    box: signature.settled.box,
+    facts: signature.settled.facts,
+    name: username,
+    law: signature.settled.law,
   });
   const open = R.makeOpen(key.sk, D, K.SHEET_ZERO, signature.seed);
   const res = await api.post('/api/auth/register/finish', {
-    username, nonce: begin.nonce, origin: location.origin, publicKey: key.publicKey,
-    proof: authProof(key, 'register', begin.nonce, username), keyring, sketches, line: { ...line, open },
+    username,
+    nonce: begin.nonce,
+    origin: location.origin,
+    publicKey: key.publicKey,
+    proof: authProof(key, 'register', begin.nonce, username),
+    keyring,
+    sketches,
+    line: { ...line, open },
   });
   holdKey(res.user.username, key.K);
   return res.user;
@@ -95,11 +110,15 @@ export async function signIn({ username, password, phraseActs = null, pageActs =
   }
   if (!opened) throw Object.assign(new Error(NOT_OPENED), { code: 'not_opened' });
   const key = keyFromK(begin.username, opened);
-  if (key.publicKey !== begin.publicKey) throw new Error('The key that opened is not this account\'s.');
+  if (key.publicKey !== begin.publicKey) throw new Error("The key that opened is not this account's.");
   const nonce = fromB64url(begin.nonce, 32);
   const login = R.makeLogin({ sk: key.sk, pk: key.pk, nonce, sketch: used.sketches[0], measure: v1.HAND_VERSION, acts: phraseActs ?? pageActs });
   const res = await api.post('/api/auth/login', {
-    username, nonce: begin.nonce, origin: location.origin, proof: authProof(key, 'login', begin.nonce), login: { body: login.body, seal: login.seal },
+    username,
+    nonce: begin.nonce,
+    origin: location.origin,
+    proof: authProof(key, 'login', begin.nonce),
+    login: { body: login.body, seal: login.seal },
   });
   holdKey(res.user.username, opened);
   // Keep the hand current: the sketch that opened it follows this writing; a
@@ -129,10 +148,13 @@ export async function setPassword(key, { phraseActs = null, pageActs = null, cur
   if (pageActs) readings.page = await readingOf('page', pageActs);
   const cands = H.candidates(begin.sketches, readings);
   if (!cands.length) throw Object.assign(new Error(NOT_OPENED), { code: 'not_opened' });
-  const tries = cands.slice(0, 3).flatMap((cd) => [now, next].map((pw) => { // two guesses each, within one attempt's 7
-    const input = U.unlockInput(begin.username, cd.r, pw);
-    return { cd, input, ...U.blindInput(input) };
-  }));
+  const tries = cands.slice(0, 3).flatMap((cd) =>
+    [now, next].map((pw) => {
+      // two guesses each, within one attempt's 7
+      const input = U.unlockInput(begin.username, cd.r, pw);
+      return { cd, input, ...U.blindInput(input) };
+    }),
+  );
   const un = await api.post('/api/auth/unlock', { username: key.username, nonce: begin.nonce, blinded: tries.map((t) => b64url(t.blinded)) });
   for (let i = 0; i < tries.length; i += 2) {
     const opened = U.openKeyring(begin.keyring, begin.username, await stretch(U.finalizeOutput(tries[i].input, tries[i].blind, fromB64url(un.evaluated[i], 32)), begin.keyring.kdf));

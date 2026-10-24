@@ -10,7 +10,9 @@ export default function HandNumber({ value }) {
   if (!/^\d+$/.test(text) || digits.some((a) => !a)) return text;
   return (
     <span className="hand-number" role="img" aria-label={text}>
-      {digits.map((asset, i) => <HandDrawn key={i} asset={asset} label={text[i]} />)}
+      {digits.map((asset, i) => (
+        <HandDrawn key={i} asset={asset} label={text[i]} />
+      ))}
     </span>
   );
 }

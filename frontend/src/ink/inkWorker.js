@@ -39,7 +39,7 @@ const plays = new Map();
 // Tiles out: RGBA, and the heights (when the scene is on) as half floats, the
 // renderer's own format; both buffers handed over, not copied.
 function out(tiles) {
-  for (const t of tiles) if (t.hf) t.hf = halves(t.hf);
+  for (const t of tiles) if (t.hf) t.hf = halves(t.hf, new Uint16Array(t.hf.buffer, t.hf.byteOffset, t.hf.length)); // in place: each value read before it is written
   return tiles;
 }
 const handed = (tiles) => tiles.flatMap((t) => (t.hf ? [t.rgba.buffer, t.hf.buffer] : [t.rgba.buffer]));
@@ -95,7 +95,10 @@ onmessage = ({ data: m }) => {
       if (m.ms === Infinity) p.finish();
       else p.advanceTo(m.ms);
       const tiles = p.changed();
-      postMessage({ type: 'frame', id: m.id, ms: m.ms, tiles }, tiles.map((t) => t.rgba.buffer));
+      postMessage(
+        { type: 'frame', id: m.id, ms: m.ms, tiles },
+        tiles.map((t) => t.rgba.buffer),
+      );
     } else if (m.type === 'verify') {
       postMessage({ type: 'verified', id: m.id, report: V.verifyBook(m.text, { regrowOpen: true }) });
     } else if (m.type === 'verifyProof') {

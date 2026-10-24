@@ -54,7 +54,18 @@ const NIB_CHOICES = {
 // strokes are a draft until its Play, and one undo walks back through both.
 // The ink's colour, nib and flow are on the pen, recorded with the strokes;
 // Alt + wheel changes the flow, even mid-stroke.
-export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size = null, hint: hintText = null, paper = 'plain', onPaperChange = null, onWritten = null, chase: allowChase = null, prompt = null }) {
+export default function Pad({
+  ink,
+  onChange = null,
+  inkColor = '#1a1a1a',
+  size = null,
+  hint: hintText = null,
+  paper = 'plain',
+  onPaperChange = null,
+  onWritten = null,
+  chase: allowChase = null,
+  prompt = null,
+}) {
   const [nib, setNib] = useState('flex');
   const [penSize, setPenSize] = useState('medium');
   const [flex, setFlex] = useState({ ...FLEX_PRESETS.copperplate });
@@ -74,7 +85,9 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   // (not on the pads that read the hand: law 1 sheets stay as they are)
   const [scene, setScene] = useState(() => ink.law >= 2 && sceneOn());
   const lowPower = useLowPower();
-  useEffect(() => { setScene(ink.law >= 2 && sceneOn()); }, [lowPower]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setScene(ink.law >= 2 && sceneOn());
+  }, [lowPower]); // eslint-disable-line react-hooks/exhaustive-deps
   const [toolsHost, setToolsHost] = useState(null);
   const [sceneMode, setSceneMode] = useState('3d'); // always 3D
   const sceneRef = useRef(null);
@@ -135,7 +148,9 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   }, [present]);
   useEffect(() => () => cancelAnimationFrame(frameRef.current), []);
 
-  useEffect(() => { ink.scene?.(scene); }, [ink, scene]);
+  useEffect(() => {
+    ink.scene?.(scene);
+  }, [ink, scene]);
   const liveSheet = useMemo(() => [{ id: 'live', box: [0, 0, Math.ceil(pageW * CELLS), Math.ceil(height * CELLS)], origin: [0, 0], cellPx: 1 / CELLS, live: ink }], [ink, pageW, height]);
   // The scene's frame: in 2D the part of the page in sight (the page scrolls and
   // zooms as ever, the scene shows just that part, lit); in 3D the whole view.
@@ -147,8 +162,10 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
     const w = wrap.getBoundingClientRect();
     const r = sceneMode === '3d' ? w : inkEl.getBoundingClientRect();
     const v = viewRef.current.getBoundingClientRect();
-    const x0 = Math.max(r.left, sceneMode === '3d' ? w.left : v.left, 0), x1 = Math.min(r.right, sceneMode === '3d' ? w.right : v.right, window.innerWidth);
-    const y0 = Math.max(r.top, 0), y1 = Math.min(r.bottom, window.innerHeight);
+    const x0 = Math.max(r.left, sceneMode === '3d' ? w.left : v.left, 0),
+      x1 = Math.min(r.right, sceneMode === '3d' ? w.right : v.right, window.innerWidth);
+    const y0 = Math.max(r.top, 0),
+      y1 = Math.min(r.bottom, window.innerHeight);
     box.style.left = `${x0 - w.left}px`;
     box.style.top = `${y0 - w.top}px`;
     box.style.width = `${Math.max(0, x1 - x0)}px`;
@@ -175,24 +192,43 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
       view?.removeEventListener('scroll', on);
     };
   }, [scene, placeScene, zoom, screenW, screenH, cssWidth]);
-  const sceneWriter = useMemo(() => ({
-    penDown: (cam) => camStack.penDown(cam),
-    down: (p, ev, type) => { downRef.current = true; ink.capture.down(p, ev, type); },
-    move: (p, ev) => ink.capture.move(p, ev),
-    up: (p, ev) => { downRef.current = false; ink.capture.up(p, ev); },
-    cancel: () => { downRef.current = false; ink.capture.cancel(); camStack.undo(); },
-  }), [ink, camStack]);
+  const sceneWriter = useMemo(
+    () => ({
+      penDown: (cam) => camStack.penDown(cam),
+      down: (p, ev, type) => {
+        downRef.current = true;
+        ink.capture.down(p, ev, type);
+      },
+      move: (p, ev) => ink.capture.move(p, ev),
+      up: (p, ev) => {
+        downRef.current = false;
+        ink.capture.up(p, ev);
+      },
+      cancel: () => {
+        downRef.current = false;
+        ink.capture.cancel();
+        camStack.undo();
+      },
+    }),
+    [ink, camStack],
+  );
   const paperRgb = useMemo(() => {
     const hex = (PAPERS[paper] ?? PAPERS.plain).color;
     return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   }, [paper]);
 
-  useEffect(() => ink.onChange(() => {
-    schedule();
-    setStrokeCount(ink.strokes);
-    setError(ink.error ? 'This writing has more ink than one sheet can hold. Undo a little.' : null);
-  }), [ink, schedule]);
-  useEffect(() => { onChange?.(strokeCount); }, [strokeCount, onChange]);
+  useEffect(
+    () =>
+      ink.onChange(() => {
+        schedule();
+        setStrokeCount(ink.strokes);
+        setError(ink.error ? 'This writing has more ink than one sheet can hold. Undo a little.' : null);
+      }),
+    [ink, schedule],
+  );
+  useEffect(() => {
+    onChange?.(strokeCount);
+  }, [strokeCount, onChange]);
 
   const nibSettings = useCallback(() => {
     if (nib === 'pen') return { nib, size: PEN_SIZES[penSize] };
@@ -203,10 +239,16 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   // The pen the next ink is written with (mid-stroke too: the flow wheel). A flex
   // nib under a mouse or finger gets its thick and thin from the slant (capture.js).
   const spatter = ink.law >= 2 ? (spatterSet ?? SPATTER_DEFAULT[nib]) : undefined;
-  useEffect(() => { ink.setPen(lawPen(nibSettings(), inkColor, flow, spatter)); }, [ink, nibSettings, inkColor, flow, spatter]);
-  useEffect(() => { ink.capture.setFlex(nib === 'flex' ? { slant: flex.slant, swell: flex.swell, hold: ink.law >= 2 } : null); }, [ink, nib, flex.slant, flex.swell]);
+  useEffect(() => {
+    ink.setPen(lawPen(nibSettings(), inkColor, flow, spatter));
+  }, [ink, nibSettings, inkColor, flow, spatter]);
+  useEffect(() => {
+    ink.capture.setFlex(nib === 'flex' ? { slant: flex.slant, swell: flex.swell, hold: ink.law >= 2 } : null);
+  }, [ink, nib, flex.slant, flex.swell]);
 
-  useLayoutEffect(() => { present(); }, [screenW, screenH, present]);
+  useLayoutEffect(() => {
+    present();
+  }, [screenW, screenH, present]);
 
   useLayoutEffect(() => {
     drawGuides(guideRef.current.getContext('2d'), pageW, height, { guide, spacing, slant, scale, lineWidth: dpr, paper });
@@ -239,13 +281,14 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   }, []);
 
   // To the next preset zoom.
-  const stepZoom = useCallback((dir, ax, ay) => {
-    const z = zoomRef.current;
-    const next = dir > 0
-      ? ZOOMS.find((v) => v > z + 1e-3) ?? ZOOMS[ZOOMS.length - 1]
-      : ZOOMS.findLast((v) => v < z - 1e-3) ?? ZOOMS[0];
-    zoomTo(next, ax, ay);
-  }, [zoomTo]);
+  const stepZoom = useCallback(
+    (dir, ax, ay) => {
+      const z = zoomRef.current;
+      const next = dir > 0 ? (ZOOMS.find((v) => v > z + 1e-3) ?? ZOOMS[ZOOMS.length - 1]) : (ZOOMS.findLast((v) => v < z - 1e-3) ?? ZOOMS[0]);
+      zoomTo(next, ax, ay);
+    },
+    [zoomTo],
+  );
 
   // Ctrl/⌘ + wheel (and trackpad pinch) zooms around the pointer; Alt + wheel sets the flow.
   useEffect(() => {
@@ -274,8 +317,12 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
 
   useEffect(() => {
     if (!adjustOpen) return undefined;
-    const outside = (e) => { if (!adjustRef.current?.contains(e.target)) setAdjustOpen(false); };
-    const esc = (e) => { if (e.key === 'Escape') setAdjustOpen(false); };
+    const outside = (e) => {
+      if (!adjustRef.current?.contains(e.target)) setAdjustOpen(false);
+    };
+    const esc = (e) => {
+      if (e.key === 'Escape') setAdjustOpen(false);
+    };
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', esc);
     return () => {
@@ -349,7 +396,7 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
     }
     if (e.button !== 0 || panRef.current) return;
     downRef.current = true;
-    camStack.penDown(scene ? sceneRef.current?.camera() ?? null : null);
+    camStack.penDown(scene ? (sceneRef.current?.camera() ?? null) : null);
     ink.capture.down(toPage(e), e.nativeEvent, e.pointerType);
   };
 
@@ -463,11 +510,17 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   const setFlexField = (field) => (e) => setFlex((f) => ({ ...f, [field]: Number(e.target.value) }));
   const num = (e) => Number(e.target.value);
   const panning = hand || spaceHeld;
-  const hint = hintText ? hintText
-    : draftCount ? `${draftCount} stroke${draftCount === 1 ? '' : 's'} waiting in the chase: press Play there when you're done.`
-    : showChase && !strokeCount ? 'Choose your pen, then Chase: zoomed in on your line, and the page follows you along it.'
-    : penSeen ? 'The pen writes; fingers scroll.'
-      : zoom > 1 ? 'Hold Space and drag, use Move, or two fingers, to get around.' : 'Zoom in to write smaller. Alt + wheel: more or less ink.';
+  const hint = hintText
+    ? hintText
+    : draftCount
+      ? `${draftCount} stroke${draftCount === 1 ? '' : 's'} waiting in the chase: press Play there when you're done.`
+      : showChase && !strokeCount
+        ? 'Choose your pen, then Chase: zoomed in on your line, and the page follows you along it.'
+        : penSeen
+          ? 'The pen writes; fingers scroll.'
+          : zoom > 1
+            ? 'Hold Space and drag, use Move, or two fingers, to get around.'
+            : 'Zoom in to write smaller. Alt + wheel: more or less ink.';
 
   return (
     <div className={compact ? 'pad compact' : 'pad'}>
@@ -477,7 +530,9 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           <div className="nib-picker" role="group" aria-label="Nib">
             {Object.keys(NIBS).map((id) => (
               <button key={id} type="button" aria-pressed={nib === id} title={NIBS[id].name} onClick={() => setNib(id)}>
-                <svg viewBox="0 0 36 18" aria-hidden="true">{NIB_CHOICES[id].sample}</svg>
+                <svg viewBox="0 0 36 18" aria-hidden="true">
+                  {NIB_CHOICES[id].sample}
+                </svg>
                 {NIB_CHOICES[id].label}
               </button>
             ))}
@@ -487,7 +542,11 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           <label className="field">
             <span>Size</span>
             <select id="size" value={penSize} onChange={(e) => setPenSize(e.target.value)}>
-              {Object.keys(PEN_SIZES).map((s) => <option key={s} value={s}>{s}</option>)}
+              {Object.keys(PEN_SIZES).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </label>
         )}
@@ -495,7 +554,11 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           <label className="field">
             <span>Size</span>
             <select id="size" value={broadSize} onChange={(e) => setBroadSize(e.target.value)}>
-              {Object.keys(BROAD_SIZES).map((s) => <option key={s} value={s}>{s}</option>)}
+              {Object.keys(BROAD_SIZES).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </label>
         )}
@@ -503,7 +566,11 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           <label className="field">
             <span>Preset</span>
             <select id="preset" value={preset} onChange={(e) => e.target.value !== 'custom' && choosePreset(e.target.value)}>
-              {Object.entries(FLEX_PRESETS).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}
+              {Object.entries(FLEX_PRESETS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.name}
+                </option>
+              ))}
               <option value="custom">custom</option>
             </select>
           </label>
@@ -515,7 +582,15 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
         {spatter !== undefined && (
           <label className="field">
             <span>Spatter</span>
-            <input type="range" min="0" max="15" step="1" value={spatter} onChange={(e) => setSpatter(num(e))} title="How readily the pen throws ink on fast flicks, hard landings and heavy dwells (0: never)" />
+            <input
+              type="range"
+              min="0"
+              max="15"
+              step="1"
+              value={spatter}
+              onChange={(e) => setSpatter(num(e))}
+              title="How readily the pen throws ink on fast flicks, hard landings and heavy dwells (0: never)"
+            />
           </label>
         )}
         {nib !== 'pen' && (
@@ -559,7 +634,11 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
         <label className="field">
           <span>Lines</span>
           <select id="guide" value={guide} onChange={(e) => setGuide(e.target.value)}>
-            {Object.keys(GUIDES).map((g) => <option key={g} value={g}>{GUIDE_NAMES[g] ?? g}</option>)}
+            {Object.keys(GUIDES).map((g) => (
+              <option key={g} value={g}>
+                {GUIDE_NAMES[g] ?? g}
+              </option>
+            ))}
           </select>
         </label>
         <label className="field">
@@ -571,63 +650,97 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           <label className="field">
             <span>Paper</span>
             <select value={paper} onChange={(e) => onPaperChange(e.target.value)}>
-              {Object.entries(PAPERS).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}
+              {Object.entries(PAPERS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.name}
+                </option>
+              ))}
             </select>
           </label>
         )}
-        {!compact && <div className="field">
-          <span>Page</span>
-          <div className="tabs small" role="group" aria-label="Page">
-            {Object.keys(PAGES).map((p) => (
-              <button key={p} type="button" aria-pressed={page === p} onClick={() => setPage(p)}>{p}</button>
-            ))}
+        {!compact && (
+          <div className="field">
+            <span>Page</span>
+            <div className="tabs small" role="group" aria-label="Page">
+              {Object.keys(PAGES).map((p) => (
+                <button key={p} type="button" aria-pressed={page === p} onClick={() => setPage(p)}>
+                  {p}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>}
+        )}
       </div>
 
       <div className="pad-desk">
         <div className="pad-bar">
           <div className="cluster">
-            <button type="button" onClick={undo} disabled={!strokeCount} title="Undo (Ctrl+Z)">Undo</button>
+            <button type="button" onClick={undo} disabled={!strokeCount} title="Undo (Ctrl+Z)">
+              Undo
+            </button>
             {scene && <span ref={setToolsHost} className="scene-tools-host" />}
             {!scene && ink.law >= 2 && sceneSupported() && (
-              <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The page lit, in 3D">Scene</button>
+              <button
+                type="button"
+                className="quiet"
+                onClick={() => {
+                  setViewChoice('scene');
+                  setScene(true);
+                }}
+                title="The page lit, in 3D"
+              >
+                Scene
+              </button>
             )}
-            <button type="button" className="quiet" onClick={clear} disabled={!strokeCount}>Clear</button>
+            <button type="button" className="quiet" onClick={clear} disabled={!strokeCount}>
+              Clear
+            </button>
           </div>
           <span className="pad-hint">{error ?? hint}</span>
           <div className="cluster">
-            {showChase && <>
-            <div className="split">
-              <button
-                type="button"
-                aria-pressed={writing}
-                className="toggle write-enter"
-                onClick={enterWriting}
-                title="Chase: zoom in on your line, full screen, and the page follows your pen along it"
-              >
-                {draftCount ? 'Chase · back to it' : 'Chase'}
-              </button>
-              <button type="button" aria-expanded={chaseOpen} aria-label="Chase settings" className="more" onClick={() => setChaseOpen((o) => !o)}>
-                ⚙
-              </button>
-            </div>
-            <span className="tool-sep" aria-hidden="true" />
-            </>}
+            {showChase && (
+              <>
+                <div className="split">
+                  <button
+                    type="button"
+                    aria-pressed={writing}
+                    className="toggle write-enter"
+                    onClick={enterWriting}
+                    title="Chase: zoom in on your line, full screen, and the page follows your pen along it"
+                  >
+                    {draftCount ? 'Chase · back to it' : 'Chase'}
+                  </button>
+                  <button type="button" aria-expanded={chaseOpen} aria-label="Chase settings" className="more" onClick={() => setChaseOpen((o) => !o)}>
+                    ⚙
+                  </button>
+                </div>
+                <span className="tool-sep" aria-hidden="true" />
+              </>
+            )}
             <button type="button" aria-pressed={hand} className="toggle" onClick={() => setHand((h) => !h)} title="Drag to move around the page">
               Move
             </button>
             {ink.law >= 2 && (
-              <button type="button" aria-pressed={depth} className="toggle" onClick={() => setDepth((d) => !d)} title="A cut through the paper along your last line, live: the bead, the ink sinking in, dents">
+              <button
+                type="button"
+                aria-pressed={depth}
+                className="toggle"
+                onClick={() => setDepth((d) => !d)}
+                title="A cut through the paper along your last line, live: the bead, the ink sinking in, dents"
+              >
                 Into the paper
               </button>
             )}
             <div className="zoom" role="group" aria-label="Zoom">
-              <button type="button" onClick={() => stepZoom(-1)} disabled={zoom <= ZOOMS[0]} aria-label="Zoom out">−</button>
+              <button type="button" onClick={() => stepZoom(-1)} disabled={zoom <= ZOOMS[0]} aria-label="Zoom out">
+                −
+              </button>
               <button type="button" className="zoom-level" onClick={() => zoomTo(1)} title="Fit the page to the width">
                 {Math.abs(zoom - 1) < 1e-3 ? 'fit' : `${Math.round(zoom * 100)}%`}
               </button>
-              <button type="button" onClick={() => stepZoom(1)} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} aria-label="Zoom in">+</button>
+              <button type="button" onClick={() => stepZoom(1)} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} aria-label="Zoom in">
+                +
+              </button>
             </div>
           </div>
           {chaseOpen && showChase && <ChaseSettings settings={chase} onChange={(patch) => setChaseSettings(setChase(patch))} />}
@@ -645,7 +758,10 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
                 writer={sceneWriter}
                 paper={paperRgb}
                 cutSide={ink.law >= 2 ? (a, b) => ink.cut(Math.round(a[0] * CELLS), Math.round(a[1] * CELLS), Math.round(b[0] * CELLS), Math.round(b[1] * CELLS)) : null}
-                onFlat={() => { setViewChoice('flat'); setScene(false); }}
+                onFlat={() => {
+                  setViewChoice('flat');
+                  setScene(false);
+                }}
                 toolsHost={toolsHost}
                 moments={() => ink.moments()}
                 momentsKey={strokeCount}
@@ -655,8 +771,12 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           <div
             className="pad-view"
             ref={viewRef}
-            onPointerEnter={() => { hoverRef.current = true; }}
-            onPointerLeave={() => { hoverRef.current = false; }}
+            onPointerEnter={() => {
+              hoverRef.current = true;
+            }}
+            onPointerLeave={() => {
+              hoverRef.current = false;
+            }}
           >
             <div className="pad-page" ref={pageRef} style={{ width: `${zoom * 100}%` }}>
               <canvas ref={guideRef} className="guide" width={screenW} height={screenH} />

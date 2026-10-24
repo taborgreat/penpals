@@ -21,13 +21,22 @@ function segments(rec) {
       const dy = s.y[i] - s.y[i - 1];
       let turn = 0;
       if (i > 1) {
-        const ax = s.x[i - 1] - s.x[i - 2], ay = s.y[i - 1] - s.y[i - 2];
-        const la = Math.hypot(ax, ay), lb = Math.hypot(dx, dy);
+        const ax = s.x[i - 1] - s.x[i - 2],
+          ay = s.y[i - 1] - s.y[i - 2];
+        const la = Math.hypot(ax, ay),
+          lb = Math.hypot(dx, dy);
         if (la > 0 && lb > 0) turn = Math.abs(Math.atan2(ax * dy - ay * dx, ax * dx + ay * dy));
       }
       out.push({
-        x: (s.x[i] + s.x[i - 1]) / 2, y: (s.y[i] + s.y[i - 1]) / 2, len: Math.hypot(dx, dy), dt: s.t[i] - s.t[i - 1],
-        p: s.hasP ? s.p[i] : 0, dx, dy, start: i === 1, turn,
+        x: (s.x[i] + s.x[i - 1]) / 2,
+        y: (s.y[i] + s.y[i - 1]) / 2,
+        len: Math.hypot(dx, dy),
+        dt: s.t[i] - s.t[i - 1],
+        p: s.hasP ? s.p[i] : 0,
+        dx,
+        dy,
+        start: i === 1,
+        turn,
       });
     }
   }
@@ -71,20 +80,42 @@ function stats(group, totalTime, totalLen) {
   const right = group.filter((g) => g.dx > 0).reduce((s, g) => s + g.len, 0);
   const turning = group.reduce((s, g) => s + g.turn, 0);
   return {
-    len, time, mean, sd, q, still, pMean, pRange, lifts: group.filter((g) => g.start).length,
-    down: len ? (down * 1000) / len : 0, right: len ? (right * 1000) / len : 0,
-    turning: len ? (turning * 10000) / len : 0, timeShare: (time * 1000) / Math.max(1, totalTime), lenShare: (len * 1000) / Math.max(1, totalLen),
+    len,
+    time,
+    mean,
+    sd,
+    q,
+    still,
+    pMean,
+    pRange,
+    lifts: group.filter((g) => g.start).length,
+    down: len ? (down * 1000) / len : 0,
+    right: len ? (right * 1000) / len : 0,
+    turning: len ? (turning * 10000) / len : 0,
+    timeShare: (time * 1000) / Math.max(1, totalTime),
+    lenShare: (len * 1000) / Math.max(1, totalLen),
   };
 }
 
 export function readRaw(actsBytes, { bands = 1, zones = 8 } = {}) {
   const rec = decodeCanonical(actsBytes);
   const segs = segments(rec);
-  const xs = segs.map((s) => s.x), ys = segs.map((s) => s.y);
-  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-  const all = stats(segs, rec.duration, segs.reduce((s, g) => s + g.len, 0));
+  const xs = segs.map((s) => s.x),
+    ys = segs.map((s) => s.y);
+  const x0 = Math.min(...xs),
+    x1 = Math.max(...xs),
+    y0 = Math.min(...ys),
+    y1 = Math.max(...ys);
+  const all = stats(
+    segs,
+    rec.duration,
+    segs.reduce((s, g) => s + g.len, 0),
+  );
   const ySorted = [...segs].sort((a, b) => a.y - b.y);
-  const bandCuts = cuts(ySorted.map((g) => ({ ...g, x: g.y })), bands);
+  const bandCuts = cuts(
+    ySorted.map((g) => ({ ...g, x: g.y })),
+    bands,
+  );
   const zone = new Int32Array(bands * zones * RAW_ZONE.length);
   for (let b = 0; b < bands; b++) {
     const inBand = segs.filter((g) => partOf(g.y, bandCuts) === b);
@@ -92,19 +123,45 @@ export function readRaw(actsBytes, { bands = 1, zones = 8 } = {}) {
     const bx = [x0, ...c];
     const ex = [...c, x1];
     for (let z = 0; z < zones; z++) {
-      const g = stats(inBand.filter((s) => partOf(s.x, c) === z), all.time, all.len);
-      zone.set([
-        Math.round(((ex[z] - bx[z]) * 1000) / Math.max(1, x1 - x0)), Math.round(g.mean), Math.round(g.mean ? (g.sd * 1000) / g.mean : 0),
-        Math.round((g.still * 1000) / g.time), Math.round(g.pMean), Math.round(g.pRange), g.lifts,
-        Math.round(g.down), Math.round(g.right), Math.round(g.turning), Math.round(g.timeShare),
-      ], (b * zones + z) * RAW_ZONE.length);
+      const g = stats(
+        inBand.filter((s) => partOf(s.x, c) === z),
+        all.time,
+        all.len,
+      );
+      zone.set(
+        [
+          Math.round(((ex[z] - bx[z]) * 1000) / Math.max(1, x1 - x0)),
+          Math.round(g.mean),
+          Math.round(g.mean ? (g.sd * 1000) / g.mean : 0),
+          Math.round((g.still * 1000) / g.time),
+          Math.round(g.pMean),
+          Math.round(g.pRange),
+          g.lifts,
+          Math.round(g.down),
+          Math.round(g.right),
+          Math.round(g.turning),
+          Math.round(g.timeShare),
+        ],
+        (b * zones + z) * RAW_ZONE.length,
+      );
     }
   }
-  const global = Int32Array.from([
-    all.q(25), all.q(50), all.q(75), Math.round((all.still * 1000) / all.time), Math.round(all.pMean), Math.round(all.pRange),
-    Math.round((all.lifts * 100000) / Math.max(1, all.len)), Math.round(all.down), Math.round(all.right), Math.round(all.turning),
-    Math.round(((y1 - y0 + 1) * 1000) / Math.max(1, x1 - x0 + 1)), Math.round((rec.duration * 1000) / Math.max(1, all.len)),
-  ].map((v) => Math.round(v)));
+  const global = Int32Array.from(
+    [
+      all.q(25),
+      all.q(50),
+      all.q(75),
+      Math.round((all.still * 1000) / all.time),
+      Math.round(all.pMean),
+      Math.round(all.pRange),
+      Math.round((all.lifts * 100000) / Math.max(1, all.len)),
+      Math.round(all.down),
+      Math.round(all.right),
+      Math.round(all.turning),
+      Math.round(((y1 - y0 + 1) * 1000) / Math.max(1, x1 - x0 + 1)),
+      Math.round((rec.duration * 1000) / Math.max(1, all.len)),
+    ].map((v) => Math.round(v)),
+  );
   return { zone, global, layout: { bands, zones } };
 }
 
@@ -112,12 +169,31 @@ export function readRaw(actsBytes, { bands = 1, zones = 8 } = {}) {
 const L = (base, step) => ['log', base, step];
 const N = (base, step) => ['lin', base, step];
 export const RAW_ZONE_SPEC = {
-  width: N(30, 25), speed: L(80, 4), speedCV: N(200, 100), dwell: N(0, 60), pressure: N(40, 25), pressRange: N(0, 25),
-  lifts: N(0, 1), down: N(100, 60), right: N(200, 60), turning: L(40, 6), time: N(30, 25),
+  width: N(30, 25),
+  speed: L(80, 4),
+  speedCV: N(200, 100),
+  dwell: N(0, 60),
+  pressure: N(40, 25),
+  pressRange: N(0, 25),
+  lifts: N(0, 1),
+  down: N(100, 60),
+  right: N(200, 60),
+  turning: L(40, 6),
+  time: N(30, 25),
 };
 export const RAW_GLOBAL_SPEC = {
-  speedQ25: L(72, 4), speedQ50: L(80, 4), speedQ75: L(88, 4), dwell: N(0, 60), pressure: N(40, 25), pressRange: N(0, 25),
-  liftsPerLen: L(0, 6), down: N(100, 60), right: N(200, 60), turning: L(40, 6), aspect: L(32, 4), timePerLen: L(40, 4),
+  speedQ25: L(72, 4),
+  speedQ50: L(80, 4),
+  speedQ75: L(88, 4),
+  dwell: N(0, 60),
+  pressure: N(40, 25),
+  pressRange: N(0, 25),
+  liftsPerLen: L(0, 6),
+  down: N(100, 60),
+  right: N(200, 60),
+  turning: L(40, 6),
+  aspect: L(32, 4),
+  timePerLen: L(40, 4),
 };
 
 const GRAY = [0, 1, 3, 2, 6, 7, 5, 4];

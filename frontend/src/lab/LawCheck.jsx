@@ -20,21 +20,28 @@ export default function LawCheck() {
     <div className="stack">
       <h1>Law check</h1>
       <p className="muted">
-        Device pixel ratio {dpr}. The first picture of each is one device pixel per cell (a cell is half an ink unit). If the ink reads as blur
-        at that size rather than as ink texture, the law needs more cells per unit before it is frozen.
+        Device pixel ratio {dpr}. The first picture of each is one device pixel per cell (a cell is half an ink unit). If the ink reads as blur at that size rather than as ink texture, the law needs
+        more cells per unit before it is frozen.
       </p>
       {CASES.map((name) => {
         const r = results[name];
         return (
           <section key={name} data-fixture={name} data-facts={r && !r.error ? r.facts : ''} data-error={r?.error ?? ''}>
             <h2 style={{ fontSize: '1em' }}>
-              {name} {r && !r.error && <code>facts {r.facts.slice(0, 16)} · {r.ms.toFixed(0)} ms · {r.ticks} ticks</code>}
+              {name}{' '}
+              {r && !r.error && (
+                <code>
+                  facts {r.facts.slice(0, 16)} · {r.ms.toFixed(0)} ms · {r.ticks} ticks
+                </code>
+              )}
               {r?.error && <span className="error"> {r.error}</span>}
               {!r && <span className="muted"> growing…</span>}
             </h2>
             {r && !r.error && r.box[2] > 0 && r.box[3] > 0 && (
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                {[1, 2, 4].map((k) => <Look key={k} data={r} cssWidth={(r.box[2] * k) / dpr} />)}
+                {[1, 2, 4].map((k) => (
+                  <Look key={k} data={r} cssWidth={(r.box[2] * k) / dpr} />
+                ))}
               </div>
             )}
           </section>

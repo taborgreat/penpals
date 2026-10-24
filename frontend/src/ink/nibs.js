@@ -78,7 +78,7 @@ export function toSharedStroke(stroke) {
   if (stroke.nib === 'flex') widths = flexWidths(pts, stroke, false);
   else widths = pts.map(() => stroke.size);
   return {
-    angle: stroke.nib === 'broad' ? stroke.angle ?? 35 : null,
+    angle: stroke.nib === 'broad' ? (stroke.angle ?? 35) : null,
     points: pts.map((p, i) => ({ x: p.x, y: p.y, t: p.t ?? 0, w: widths[i] })),
   };
 }

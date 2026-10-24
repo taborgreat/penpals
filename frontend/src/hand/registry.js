@@ -4,6 +4,4 @@
 
 const files = import.meta.glob('./drawn/*.json', { eager: true, import: 'default' });
 
-export const HAND = Object.fromEntries(
-  Object.entries(files).map(([path, asset]) => [path.match(/([^/]+)\.json$/)[1], asset]),
-);
+export const HAND = Object.fromEntries(Object.entries(files).map(([path, asset]) => [path.match(/([^/]+)\.json$/)[1], asset]));

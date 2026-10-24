@@ -15,7 +15,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const frontend = path.join(here, '..', '..', 'frontend');
 const out = path.join(here, '..', 'lab', 'density');
 const SHOW = ['hairline', 'dwell', 'mixWet', 'cursive', 'broad'];
-const PHONES = [['chromium', 'Pixel 7'], ['webkit', 'iPhone 13']];
+const PHONES = [
+  ['chromium', 'Pixel 7'],
+  ['webkit', 'iPhone 13'],
+];
 
 const { createServer } = await import('vite');
 const server = await createServer({ root: frontend, configFile: path.join(frontend, 'vite.config.js'), logLevel: 'error', server: { port: 0, host: '127.0.0.1' } });

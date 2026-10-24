@@ -233,4 +233,3 @@ authRouter.post('/logout-all', json, requireAuth, async (req, res) => {
   clearSessionCookie(res);
   res.json({ ended });
 });
-

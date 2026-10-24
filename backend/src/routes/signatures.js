@@ -21,7 +21,11 @@ function visibleTo(viewerId, account) {
 // ?names=ana,bo → { signatures: { ana: { ink, line, box, look } | null, bo: null } }
 signaturesRouter.get('/', async (req, res) => {
   take('signaturesIp', ipKey(req));
-  const asked = String(req.query.names ?? '').split(',').map((n) => n.trim()).filter(Boolean).slice(0, MAX_NAMES);
+  const asked = String(req.query.names ?? '')
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .slice(0, MAX_NAMES);
   const out = {};
   for (const name of asked) {
     const account = findByName(name);

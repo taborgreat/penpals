@@ -4,7 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = process.env;
-const list = (v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : null);
+const list = (v) =>
+  v
+    ? v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : null;
 
 export const config = {
   port: Number(env.PORT) || 3000,

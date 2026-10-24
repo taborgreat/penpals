@@ -14,9 +14,7 @@ const paperOf = (id) => PAPERS[id] ?? PAPERS.plain;
 // A CSS background for something that stands in for a sheet (no canvas).
 export const paperCss = (id) => {
   const p = paperOf(id);
-  return p.texture
-    ? `radial-gradient(ellipse at center, ${p.color} 55%, #d9c193 135%)`
-    : p.color;
+  return p.texture ? `radial-gradient(ellipse at center, ${p.color} 55%, #d9c193 135%)` : p.color;
 };
 
 // Small, fast, seeded random numbers, so the texture is the same every time.
@@ -109,9 +107,7 @@ function parchment(w, h) {
 export function paintPaper(ctx, id, pageW, pageH, view = null) {
   const p = paperOf(id);
   const { width, height } = ctx.canvas;
-  const [x, y, w, h] = view
-    ? [-view.ox * view.scale, -view.oy * view.scale, pageW * view.scale, pageH * view.scale]
-    : [0, 0, width, height];
+  const [x, y, w, h] = view ? [-view.ox * view.scale, -view.oy * view.scale, pageW * view.scale, pageH * view.scale] : [0, 0, width, height];
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (p.texture) {

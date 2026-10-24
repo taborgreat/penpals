@@ -4,9 +4,9 @@
 // (30 + 2·(u − minX), 30 + 2·(v − minY)).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { grow, createSim, darkAt, heldE } from '../v2/sim.js';
+import { grow, darkAt, heldE } from '../v2/sim.js';
 import { settledCells, boxOf, lookRGB, factsDigest, lookDigest, gallDark, fadeOf, sideView, heightOf } from '../v2/look.js';
-import { sceneField, liveField, encodeScene, decodeScene, paperDetail } from '../v2/scene.js';
+import { sceneField, liveField, encodeScene, decodeScene, paperDetail, sceneWindow } from '../v2/scene.js';
 import { momentsOf, bandOf } from '../v2/moments.js';
 import { createLive, createPlayback } from '../v2/live.js';
 import { trace } from '../v2/trace.js';
@@ -94,14 +94,20 @@ test('depth: thirsty cells sink the ink deeper', () => {
   const siz = new Map();
   for (const t of res.tiles) for (let i = 0; i < 256; i++) siz.set(`${t.tx * 16 + (i % 16)},${t.ty * 16 + (i >> 4)}`, t.siz[i]);
   const around = (x, y) => {
-    let a = 0, n = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const v = siz.get(`${x + dx},${y + dy}`);
-      if (v !== undefined) { a += v; n++; }
-    }
+    let a = 0,
+      n = 0;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const v = siz.get(`${x + dx},${y + dy}`);
+        if (v !== undefined) {
+          a += v;
+          n++;
+        }
+      }
     return a / n;
   };
-  const thirsty = [], sized = [];
+  const thirsty = [],
+    sized = [];
   for (const t of res.tiles) {
     for (let i = 0; i < 256; i++) {
       if (t.F[3 * i] + t.F[3 * i + 1] + t.F[3 * i + 2] + (t.FG ? t.FG[i] : 0) < 200) continue;
@@ -129,13 +135,20 @@ test('height field: a bead falls as it sinks, the total kept; dry, a thin film w
   let beadTop = 0;
   const seen = [];
   const res = grow(rec, {
-    paperKey, family, instrument: {
+    paperKey,
+    family,
+    instrument: {
       ...quiet,
-      tile(t) { tiles.push(t); },
-      deposit(t, i, g) { put += g; },
+      tile(t) {
+        tiles.push(t);
+      },
+      deposit(t, i, g) {
+        put += g;
+      },
       step(k) {
         if (k < lift - 20 || (k - lift) % 10) return;
-        let above = 0, below = 0;
+        let above = 0,
+          below = 0;
         for (const t of tiles) {
           for (let i = 0; i < 256; i++) {
             const held = heldE(t, i);
@@ -149,7 +162,12 @@ test('height field: a bead falls as it sinks, the total kept; dry, a thin film w
       },
     },
   });
-  console.log(`height field: after the lift ${seen.slice(0, 6).map(([k, a, b]) => `${k * TICK_MS}ms ${a}/${b}`).join(' · ')}`);
+  console.log(
+    `height field: after the lift ${seen
+      .slice(0, 6)
+      .map(([k, a, b]) => `${k * TICK_MS}ms ${a}/${b}`)
+      .join(' · ')}`,
+  );
   assert.ok(seen[0][1] > 1000, 'a bead stood when the pen lifted');
   for (let n = 1; n < seen.length; n++) {
     assert.ok(seen[n][1] <= seen[n - 1][1], 'the height above only falls');
@@ -157,12 +175,16 @@ test('height field: a bead falls as it sinks, the total kept; dry, a thin film w
   }
   assert.equal(seen.at(-1)[1], 0, 'and the bead is gone');
   const cells = settledCells(res.tiles).filter((c) => ink(c) > 50);
-  const cx = mean(cells, (c) => c[1]), cy = mean(cells, (c) => c[0]);
+  const cx = mean(cells, (c) => c[1]),
+    cy = mean(cells, (c) => c[0]);
   const r = (c) => Math.hypot(c[1] - cx, c[0] - cy);
   const R = Math.max(...cells.map(r));
-  const edge = cells.filter((c) => r(c) > 0.75 * R), middle = cells.filter((c) => r(c) < 0.5 * R);
+  const edge = cells.filter((c) => r(c) > 0.75 * R),
+    middle = cells.filter((c) => r(c) < 0.5 * R);
   const filmTop = Math.max(...cells.map((c) => heightOf(c).above));
-  console.log(`height field: dry film ${mean(edge, (c) => c[13]).toFixed(1)} at the ring vs ${mean(middle, (c) => c[13]).toFixed(1)} in the middle; at most ${filmTop} drops high where the bead stood ${beadTop}`);
+  console.log(
+    `height field: dry film ${mean(edge, (c) => c[13]).toFixed(1)} at the ring vs ${mean(middle, (c) => c[13]).toFixed(1)} in the middle; at most ${filmTop} drops high where the bead stood ${beadTop}`,
+  );
   assert.ok(filmTop * 4 < beadTop, 'dry, it is a film, not a dome');
   assert.ok(mean(edge, (c) => c[13]) > 1.15 * mean(middle, (c) => c[13]), 'the ring stands a little higher');
   // the side view, dry: no dome above the surface; while wet (live), the bead stands
@@ -195,12 +217,24 @@ function watched(name, thirst, look = () => {}) {
   const tiles = [];
   let put = 0;
   const res = grow(rec, {
-    paperKey, family, instrument: {
+    paperKey,
+    family,
+    instrument: {
       ...quiet,
-      tile(t) { t.siz = new Uint8Array(256).fill(thirst); tiles.push(t); },
-      deposit(t, i, g) { put += g; },
+      tile(t) {
+        t.siz = new Uint8Array(256).fill(thirst);
+        tiles.push(t);
+      },
+      deposit(t, i, g) {
+        put += g;
+      },
       step(k) {
-        let top = 0, pores = 0, aired = 0, front = 0, wet = 0, W = 0;
+        let top = 0,
+          pores = 0,
+          aired = 0,
+          front = 0,
+          wet = 0,
+          W = 0;
         for (const t of tiles) {
           for (let i = 0; i < 256; i++) {
             const held = heldE(t, i);
@@ -237,7 +271,9 @@ test('wet front: a dwell stands on top first; the front takes it in while the wa
 
 test('wet front: the same drop sinks sooner on thirsty paper and spreads less; on sized paper it beads and spreads first', () => {
   const run = (thirst) => {
-    let starts = null, wetAtStart = 0, wetMax = 0;
+    let starts = null,
+      wetAtStart = 0,
+      wetMax = 0;
     const r = watched('bead', thirst, (w) => {
       wetMax = Math.max(wetMax, w.wet);
       if (starts === null && w.front > 0) {
@@ -248,8 +284,11 @@ test('wet front: the same drop sinks sooner on thirsty paper and spreads less; o
     const inked = r.cells.filter((c) => ink(c) > 50).length;
     return { starts, wetAtStart, wetMax, inked };
   };
-  const sized = run(1), thirsty = run(14);
-  console.log(`wet front: sized paper starts at ${sized.starts * TICK_MS} ms over ${sized.wetAtStart} cells, ${sized.inked} inked · thirsty at ${thirsty.starts * TICK_MS} ms over ${thirsty.wetAtStart}, ${thirsty.inked} inked`);
+  const sized = run(1),
+    thirsty = run(14);
+  console.log(
+    `wet front: sized paper starts at ${sized.starts * TICK_MS} ms over ${sized.wetAtStart} cells, ${sized.inked} inked · thirsty at ${thirsty.starts * TICK_MS} ms over ${thirsty.wetAtStart}, ${thirsty.inked} inked`,
+  );
   assert.ok(thirsty.starts < sized.starts, 'thirsty paper lets it in sooner');
   assert.ok(sized.wetAtStart > thirsty.wetAtStart, 'on sized paper the water spreads before the front starts');
   assert.ok(thirsty.inked < sized.inked, 'and the thirsty paper keeps the drop smaller');
@@ -281,10 +320,16 @@ test('height field: the depth below varies smoothly from cell to cell', () => {
   for (const name of ['gallLine', 'dents']) {
     const m = byCell(grown(name).cells);
     // a spike: a cell standing alone, deeper (or shallower) than all four of its neighbours by more than 2 levels
-    let spikes = 0, cells = 0;
+    let spikes = 0,
+      cells = 0;
     for (const c of grown(name).cells) {
       if (!ink(c) && !c[5]) continue;
-      const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => m.get(`${c[1] + dx},${c[0] + dy}`)?.[7] ?? 0);
+      const nb = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ].map(([dx, dy]) => m.get(`${c[1] + dx},${c[0] + dy}`)?.[7] ?? 0);
       cells++;
       if (c[7] > Math.max(...nb) + 2 || c[7] < Math.min(...nb) - 2) spikes++;
     }
@@ -303,7 +348,10 @@ test('scene field: from the facts alone, the same as the look; it encodes and de
     if (!a) continue;
     for (let ch = 0; ch < 3; ch++) assert.ok(Math.abs(255 - Math.round(((255 - f.rgba[4 * k + ch]) * a) / 255) - rgb[3 * k + ch]) <= 1, 'the scene shows the look');
   }
-  assert.ok(f.flags.some((v) => v & 1), 'holes where it tore');
+  assert.ok(
+    f.flags.some((v) => v & 1),
+    'holes where it tore',
+  );
   assert.ok(f.above.some((v) => v > 0) && f.depth.some((v) => v > 0) && f.surface.some((v) => v !== 0));
   const back = decodeScene(encodeScene(f));
   for (const k of ['surface', 'above', 'depth', 'rgba', 'flags']) assert.deepEqual(back[k], f[k], k);
@@ -317,7 +365,10 @@ test('scene field: from the facts alone, the same as the look; it encodes and de
   live.down({ x: s0.x[0] + 10 * rec.orgX, y: s0.y[0] + 10 * rec.orgY, t: 0, p: null }, pens[0][1], false);
   for (let i = 1; i < 20; i++) live.point({ x: s0.x[i] + 10 * rec.orgX, y: s0.y[i] + 10 * rec.orgY, t: s0.t[i] - s0.t[0], p: null });
   const lf = liveField(live.cut(box[0], box[1], box[0] + box[2] - 1, box[1] + box[3] - 1), box);
-  assert.ok(lf.flags.some((v) => v & 2), 'wet beads, live');
+  assert.ok(
+    lf.flags.some((v) => v & 2),
+    'wet beads, live',
+  );
 });
 
 test('show the moments: each cell knows when the nib put its ink down; a pause is one thick band', () => {
@@ -328,7 +379,7 @@ test('show the moments: each cell knows when the nib put its ink down; a pause i
   const bands = new Set([...inked].map((v) => Math.floor(v / 40)));
   console.log(`moments: ${inked.length} cells laid down over ${bands.size} bands`);
   assert.ok(bands.size > 10, 'the stroke reads as rings');
-  assert.ok(bandOf(-1) === -1 && (bandOf(0) === 0) && bandOf(40) === 1);
+  assert.ok(bandOf(-1) === -1 && bandOf(0) === 0 && bandOf(40) === 1);
   // the facts are those of grow(): the moments only watched
   assert.equal(JSON.stringify(settledCells(grow(rec, { paperKey, family }).tiles)), JSON.stringify(grown('gallHairPool').cells));
 });
@@ -339,13 +390,16 @@ const axisOf = (name) => {
   const { rec } = fixtureV2Bytes(name);
   const s = rec.strokes[0];
   const cell = (i) => [Math.floor((20 * rec.orgX + 2 * s.x[i]) / 10), Math.floor((20 * rec.orgY + 2 * s.y[i]) / 10)];
-  const A = cell(0), B = cell(s.x.length - 1);
+  const A = cell(0),
+    B = cell(s.x.length - 1);
   const L = Math.hypot(B[0] - A[0], B[1] - A[1]) || 1;
   const d = [(B[0] - A[0]) / L, (B[1] - A[1]) / L];
-  const pts = grown(name).cells.filter((c) => ink(c) >= 300).map((c) => {
-    const v = [c[1] - A[0], c[0] - A[1]];
-    return [v[0] * d[0] + v[1] * d[1], -v[0] * d[1] + v[1] * d[0]];
-  });
+  const pts = grown(name)
+    .cells.filter((c) => ink(c) >= 300)
+    .map((c) => {
+      const v = [c[1] - A[0], c[0] - A[1]];
+      return [v[0] * d[0] + v[1] * d[1], -v[0] * d[1] + v[1] * d[0]];
+    });
   const width = (a0, a1) => {
     const across = pts.filter(([al]) => al >= a0 && al <= a1).map(([, ac]) => ac);
     return across.length ? Math.max(...across) - Math.min(...across) + 1 : 0;
@@ -379,7 +433,10 @@ test('supply: an even S has no blots at its turns; a dwell beads to a capped siz
     for (let dy = -18; dy <= 18; dy++) for (let dx = -18; dx <= 18; dx++) if (dx * dx + dy * dy <= 324) a += ink(ix.get(`${x + dx},${y + dy}`) ?? [0, 0, 0, 0, 0]);
     return a;
   };
-  for (const [row, label] of [[0, 'round nib'], [320, 'flex, mouse']]) {
+  for (const [row, label] of [
+    [0, 'round nib'],
+    [320, 'flex, mouse'],
+  ]) {
     const at = (u) => [30 + Math.round(2 * 300 * u), 30 + 80 + row + Math.round(2 * 40 * Math.sin(u * 2 * Math.PI))];
     const turns = [0.25, 0.75].map((u) => near(...at(u)));
     const straight = [0.42, 0.5, 0.58].map((u) => near(...at(u)));
@@ -387,7 +444,8 @@ test('supply: an even S has no blots at its turns; a dwell beads to a capped siz
     console.log(`supply: ${label}: ink at the turns ${ratio.toFixed(2)}× the straight parts`);
     assert.ok(ratio < 1.3, `${label}: no blots at the turns`);
   }
-  const short = grown('bead'), long = grown('beadLong');
+  const short = grown('bead'),
+    long = grown('beadLong');
   const total = (cs) => sum(cs, ink);
   console.log(`supply: a 1.5 s dwell ${total(short.cells)}, a 4 s dwell ${total(long.cells)}`);
   assert.ok(total(long.cells) < 1.05 * total(short.cells), 'a longer dwell is no bigger');
@@ -410,16 +468,22 @@ test('water: over dried ink it re-wets and bleeds past the old edge; the tiles w
   const waterAt = Math.floor(rec.strokes[1].t[0] / TICK_MS);
   const tiles = [];
   const steps = [];
-  let fixedBefore = null, fixedLeast = Infinity, maxP = 0;
+  let fixedBefore = null,
+    fixedLeast = Infinity,
+    maxP = 0;
   const fixed = () => {
     let f = 0;
     for (const t of tiles) for (let i = 0; i < 768; i++) f += t.F[i];
     return f;
   };
   const res = grow(rec, {
-    paperKey, family, instrument: {
+    paperKey,
+    family,
+    instrument: {
       ...quiet,
-      tile(t) { tiles.push(t); },
+      tile(t) {
+        tiles.push(t);
+      },
       step(k, wetTiles) {
         steps.push(k);
         if (k < waterAt || k % DRY_EVERY) return;
@@ -431,7 +495,9 @@ test('water: over dried ink it re-wets and bleeds past the old edge; the tiles w
   });
   const firstDry = steps.findIndex((k, i) => i > 0 && k !== steps[i - 1] + 1);
   const sleptFrom = steps[firstDry - 1];
-  console.log(`water: fixed ink ${fixedBefore} → ${fixedLeast} under the water, wet pigment up to ${maxP}; ${past.length} cells inked past the old edge, ${outside.length} changed far outside; the first ink went quiet at ${sleptFrom * TICK_MS} ms, the water woke it at ${steps[firstDry] * TICK_MS} ms`);
+  console.log(
+    `water: fixed ink ${fixedBefore} → ${fixedLeast} under the water, wet pigment up to ${maxP}; ${past.length} cells inked past the old edge, ${outside.length} changed far outside; the first ink went quiet at ${sleptFrom * TICK_MS} ms, the water woke it at ${steps[firstDry] * TICK_MS} ms`,
+  );
   assert.ok(fixedLeast < 0.9 * fixedBefore, 'fixed ink decreases under the water');
   assert.ok(maxP > 0, 'and turns wet again');
   assert.ok(past.length > 50, 'the ink spreads past the old edge');
@@ -450,7 +516,8 @@ test('water: darkened oak gall barely moves', () => {
     for (const [k, c] of b) if (!a.some((x) => keyOf(x) === k)) m += c[5];
     return m;
   };
-  const fresh = moved(0), old = moved(AGE_CAP_H);
+  const fresh = moved(0),
+    old = moved(AGE_CAP_H);
   console.log(`gall under water: moved ${fresh} fresh, ${old} after ${AGE_CAP_H} h`);
   assert.ok(fresh > 1000, 'fresh gall is carried off like any ink');
   assert.ok(old < fresh / 5, 'darkened gall barely moves');
@@ -462,7 +529,10 @@ test('oak gall over blue: only where gall reached darkens; the blue is unchanged
   const { cells, box } = grown('gallOverBlue');
   const fresh = lookRGB(cells, box, { ageH: 0 });
   const aged = lookRGB(cells, box, { ageH: AGE_CAP_H });
-  let changed = 0, wrong = 0, lighter = 0, blue = 0;
+  let changed = 0,
+    wrong = 0,
+    lighter = 0,
+    blue = 0;
   for (const c of cells) {
     const k = ((c[0] - box[1]) * box[2] + (c[1] - box[0])) * 3;
     if (k < 0 || k >= fresh.length) continue;
@@ -488,7 +558,9 @@ test('uneven darkening: at a day the hairline is further along than the pool; at
   const cap = { hair: mean(hair, (c) => gallDark(c, AGE_CAP_H)), pool: mean(pool, (c) => gallDark(c, AGE_CAP_H)) };
   const L = lookRGB(cells, box, { ageH: AGE_CAP_H });
   const shade = { hair: mean(hair, (c) => lum(L, box, c)), pool: mean(pool, (c) => lum(L, box, c)) };
-  console.log(`darkness at 1 day: hairline ${day.hair.toFixed(0)}/256, pool ${day.pool.toFixed(0)} · at ${AGE_CAP_H} h: ${cap.hair.toFixed(0)}, ${cap.pool.toFixed(0)} · shown ${shade.hair.toFixed(0)} vs ${shade.pool.toFixed(0)}`);
+  console.log(
+    `darkness at 1 day: hairline ${day.hair.toFixed(0)}/256, pool ${day.pool.toFixed(0)} · at ${AGE_CAP_H} h: ${cap.hair.toFixed(0)}, ${cap.pool.toFixed(0)} · shown ${shade.hair.toFixed(0)} vs ${shade.pool.toFixed(0)}`,
+  );
   assert.ok(day.hair > 1.3 * day.pool, 'air reaches the hairline first');
   assert.ok(cap.pool > 0.85 * 256, 'the pool gets there in the end');
   assert.ok(shade.pool < shade.hair, 'and ends darkest');
@@ -524,7 +596,8 @@ test('fading: no exposure is the fresh look; much exposure fades surface ink mor
   const inked = cells.filter((c) => ink(c) > 0);
   const surface = inked.filter((c) => c[7] <= 2);
   const sunk = inked.filter((c) => c[7] >= 12);
-  const s = mean(surface, (c) => fadeOf(c, 4000)), d = mean(sunk, (c) => fadeOf(c, 4000));
+  const s = mean(surface, (c) => fadeOf(c, 4000)),
+    d = mean(sunk, (c) => fadeOf(c, 4000));
   console.log(`fading at 4000 views: surface ink keeps ${s.toFixed(0)}/256 (${surface.length} cells), sunk ink ${d.toFixed(0)} (${sunk.length})`);
   assert.ok(surface.length > 20 && sunk.length > 20);
   assert.ok(s < d - 20, 'light takes the surface first');
@@ -552,7 +625,9 @@ test('soak never decreases', () => {
     const seen = new Map();
     let checks = 0;
     grow(rec, {
-      paperKey, family, instrument: {
+      paperKey,
+      family,
+      instrument: {
         ...quiet,
         step(k, wetTiles) {
           for (const t of wetTiles) {
@@ -613,21 +688,30 @@ test('cockle: a soaked region dries in ridges, and later wet ink runs into the v
   const endK = Math.floor(rec.strokes[1].t.at(-1) / TICK_MS);
   const tiles = [];
   const water = new Map();
-  const cells = settledCells(grow(rec, {
-    paperKey, family, instrument: {
-      ...quiet,
-      tile(t) { tiles.push(t); },
-      step(k) {
-        if (k !== endK) return;
-        for (const t of tiles) for (let i = 0; i < 256; i++) if (t.W[i] > 0) water.set(`${t.tx * 16 + (i % 16)},${t.ty * 16 + (i >> 4)}`, t.W[i]);
+  const cells = settledCells(
+    grow(rec, {
+      paperKey,
+      family,
+      instrument: {
+        ...quiet,
+        tile(t) {
+          tiles.push(t);
+        },
+        step(k) {
+          if (k !== endK) return;
+          for (const t of tiles) for (let i = 0; i < 256; i++) if (t.W[i] > 0) water.set(`${t.tx * 16 + (i % 16)},${t.ty * 16 + (i >> 4)}`, t.W[i]);
+        },
       },
-    },
-  }).tiles);
+    }).tiles,
+  );
   const under = cells.filter((c) => ink(c) >= 4 && (ridges.get(keyOf(c))?.[9] ?? 0) >= SOAK_FULL);
   under.sort((a, b) => ridges.get(keyOf(a))[12] - ridges.get(keyOf(b))[12]);
-  const valleys = under.slice(0, under.length >> 1), tops = under.slice(under.length >> 1);
+  const valleys = under.slice(0, under.length >> 1),
+    tops = under.slice(under.length >> 1);
   const standing = (cs) => mean(cs, (c) => water.get(keyOf(c)) ?? 0);
-  console.log(`cockle: water standing as the stroke ends ${standing(valleys).toFixed(0)} in the valleys vs ${standing(tops).toFixed(0)} on the ridges; settled ink ${mean(valleys, ink).toFixed(0)} vs ${mean(tops, ink).toFixed(0)} (${under.length} cells)`);
+  console.log(
+    `cockle: water standing as the stroke ends ${standing(valleys).toFixed(0)} in the valleys vs ${standing(tops).toFixed(0)} on the ridges; settled ink ${mean(valleys, ink).toFixed(0)} vs ${mean(tops, ink).toFixed(0)} (${under.length} cells)`,
+  );
   assert.ok(under.length > 2000);
   assert.ok(standing(valleys) > 1.1 * standing(tops), 'the wet ink runs into the valleys');
 });
@@ -640,10 +724,16 @@ function splatsOf(name, key = paperKey) {
   const events = [];
   let deposited = 0;
   const res = grow(rec, {
-    paperKey: key, family, instrument: {
+    paperKey: key,
+    family,
+    instrument: {
       ...quiet,
-      deposit(t, i, g) { deposited += g; },
-      splat(si, i, drops) { events.push([si, i, drops.length]); },
+      deposit(t, i, g) {
+        deposited += g;
+      },
+      splat(si, i, drops) {
+        events.push([si, i, drops.length]);
+      },
     },
   });
   return { res, events, deposited, cells: settledCells(res.tiles) };
@@ -653,7 +743,9 @@ test('splatter: spatter 0 never throws ink; fast flicks throw more than a slow c
   const flicks = splatsOf('flicks');
   const slow = splatsOf('slowCurve');
   const dry = splatsOf('flicksDry');
-  console.log(`splatter: flicks ${flicks.events.length} acts threw ${flicks.res.splat.drops} drops (${flicks.res.splat.W} water) · slow curve ${slow.res.splat.drops} · spatter 0 ${dry.res.splat.drops}`);
+  console.log(
+    `splatter: flicks ${flicks.events.length} acts threw ${flicks.res.splat.drops} drops (${flicks.res.splat.W} water) · slow curve ${slow.res.splat.drops} · spatter 0 ${dry.res.splat.drops}`,
+  );
   assert.equal(dry.res.splat.drops, 0, 'spatter 0 never splatters');
   assert.equal(dry.events.length, 0);
   assert.ok(flicks.res.splat.drops > 5, 'fast flicks splatter');
@@ -696,7 +788,7 @@ test('splatter: undo takes a stroke and its drops; every drop is in the accounts
   const all = splatsOf('flicks');
   assert.ok(all.res.put.drops > 0);
   assert.equal(all.res.put.drops, all.res.splat.W, 'what the drops put down');
-  assert.equal(all.deposited, all.res.put.nib + all.res.put.drops, 'every drop of water put down is the nib\'s or a thrown drop\'s');
+  assert.equal(all.deposited, all.res.put.nib + all.res.put.drops, "every drop of water put down is the nib's or a thrown drop's");
 });
 
 // --- the sleep rule, live writing, and the tools ---
@@ -728,7 +820,8 @@ test('sleep rule: a minute-long pressed stroke (dents, depth, soak) costs the sa
     seconds.push({ active: active / frames, sent: sent / frames });
   }
   const m = (xs, k) => xs.reduce((s, x) => s + x[k], 0) / xs.length;
-  const early = seconds.slice(2, 12), late = seconds.slice(50, 60);
+  const early = seconds.slice(2, 12),
+    late = seconds.slice(50, 60);
   console.log(`v2 sleep rule: active tiles ${m(early, 'active').toFixed(1)} early, ${m(late, 'active').toFixed(1)} late; sent ${m(early, 'sent').toFixed(1)} → ${m(late, 'sent').toFixed(1)}`);
   assert.ok(m(late, 'active') <= 1.15 * m(early, 'active'));
   assert.ok(m(late, 'sent') <= 1.15 * m(early, 'sent') + 1);
@@ -770,7 +863,10 @@ test('live writing (with undo) and playback settle exactly as grow()', () => {
   cut.down(pt(strokes[1].s, 0), strokes[1].pens[0][1], false);
   for (let i = 1; i < 30; i++) cut.point(pt(strokes[1].s, i));
   const rows = cut.cut(0, 0, 2000, 2000);
-  assert.ok(rows.some((r) => r[5] > 0 && r[8] > 0), 'a wet gall cell shows its bead in the live cut');
+  assert.ok(
+    rows.some((r) => r[5] > 0 && r[8] > 0),
+    'a wet gall cell shows its bead in the live cut',
+  );
 });
 
 test('walk-back and film read v2 sheets without changing them', () => {
@@ -782,4 +878,119 @@ test('walk-back and film read v2 sheets without changing them', () => {
   assert.ok(w.water.standing > 0 && w.deposits.length > 0);
   const film = readFilm(makeFilm({ actsBytes: bytes, rec, paperKey, family, box }));
   assert.ok(film.frames.length > 10);
+});
+
+test('scene payload (PNKS 2): only the cells that hold anything, the surface in a byte when it fits; PNKS 1 still reads', () => {
+  const { cells, box } = grown('gallHairPool');
+  const f = sceneField(cells, box, {});
+  const two = encodeScene(f);
+  assert.equal(two[4], 2);
+  const back = decodeScene(two);
+  for (const k of ['surface', 'above', 'depth', 'rgba', 'flags']) assert.deepEqual(back[k], f[k], k);
+  assert.ok(two.length < 0.6 * (21 + box[2] * box[3] * 10), `smaller: ${two.length} bytes against ${21 + box[2] * box[3] * 10}`);
+  // a surface past a byte: two bytes a cell
+  const tall = { ...f, surface: f.surface.map((v, k) => (k % 7 === 0 ? 300 : v)) };
+  const t2 = encodeScene(tall);
+  assert.equal(t2[21], 0);
+  assert.deepEqual(decodeScene(t2).surface, tall.surface);
+  // PNKS 1, every cell of the box
+  const n = box[2] * box[3];
+  const one = new Uint8Array(21 + n * 10);
+  const dv = new DataView(one.buffer);
+  one.set([0x50, 0x4e, 0x4b, 0x53, 1]);
+  box.forEach((v, i) => dv.setInt32(5 + 4 * i, v, true));
+  for (let k = 0; k < n; k++) {
+    const o = 21 + 10 * k;
+    dv.setInt16(o, f.surface[k], true);
+    dv.setUint16(o + 2, f.above[k], true);
+    one[o + 4] = f.depth[k];
+    one.set(f.rgba.subarray(4 * k, 4 * k + 4), o + 5);
+    one[o + 9] = f.flags[k];
+  }
+  const old = decodeScene(one);
+  for (const k of ['surface', 'above', 'depth', 'rgba', 'flags']) assert.deepEqual(old[k], f[k], k);
+  assert.throws(() => decodeScene(two.subarray(0, two.length - 3)), /scene/);
+});
+
+// --- load by the senses (cleanup-and-speed.md §5b) ---
+
+test('load by the senses: a window of the scene is its cells; a coarser level mixes blocks; PNKS carries the level', () => {
+  const { cells, box } = grown('gallHairPool');
+  const f = sceneField(cells, box, {});
+  const same = sceneWindow(f);
+  for (const k of ['surface', 'above', 'depth', 'rgba', 'flags']) assert.deepEqual(same[k], f[k], k);
+  // a window: exactly those cells (clipped to the box)
+  const at = [box[0] + 7, box[1] + 3, 40, box[3] + 99];
+  const w = sceneWindow(f, at);
+  assert.deepEqual(w.box, [at[0], at[1], 40, box[3] - 3]);
+  for (let y = 0; y < w.box[3]; y++) {
+    for (let x = 0; x < w.box[2]; x++) {
+      const k = y * w.box[2] + x,
+        o = (y + 3) * box[2] + (x + 7);
+      assert.equal(w.surface[k], f.surface[o]);
+      assert.equal(w.above[k], f.above[o]);
+      assert.equal(w.depth[k], f.depth[o]);
+      assert.equal(w.flags[k], f.flags[o]);
+      assert.deepEqual([...w.rgba.subarray(4 * k, 4 * k + 4)], [...f.rgba.subarray(4 * o, 4 * o + 4)]);
+    }
+  }
+  assert.deepEqual(sceneWindow(f, [box[0] - 500, box[1], 10, 10]).box.slice(2), [0, 0], 'nothing in view: nothing');
+  // level 2: blocks of 4 × 4, the same ink over a sixteenth of the cells
+  const c = sceneWindow(f, null, 2);
+  assert.equal(c.lod, 2);
+  assert.deepEqual(c.box, [Math.floor(box[0] / 4), Math.floor(box[1] / 4), Math.ceil((box[0] + box[2]) / 4) - Math.floor(box[0] / 4), Math.ceil((box[1] + box[3]) / 4) - Math.floor(box[1] / 4)]);
+  const ink = (g, n) => g.rgba.reduce((a, v, i) => (i % 4 === 3 ? a + v * n : a), 0);
+  assert.ok(Math.abs(ink(c, 16) - ink(f, 1)) < 0.01 * ink(f, 1) + 8 * c.box[2] * c.box[3], 'the ink is all there, spread over its block');
+  const deepest = (g) => g.depth.reduce((a, v) => Math.max(a, v), 0);
+  assert.equal(deepest(c), deepest(f));
+  assert.equal(
+    c.flags.reduce((a, v) => a | v, 0),
+    f.flags.reduce((a, v) => a | v, 0),
+  );
+  const back = decodeScene(encodeScene(c));
+  assert.equal(back.lod, 2);
+  for (const k of ['surface', 'above', 'depth', 'rgba', 'flags']) assert.deepEqual(back[k], c[k], k);
+  assert.equal(decodeScene(encodeScene(f)).lod, 0);
+  assert.throws(() => sceneWindow(f, null, 4), /level/);
+  assert.throws(() => sceneWindow(c, null, 1), /level/, 'a coarse field is not coarsened again');
+});
+
+test('load by the senses: a sheet that leaves the view while wet keeps settling, and ends as one watched the whole time', () => {
+  const { rec, bytes } = grown('gallOverBlue');
+  const strokes = rec.strokes.map((s, si) => ({ s, pens: penTimeline(rec)[si] }));
+  const pt = (s, i) => ({ x: s.x[i] + 10 * rec.orgX, y: s.y[i] + 10 * rec.orgY, t: s.t[i], p: null });
+  const end = strokes.at(-1).s.t.at(-1) + 3000;
+  // watching(t): whether anyone sees the sheet at t (only then are its tiles drawn)
+  const run = (watching) => {
+    const live = createLive({ paperKey, family });
+    const shown = new Map();
+    let looks = 0;
+    const look = () => {
+      looks++;
+      for (const t of live.changed({ heights: true })) shown.set(`${t.tx},${t.ty}`, `${t.rgba.join()}|${t.hf.join()}`);
+    };
+    strokes.forEach(({ s, pens }, si) => {
+      live.down(pt(s, 0), pens[0][1], false);
+      for (let i = 1; i < s.x.length; i++) {
+        live.point(pt(s, i));
+        if (i % 8 === 0 && watching(s.t[i])) look();
+      }
+      live.up();
+      const next = si + 1 < strokes.length ? strokes[si + 1].s.t[0] : end;
+      for (let t = s.t.at(-1) + 40; t < next; t += 40) {
+        live.advanceTo(t); // the worker steps whether or not anyone looks
+        if (watching(t)) look();
+      }
+    });
+    look(); // back in view
+    return { out: live.finish(bytes), shown, looks };
+  };
+  const watched = run(() => true);
+  const leaves = strokes[0].s.t[Math.floor(strokes[0].s.x.length / 2)]; // mid-stroke, wet
+  const away = run((t) => t < leaves);
+  assert.ok(away.looks < watched.looks / 4, `away: ${away.looks} looks against ${watched.looks}`);
+  assert.deepEqual(away.out.facts, watched.out.facts);
+  assert.equal(JSON.stringify(away.out.cells), JSON.stringify(watched.out.cells));
+  assert.deepEqual([...away.shown.keys()].sort(), [...watched.shown.keys()].sort());
+  for (const [k, v] of watched.shown) assert.equal(away.shown.get(k), v, `tile ${k}: on its return it shows what the watcher saw`);
 });

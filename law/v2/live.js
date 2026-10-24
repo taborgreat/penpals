@@ -16,10 +16,7 @@
 
 import { createSim, filmLevel, heldE } from './sim.js';
 import { settledCells, boxOf, factsDigest, GN } from './look.js';
-import {
-  TILE, TICK_MS, P_NONE, SCALE_ONE, W_SAT, W_WET, GALL_FRESH, TORN, DENT_SHIFT, DEPTH_SHIFT, THICK,
-  WEAR_SHIFT, DENT_Z, FILM_Q,
-} from './constants.js';
+import { TILE, TICK_MS, P_NONE, SCALE_ONE, W_SAT, W_WET, GALL_FRESH, TORN, DENT_SHIFT, DEPTH_SHIFT, THICK, WEAR_SHIFT, DENT_Z, FILM_Q } from './constants.js';
 import { EXP8 } from '../v1/tables.js';
 import { floorDiv } from '../v1/int.js';
 import { penTimeline } from './acts.js';
@@ -40,8 +37,7 @@ const tOf = (a) => EXP8[Math.min(a >> 2, 2047)];
 // what stands there (the surface: cockle up, a dent down; plus the bead now, or
 // the film once dry) in drops, the bead or film alone, the depth sunk (levels),
 // and flags (1 torn, 2 wet).
-export function heightTile(t) {
-  const hf = new Int16Array(TT * 4);
+export function heightTile(t, hf = new Int16Array(TT * 4)) {
   for (let i = 0; i < TT; i++) {
     const dent = t.dentA[i] >> DENT_SHIFT;
     const bead = t.W[i] > 0 ? Math.max(0, t.W[i] - heldE(t, i)) : 0; // what stands on top
@@ -55,12 +51,14 @@ export function heightTile(t) {
   return hf;
 }
 
-function paint(t) {
+function paint(t, rgba = new Uint8ClampedArray(TT * 4)) {
   const { W, P, F, G, FG, flags } = t;
-  const rgba = new Uint8ClampedArray(TT * 4);
+  rgba.fill(0);
   for (let i = 0; i < TT; i++) {
     if (flags[i] & TORN) continue;
-    let a0 = F[3 * i] + P[3 * i], a1 = F[3 * i + 1] + P[3 * i + 1], a2 = F[3 * i + 2] + P[3 * i + 2];
+    let a0 = F[3 * i] + P[3 * i],
+      a1 = F[3 * i + 1] + P[3 * i + 1],
+      a2 = F[3 * i + 2] + P[3 * i + 2];
     if (FG) {
       const g = FG[i] + G[i];
       if (g) {
@@ -69,7 +67,9 @@ function paint(t) {
         a2 += floorDiv(g * GN[2] * GALL_FRESH, 65536);
       }
     }
-    const r = tOf(a0), g = tOf(a1), b = tOf(a2);
+    const r = tOf(a0),
+      g = tOf(a1),
+      b = tOf(a2);
     const a = 255 - Math.min(r, g, b);
     if (a === 0) {
       if (W[i] >= W_WET) {
@@ -89,6 +89,8 @@ function paint(t) {
 export function createLive({ paperKey, family, keep = 24 }) {
   let sim = createSim({ paperKey, family, track: true });
   const shown = new Map();
+  const scratchC = new Uint8ClampedArray(TT * 4); // a tile's colour, drawn here first
+  const scratchH = new Int16Array(TT * 4); // and its heights
   const shownH = new Map();
   const done = [];
   let cur = null;
@@ -151,24 +153,38 @@ export function createLive({ paperKey, family, keep = 24 }) {
       }
       return true;
     },
-    get strokes() { return done.length; },
-    get now() { return sim.now * TICK_MS; },
-    get wet() { return sim.wetCells > 0; },
-    get activeTiles() { return sim.activeTiles; },
+    get strokes() {
+      return done.length;
+    },
+    get now() {
+      return sim.now * TICK_MS;
+    },
+    get wet() {
+      return sim.wetCells > 0;
+    },
+    get activeTiles() {
+      return sim.activeTiles;
+    },
     // With { heights: true } each tile also carries its height field for the
     // scene (heightTile): beads rising and sinking show even where no colour changes.
+    // (drawn into scratch: a tile that did not change costs nothing; one that did
+    // gets buffers of its own, handed over, and what was shown is kept in place)
     changed({ heights = false } = {}) {
       const out = [];
       for (const t of sim.changed()) {
-        const rgba = paint(t);
+        const rgba = paint(t, scratchC);
         const key = `${t.tx},${t.ty}`;
-        const hf = heights ? heightTile(t) : null;
+        const hf = heights ? heightTile(t, scratchH) : null;
         const before = shown.get(key);
         const beforeH = heights ? shownH.get(key) : null;
         if (before && same(before, rgba) && (!heights || (beforeH && same(beforeH, hf)))) continue;
-        shown.set(key, rgba.slice());
-        if (heights) shownH.set(key, hf.slice());
-        out.push(heights ? { tx: t.tx, ty: t.ty, rgba, hf } : { tx: t.tx, ty: t.ty, rgba });
+        if (before) before.set(rgba);
+        else shown.set(key, rgba.slice());
+        if (heights) {
+          if (beforeH) beforeH.set(hf);
+          else shownH.set(key, hf.slice());
+        }
+        out.push(heights ? { tx: t.tx, ty: t.ty, rgba: rgba.slice(), hf: hf.slice() } : { tx: t.tx, ty: t.ty, rgba: rgba.slice() });
       }
       return out;
     },
@@ -183,7 +199,10 @@ export function createLive({ paperKey, family, keep = 24 }) {
     // are now: wet pigment counted with fixed, and at [14] the water standing
     // over a wet cell's capacity now (0 once dry: then only the film stands).
     cut(x0, y0, x1, y1) {
-      const lx = Math.min(x0, x1), hx = Math.max(x0, x1), ly = Math.min(y0, y1), hy = Math.max(y0, y1);
+      const lx = Math.min(x0, x1),
+        hx = Math.max(x0, x1),
+        ly = Math.min(y0, y1),
+        hy = Math.max(y0, y1);
       const rows = [];
       for (const t of sim.tiles()) {
         if ((t.tx + 1) * TILE <= lx || t.tx * TILE > hx || (t.ty + 1) * TILE <= ly || t.ty * TILE > hy) continue;
@@ -194,12 +213,21 @@ export function createLive({ paperKey, family, keep = 24 }) {
           const dent = t.dentA[i] >> DENT_SHIFT;
           const standing = Math.max(0, t.W[i] - heldE(t, i)); // on top, in drops
           rows.push([
-            y, x,
-            Math.min(65535, t.F[3 * i] + t.P[3 * i]), Math.min(65535, t.F[3 * i + 1] + t.P[3 * i + 1]), Math.min(65535, t.F[3 * i + 2] + t.P[3 * i + 2]),
+            y,
+            x,
+            Math.min(65535, t.F[3 * i] + t.P[3 * i]),
+            Math.min(65535, t.F[3 * i + 1] + t.P[3 * i + 1]),
+            Math.min(65535, t.F[3 * i + 2] + t.P[3 * i + 2]),
             t.FG ? Math.min(65535, t.FG[i] + t.G[i]) : 0,
-            dent, Math.min(THICK, t.depthA[i] >> DEPTH_SHIFT), t.peak[i],
-            Math.min(255, t.soakA[i] >> 8), Math.min(255, t.wearA[i] >> WEAR_SHIFT), t.flags[i], t.cockle[i],
-            filmLevel(t.filmA[i]), t.W[i] > 0 ? standing : 0,
+            dent,
+            Math.min(THICK, t.depthA[i] >> DEPTH_SHIFT),
+            t.peak[i],
+            Math.min(255, t.soakA[i] >> 8),
+            Math.min(255, t.wearA[i] >> WEAR_SHIFT),
+            t.flags[i],
+            t.cockle[i],
+            filmLevel(t.filmA[i]),
+            t.W[i] > 0 ? standing : 0,
           ]);
         }
       }

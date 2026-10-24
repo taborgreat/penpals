@@ -10,7 +10,10 @@ import { readFilm, paintFrame } from 'penpals-law/v1/film';
 import { lawOf } from 'penpals-law/laws';
 import { muxWebm } from './webm.js';
 
-const CODECS = [['vp09.00.10.08', 'V_VP9'], ['vp8', 'V_VP8']];
+const CODECS = [
+  ['vp09.00.10.08', 'V_VP9'],
+  ['vp8', 'V_VP8'],
+];
 
 const hex = (c) => {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(c ?? '');
@@ -61,7 +64,9 @@ async function toWebm(film, bg, progress) {
       chunk.copyTo(data);
       chunks.push({ data, timestamp: chunk.timestamp, key: chunk.type === 'key' });
     },
-    error: (e) => { failed = e; },
+    error: (e) => {
+      failed = e;
+    },
   });
   encoder.configure({ codec: support.codec, width: W, height: H, bitrate: Math.min(8_000_000, W * H * 6), framerate: film.fps });
   const pixels = new Uint8ClampedArray(w * h * 4);

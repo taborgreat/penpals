@@ -42,8 +42,7 @@ export function makePaper(paperKey, family) {
     const j = floorDiv(v, ACROSS);
     const wx = SMOOTH32[floorDiv((u - i * ALONG) * 32, ALONG)];
     const wy = SMOOTH32[floorDiv((v - j * ACROSS) * 32, ACROSS)];
-    const s = node(i, j) * (256 - wx) * (256 - wy) + node(i + 1, j) * wx * (256 - wy)
-      + node(i, j + 1) * (256 - wx) * wy + node(i + 1, j + 1) * wx * wy;
+    const s = node(i, j) * (256 - wx) * (256 - wy) + node(i + 1, j) * wx * (256 - wy) + node(i, j + 1) * (256 - wx) * wy + node(i + 1, j + 1) * wx * wy;
     return floorDiv(s + 32768, 65536);
   };
   return {

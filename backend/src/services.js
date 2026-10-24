@@ -7,14 +7,17 @@ import { now as clock } from './clock.js';
 // sealed upload is checked against the law.
 
 let pool = null;
-export const setPool = (p) => { pool = p; };
+export const setPool = (p) => {
+  pool = p;
+};
 export const getPool = () => pool;
 
 // Grow acts under `law` on the paper of `seed` (the job only ever sees the
 // paperKey). `view` is the look's moment ({ ageH, views } buckets); `mode`
-// 'side' (with `cut`) or 'relief' asks for those pictures instead.
-export function settleOnServer({ law, acts, seed, family, scale = 64, png = false, view, mode, cut, priority = 'view', key, timeout }) {
-  return pool.run({ law, acts, paperKey: K.paperKeyOf(seed), family, scale, png, view, mode, cut }, { key, priority, timeout: timeout ?? config.render.timeoutMs.book });
+// 'side' (with `cut`) or 'scene' asks for those instead; `lod` the look at a
+// level of detail (each pixel 2^lod cells a side: sight.js).
+export function settleOnServer({ law, acts, seed, family, scale = 64, png = false, lod = 0, view, mode, cut, priority = 'view', key, timeout }) {
+  return pool.run({ law, acts, paperKey: K.paperKeyOf(seed), family, scale, png, lod, view, mode, cut }, { key, priority, timeout: timeout ?? config.render.timeoutMs.book });
 }
 
 // A closed sheet's film (law/v1/film.js), deflated: made by the pool, kept on disk.
@@ -46,11 +49,20 @@ export function viewOf(body, made, views, now = clock()) {
 export async function confirmFacts(body, seed, { timeout, png = true, ua = '' } = {}) {
   const acts = fromB64url(body.acts);
   const out = await settleOnServer({
-    law: body.law, acts, seed, family: body.paper, scale: 64, png, priority: 'upload', timeout,
+    law: body.law,
+    acts,
+    seed,
+    family: body.paper,
+    scale: 64,
+    png,
+    priority: 'upload',
+    timeout,
     key: `facts:${body.key}:${body.sheet}:${body.facts}`,
   });
   if (out.facts !== hex(fromB64url(body.facts)) || JSON.stringify(out.box) !== JSON.stringify(body.box)) {
-    console.error(`[law] FACTS MISMATCH law ${body.law} sheet ${body.sheet}: sealed ${hex(fromB64url(body.facts)).slice(0, 16)} box ${body.box} vs server ${out.facts.slice(0, 16)} box ${out.box}; client ${ua}`);
+    console.error(
+      `[law] FACTS MISMATCH law ${body.law} sheet ${body.sheet}: sealed ${hex(fromB64url(body.facts)).slice(0, 16)} box ${body.box} vs server ${out.facts.slice(0, 16)} box ${out.box}; client ${ua}`,
+    );
     throw httpError(422, 'facts_mismatch', 'Your device and the server settled this ink differently, so it was not saved. Please report this.');
   }
   return out;

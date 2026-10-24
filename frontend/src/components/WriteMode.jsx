@@ -10,10 +10,11 @@ import { sceneOn, useLowPower } from '../scene/support.js';
 function inkRows(data) {
   let y0 = Infinity;
   let y1 = -Infinity;
-  for (const s of data.strokes) for (const p of s.points) {
-    y0 = Math.min(y0, p.y);
-    y1 = Math.max(y1, p.y);
-  }
+  for (const s of data.strokes)
+    for (const p of s.points) {
+      y0 = Math.min(y0, p.y);
+      y1 = Math.max(y1, p.y);
+    }
   return [y0, y1];
 }
 const PLAY_ROOM = 90; // page px kept above and below the writing
@@ -132,7 +133,8 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     const y0 = c.camY;
     const x1 = c.cam + w / c.zoom;
     const y1 = c.camY + h / c.zoom;
-    if (live) { // the sheet as the law grows it, cells scaled to page px: only the part in view
+    if (live) {
+      // the sheet as the law grows it, cells scaled to page px: only the part in view
       ictx.imageSmoothingEnabled = true;
       const cells = live.canvas.width / pageW;
       const sx = Math.max(0, Math.floor(x0 * cells) - 1);
@@ -142,18 +144,18 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
       if (sw > 0 && sh > 0) ictx.drawImage(live.canvas, sx, sy, sw, sh, sx / cells, sy / cells, sw / cells, sh / cells);
       ictx.setTransform(1, 0, 0, 1, 0, 0);
     } else {
-    const draw = (s) => {
-      const b = boxOf(s);
-      if (b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) renderStroke(ictx, s);
-    };
-    for (const s of getStrokes()) draw(s);
-    for (const d of draftRef.current.strokes) draw(d.stroke);
-    if (curRef.current) renderStroke(ictx, curRef.current.stroke, true);
-    ictx.setTransform(1, 0, 0, 1, 0, 0);
-    ictx.globalCompositeOperation = 'source-in'; // the ink in the letter's colour
-    ictx.fillStyle = inkColor;
-    ictx.fillRect(0, 0, inkCanvas.width, inkCanvas.height);
-    ictx.globalCompositeOperation = 'source-over';
+      const draw = (s) => {
+        const b = boxOf(s);
+        if (b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) renderStroke(ictx, s);
+      };
+      for (const s of getStrokes()) draw(s);
+      for (const d of draftRef.current.strokes) draw(d.stroke);
+      if (curRef.current) renderStroke(ictx, curRef.current.stroke, true);
+      ictx.setTransform(1, 0, 0, 1, 0, 0);
+      ictx.globalCompositeOperation = 'source-in'; // the ink in the letter's colour
+      ictx.fillStyle = inkColor;
+      ictx.fillRect(0, 0, inkCanvas.width, inkCanvas.height);
+      ictx.globalCompositeOperation = 'source-over';
     }
 
     const end = endRef.current;
@@ -164,7 +166,8 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
       end.style.top = `${-c.camY * c.zoom}px`;
       end.style.height = `${height * c.zoom}px`;
     }
-    if (view3dRef.current) { // in 3D the scene looks where the chase's view is
+    if (view3dRef.current) {
+      // in 3D the scene looks where the chase's view is
       followRef.current.offset = [c.cam + w / 2 / c.zoom, c.camY + h / 2 / c.zoom];
       sceneRef.current?.invalidate();
     }
@@ -251,7 +254,9 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     return () => ro.disconnect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { schedule(); }, [render, schedule]); // new colour, paper or lines
+  useEffect(() => {
+    schedule();
+  }, [render, schedule]); // new colour, paper or lines
   useEffect(() => live?.onChange(schedule), [live, schedule]); // the sheet grew
 
   // Monk mode: the page behind doesn't scroll, and can't be reached, while you write.
@@ -312,7 +317,8 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
       }
       if (touchesRef.current.size === 2) {
         const cur = curRef.current;
-        if (cur) { // the first finger was the start of a pinch, not a stroke
+        if (cur) {
+          // the first finger was the start of a pinch, not a stroke
           Object.assign(c, cur.before);
           curRef.current = null;
           capture?.cancel();
@@ -362,7 +368,8 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     }
     const cur = curRef.current;
     if (!cur) {
-      if (e.buttons === 0 && !resetRef.current) { // a hovering mouse or pen
+      if (e.buttons === 0 && !resetRef.current) {
+        // a hovering mouse or pen
         const p = toPage(c, pt.x, pt.y);
         glowAt(p.x, pt.x);
       }
@@ -508,7 +515,9 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     const screen = (ev) => ({ x: ev.clientX - sizeRef.current.left, y: ev.clientY - sizeRef.current.top });
     const point = (p, ev, type) => ({ x: p.x, y: p.y, t: ev.timeStamp || performance.now(), p: ev.pressure || 0.5, pen: type === 'pen' });
     return {
-      penDown: (cam) => { sceneCamRef.current = cam; },
+      penDown: (cam) => {
+        sceneCamRef.current = cam;
+      },
       down(p, ev, type) {
         if (playing || curRef.current) return;
         const c = camRef.current;
@@ -543,7 +552,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
         schedule();
       },
     };
-  }); // eslint-disable-line react-hooks/exhaustive-deps
+  });
   useEffect(() => {
     if (view3d) live?.scene?.(true);
     schedule();
@@ -552,7 +561,12 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
   return createPortal(
     <div className={`monk${view3d ? ' monk-3d' : ''}`} ref={rootRef} role="dialog" aria-modal="true" aria-label="Write mode">
       <canvas ref={paperRef} className="monk-paper" />
-      <div ref={endRef} className={`monk-end ${CHASE.RESET_EDGE === 'view' ? 'at-view' : ''}`} style={CHASE.RESET_EDGE === 'view' ? { width: `${CHASE.VIEW_EDGE * 100}%` } : undefined} aria-hidden="true" />
+      <div
+        ref={endRef}
+        className={`monk-end ${CHASE.RESET_EDGE === 'view' ? 'at-view' : ''}`}
+        style={CHASE.RESET_EDGE === 'view' ? { width: `${CHASE.VIEW_EDGE * 100}%` } : undefined}
+        aria-hidden="true"
+      />
       <canvas
         ref={inkRef}
         className="monk-ink"
@@ -560,7 +574,9 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={(e) => { if (e.buttons === 0 && !resetRef.current) glow(0, 300); }}
+        onPointerLeave={(e) => {
+          if (e.buttons === 0 && !resetRef.current) glow(0, 300);
+        }}
         onContextMenu={(e) => e.preventDefault()}
       />
       {view3d && (
@@ -576,10 +592,18 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
           momentsKey={count}
         />
       )}
-      {prompt && <div className="monk-prompt" aria-label="Copy this">{prompt}</div>}
+      {prompt && (
+        <div className="monk-prompt" aria-label="Copy this">
+          {prompt}
+        </div>
+      )}
       <div className="monk-bar">
-        <button type="button" onClick={leave} disabled={!!playing} title="Leave write mode (Esc)">Escape</button>
-        <button type="button" onClick={undo} disabled={!!playing || !count} title="Take back the last stroke (Ctrl+Z)">Undo</button>
+        <button type="button" onClick={leave} disabled={!!playing} title="Leave write mode (Esc)">
+          Escape
+        </button>
+        <button type="button" onClick={undo} disabled={!!playing || !count} title="Take back the last stroke (Ctrl+Z)">
+          Undo
+        </button>
         <button type="button" className="primary" onClick={play} disabled={!!playing || (!count && !getStrokes().length)} title="Watch it written out, then save or send">
           ▶ Play
         </button>

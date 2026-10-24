@@ -10,7 +10,7 @@
 // levels (Uint8).
 //
 // A note on "sizing": v1's per-cell `siz` is thirst (0..15, higher drinks
-// faster: SETTLE, ABSORB and the bead's hold all follow it). The spec's
+// faster: SETTLE, the wet front's pace (ENTER, FRONT) and the bead's hold all follow it). The spec's
 // "sizing washes out with soak" is thirst going UP with soak; "fibers
 // compress in a dent" is thirst going DOWN in a dent.
 
@@ -40,8 +40,6 @@ export const PEAK_SHIFT = 3; // peak level = drops standing over capacity >> 3 (
 export const FILM_SHIFT = 9; // filmA (absorbance ×1024, summed over the colours) per film level
 export const FILM_Q = 1; // drops of height one film level stands (a view constant)
 export const FILM_POOL_SHIFT = 2; // film level >> this = how thick the ink lies, for the air it lets in (AIR)
-export const POROSITY = 48; // (law v2 before the wet front: kept for the record of what changed)
-export const POROSITY_THIRST = 24;
 
 // --- the wet front (cleanup-and-speed.md §2): one water amount, a front that
 // grows only downward, and the paper's surface tension. The water within the

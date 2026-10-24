@@ -38,9 +38,14 @@ export default function Register({ onDone }) {
   const key = useMemo(() => (step === 'sign' || signature ? keyFromK(username, K.newK()) : null), [step === 'sign' || !!signature]); // eslint-disable-line react-hooks/exhaustive-deps
   const sheet0 = useMemo(() => (key ? newSheet(key, K.SHEET_ZERO) : null), [key]);
 
-  const padSpec = step === 'phrase' ? { ...CALIBRATION, size: PHRASE_PAD }
-    : step === 'sign' && sheet0 ? { paperKey: sheet0.paperKey, family: FAMILY, size: NAME_PAD }
-      : step === 'page' ? { ...CALIBRATION, size: PAGE_PAD } : null;
+  const padSpec =
+    step === 'phrase'
+      ? { ...CALIBRATION, size: PHRASE_PAD }
+      : step === 'sign' && sheet0
+        ? { paperKey: sheet0.paperKey, family: FAMILY, size: NAME_PAD }
+        : step === 'page'
+          ? { ...CALIBRATION, size: PAGE_PAD }
+          : null;
   const ink = useLiveInk(padSpec, `${step}-${n}`);
   const [strokes, setStrokes] = useState(0);
 
@@ -48,7 +53,8 @@ export default function Register({ onDone }) {
     if (!username) return setNameState(null);
     setNameState('checking');
     const t = setTimeout(() => {
-      api.get(`/api/auth/name/${encodeURIComponent(username)}`)
+      api
+        .get(`/api/auth/name/${encodeURIComponent(username)}`)
         .then((d) => setNameState(!d.valid ? 'bad' : d.free ? 'free' : 'taken'))
         .catch(() => setNameState(null));
     }, 250);
@@ -76,7 +82,9 @@ export default function Register({ onDone }) {
         const check = enrolCheck('phrase', all);
         if (!check.ok) {
           setLoose(all);
-          setError(`Those three differ more than a sketch tolerates (${check.spread} bits apart; it opens within ${check.radius}). Write it three more times the way you will each time you sign in, or keep these: signing in may then take a few tries, and the calibration page always works.`);
+          setError(
+            `Those three differ more than a sketch tolerates (${check.spread} bits apart; it opens within ${check.radius}). Write it three more times the way you will each time you sign in, or keep these: signing in may then take a few tries, and the calibration page always works.`,
+          );
         } else {
           setPhrases(all);
           next('sign');
@@ -122,14 +130,28 @@ export default function Register({ onDone }) {
 
   return (
     <div className="stack card auth register">
-      <h2><Hand>Make an account</Hand></h2>
+      <h2>
+        <Hand>Make an account</Hand>
+      </h2>
       <ol className="steps" aria-label="Steps">
-        {['name', 'password', 'phrase', 'sign', 'page'].map((s, i) => <li key={s} aria-current={step === s ? 'step' : undefined}>{i + 1}</li>)}
+        {['name', 'password', 'phrase', 'sign', 'page'].map((s, i) => (
+          <li key={s} aria-current={step === s ? 'step' : undefined}>
+            {i + 1}
+          </li>
+        ))}
       </ol>
 
       {step === 'name' && (
-        <form className="stack" onSubmit={(e) => { e.preventDefault(); if (nameState === 'free') next('password'); }}>
-          <label className="auth-field" htmlFor="reg-name"><Hand>username</Hand></label>
+        <form
+          className="stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (nameState === 'free') next('password');
+          }}
+        >
+          <label className="auth-field" htmlFor="reg-name">
+            <Hand>username</Hand>
+          </label>
           <input id="reg-name" value={username} onChange={(e) => setUsername(e.target.value.trim())} autoComplete="username" maxLength={20} required />
           <p className="meta">
             {nameState === 'checking' && 'checking…'}
@@ -137,15 +159,27 @@ export default function Register({ onDone }) {
             {nameState === 'taken' && 'taken'}
             {nameState === 'bad' && '2 to 20 letters, numbers or underscores'}
           </p>
-          <button className="primary" disabled={nameState !== 'free'}>Next</button>
+          <button className="primary" disabled={nameState !== 'free'}>
+            Next
+          </button>
         </form>
       )}
 
       {step === 'password' && (
-        <form className="stack" onSubmit={(e) => { e.preventDefault(); if (passwordOk) next('phrase'); }}>
+        <form
+          className="stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (passwordOk) next('phrase');
+          }}
+        >
           <p>Your name, your secret phrase and the way you write it open your account. A password is an optional backup on top.</p>
-          <label className="choice"><input type="radio" name="backup" checked={!backup} onChange={() => setBackup(false)} /> No password: my name and my hand</label>
-          <label className="choice"><input type="radio" name="backup" checked={backup} onChange={() => setBackup(true)} /> Add a password backup</label>
+          <label className="choice">
+            <input type="radio" name="backup" checked={!backup} onChange={() => setBackup(false)} /> No password: my name and my hand
+          </label>
+          <label className="choice">
+            <input type="radio" name="backup" checked={backup} onChange={() => setBackup(true)} /> Add a password backup
+          </label>
           <p className="muted">
             {backup
               ? 'Then someone who learned your phrase and how you write it still needs the password, and so does anyone who ever got hold of the files on the server. It never leaves this device.'
@@ -153,16 +187,24 @@ export default function Register({ onDone }) {
           </p>
           {backup && (
             <>
-              <label className="auth-field" htmlFor="reg-pw"><Hand>password</Hand></label>
+              <label className="auth-field" htmlFor="reg-pw">
+                <Hand>password</Hand>
+              </label>
               <input id="reg-pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} required />
-              <label className="auth-field" htmlFor="reg-pw2">again</label>
+              <label className="auth-field" htmlFor="reg-pw2">
+                again
+              </label>
               <input id="reg-pw2" type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} autoComplete="new-password" required />
               {password2 && password !== password2 && <p className="meta">The two are not the same.</p>}
             </>
           )}
           <div className="row">
-            <button type="button" className="quiet" onClick={() => next('name')}>Back</button>
-            <button className="primary" disabled={!passwordOk}>Next</button>
+            <button type="button" className="quiet" onClick={() => next('name')}>
+              Back
+            </button>
+            <button className="primary" disabled={!passwordOk}>
+              Next
+            </button>
           </div>
         </form>
       )}
@@ -170,22 +212,54 @@ export default function Register({ onDone }) {
       {step === 'phrase' && (
         <div className="stack">
           <p>
-            Think of a short phrase only you know, four words or so. You will <strong>write</strong> it each time you sign in.
-            Never type it anywhere, and never write it anywhere others can see: how you write it is part of your key,
-            and it stays secret only as long as the phrase does.
+            Think of a short phrase only you know, four words or so. You will <strong>write</strong> it each time you sign in. Never type it anywhere, and never write it anywhere others can see: how
+            you write it is part of your key, and it stays secret only as long as the phrase does.
           </p>
           <p className="meta">Writing {phrases.length + 1} of 3, as you normally would.</p>
           {loose ? (
             <div className="row">
-              <button type="button" className="primary" onClick={() => { setLoose(null); setPhrases([]); setN((v) => v + 1); setStrokes(0); setError(null); }}>Write it three more times</button>
-              <button type="button" className="quiet" onClick={() => { setPhrases(loose); setLoose(null); next('sign'); }}>Keep these</button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  setLoose(null);
+                  setPhrases([]);
+                  setN((v) => v + 1);
+                  setStrokes(0);
+                  setError(null);
+                }}
+              >
+                Write it three more times
+              </button>
+              <button
+                type="button"
+                className="quiet"
+                onClick={() => {
+                  setPhrases(loose);
+                  setLoose(null);
+                  next('sign');
+                }}
+              >
+                Keep these
+              </button>
             </div>
           ) : (
             <>
               {ink && <Pad key={`p${n}`} ink={ink} size={PHRASE_PAD} chase onChange={setStrokes} hint="Write your phrase on a line." />}
               <div className="row">
-                <button type="button" className="quiet" onClick={() => { setPhrases([]); next('password'); }}>Back</button>
-                <button type="button" className="primary" disabled={!strokes || busy} onClick={phraseDone}>{busy ? 'Reading…' : 'Done'}</button>
+                <button
+                  type="button"
+                  className="quiet"
+                  onClick={() => {
+                    setPhrases([]);
+                    next('password');
+                  }}
+                >
+                  Back
+                </button>
+                <button type="button" className="primary" disabled={!strokes || busy} onClick={phraseDone}>
+                  {busy ? 'Reading…' : 'Done'}
+                </button>
               </div>
             </>
           )}
@@ -194,10 +268,14 @@ export default function Register({ onDone }) {
 
       {step === 'sign' && (
         <div className="stack">
-          <p>Now sign your name, <strong>{username}</strong>. This is the first page of your book: everyone sees it, wherever your name shows.</p>
+          <p>
+            Now sign your name, <strong>{username}</strong>. This is the first page of your book: everyone sees it, wherever your name shows.
+          </p>
           {ink && <Pad key={`s${n}`} ink={ink} size={NAME_PAD} onChange={setStrokes} hint="Sign on a line." />}
           <div className="row">
-            <button type="button" className="primary" disabled={!strokes || busy} onClick={signDone}>{busy ? 'Drying…' : 'Done'}</button>
+            <button type="button" className="primary" disabled={!strokes || busy} onClick={signDone}>
+              {busy ? 'Drying…' : 'Done'}
+            </button>
           </div>
         </div>
       )}
@@ -214,7 +292,11 @@ export default function Register({ onDone }) {
           </div>
         </div>
       )}
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

@@ -45,7 +45,8 @@ export function renderOne(name, { paperKey, family, scale = 64 }) {
 
 function view(rgb, box, k) {
   const [, , w, h] = box;
-  const W = w * k, H = h * k;
+  const W = w * k,
+    H = h * k;
   const px = new Uint8Array(W * H * 3);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -68,7 +69,9 @@ if (process.argv[1] && path.resolve(process.argv[1]).endsWith(path.join('tools',
     fs.writeFileSync(path.join(out, `${name}.png`), encodePng(v.W, v.H, v.px, 3));
     views.push({ name, ...v });
     const acts = r.rec.acts;
-    console.log(`${name.padEnd(13)} acts ${String(acts).padStart(5)}  ${String(r.res.ticks).padStart(5)} ticks  work ${String(r.res.work).padStart(9)}  ${r.ms.toFixed(0).padStart(6)} ms  box ${r.box[2]}×${r.box[3]}  bytes ${r.bytes.length}  facts ${r.digest.slice(0, 16)}`);
+    console.log(
+      `${name.padEnd(13)} acts ${String(acts).padStart(5)}  ${String(r.res.ticks).padStart(5)} ticks  work ${String(r.res.work).padStart(9)}  ${r.ms.toFixed(0).padStart(6)} ms  box ${r.box[2]}×${r.box[3]}  bytes ${r.bytes.length}  facts ${r.digest.slice(0, 16)}`,
+    );
   }
   // contact sheet: fixtures stacked vertically with a gap
   const gap = 12;
@@ -77,7 +80,7 @@ if (process.argv[1] && path.resolve(process.argv[1]).endsWith(path.join('tools',
   const sheet = new Uint8Array(W * H * 3).fill(255);
   let oy = gap;
   for (const v of views) {
-    for (let y = 0; y < v.H; y++) sheet.set(v.px.subarray(y * v.W * 3, (y + 1) * v.W * 3), ((oy + y) * W) * 3);
+    for (let y = 0; y < v.H; y++) sheet.set(v.px.subarray(y * v.W * 3, (y + 1) * v.W * 3), (oy + y) * W * 3);
     oy += v.H + gap;
   }
   fs.writeFileSync(path.join(out, 'sheet.png'), encodePng(W, H, sheet, 3));

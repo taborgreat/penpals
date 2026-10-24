@@ -67,18 +67,30 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const op = useCallback((o) => send(o), [send]);
   const bookName = book.name ?? name;
   const looks = useCallback((item) => `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?s=${item.scale}`, [bookName]);
-  // The scene of a piece of writing: grown here when this device can (yours, or open), else the server's.
-  const scenes = useCallback((item, line) => sceneOf({
-    line,
-    seed: seedOf(item),
-    lookUrl: `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?s=64`,
-    sceneUrl: `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?mode=scene&s=64`,
-  }), [bookName, book.inks, book.seeds, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The scene of a piece of writing: grown here when this device can (yours, or open), else the
+  // server's; as much of it as the eye can see (want: scene/sight.js); far, its look as shown.
+  const scenes = useCallback(
+    (item, line, want) =>
+      sceneOf({
+        line,
+        seed: seedOf(item),
+        lookUrl: (lod) => `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?s=${item.scale}${lod ? `&lod=${lod}` : ''}`,
+        sceneUrl: `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?mode=scene&s=64`,
+        want,
+      }),
+    // seedOf reads the book and the key, which are these
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bookName, book.inks, book.seeds, key],
+  );
   // Show the moments of a sheet this device can grow (yours, or open; law 2).
-  const momentsSrc = useCallback((item, line) => {
-    const seed = seedOf(item);
-    return seed && line.ink.law >= 2 ? () => momentsHere(line.ink, seed) : null;
-  }, [book.inks, book.seeds, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const momentsSrc = useCallback(
+    (item, line) => {
+      const seed = seedOf(item);
+      return seed && line.ink.law >= 2 ? () => momentsHere(line.ink, seed) : null;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [book.inks, book.seeds, key],
+  );
   // A sheet's film: grown here when this device can (yours, or open), else the server's.
   const filmOf = (it) => {
     const line = book.inks.get(it.ink);
@@ -131,10 +143,15 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           <div className="journal-pages" role="tablist" aria-label="Pages">
             {pageIds.map((id) => (
               <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => onPage(id === skeleton.home ? null : id)}>
-                {id === skeleton.home ? '⌂ ' : ''}{id}
+                {id === skeleton.home ? '⌂ ' : ''}
+                {id}
               </button>
             ))}
-            {editing && <button type="button" className="quiet" onClick={newPage} title="Add a page">+ page</button>}
+            {editing && (
+              <button type="button" className="quiet" onClick={newPage} title="Add a page">
+                + page
+              </button>
+            )}
           </div>
           {editable && (
             <div className="cluster">
@@ -143,7 +160,16 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
                   ✎ <Hand>Write</Hand>
                 </button>
               )}
-              <button type="button" className="toggle" aria-pressed={preview} onClick={() => { setPreview((p) => !p); setWriting(false); setSelected(null); }}>
+              <button
+                type="button"
+                className="toggle"
+                aria-pressed={preview}
+                onClick={() => {
+                  setPreview((p) => !p);
+                  setWriting(false);
+                  setSelected(null);
+                }}
+              >
                 {preview ? 'Back to editing' : 'Preview'}
               </button>
             </div>
@@ -157,14 +183,27 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
             <span>Page</span>
             <span className="swatches small" role="group" aria-label="Page background">
               {BACKGROUNDS.map((c) => (
-                <button key={c} type="button" title={c} aria-pressed={page.background === c} style={{ '--sig-l': c, '--sig-d': c }} onClick={() => send({ op: 'background', page: current, color: c })} />
+                <button
+                  key={c}
+                  type="button"
+                  title={c}
+                  aria-pressed={page.background === c}
+                  style={{ '--sig-l': c, '--sig-d': c }}
+                  onClick={() => send({ op: 'background', page: current, color: c })}
+                />
               ))}
               <input type="color" value={page.background} onChange={(e) => send({ op: 'background', page: current, color: e.target.value })} title="Any colour" />
             </span>
           </span>
           <FamilyPicker family={skeleton.paperFamily} onChange={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />
-          <button type="button" className="quiet" onClick={renamePage}>Rename page</button>
-          {current !== skeleton.home && <button type="button" className="quiet" onClick={removePage}>Remove page</button>}
+          <button type="button" className="quiet" onClick={renamePage}>
+            Rename page
+          </button>
+          {current !== skeleton.home && (
+            <button type="button" className="quiet" onClick={removePage}>
+              Remove page
+            </button>
+          )}
         </div>
       )}
 
@@ -173,33 +212,71 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       {editing && item && (
         <div className="journal-tools selected-tools" role="toolbar" aria-label="Selected writing">
           <span className="meta">size {Math.round((item.scale / SCALE_ONE) * 100)}%</span>
-          {item.scale !== SCALE_ONE && <button type="button" className="quiet" onClick={() => send({ op: 'resize', page: current, item: item.id, scale: SCALE_ONE })}>As written</button>}
+          {item.scale !== SCALE_ONE && (
+            <button type="button" className="quiet" onClick={() => send({ op: 'resize', page: current, item: item.id, scale: SCALE_ONE })}>
+              As written
+            </button>
+          )}
           <label className="field">
             <span>Button to</span>
             <select
               value={item.link?.page ?? ''}
-              onChange={(e) => send(e.target.value
-                ? { op: 'link', page: current, item: item.id, target_page: e.target.value }
-                : { op: 'unlink', page: current, item: item.id })}
+              onChange={(e) => send(e.target.value ? { op: 'link', page: current, item: item.id, target_page: e.target.value } : { op: 'unlink', page: current, item: item.id })}
             >
               <option value="">— not a button —</option>
-              {pageIds.filter((id) => id !== current).map((id) => <option key={id} value={id}>{id}</option>)}
+              {pageIds
+                .filter((id) => id !== current)
+                .map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
             </select>
           </label>
-          {item.link && <button type="button" onClick={() => onPage(item.link.page === skeleton.home ? null : item.link.page)}>Follow →</button>}
-          <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: page.items.length - 1 })} title="Bring to front">Forward</button>
-          <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: 0 })} title="Send to back">Back</button>
+          {item.link && (
+            <button type="button" onClick={() => onPage(item.link.page === skeleton.home ? null : item.link.page)}>
+              Follow →
+            </button>
+          )}
+          <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: page.items.length - 1 })} title="Bring to front">
+            Forward
+          </button>
+          <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: 0 })} title="Send to back">
+            Back
+          </button>
           <OpenSheet line={book.inks.get(item.ink)} opened={book.opened} keyOf={key} onOpen={openSheet} />
           <FilmDownload source={() => filmOf(item)} background={page.background} name={`${bookName}-${item.ink}`} />
-          <button type="button" className="quiet" disabled={!seedOf(item)} onClick={() => setWalking(item)} title={seedOf(item) ? 'Why each spot looks the way it does' : 'Unlock to walk back your own sheets'}>Walk back</button>
-          <button type="button" className="quiet danger" onClick={() => { send({ op: 'remove', page: current, item: item.id }); setSelected(null); }}>Delete</button>
+          <button
+            type="button"
+            className="quiet"
+            disabled={!seedOf(item)}
+            onClick={() => setWalking(item)}
+            title={seedOf(item) ? 'Why each spot looks the way it does' : 'Unlock to walk back your own sheets'}
+          >
+            Walk back
+          </button>
+          <button
+            type="button"
+            className="quiet danger"
+            onClick={() => {
+              send({ op: 'remove', page: current, item: item.id });
+              setSelected(null);
+            }}
+          >
+            Delete
+          </button>
         </div>
       )}
 
-      {walking && seedOf(walking) && (
-        <WalkBack line={book.inks.get(walking.ink)} seed={seedOf(walking)} src={looks({ ink: walking.ink, scale: SCALE_ONE })} onClose={() => setWalking(null)} />
+      {walking && seedOf(walking) && <WalkBack line={book.inks.get(walking.ink)} seed={seedOf(walking)} src={looks({ ink: walking.ink, scale: SCALE_ONE })} onClose={() => setWalking(null)} />}
+      {error && (
+        <p className="error" role="alert">
+          {error}{' '}
+          <button type="button" className="quiet" onClick={clearError}>
+            ok
+          </button>
+        </p>
       )}
-      {error && <p className="error" role="alert">{error} <button type="button" className="quiet" onClick={clearError}>ok</button></p>}
       {missing && <p className="muted">There is no page "{pageId}" in this book, so here is the first page.</p>}
 
       <JournalPage
@@ -242,11 +319,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
 // Write something on a page-wide pad (a fresh sheet of your paper, growing
 // live), then seal it and put it on the page.
 function WritePanel({ family, onPlace }) {
-  return (
-    <KeyGate signedOut={<p className="muted">Sign in to write.</p>}>
-      {(key) => <WriteSheet key={key.publicKey} writer={key} family={family} onPlace={onPlace} />}
-    </KeyGate>
-  );
+  return <KeyGate signedOut={<p className="muted">Sign in to write.</p>}>{(key) => <WriteSheet key={key.publicKey} writer={key} family={family} onPlace={onPlace} />}</KeyGate>;
 }
 
 function WriteSheet({ writer, family, onPlace }) {
@@ -286,7 +359,16 @@ function WriteSheet({ writer, family, onPlace }) {
           {busy ? 'Sealing…' : 'Place on page'}
         </button>
       </div>
-      {ink && <Pad key={sheet.sheet} ink={ink} size={WRITE_PAD} inkColor={color} onChange={setStrokes} hint="Write anything: a word, a sentence, a drawing. Colours mix while wet; the water brush wets dry ink again. Then place it on the page." />}
+      {ink && (
+        <Pad
+          key={sheet.sheet}
+          ink={ink}
+          size={WRITE_PAD}
+          inkColor={color}
+          onChange={setStrokes}
+          hint="Write anything: a word, a sentence, a drawing. Colours mix while wet; the water brush wets dry ink again. Then place it on the page."
+        />
+      )}
       {error && <p className="error">{error}</p>}
     </div>
   );
@@ -296,13 +378,27 @@ function WriteSheet({ writer, family, onPlace }) {
 // keeps the family it was written on; this only changes what comes next.
 function FamilyPicker({ family, onChange }) {
   const f = family ?? { grain: 8, weight: 8, tooth: 0 };
-  const opt = (v) => <option key={v} value={v}>{v}</option>;
+  const opt = (v) => (
+    <option key={v} value={v}>
+      {v}
+    </option>
+  );
   const range = [...Array(16).keys()];
   return (
     <span className="field" title="The paper your next writing is grown on">
       <span>Paper</span>
-      <label className="meta">grain <select value={f.grain} onChange={(e) => onChange({ ...f, grain: Number(e.target.value) })}>{range.map(opt)}</select></label>
-      <label className="meta">weight <select value={f.weight} onChange={(e) => onChange({ ...f, weight: Number(e.target.value) })}>{range.map(opt)}</select></label>
+      <label className="meta">
+        grain{' '}
+        <select value={f.grain} onChange={(e) => onChange({ ...f, grain: Number(e.target.value) })}>
+          {range.map(opt)}
+        </select>
+      </label>
+      <label className="meta">
+        weight{' '}
+        <select value={f.weight} onChange={(e) => onChange({ ...f, weight: Number(e.target.value) })}>
+          {range.map(opt)}
+        </select>
+      </label>
     </span>
   );
 }
@@ -311,7 +407,12 @@ function FamilyPicker({ family, onChange }) {
 // its paper and check the ink settles exactly as sealed. It cannot be closed again.
 function OpenSheet({ line, opened, keyOf, onOpen }) {
   if (!line?.ink || line.ink.use !== 'book') return null;
-  if (opened?.has(line.ink.sheet)) return <span className="meta" title="Its paper is public: anyone can regrow it">open sheet</span>;
+  if (opened?.has(line.ink.sheet))
+    return (
+      <span className="meta" title="Its paper is public: anyone can regrow it">
+        open sheet
+      </span>
+    );
   const open = () => {
     if (!window.confirm('Open this sheet? Its paper becomes public, so anyone can check the ink grows exactly as you sealed it. This cannot be undone.')) return;
     const seed = K.sheetSeed(keyOf.sk, line.ink.sheet);

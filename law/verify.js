@@ -91,7 +91,7 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
   }
   if (head.signature) {
     const l = byId.get(head.signature);
-    if (!l?.ink || l.ink.use !== 'signature' || l.ink.name !== String(head.name).toLowerCase() && l.ink.name !== head.name) problems.push('the signature is not a signature record for this name');
+    if (!l?.ink || l.ink.use !== 'signature' || (l.ink.name !== String(head.name).toLowerCase() && l.ink.name !== head.name)) problems.push('the signature is not a signature record for this name');
   }
   const bad = results.filter((r) => r.error || r.regrown === false);
   return {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { startApp, client } from './helpers.js';
-import { person, register, signIn, bookInk, writeInk, FAMILY, K, R, H, S, b64url, fromB64url } from './device.js';
+import { person, register, signIn, bookInk, FAMILY, K, R, H, S, b64url, fromB64url } from './device.js';
 import { encodePng } from 'penpals-law/tools/png';
 
 let app;
@@ -16,12 +16,18 @@ before(async () => {
   app.ana = client(app.base);
   app.bo = client(app.base);
   app.cy = client(app.base);
-  for (const [c, p] of [[app.ana, ana], [app.bo, bo], [app.cy, cy]]) {
+  for (const [c, p] of [
+    [app.ana, ana],
+    [app.bo, bo],
+    [app.cy, cy],
+  ]) {
     app.resetLimits();
     assert.equal((await register(c, p)).status, 201);
   }
 });
-after(async () => { await app.close(); });
+after(async () => {
+  await app.close();
+});
 beforeEach(() => app.resetLimits());
 
 const padLetter = (p, { sheet = K.newSheetId(), acts = S.write(p.writer, 'dear friend', 3) } = {}) => {
@@ -42,6 +48,11 @@ test('a pad letter: sealed, grown from its own private seed, seen by its recipie
   assert.equal(line.status, 200);
   assert.deepEqual(line.data.line, made.line);
   assert.equal((await app.bo.get(`/api/letters/${id}/look`)).status, 200);
+  // its scene by window and level of detail, its look by level (cleanup-and-speed.md §5b)
+  const box = made.line.ink.box;
+  assert.equal((await app.bo.get(`/api/letters/${id}/look?mode=scene&at=${box[0]},${box[1]},16,16&lod=1`)).status, 200);
+  assert.equal((await app.bo.get(`/api/letters/${id}/look?lod=2`)).status, 200);
+  assert.equal((await app.bo.get(`/api/letters/${id}/look?mode=scene&lod=7`)).status, 400);
   // kept on the sender's public profile, anyone who can see that profile reads it
   assert.equal((await app.cy.get(`/api/letters/${id}/line`)).status, 200);
   // once the sender stops keeping it, only its recipient can; the seed is never served
@@ -49,6 +60,7 @@ test('a pad letter: sealed, grown from its own private seed, seen by its recipie
   assert.equal((await app.bo.get(`/api/letters/${id}/line`)).status, 200);
   assert.equal((await app.cy.get(`/api/letters/${id}/line`)).status, 403);
   assert.equal((await client(app.base).get(`/api/letters/${id}/look`)).status, 403);
+  assert.equal((await client(app.base).get(`/api/letters/${id}/look?mode=scene&at=0,0,16,16`)).status, 403);
   assert.ok(!JSON.stringify(line.data).includes(body.seed));
   // its sheet cannot hold other writing, in a letter or in the book
   const again = padLetter(ana, { sheet: made.line.ink.sheet, acts: S.write(ana.writer, 'other', 4) });
@@ -144,13 +156,21 @@ test('sketches: refresh after a login, add a rhythm, a sketch that has opened th
   }
   const after = (await c.post('/api/auth/begin', { username: 'bo' })).data.sketches;
   assert.equal(after.filter((s) => s.kind === 'phrase').length, 5);
-  assert.ok(after.some((s) => s.id === phrase.id), 'the sketch used most recently is kept');
+  assert.ok(
+    after.some((s) => s.id === phrase.id),
+    'the sketch used most recently is kept',
+  );
   assert.equal(after.filter((s) => s.kind === 'page').length, 1);
   // malformed sketches and unsigned changes are refused
   assert.equal((await sketchOps([{ op: 'add', sketch: { id: 'x' } }])).status, 400);
   const ch = await c.post('/api/auth/challenge', { purpose: 'sketch' });
   const other = K.skFromK(new Uint8Array(32).fill(5));
-  const unsigned = await c.put('/api/auth/sketches', { nonce: ch.data.nonce, origin: c.origin, proof: b64url(K.authProof(other, { purpose: 'sketch', origin: c.origin, nonce: fromB64url(ch.data.nonce, 32), username: '' })), ops: [{ op: 'refresh', sketch: fresh }] });
+  const unsigned = await c.put('/api/auth/sketches', {
+    nonce: ch.data.nonce,
+    origin: c.origin,
+    proof: b64url(K.authProof(other, { purpose: 'sketch', origin: c.origin, nonce: fromB64url(ch.data.nonce, 32), username: '' })),
+    ops: [{ op: 'refresh', sketch: fresh }],
+  });
   assert.equal(unsigned.status, 401);
 });
 

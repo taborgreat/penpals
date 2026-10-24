@@ -18,9 +18,9 @@
 
 import { createCapture } from './capture.js';
 import { CURRENT } from 'penpals-law/laws';
+import { CELLS_PER_UNIT, TILE } from 'penpals-law/v1/constants';
 
-export const CELLS = 2; // law cells per ink unit (= page px)
-const TILE = 16;
+export const CELLS = CELLS_PER_UNIT; // law cells per ink unit (= page px): the law's own
 const ADVANCE_MS = 40; // how often the sheet is dried while the pen is up
 
 export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
@@ -37,6 +37,7 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
   const pending = new Map(); // id → { resolve, reject }
   let nextId = 1;
   let raf = 0;
+  let timer = 0; // while the page is hidden (no frames come): the same loop on a clock
   let advancing = false;
   let queued = []; // what capture made final, waiting for the worker to take the last batch
   let opsInFlight = false;
@@ -45,15 +46,18 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
   let dead = false;
   let error = null;
 
-  const notify = () => { for (const fn of listeners) fn(); };
+  const notify = () => {
+    for (const fn of listeners) fn();
+  };
   const paint = (c, tiles) => {
     for (const t of tiles) c.putImageData(new ImageData(new Uint8ClampedArray(t.rgba.buffer), TILE, TILE), t.tx * TILE, t.ty * TILE);
   };
-  const ask = (msg, transfer = []) => new Promise((resolve, reject) => {
-    const id = nextId++;
-    pending.set(id, { resolve, reject });
-    worker.postMessage({ ...msg, id }, transfer);
-  });
+  const ask = (msg, transfer = []) =>
+    new Promise((resolve, reject) => {
+      const id = nextId++;
+      pending.set(id, { resolve, reject });
+      worker.postMessage({ ...msg, id }, transfer);
+    });
 
   const players = new Map(); // id → frame handler
   worker.onmessage = ({ data: m }) => {
@@ -91,8 +95,21 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
 
   // Every frame: send what became final; while the pen is up, dry the sheet up
   // to the moment a new stroke could start (capture promises nothing earlier).
+  // A hidden page gets no frames, so a clock keeps the sheet drying then: every
+  // act settles whether or not anyone is looking (cleanup-and-speed.md §5b).
+  const next = () => {
+    if (document.hidden) timer = setTimeout(() => frame(performance.now()), ADVANCE_MS);
+    else raf = requestAnimationFrame(frame);
+  };
+  const onShown = () => {
+    if (dead) return;
+    cancelAnimationFrame(raf);
+    clearTimeout(timer);
+    next();
+  };
+  document.addEventListener('visibilitychange', onShown);
   const frame = (now) => {
-    raf = requestAnimationFrame(frame);
+    next();
     const ops = capture.drain();
     if (ops.length) {
       queued.push(...ops);
@@ -115,18 +132,24 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
       }
     }
   };
-  raf = requestAnimationFrame(frame);
+  next();
 
   return {
     capture,
     canvas,
-    get strokes() { return capture.strokes.length; },
-    get error() { return error; },
+    get strokes() {
+      return capture.strokes.length;
+    },
+    get error() {
+      return error;
+    },
     onChange(fn) {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    setPen(p) { capture.setPen(p); },
+    setPen(p) {
+      capture.setPen(p);
+    },
     undo() {
       const s = capture.undo();
       if (s) lastAdvance = -1;
@@ -213,6 +236,8 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
       if (dead) return;
       dead = true;
       cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onShown);
       capture.cancel();
       worker.terminate();
       for (const p of pending.values()) p.reject(new Error('closed'));

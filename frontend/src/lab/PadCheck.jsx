@@ -15,7 +15,9 @@ export default function PadCheck() {
   const params = new URLSearchParams(window.location.search);
   const chosen = useMemo(() => engineReady(params.get('gpu')), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [gpu, setGpu] = useState(null);
-  useEffect(() => { chosen.then(setGpu); }, [chosen]);
+  useEffect(() => {
+    chosen.then(setGpu);
+  }, [chosen]);
   useMemo(() => {
     if (!params.get('hour')) return;
     const h = Number(params.get('hour'));
@@ -34,7 +36,9 @@ export default function PadCheck() {
   return (
     <div className="stack">
       <h1>Pad check</h1>
-      <p className="muted" data-gpu={gpu ?? ''}>A law 2 pad on its own paper: write, and time it.</p>
+      <p className="muted" data-gpu={gpu ?? ''}>
+        A law 2 pad on its own paper: write, and time it.
+      </p>
       {ink && <Pad ink={ink} size={PAD} hint="Write anything." />}
     </div>
   );

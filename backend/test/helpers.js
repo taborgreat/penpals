@@ -70,6 +70,8 @@ export function client(base, { origin = base, cookie: start = '' } = {}) {
     upload: (p, form) => call('POST', p, form),
     signedIn: () => !!cookie,
     cookieHeader: () => cookie,
-    forgetCookie: () => { cookie = ''; },
+    forgetCookie: () => {
+      cookie = '';
+    },
   };
 }

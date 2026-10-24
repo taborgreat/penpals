@@ -58,43 +58,76 @@ export default function Inbox() {
 
   return (
     <>
-      <h1><Hand>Mailbox</Hand></h1>
+      <h1>
+        <Hand>Mailbox</Hand>
+      </h1>
       {error && <p className="error">{error}</p>}
 
       {current && (
         <div className="stack reading">
           <p className="meta">
-            from <Link to={`/u/${current.from}`}><Username name={current.from} /></Link> · opened {timeAgo(current.openedAt)} ·
-            disappears in {timeLeft(current.expiresAt)}
+            from{' '}
+            <Link to={`/u/${current.from}`}>
+              <Username name={current.from} />
+            </Link>{' '}
+            · opened {timeAgo(current.openedAt)} · disappears in {timeLeft(current.expiresAt)}
           </p>
           <LetterView letter={current} />
           <div className="row">
             <button type="button" onClick={() => toggleSave(current)}>
               {current.savedByMe ? <Hand>Remove from my profile</Hand> : <Hand>Keep on my profile</Hand>}
             </button>
-            <button type="button" onClick={() => setCurrent(null)}><Hand>Close</Hand></button>
+            <button type="button" onClick={() => setCurrent(null)}>
+              <Hand>Close</Hand>
+            </button>
           </div>
         </div>
       )}
 
-      <h2><Hand>For you</Hand></h2>
-      {inbox.length === 0 && <p className="muted"><Hand>No letters waiting.</Hand></p>}
+      <h2>
+        <Hand>For you</Hand>
+      </h2>
+      {inbox.length === 0 && (
+        <p className="muted">
+          <Hand>No letters waiting.</Hand>
+        </p>
+      )}
       <ul className="plain">
         {inbox.map((l) => (
           <li key={l.id} className="envelope">
-            <span>from <Link to={`/u/${l.from}`}><Username name={l.from} /></Link> · sent {timeAgo(l.sentAt)}</span>
+            <span>
+              from{' '}
+              <Link to={`/u/${l.from}`}>
+                <Username name={l.from} />
+              </Link>{' '}
+              · sent {timeAgo(l.sentAt)}
+            </span>
             {l.openedAt ? <span className="muted">opened · {timeLeft(l.expiresAt)} left</span> : <span className="badge">sealed</span>}
-            <button type="button" className={l.openedAt ? undefined : 'primary'} onClick={() => open(l)}>{l.openedAt ? <Hand>Read again</Hand> : <Hand>Open</Hand>}</button>
+            <button type="button" className={l.openedAt ? undefined : 'primary'} onClick={() => open(l)}>
+              {l.openedAt ? <Hand>Read again</Hand> : <Hand>Open</Hand>}
+            </button>
           </li>
         ))}
       </ul>
 
-      <h2><Hand>Sent</Hand></h2>
-      {sent.length === 0 && <p className="muted"><Hand>Nothing sent yet.</Hand></p>}
+      <h2>
+        <Hand>Sent</Hand>
+      </h2>
+      {sent.length === 0 && (
+        <p className="muted">
+          <Hand>Nothing sent yet.</Hand>
+        </p>
+      )}
       <ul className="plain">
         {sent.map((l) => (
           <li key={l.id} className="envelope">
-            <span>to <Link to={`/u/${l.to}`}><Username name={l.to} /></Link> · {timeAgo(l.sentAt)}</span>
+            <span>
+              to{' '}
+              <Link to={`/u/${l.to}`}>
+                <Username name={l.to} />
+              </Link>{' '}
+              · {timeAgo(l.sentAt)}
+            </span>
             <span className="muted">
               {l.openedAt ? `opened ${timeAgo(l.openedAt)}` : 'sealed'}
               {l.savedByMe ? ' · kept on your profile' : ''}

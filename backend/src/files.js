@@ -124,7 +124,10 @@ export async function readLines(file) {
   }
   const end = text.lastIndexOf('\n');
   if (end < 0) return [];
-  return text.slice(0, end).split('\n').filter((l) => l.length);
+  return text
+    .slice(0, end)
+    .split('\n')
+    .filter((l) => l.length);
 }
 
 // The bytes of a file up to and including its last newline: what can be handed
@@ -148,7 +151,9 @@ export function serial(key, work) {
   const run = prev.then(work, work);
   const tail = run.catch(() => {});
   queues.set(key, tail);
-  tail.then(() => { if (queues.get(key) === tail) queues.delete(key); });
+  tail.then(() => {
+    if (queues.get(key) === tail) queues.delete(key);
+  });
   return run;
 }
 

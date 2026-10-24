@@ -35,7 +35,13 @@ const readJson = (f) => {
   }
 };
 const rel = (f) => path.relative(root, f).replaceAll('\\', '/');
-const dirs = (d) => (fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) : []);
+const dirs = (d) =>
+  fs.existsSync(d)
+    ? fs
+        .readdirSync(d, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+    : [];
 
 // Lines of an append-only file; a torn tail is a problem until recovery cuts it.
 function chainLines(f) {
@@ -45,13 +51,15 @@ function chainLines(f) {
   const end = t.lastIndexOf('\n');
   const out = [];
   if (end < 0) return out;
-  t.slice(0, end).split('\n').forEach((l, i) => {
-    try {
-      out.push(JSON.parse(l));
-    } catch {
-      problems.push(`${rel(f)} line ${i + 1} is damaged`);
-    }
-  });
+  t.slice(0, end)
+    .split('\n')
+    .forEach((l, i) => {
+      try {
+        out.push(JSON.parse(l));
+      } catch {
+        problems.push(`${rel(f)} line ${i + 1} is damaged`);
+      }
+    });
   return out;
 }
 
@@ -122,7 +130,7 @@ for (const id of dirs(path.join(root, 'users'))) {
     }
     try {
       const seed = fromB64url(seedText, 64);
-      if (pk && !K.verifySeed(pk, line.ink.sheet, seed)) throw new Error('the seed is not this key\'s for this sheet');
+      if (pk && !K.verifySeed(pk, line.ink.sheet, seed)) throw new Error("the seed is not this key's for this sheet");
       if (b64url(K.commitOf(seed)) !== line.ink.commit) throw new Error('the seed is not the one the record committed to');
       if (deep && !R.regrow(line.ink, seed).ok) throw new Error('does not regrow to its record');
     } catch (err) {
@@ -154,8 +162,8 @@ for (const id of dirs(path.join(root, 'users'))) {
   // Exposure (law 2 fading): view counts of ink in this book, nothing else.
   if (fs.existsSync(path.join(dir, 'exposure.json'))) {
     const ex = readJson(path.join(dir, 'exposure.json'));
-    const bad = !ex || typeof ex !== 'object' || Array.isArray(ex)
-      || Object.entries(ex).some(([k, v]) => !/^k_\d{6}$/.test(k) || !Number.isSafeInteger(v) || v < 0 || !chain.some((l) => l.id === k && l.ink));
+    const bad =
+      !ex || typeof ex !== 'object' || Array.isArray(ex) || Object.entries(ex).some(([k, v]) => !/^k_\d{6}$/.test(k) || !Number.isSafeInteger(v) || v < 0 || !chain.some((l) => l.id === k && l.ink));
     if (bad) problems.push(`${a.username}: exposure.json holds something other than view counts of this book's ink`);
   }
 }

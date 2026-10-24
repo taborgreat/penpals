@@ -17,7 +17,11 @@ const MIN_WIDTH_STEP = 0.4; // a smaller width change than this doesn't keep a p
 
 // The name a label is stored under: "Save & send" → "save-and-send".
 export function handName(text) {
-  return text.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return text
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 // From the pad's strokes ({ rows, strokes: [{ angle, points: [{ x, y, t, w }] }] }).

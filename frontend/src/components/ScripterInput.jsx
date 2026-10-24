@@ -19,16 +19,11 @@ export default function ScripterInput({ id, value, onChange }) {
 
   return (
     <>
-      <input
-        id={id}
-        list={`${id}-names`}
-        value={value}
-        placeholder="@name"
-        autoComplete="off"
-        onChange={(e) => onChange(e.target.value.replace(/^@/, '').trim())}
-      />
+      <input id={id} list={`${id}-names`} value={value} placeholder="@name" autoComplete="off" onChange={(e) => onChange(e.target.value.replace(/^@/, '').trim())} />
       <datalist id={`${id}-names`}>
-        {names.map((n) => <option key={n} value={n} />)}
+        {names.map((n) => (
+          <option key={n} value={n} />
+        ))}
       </datalist>
     </>
   );

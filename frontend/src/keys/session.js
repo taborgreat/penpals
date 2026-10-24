@@ -9,7 +9,9 @@ import { keys as K, record as R, b64url, fromB64url } from 'penpals-law';
 const STORE = 'penpals.key.v1';
 let current = null; // { username, K, sk, pk, publicKey, fingerprint }
 const listeners = new Set();
-const emit = () => { for (const fn of listeners) fn(); };
+const emit = () => {
+  for (const fn of listeners) fn();
+};
 
 // A key object for K (not held: registration makes one before the account exists).
 export function keyFromK(username, Kbytes) {
@@ -21,13 +23,17 @@ export function keyFromK(username, Kbytes) {
 try {
   const saved = JSON.parse(sessionStorage.getItem(STORE) ?? 'null');
   if (saved?.username && saved?.K) current = keyFromK(saved.username, fromB64url(saved.K, 32));
-} catch { /* no storage, or nothing usable in it: sign in again */ }
+} catch {
+  /* no storage, or nothing usable in it: sign in again */
+}
 
 export function holdKey(username, Kbytes) {
   current = keyFromK(username, Kbytes);
   try {
     sessionStorage.setItem(STORE, JSON.stringify({ username: current.username, K: b64url(Kbytes) }));
-  } catch { /* memory only */ }
+  } catch {
+    /* memory only */
+  }
   emit();
   return current;
 }
@@ -36,7 +42,9 @@ export function forgetKey() {
   current = null;
   try {
     sessionStorage.removeItem(STORE);
-  } catch { /* nothing kept */ }
+  } catch {
+    /* nothing kept */
+  }
   emit();
 }
 
@@ -47,10 +55,13 @@ export function keyFor(user) {
 }
 
 export function useKey(user) {
-  useSyncExternalStore((fn) => {
-    listeners.add(fn);
-    return () => listeners.delete(fn);
-  }, () => current);
+  useSyncExternalStore(
+    (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    () => current,
+  );
   return keyFor(user);
 }
 

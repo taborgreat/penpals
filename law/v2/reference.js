@@ -9,13 +9,70 @@
 // revive → dry (the wet front advances; soak; cockle when a cell dries).
 
 import {
-  TILE, TICK_MS, DRY_EVERY, HT_PER_CELL, P_NONE, NIB_FLEX, NIB_BROAD, STEP_HT, BROAD_T_HT, CARRY_MS,
-  CAP_REF, W_SAT, W_WET, W_EPS, C_SAT, G_LEVEL, G_RUN, G_PORE, G_WICK, G_MAX, DIAG_Q, G_MIX, SETTLE, ENTER, FRONT,
-  EVAP_BASE, EVAP_EDGE, E_MIN, DRAIN_MAX_TICKS, SCALE_ONE,
-  DENT_SHIFT, DENT_MAX, DENT_CAP, DENT_Z, DENT_THIRST, THICK, DEPTH_SHIFT, PEAK_SHIFT, REDISSOLVE,
-  FILM_SHIFT, SUPPLY_V, WIPE_MAX16, FEED_Q, DWELL_MS, RAIL_WIDE, RAIL_MIN, RAIL_MID, RAIL_TINE,
-  SOAK_Q, SOAK_THIRST, SOAK_LINK, SOAK_PORE, SOAK_WICK, SOAK_FULL, WEAR_SHIFT, WEAR_STILL, STRENGTH_BASE, WET_K, SOAK_K, RIM_Z,
-  COCKLE_MIN, COCKLE_MAX, TORN, DROP_REACH, DROP_R_MAX,
+  TILE,
+  TICK_MS,
+  DRY_EVERY,
+  HT_PER_CELL,
+  P_NONE,
+  NIB_FLEX,
+  NIB_BROAD,
+  STEP_HT,
+  BROAD_T_HT,
+  CARRY_MS,
+  CAP_REF,
+  W_SAT,
+  W_WET,
+  W_EPS,
+  C_SAT,
+  G_LEVEL,
+  G_RUN,
+  G_PORE,
+  G_WICK,
+  G_MAX,
+  DIAG_Q,
+  G_MIX,
+  SETTLE,
+  ENTER,
+  FRONT,
+  EVAP_BASE,
+  EVAP_EDGE,
+  E_MIN,
+  DRAIN_MAX_TICKS,
+  SCALE_ONE,
+  DENT_SHIFT,
+  DENT_MAX,
+  DENT_CAP,
+  DENT_Z,
+  DENT_THIRST,
+  THICK,
+  DEPTH_SHIFT,
+  PEAK_SHIFT,
+  REDISSOLVE,
+  SUPPLY_V,
+  WIPE_MAX16,
+  FEED_Q,
+  DWELL_MS,
+  RAIL_WIDE,
+  RAIL_MIN,
+  RAIL_MID,
+  RAIL_TINE,
+  SOAK_Q,
+  SOAK_THIRST,
+  SOAK_LINK,
+  SOAK_PORE,
+  SOAK_WICK,
+  SOAK_FULL,
+  WEAR_SHIFT,
+  WEAR_STILL,
+  STRENGTH_BASE,
+  WET_K,
+  SOAK_K,
+  RIM_Z,
+  COCKLE_MIN,
+  COCKLE_MAX,
+  TORN,
+  DROP_REACH,
+  DROP_R_MAX,
 } from './constants.js';
 import { ABS_Q, PRESS, PRESS_SHAPE, FLOW_Q, COSSIN_Q14 } from '../v1/tables.js';
 import { DENT_Q, WEAR_Q, COCKLE } from './tables.js';
@@ -40,22 +97,34 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
   let maxW = 0;
   for (const pens of timeline) for (const [, pen] of pens) maxW = Math.max(maxW, 2 * (pen.size + (pen.nib === NIB_FLEX ? pen.flex : 0)), BROAD_T_HT);
   const reach = floorDiv(floorDiv((maxW + DROP_REACH + DROP_R_MAX) * scale, SCALE_ONE), HT_PER_CELL) + 2 + margin; // the nib, and as far as a drop can fly
-  let cx0 = Infinity, cy0 = Infinity, cx1 = -Infinity, cy1 = -Infinity;
+  let cx0 = Infinity,
+    cy0 = Infinity,
+    cx1 = -Infinity,
+    cy1 = -Infinity;
   for (const s of rec.strokes) {
     for (let i = 0; i < s.x.length; i++) {
-      const cx = floorDiv(hx(s.x[i]), HT_PER_CELL), cy = floorDiv(hy(s.y[i]), HT_PER_CELL);
+      const cx = floorDiv(hx(s.x[i]), HT_PER_CELL),
+        cy = floorDiv(hy(s.y[i]), HT_PER_CELL);
       cx0 = Math.min(cx0, cx);
       cy0 = Math.min(cy0, cy);
       cx1 = Math.max(cx1, cx);
       cy1 = Math.max(cy1, cy);
     }
   }
-  const X0 = floorDiv(cx0 - reach, TILE) * TILE, Y0 = floorDiv(cy0 - reach, TILE) * TILE;
-  const X1 = (floorDiv(cx1 + reach, TILE) + 1) * TILE, Y1 = (floorDiv(cy1 + reach, TILE) + 1) * TILE;
-  const GW = X1 - X0, GH = Y1 - Y0, N = GW * GH;
+  const X0 = floorDiv(cx0 - reach, TILE) * TILE,
+    Y0 = floorDiv(cy0 - reach, TILE) * TILE;
+  const X1 = (floorDiv(cx1 + reach, TILE) + 1) * TILE,
+    Y1 = (floorDiv(cy1 + reach, TILE) + 1) * TILE;
+  const GW = X1 - X0,
+    GH = Y1 - Y0,
+    N = GW * GH;
 
   const paper = makePaper(paperKey, family);
-  const cap = new Int32Array(N), hold = new Int32Array(N), siz = new Int32Array(N), z = new Int32Array(N), ridge = new Int32Array(N);
+  const cap = new Int32Array(N),
+    hold = new Int32Array(N),
+    siz = new Int32Array(N),
+    z = new Int32Array(N),
+    ridge = new Int32Array(N);
   const link = new Int32Array(N * 8);
   for (let ty = Y0; ty < Y1; ty += TILE) {
     for (let tx = X0; tx < X1; tx += TILE) {
@@ -71,14 +140,27 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
       }
     }
   }
-  const W = new Int32Array(N), P = new Int32Array(N * 3), F = new Int32Array(N * 3), G = new Int32Array(N), FG = new Int32Array(N);
-  const dentA = new Int32Array(N), depthA = new Int32Array(N), peak = new Int32Array(N), soakA = new Int32Array(N);
-  const wearA = new Int32Array(N), flags = new Int32Array(N), rim = new Int32Array(N), cockle = new Int32Array(N);
-  const drainA = new Int32Array(N), filmA = new Int32Array(N), enter = new Int32Array(N);
+  const W = new Int32Array(N),
+    P = new Int32Array(N * 3),
+    F = new Int32Array(N * 3),
+    G = new Int32Array(N),
+    FG = new Int32Array(N);
+  const dentA = new Int32Array(N),
+    depthA = new Int32Array(N),
+    peak = new Int32Array(N),
+    soakA = new Int32Array(N);
+  const wearA = new Int32Array(N),
+    flags = new Int32Array(N),
+    rim = new Int32Array(N),
+    cockle = new Int32Array(N);
+  const drainA = new Int32Array(N),
+    filmA = new Int32Array(N),
+    enter = new Int32Array(N);
   const lost = { W: 0, P: 0, F: 0, G: 0 };
   const at = (cx, cy) => (cy - Y0) * GW + (cx - X0);
   const nbOf = (c, n) => {
-    const x = (c % GW) + NB_DX[n], y = Math.floor(c / GW) + NB_DY[n];
+    const x = (c % GW) + NB_DX[n],
+      y = Math.floor(c / GW) + NB_DY[n];
     if (x < 0 || y < 0 || x >= GW || y >= GH) throw new Error('ink reached the reference grid border; give it a wider margin');
     return y * GW + x;
   };
@@ -154,12 +236,15 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
       const a = floorDiv(w, 2);
       const b = pen.nib === NIB_FLEX ? Math.max(HT_PER_CELL >> 1, sc(pen.size)) : floorDiv(sc(BROAD_T_HT), 2);
       if (pen.nib === NIB_FLEX) spread = a;
-      const cos = COSSIN_Q14[2 * pen.angle], sin = COSSIN_Q14[2 * pen.angle + 1];
+      const cos = COSSIN_Q14[2 * pen.angle],
+        sin = COSSIN_Q14[2 * pen.angle + 1];
       const r = a + b + HT_PER_CELL;
       for (let cy = floorDiv(py - r, HT_PER_CELL); cy <= floorDiv(py + r, HT_PER_CELL); cy++) {
         for (let cx = floorDiv(px - r, HT_PER_CELL); cx <= floorDiv(px + r, HT_PER_CELL); cx++) {
-          const dx = cx * HT_PER_CELL + 5 - px, dy = cy * HT_PER_CELL + 5 - py;
-          const u = floorDiv(dx * cos + dy * sin, 16384), v = floorDiv(dy * cos - dx * sin, 16384);
+          const dx = cx * HT_PER_CELL + 5 - px,
+            dy = cy * HT_PER_CELL + 5 - py;
+          const u = floorDiv(dx * cos + dy * sin, 16384),
+            v = floorDiv(dy * cos - dx * sin, 16384);
           const g = clamp(a - Math.abs(u), 0, HT_PER_CELL) * clamp(b - Math.abs(v), 0, HT_PER_CELL);
           if (g > 0) {
             cells.push([cx, cy, g, Math.abs(u)]);
@@ -172,7 +257,8 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
       const R = floorDiv(w, 2);
       for (let cy = floorDiv(py - R, HT_PER_CELL); cy <= floorDiv(py + R, HT_PER_CELL); cy++) {
         for (let cx = floorDiv(px - R, HT_PER_CELL); cx <= floorDiv(px + R, HT_PER_CELL); cx++) {
-          const dx = cx * HT_PER_CELL + 5 - px, dy = cy * HT_PER_CELL + 5 - py;
+          const dx = cx * HT_PER_CELL + 5 - px,
+            dy = cy * HT_PER_CELL + 5 - py;
           const g = R * R - dx * dx - dy * dy;
           if (g > 0) {
             cells.push([cx, cy, g, 0]);
@@ -249,7 +335,8 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
     const D = HT_PER_CELL * 256 * 16 * SCALE_ONE;
     const stamps = [];
     for (const sg of segs) {
-      const dx = sg.x1 - sg.x0, dy = sg.y1 - sg.y0;
+      const dx = sg.x1 - sg.x0,
+        dy = sg.y1 - sg.y0;
       const L = pieceLength(dx, dy);
       if (L === 0) continue;
       let next = STEP_HT * FINE - travel;
@@ -284,7 +371,10 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
 
   // --- the rules ---
   function flow() {
-    const dW = new Int32Array(N), dP = new Int32Array(N * 3), dG = new Int32Array(N), dWp = new Int32Array(N);
+    const dW = new Int32Array(N),
+      dP = new Int32Array(N * 3),
+      dG = new Int32Array(N),
+      dWp = new Int32Array(N);
     for (let c = 0; c < N; c++) {
       const Wi = W[c];
       if (Wi <= 0) continue;
@@ -339,7 +429,8 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
     }
   }
   function mix() {
-    const dP = new Int32Array(N * 3), dG = new Int32Array(N);
+    const dP = new Int32Array(N * 3),
+      dG = new Int32Array(N);
     for (let c = 0; c < N; c++) {
       const Wi = W[c];
       if (Wi <= 0) continue;
@@ -422,7 +513,8 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
           if (!(n & 1)) side = Math.max(side, depthA[nbOf(c, n)]);
         }
         th >>= 4;
-        if (depthA[c] > 0 || enter[c] >= ENTER[th]) adv[c] = Math.max(depthA[c], Math.min(depthA[c] + Math.max(1, floorDiv(FRONT[th] * (TOP - depthA[c]), TOP)), frontFor(c, wa >> 4), side + (2 << DEPTH_SHIFT)));
+        if (depthA[c] > 0 || enter[c] >= ENTER[th])
+          adv[c] = Math.max(depthA[c], Math.min(depthA[c] + Math.max(1, floorDiv(FRONT[th] * (TOP - depthA[c]), TOP)), frontFor(c, wa >> 4), side + (2 << DEPTH_SHIFT)));
       }
       let nd = 0;
       for (let n = 0; n < 8; n++) if (W[nbOf(c, n)] < W_WET) nd++;
@@ -492,22 +584,34 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
     runUntil(floorDiv(s.t[0], TICK_MS));
     carry = 0;
     travel = 0;
-    let ax = hx(s.x[0]), ay = hy(s.y[0]), ap = p(0), at0 = s.t[0];
-    let pdx = 0, pdy = 0;
+    let ax = hx(s.x[0]),
+      ay = hy(s.y[0]),
+      ap = p(0),
+      at0 = s.t[0];
+    let pdx = 0,
+      pdy = 0;
     dwellMs = 0;
     for (let i = 1; i < s.x.length; i++) {
       while (k + 1 < pens.length && pens[k + 1][0] <= i - 1) {
         flush();
         setPen(pens[++k][1]);
       }
-      const X = hx(s.x[i]), Y = hy(s.y[i]), pi = p(i), t = s.t[i];
+      const X = hx(s.x[i]),
+        Y = hy(s.y[i]),
+        pi = p(i),
+        t = s.t[i];
       const dt = t - at0;
-      let tau = at0, pxs = ax, pys = ay, pps = ap;
+      let tau = at0,
+        pxs = ax,
+        pys = ay,
+        pps = ap;
       while (tau < t) {
         const tick = floorDiv(tau, TICK_MS);
         const tb = Math.min(t, (tick + 1) * TICK_MS);
         const f = tb - at0;
-        const pxe = ax + floorDiv((X - ax) * f, dt), pye = ay + floorDiv((Y - ay) * f, dt), ppe = ap + floorDiv((pi - ap) * f, dt);
+        const pxe = ax + floorDiv((X - ax) * f, dt),
+          pye = ay + floorDiv((Y - ay) * f, dt),
+          ppe = ap + floorDiv((pi - ap) * f, dt);
         if (pending && pending.tick !== tick) flush();
         if (!pending) {
           runUntil(tick);
@@ -520,10 +624,24 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
         tau = tb;
       }
       if (pen.spatter) {
-        pending.drops.push(...splatter(H, hh, {
-          si, i, x0: ax, y0: ay, x1: X, y1: Y, pdx, pdy, dt, p: pi, flow: pen.flow, spatter: pen.spatter,
-          tooth: z[at(floorDiv(X, HT_PER_CELL), floorDiv(Y, HT_PER_CELL))], scale,
-        }));
+        pending.drops.push(
+          ...splatter(H, hh, {
+            si,
+            i,
+            x0: ax,
+            y0: ay,
+            x1: X,
+            y1: Y,
+            pdx,
+            pdy,
+            dt,
+            p: pi,
+            flow: pen.flow,
+            spatter: pen.spatter,
+            tooth: z[at(floorDiv(X, HT_PER_CELL), floorDiv(Y, HT_PER_CELL))],
+            scale,
+          }),
+        );
       }
       pdx = X - ax;
       pdy = Y - ay;
@@ -551,8 +669,20 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
   // Cells with any fact, sorted (y, x): the same shape as look.settledCells.
   const cells = [];
   for (let c = 0; c < N; c++) {
-    const row = [F[3 * c], F[3 * c + 1], F[3 * c + 2], FG[c], dentA[c] >> DENT_SHIFT, Math.min(THICK, depthA[c] >> DEPTH_SHIFT),
-      peak[c], Math.min(255, soakA[c] >> 8), Math.min(255, wearA[c] >> WEAR_SHIFT), flags[c], cockle[c], filmLevel(filmA[c])];
+    const row = [
+      F[3 * c],
+      F[3 * c + 1],
+      F[3 * c + 2],
+      FG[c],
+      dentA[c] >> DENT_SHIFT,
+      Math.min(THICK, depthA[c] >> DEPTH_SHIFT),
+      peak[c],
+      Math.min(255, soakA[c] >> 8),
+      Math.min(255, wearA[c] >> WEAR_SHIFT),
+      flags[c],
+      cockle[c],
+      filmLevel(filmA[c]),
+    ];
     if (row.some((v) => v)) cells.push([Y0 + Math.floor(c / GW), X0 + (c % GW), ...row]);
   }
   return { cells, ticks: now, lost, splat };

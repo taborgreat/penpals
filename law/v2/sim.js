@@ -37,13 +37,77 @@
 // the tiles to repaint. None of it changes a result (law/test/v2.test.js).
 
 import {
-  TILE, TICK_MS, DRY_EVERY, HT_PER_CELL, P_NONE, NIB_FLEX, NIB_BROAD, STEP_HT, BROAD_T_HT, CARRY_MS,
-  CAP_REF, W_SAT, W_WET, W_EPS, C_SAT, G_LEVEL, G_RUN, G_PORE, G_WICK, G_MAX, DIAG_Q, G_MIX, SETTLE, ENTER, FRONT,
-  EVAP_BASE, EVAP_EDGE, E_MIN, MAX_WET_CELLS, MAX_WORK, DRAIN_MAX_TICKS, SCALE_ONE, SCALE_MIN, SCALE_MAX,
-  OAK_GALL, DENT_SHIFT, DENT_MAX, DENT_CAP, DENT_Z, DENT_THIRST, THICK, DEPTH_SHIFT, PEAK_SHIFT, FILM_SHIFT,
-  FILM_POOL_SHIFT, SUPPLY_V, WIPE_MAX16, FEED_Q, DWELL_MS, RAIL_WIDE, RAIL_MIN, RAIL_MID, RAIL_TINE,
-  REDISSOLVE, SOAK_Q, SOAK_THIRST, SOAK_LINK, SOAK_PORE, SOAK_WICK, SOAK_FULL, WEAR_SHIFT, STRENGTH_BASE, WET_K, SOAK_K, RIM_Z,
-  COCKLE_MIN, COCKLE_MAX, TORN, WEAR_STILL, OX_BASE, AGE_CAP_H,
+  TILE,
+  TICK_MS,
+  DRY_EVERY,
+  HT_PER_CELL,
+  P_NONE,
+  NIB_FLEX,
+  NIB_BROAD,
+  STEP_HT,
+  BROAD_T_HT,
+  CARRY_MS,
+  CAP_REF,
+  W_SAT,
+  W_WET,
+  W_EPS,
+  C_SAT,
+  G_LEVEL,
+  G_RUN,
+  G_PORE,
+  G_WICK,
+  G_MAX,
+  DIAG_Q,
+  G_MIX,
+  SETTLE,
+  ENTER,
+  FRONT,
+  EVAP_BASE,
+  EVAP_EDGE,
+  E_MIN,
+  MAX_WET_CELLS,
+  MAX_WORK,
+  DRAIN_MAX_TICKS,
+  SCALE_ONE,
+  SCALE_MIN,
+  SCALE_MAX,
+  OAK_GALL,
+  DENT_SHIFT,
+  DENT_MAX,
+  DENT_CAP,
+  DENT_Z,
+  DENT_THIRST,
+  THICK,
+  DEPTH_SHIFT,
+  PEAK_SHIFT,
+  FILM_SHIFT,
+  FILM_POOL_SHIFT,
+  SUPPLY_V,
+  WIPE_MAX16,
+  FEED_Q,
+  DWELL_MS,
+  RAIL_WIDE,
+  RAIL_MIN,
+  RAIL_MID,
+  RAIL_TINE,
+  REDISSOLVE,
+  SOAK_Q,
+  SOAK_THIRST,
+  SOAK_LINK,
+  SOAK_PORE,
+  SOAK_WICK,
+  SOAK_FULL,
+  WEAR_SHIFT,
+  STRENGTH_BASE,
+  WET_K,
+  SOAK_K,
+  RIM_Z,
+  COCKLE_MIN,
+  COCKLE_MAX,
+  TORN,
+  WEAR_STILL,
+  OX_BASE,
+  AGE_CAP_H,
 } from './constants.js';
 import { ABS_Q, PRESS, PRESS_SHAPE, FLOW_Q, COSSIN_Q14 } from '../v1/tables.js';
 import { DENT_Q, WEAR_Q, COCKLE, OX, AIR } from './tables.js';
@@ -157,9 +221,21 @@ const thirstE = (t, i) => clamp(t.siz[i] + floorDiv(washed(t, i) * SOAK_THIRST -
 // Does this tile hold any fact (ink, a dent, soak, wear, a tear, a ridge, a peak)?
 function hasFacts(t) {
   for (let i = 0; i < TT; i++) {
-    if (t.F[3 * i] || t.F[3 * i + 1] || t.F[3 * i + 2] || t.dentA[i] >> DENT_SHIFT || t.depthA[i] >> DEPTH_SHIFT
-      || t.peak[i] || t.soakA[i] >> 8 || t.wearA[i] >> WEAR_SHIFT || t.flags[i] || t.cockle[i] || (t.FG && t.FG[i])
-      || t.filmA[i] >> FILM_SHIFT) return true;
+    if (
+      t.F[3 * i] ||
+      t.F[3 * i + 1] ||
+      t.F[3 * i + 2] ||
+      t.dentA[i] >> DENT_SHIFT ||
+      t.depthA[i] >> DEPTH_SHIFT ||
+      t.peak[i] ||
+      t.soakA[i] >> 8 ||
+      t.wearA[i] >> WEAR_SHIFT ||
+      t.flags[i] ||
+      t.cockle[i] ||
+      (t.FG && t.FG[i]) ||
+      t.filmA[i] >> FILM_SHIFT
+    )
+      return true;
   }
   return false;
 }
@@ -186,13 +262,32 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   const hh = [0, 0];
   let strokeNo = -1; // which stroke, and which act of it: the paper's hash of a splatter is keyed by them
   let actNo = 0;
-  let pdx = 0, pdy = 0; // the move before this one (a turn's sharpness)
+  let pdx = 0,
+    pdy = 0; // the move before this one (a turn's sharpness)
 
   // Undo (live only): copy-on-write journals, one per stroke's pen-down.
   const journals = [];
-  const saveState = (t) => [t, t.W.slice(), t.P.slice(), t.F.slice(), t.everWet.slice(), t.wet, t.dentA.slice(), t.depthA.slice(),
-    t.peak.slice(), t.soakA.slice(), t.wearA.slice(), t.flags.slice(), t.rim.slice(), t.cockle.slice(),
-    t.G ? t.G.slice() : null, t.FG ? t.FG.slice() : null, t.drainA.slice(), t.filmA.slice(), t.enter.slice()];
+  const saveState = (t) => [
+    t,
+    t.W.slice(),
+    t.P.slice(),
+    t.F.slice(),
+    t.everWet.slice(),
+    t.wet,
+    t.dentA.slice(),
+    t.depthA.slice(),
+    t.peak.slice(),
+    t.soakA.slice(),
+    t.wearA.slice(),
+    t.flags.slice(),
+    t.rim.slice(),
+    t.cockle.slice(),
+    t.G ? t.G.slice() : null,
+    t.FG ? t.FG.slice() : null,
+    t.drainA.slice(),
+    t.filmA.slice(),
+    t.enter.slice(),
+  ];
   function cow(t) {
     const j = journals.length ? journals[journals.length - 1] : null;
     if (!j || t.journal === j) return;
@@ -262,7 +357,6 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     }
   }
 
-
   // Whatever is still wet in a cell settles where it is, on top (the film), and
   // a soaked cell drying buckles along the paper's ridges.
   function snapCell(t, i) {
@@ -321,7 +415,9 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
 
   let pen = null;
   let penGall = false;
-  let abs0 = 0, abs1 = 0, abs2 = 0;
+  let abs0 = 0,
+    abs1 = 0,
+    abs2 = 0;
   let carry = 0;
   const sc = (v) => floorDiv(v * scale, SCALE_ONE);
 
@@ -365,8 +461,10 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       const cos = COSSIN_Q14[2 * pen.angle];
       const sin = COSSIN_Q14[2 * pen.angle + 1];
       const r = a + b + HT_PER_CELL;
-      const cx0 = floorDiv(px - r, HT_PER_CELL), cx1 = floorDiv(px + r, HT_PER_CELL);
-      const cy0 = floorDiv(py - r, HT_PER_CELL), cy1 = floorDiv(py + r, HT_PER_CELL);
+      const cx0 = floorDiv(px - r, HT_PER_CELL),
+        cx1 = floorDiv(px + r, HT_PER_CELL);
+      const cy0 = floorDiv(py - r, HT_PER_CELL),
+        cy1 = floorDiv(py + r, HT_PER_CELL);
       for (let cy = cy0; cy <= cy1; cy++) {
         const dy = cy * HT_PER_CELL + 5 - py;
         for (let cx = cx0; cx <= cx1; cx++) {
@@ -387,8 +485,10 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     } else {
       const R = floorDiv(w, 2);
       const R2 = R * R;
-      const cx0 = floorDiv(px - R, HT_PER_CELL), cx1 = floorDiv(px + R, HT_PER_CELL);
-      const cy0 = floorDiv(py - R, HT_PER_CELL), cy1 = floorDiv(py + R, HT_PER_CELL);
+      const cx0 = floorDiv(px - R, HT_PER_CELL),
+        cx1 = floorDiv(px + R, HT_PER_CELL);
+      const cy0 = floorDiv(py - R, HT_PER_CELL),
+        cy1 = floorDiv(py + R, HT_PER_CELL);
       for (let cy = cy0; cy <= cy1; cy++) {
         const dy = cy * HT_PER_CELL + 5 - py;
         for (let cx = cx0; cx <= cx1; cx++) {
@@ -507,9 +607,12 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       dent += DENT_Q[pa] * dt;
       tickMs += dt;
     }
-    const sx = [], sy = [], sp = [];
+    const sx = [],
+      sy = [],
+      sp = [];
     for (const [x0, y0, p0, x1, y1, p1] of b.segs) {
-      const dx = x1 - x0, dy = y1 - y0;
+      const dx = x1 - x0,
+        dy = y1 - y0;
       const L = fineLength(dx, dy);
       if (L === 0) continue;
       for (let at = STEP_FINE - travel; at <= L; at += STEP_FINE) {
@@ -528,7 +631,8 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       travel = 0;
     }
     dwellMs = moving ? 0 : dwellMs + tickMs;
-    const ex = floorDiv(end[3], HT_PER_CELL), ey = floorDiv(end[4], HT_PER_CELL);
+    const ex = floorDiv(end[3], HT_PER_CELL),
+      ey = floorDiv(end[4], HT_PER_CELL);
     const et = getTile(floorDiv(ex, TILE), floorDiv(ey, TILE));
     const fill = Math.min(256, floorDiv(et.W[(ey - et.ty * TILE) * TILE + (ex - et.tx * TILE)] * 256, W_SAT));
     const fed = dwellMs > DWELL_MS ? 0 : floorDiv(floorDiv(feed, 256) * FEED_Q, 256) * (256 - fill);
@@ -574,9 +678,15 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         const holdI = hold[i];
         const sl = soakL(t, i);
         const inner = INNER[i] === 1;
-        const P0 = P[3 * i], P1 = P[3 * i + 1], P2 = P[3 * i + 2];
+        const P0 = P[3 * i],
+          P1 = P[3 * i + 1],
+          P2 = P[3 * i + 2];
         const Gi = G ? G[i] : 0;
-        let outW = 0, out0 = 0, out1 = 0, out2 = 0, outG = 0;
+        let outW = 0,
+          out0 = 0,
+          out1 = 0,
+          out2 = 0,
+          outG = 0;
         for (let n = 0; n < 8; n++) {
           let tn = t;
           let j = i + NB_OFF[n];
@@ -643,7 +753,9 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       const dG = t.dG;
       for (let i = 0; i < TT; i++) {
         const dw = dW[i];
-        const dp0 = dP[3 * i], dp1 = dP[3 * i + 1], dp2 = dP[3 * i + 2];
+        const dp0 = dP[3 * i],
+          dp1 = dP[3 * i + 1],
+          dp2 = dP[3 * i + 2];
         const dg = dG ? dG[i] : 0;
         const dwp = dWp[i];
         if (dw === 0 && dp0 === 0 && dp1 === 0 && dp2 === 0 && dg === 0 && dwp === 0) continue;
@@ -690,7 +802,8 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         if (Wi <= 0) continue;
         const inner = INNER[i] === 1;
         for (let n = 0; n <= 2; n += 2) {
-          let tn = t, j = i + NB_OFF[n];
+          let tn = t,
+            j = i + NB_OFF[n];
           if (!inner) {
             neighbour(t, i, n);
             tn = res[0];
@@ -930,12 +1043,15 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   }
 
   function act(x, y, t, p) {
-    const X = hx(x), Y = hy(y);
+    const X = hx(x),
+      Y = hy(y);
     const a = last;
     const dt = t - a.t;
     if (dt < 1) throw new LawError('acts', 'time must move forward');
     let tau = a.t;
-    let pxs = a.x, pys = a.y, pps = a.p;
+    let pxs = a.x,
+      pys = a.y,
+      pps = a.p;
     while (tau < t) {
       const k = floorDiv(tau, TICK_MS);
       const tb = Math.min(t, (k + 1) * TICK_MS);
@@ -951,11 +1067,24 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     }
     actNo++;
     if (pen.spatter) {
-      const ci = floorDiv(X, HT_PER_CELL), cj = floorDiv(Y, HT_PER_CELL);
+      const ci = floorDiv(X, HT_PER_CELL),
+        cj = floorDiv(Y, HT_PER_CELL);
       const tt = getTile(floorDiv(ci, TILE), floorDiv(cj, TILE));
       const drops = splatter(H, hh, {
-        si: strokeNo, i: actNo, x0: a.x, y0: a.y, x1: X, y1: Y, pdx, pdy, dt, p, flow: pen.flow, spatter: pen.spatter,
-        tooth: tt.z[(cj - tt.ty * TILE) * TILE + (ci - tt.tx * TILE)], scale,
+        si: strokeNo,
+        i: actNo,
+        x0: a.x,
+        y0: a.y,
+        x1: X,
+        y1: Y,
+        pdx,
+        pdy,
+        dt,
+        p,
+        flow: pen.flow,
+        spatter: pen.spatter,
+        tooth: tt.z[(cj - tt.ty * TILE) * TILE + (ci - tt.tx * TILE)],
+        scale,
       });
       if (drops.length) {
         (batch.drops ??= []).push(...drops);
@@ -1072,14 +1201,36 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   }
 
   return {
-    setPen, strokeStart, act, finish, runUntil,
-    endStroke, advanceTo, snapshot, restore, forget, changed, redraw,
-    get now() { return now; },
-    get lastT() { return lastT; },
-    get wetCells() { return wetCells; },
-    get activeTiles() { return wetTiles.size; },
-    get lost() { return { ...lost }; },
-    get splat() { return { ...splat }; },
+    setPen,
+    strokeStart,
+    act,
+    finish,
+    runUntil,
+    endStroke,
+    advanceTo,
+    snapshot,
+    restore,
+    forget,
+    changed,
+    redraw,
+    get now() {
+      return now;
+    },
+    get lastT() {
+      return lastT;
+    },
+    get wetCells() {
+      return wetCells;
+    },
+    get activeTiles() {
+      return wetTiles.size;
+    },
+    get lost() {
+      return { ...lost };
+    },
+    get splat() {
+      return { ...splat };
+    },
     tiles: () => tiles.values(),
     getTile,
   };

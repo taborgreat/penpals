@@ -21,19 +21,29 @@ before(async () => {
   app.ana = client(app.base);
   app.bo = client(app.base);
   app.cy = client(app.base);
-  for (const [c, p] of [[app.ana, ana], [app.bo, bo], [app.cy, cy]]) {
+  for (const [c, p] of [
+    [app.ana, ana],
+    [app.bo, bo],
+    [app.cy, cy],
+  ]) {
     app.resetLimits();
     assert.equal((await register(c, p)).status, 201);
   }
 });
-after(async () => { await app.close(); });
+after(async () => {
+  await app.close();
+});
 beforeEach(() => app.resetLimits());
 
 test('book ink lands: sealed, seed kept privately, placed, and the look is served to the owner', async () => {
   const res = await writeInk(A(), ana);
   assert.equal(res.status, 201, JSON.stringify(res.data));
   assert.match(res.data.ink, /^k_\d{6}$/);
-  const chain = (await A().get('/api/books/ana/ink')).data.toString('utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const chain = (await A().get('/api/books/ana/ink')).data
+    .toString('utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
   const line = chain.find((l) => l.id === res.data.ink);
   assert.equal(line.ink.sheet, res.ink.line.ink.sheet);
   assert.equal(line.open, undefined, 'a book sheet is closed');
@@ -153,7 +163,7 @@ test('open a sheet: the seed is published, signed open, and anyone can then regr
   assert.equal((await A().post('/api/books/me/open', { sheet, by })).data.already, true);
 });
 
-test('the .book is the owner\'s, verifies offline, and fails on a one-point tamper', async () => {
+test("the .book is the owner's, verifies offline, and fails on a one-point tamper", async () => {
   assert.equal((await client(app.base).get('/api/books/ana/download')).status, 403);
   const dl = await A().get('/api/books/ana/download');
   assert.equal(dl.status, 200);
@@ -166,7 +176,10 @@ test('the .book is the owner\'s, verifies offline, and fails on a one-point tamp
   assert.equal(report.ok, true, JSON.stringify(report.problems));
   assert.ok(report.results.length >= 3);
   assert.ok(report.results.filter((r) => r.regrown === true).length >= 2, 'the signature and the opened sheet regrow');
-  assert.ok(report.results.every((r) => r.sealed || r.kind === 'open'), JSON.stringify(report.results));
+  assert.ok(
+    report.results.every((r) => r.sealed || r.kind === 'open'),
+    JSON.stringify(report.results),
+  );
 
   // move one act by one tenth inside the signature's acts
   const lines = dl.data.toString('utf8').trim().split('\n');
@@ -203,7 +216,11 @@ test('the privacy canary: no secret is in any response, request or file', async 
   const viewers = { owner: app.ana, friend: app.bo, stranger: app.cy, anonymous: client(app.base) };
   const gets = ['/api/auth/me', '/api/users', '/api/users/ana', '/api/books/ana', '/api/books/ana/ink', '/api/signatures?names=ana,bo,cy', '/api/letters/top', '/api/law'];
   // and every ink's scene (heights and colours of the sheet: never its seed or paper), inflated before scanning
-  const chainNow = (await app.ana.get('/api/books/ana/ink')).data.toString('utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const chainNow = (await app.ana.get('/api/books/ana/ink')).data
+    .toString('utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
   const scenes = chainNow.filter((l) => l.ink?.kind === 'ink' && l.ink.law >= 2).map((l) => `/api/books/ana/look/${l.id}?mode=scene`);
   assert.ok(scenes.length > 0);
   for (const [who, c] of Object.entries(viewers)) {

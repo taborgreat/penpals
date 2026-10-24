@@ -29,7 +29,10 @@ export const PENS = {
 // Returns { x[], y[], t[] (relative ms), p[] } before quantizing.
 export function samplePath(pos, speed, { hz = 120, pressure = null, hold = null } = {}) {
   const dt = 1000 / hz;
-  const xs = [], ys = [], ts = [], ps = [];
+  const xs = [],
+    ys = [],
+    ts = [],
+    ps = [];
   let u = 0;
   let t = 0;
   const push = (uu) => {
@@ -78,17 +81,22 @@ export function samplePath(pos, speed, { hz = 120, pressure = null, hold = null 
 // Build a record from strokes [{ path (from samplePath), start (ms), pen, kind, hasP }].
 // Each stroke's `start` is the gap (ms) after the previous stroke ends (the first starts at 0).
 export function record(strokes, org = [10, 10]) {
-  let minX = Infinity, minY = Infinity;
-  for (const s of strokes) for (let i = 0; i < s.path.xs.length; i++) {
-    minX = Math.min(minX, s.path.xs[i]);
-    minY = Math.min(minY, s.path.ys[i]);
-  }
+  let minX = Infinity,
+    minY = Infinity;
+  for (const s of strokes)
+    for (let i = 0; i < s.path.xs.length; i++) {
+      minX = Math.min(minX, s.path.xs[i]);
+      minY = Math.min(minY, s.path.ys[i]);
+    }
   const out = { orgX: org[0], orgY: org[1], strokes: [] };
   let prevPen = null;
   let prevEnd = 0;
   for (const s of strokes) {
     const { xs, ys, ts, ps } = s.path;
-    const x = [], y = [], t = [], p = [];
+    const x = [],
+      y = [],
+      t = [],
+      p = [];
     for (let i = 0; i < xs.length; i++) {
       const base = out.strokes.length ? prevEnd + s.start : 0;
       const tt = Math.max(Math.round(base + ts[i]), t.length ? t[t.length - 1] + 1 : base);
@@ -113,46 +121,40 @@ const const_ = (v) => () => v;
 const bell = (lo, hi) => (u) => lo + (hi - lo) * Math.sin(Math.PI * Math.min(1, Math.max(0, u))) ** 2 + 1e-3;
 
 export const FIXTURES = {
-  hairline: () => record([
-    { path: samplePath((u) => [u * 300, 20 * Math.sin(u * 3)], bell(300, 1100)), start: 0, pen: PENS.fine },
-  ]),
-  slowCurve: () => record([
-    { path: samplePath(arc(60, 60, 50, Math.PI * 0.9, Math.PI * 2.6), const_(70)), start: 0, pen: PENS.medium },
-  ]),
-  dwell: () => record([
-    { path: samplePath(line(0, 0, 160, 40), bell(40, 200), { hold: { at: 0.35, ms: 1500 } }), start: 0, pen: PENS.medium },
-  ]),
-  dwellLight: () => record([
-    { path: samplePath(line(0, 0, 160, 40), bell(40, 200), { hold: { at: 0.35, ms: 1500 } }), start: 0, pen: { ...PENS.medium, rgb: [60, 130, 150] } },
-  ]),
+  hairline: () => record([{ path: samplePath((u) => [u * 300, 20 * Math.sin(u * 3)], bell(300, 1100)), start: 0, pen: PENS.fine }]),
+  slowCurve: () => record([{ path: samplePath(arc(60, 60, 50, Math.PI * 0.9, Math.PI * 2.6), const_(70)), start: 0, pen: PENS.medium }]),
+  dwell: () => record([{ path: samplePath(line(0, 0, 160, 40), bell(40, 200), { hold: { at: 0.35, ms: 1500 } }), start: 0, pen: PENS.medium }]),
+  dwellLight: () => record([{ path: samplePath(line(0, 0, 160, 40), bell(40, 200), { hold: { at: 0.35, ms: 1500 } }), start: 0, pen: { ...PENS.medium, rgb: [60, 130, 150] } }]),
   // Two touching parallel strokes, red then blue: 20 ms apart both are wet and
   // bleed into each other; 3 s apart the red is dry and the blue only glazes it.
-  mixWet: () => record([
-    { path: samplePath(line(0, 40, 60, 40), const_(150)), start: 0, pen: { ...PENS.heavy, rgb: [190, 30, 30] } },
-    { path: samplePath(line(0, 45, 60, 45), const_(150)), start: 20, pen: { ...PENS.heavy, rgb: [30, 50, 190] } },
-  ]),
-  mixDry: () => record([
-    { path: samplePath(line(0, 40, 60, 40), const_(150)), start: 0, pen: { ...PENS.heavy, rgb: [190, 30, 30] } },
-    { path: samplePath(line(0, 45, 60, 45), const_(150)), start: 3000, pen: { ...PENS.heavy, rgb: [30, 50, 190] } },
-  ]),
-  broad: () => record([
-    { path: samplePath((u) => [u * 240, 40 * Math.abs(((u * 4) % 2) - 1)], const_(160)), start: 0, pen: PENS.broad },
-  ]),
-  flexPressure: () => record([
-    {
-      path: samplePath((u) => [u * 260 + 25 * Math.sin(u * Math.PI * 8), 40 + 35 * Math.cos(u * Math.PI * 8)], bell(120, 260), {
-        pressure: (u) => 0.15 + 0.8 * Math.max(0, Math.sin(u * Math.PI * 8 - Math.PI / 2)) ** 2,
-      }),
-      start: 0,
-      pen: PENS.flex,
-      hasP: true,
-    },
-  ]),
-  cursive: () => record([
-    // a run of loops like "llll", then a short word gap and "eee"
-    { path: samplePath((u) => [u * 220 + 14 * Math.sin(u * Math.PI * 10), 50 - 38 * Math.abs(Math.sin(u * Math.PI * 5))], bell(90, 220)), start: 0, pen: PENS.medium },
-    { path: samplePath((u) => [250 + u * 140 + 9 * Math.sin(u * Math.PI * 6), 40 + 12 * Math.cos(u * Math.PI * 6)], bell(80, 180)), start: 600, pen: PENS.medium },
-  ]),
+  mixWet: () =>
+    record([
+      { path: samplePath(line(0, 40, 60, 40), const_(150)), start: 0, pen: { ...PENS.heavy, rgb: [190, 30, 30] } },
+      { path: samplePath(line(0, 45, 60, 45), const_(150)), start: 20, pen: { ...PENS.heavy, rgb: [30, 50, 190] } },
+    ]),
+  mixDry: () =>
+    record([
+      { path: samplePath(line(0, 40, 60, 40), const_(150)), start: 0, pen: { ...PENS.heavy, rgb: [190, 30, 30] } },
+      { path: samplePath(line(0, 45, 60, 45), const_(150)), start: 3000, pen: { ...PENS.heavy, rgb: [30, 50, 190] } },
+    ]),
+  broad: () => record([{ path: samplePath((u) => [u * 240, 40 * Math.abs(((u * 4) % 2) - 1)], const_(160)), start: 0, pen: PENS.broad }]),
+  flexPressure: () =>
+    record([
+      {
+        path: samplePath((u) => [u * 260 + 25 * Math.sin(u * Math.PI * 8), 40 + 35 * Math.cos(u * Math.PI * 8)], bell(120, 260), {
+          pressure: (u) => 0.15 + 0.8 * Math.max(0, Math.sin(u * Math.PI * 8 - Math.PI / 2)) ** 2,
+        }),
+        start: 0,
+        pen: PENS.flex,
+        hasP: true,
+      },
+    ]),
+  cursive: () =>
+    record([
+      // a run of loops like "llll", then a short word gap and "eee"
+      { path: samplePath((u) => [u * 220 + 14 * Math.sin(u * Math.PI * 10), 50 - 38 * Math.abs(Math.sin(u * Math.PI * 5))], bell(90, 220)), start: 0, pen: PENS.medium },
+      { path: samplePath((u) => [250 + u * 140 + 9 * Math.sin(u * Math.PI * 6), 40 + 12 * Math.cos(u * Math.PI * 6)], bell(80, 180)), start: 600, pen: PENS.medium },
+    ]),
 };
 
 export function fixtureBytes(name) {

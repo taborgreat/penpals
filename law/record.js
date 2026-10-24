@@ -16,10 +16,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { checkFamily } from './v1/paper.js';
 import { LAW as HAND_LAW } from './v1/constants.js';
 import { lawOf, CURRENT, ACCEPTED } from './laws.js';
-import {
-  sheetSeed, commitOf, paperKeyOf, recordDigest, sealOf, verifySeal, verifySeed, openBy, verifyOpen, isSheetId,
-  isGoodPublicKey, KEY_BYTES, SIG_BYTES,
-} from './keys.js';
+import { sheetSeed, commitOf, paperKeyOf, recordDigest, sealOf, verifySeal, verifySeed, openBy, verifyOpen, isSheetId, isGoodPublicKey, KEY_BYTES, SIG_BYTES } from './keys.js';
 import { b64url, fromB64url, hex, equalBytes } from './tags.js';
 
 export const USES = ['book', 'signature', 'letter', 'proof'];
@@ -68,8 +65,17 @@ export function sealSettled({ sk, pk, sheet, use, family, acts, seed, box, facts
   if (!USES.includes(use) || !isSheetId(sheet)) throw bad('bad_record', 'bad use or sheet');
   if (!ACCEPTED.includes(law)) throw bad('law_unknown', 'this law version is not accepted');
   const body = {
-    v: 2, kind: 'ink', law, use, sheet, key: b64url(pk), paper: { grain: family.grain, weight: family.weight, tooth: family.tooth },
-    acts: b64url(acts), box: [...box], commit: b64url(commitOf(seed)), facts: b64url(facts),
+    v: 2,
+    kind: 'ink',
+    law,
+    use,
+    sheet,
+    key: b64url(pk),
+    paper: { grain: family.grain, weight: family.weight, tooth: family.tooth },
+    acts: b64url(acts),
+    box: [...box],
+    commit: b64url(commitOf(seed)),
+    facts: b64url(facts),
   };
   if (name !== undefined) body.name = name;
   if (proof !== undefined) body.proof = proof;
@@ -120,7 +126,11 @@ export function checkInkBody(body, { maxActsBytes = 1 << 20 } = {}) {
   if ((body.use === 'signature') !== (body.name !== undefined)) throw bad('bad_record', 'a signature carries the name, nothing else does');
   if (body.name !== undefined && (typeof body.name !== 'string' || !NAME_RE.test(body.name))) throw bad('bad_record', 'bad name');
   if ((body.use === 'proof') !== (body.proof !== undefined)) throw bad('bad_record', 'a proof carries its challenge');
-  if (body.proof !== undefined && (!keysExactly(body.proof, ['challenge', 'phrase']) || !b64Len(body.proof.challenge, 32) || typeof body.proof.phrase !== 'string' || !/^[a-z]+( [a-z]+){3}$/.test(body.proof.phrase))) throw bad('bad_record', 'bad proof');
+  if (
+    body.proof !== undefined &&
+    (!keysExactly(body.proof, ['challenge', 'phrase']) || !b64Len(body.proof.challenge, 32) || typeof body.proof.phrase !== 'string' || !/^[a-z]+( [a-z]+){3}$/.test(body.proof.phrase))
+  )
+    throw bad('bad_record', 'bad proof');
   if (!keysExactly(body.paper, ['grain', 'weight', 'tooth'])) throw bad('bad_record', 'bad paper family');
   checkFamily(body.paper);
   if (!Array.isArray(body.box) || body.box.length !== 4 || !body.box.every(isInt)) throw bad('bad_record', 'bad box');
@@ -170,7 +180,7 @@ export function verifySealed(line, key) {
 // A seed for this record's sheet: it is the key's, and it is the one the record committed to.
 export function verifySeedFor(body, seed) {
   const key = fromB64url(body.key);
-  if (!(seed instanceof Uint8Array) || seed.length !== SIG_BYTES || !verifySeed(key, body.sheet, seed)) throw bad('bad_seed', 'the seed is not this key\'s seed for this sheet');
+  if (!(seed instanceof Uint8Array) || seed.length !== SIG_BYTES || !verifySeed(key, body.sheet, seed)) throw bad('bad_seed', "the seed is not this key's seed for this sheet");
   if (b64url(commitOf(seed)) !== body.commit) throw bad('bad_commit', 'the seed is not the one this record committed to');
 }
 

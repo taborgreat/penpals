@@ -56,14 +56,18 @@ export const CHASE = { ...CHASE_DEFAULTS };
 try {
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
   for (const k of Object.keys(CHASE_DEFAULTS)) if (typeof saved[k] === typeof CHASE_DEFAULTS[k]) CHASE[k] = saved[k];
-} catch { /* the defaults, then */ }
+} catch {
+  /* the defaults, then */
+}
 
 // Change knobs (all of them with CHASE_DEFAULTS) and remember them.
 export function setChase(next) {
   Object.assign(CHASE, next);
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(CHASE));
-  } catch { /* they just won't be remembered */ }
+  } catch {
+    /* they just won't be remembered */
+  }
   return { ...CHASE };
 }
 

@@ -58,9 +58,7 @@ export async function letterPng(asset, { inkColor, paper, crop = false }) {
 // The playback as a looping GIF: at most `maxSeconds` long (sped up to fit),
 // then the finished letter held for `hold` ms. GIF transparency is on/off per
 // pixel, so a transparent GIF has harder edges than a transparent PNG.
-export async function letterGif(asset, {
-  inkColor, paper, crop = false, maxWidth = 720, fps = 12, maxSeconds = 12, hold = 2500, onProgress,
-}) {
+export async function letterGif(asset, { inkColor, paper, crop = false, maxWidth = 720, fps = 12, maxSeconds = 12, hold = 2500, onProgress }) {
   const { data, img } = asset;
   const big = document.createElement('canvas');
   const player = createPlayer(big, { data, ink: img }, { inkColor, paper });

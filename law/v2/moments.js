@@ -15,10 +15,19 @@ export function momentsOf(rec, { paperKey, family, scale = 64 }, box) {
   const at = new Int32Array(w * h).fill(-1);
   const most = new Int32Array(w * h);
   grow(rec, {
-    paperKey, family, scale, instrument: {
-      tile() {}, wet() {}, fiber() {}, step() {}, strokeStart() {}, finish() {},
+    paperKey,
+    family,
+    scale,
+    instrument: {
+      tile() {},
+      wet() {},
+      fiber() {},
+      step() {},
+      strokeStart() {},
+      finish() {},
       deposit(t, i, g, now) {
-        const x = t.tx * TILE + (i % TILE) - x0, y = t.ty * TILE + Math.floor(i / TILE) - y0;
+        const x = t.tx * TILE + (i % TILE) - x0,
+          y = t.ty * TILE + Math.floor(i / TILE) - y0;
         if (x < 0 || y < 0 || x >= w || y >= h) return;
         const k = y * w + x;
         if (g > most[k]) {

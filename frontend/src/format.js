@@ -18,5 +18,4 @@ export function timeLeft(until) {
   return `${Math.floor(ms / DAY)} d`;
 }
 
-export const kb = (bytes) =>
-  bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+export const kb = (bytes) => (bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);

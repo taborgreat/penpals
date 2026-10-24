@@ -102,10 +102,18 @@ function sinCosFx(a) {
     if (n > 0n) term = mul(term, a) / n;
     if (term === 0n) break;
     switch (Number(n % 4n)) {
-      case 0: c += term; break;
-      case 1: s += term; break;
-      case 2: c -= term; break;
-      case 3: s -= term; break;
+      case 0:
+        c += term;
+        break;
+      case 1:
+        s += term;
+        break;
+      case 2:
+        c -= term;
+        break;
+      case 3:
+        s -= term;
+        break;
       default:
     }
   }
@@ -134,17 +142,27 @@ export function build(params = PARAMS) {
   t.EXP8 = Array.from({ length: 2048 }, (_, i) => roundFx(255n * expFx(-fx(i, 256))));
 
   // Broad-nib angles: [cos, sin] ×16384 for 0..179 degrees.
-  t.COSSIN_Q14 = Array.from({ length: 180 }, (_, d) => sinCosFx(deg(d)).reverse().map((v) => roundFx(16384n * v)));
+  t.COSSIN_Q14 = Array.from({ length: 180 }, (_, d) =>
+    sinCosFx(deg(d))
+      .reverse()
+      .map((v) => roundFx(16384n * v)),
+  );
 
   // Fiber directions k·11.25° (0..168.75°), y down: [cos, sin] ×16384.
-  t.DIR16_Q14 = Array.from({ length: 16 }, (_, k) => sinCosFx((PI * BigInt(k)) / 16n).reverse().map((v) => roundFx(16384n * v)));
+  t.DIR16_Q14 = Array.from({ length: 16 }, (_, k) =>
+    sinCosFx((PI * BigInt(k)) / 16n)
+      .reverse()
+      .map((v) => roundFx(16384n * v)),
+  );
 
   // How much a fiber at direction k carries toward neighbour n (n·45°, E first,
   // y down): cos²(k·11.25° − n·45°) ×256. Symmetric under n ↔ n+4.
-  t.DIRW = Array.from({ length: 16 }, (_, k) => Array.from({ length: 8 }, (_, n) => {
-    const [, c] = sinCosFx((PI * BigInt(k)) / 16n - (PI * BigInt(n)) / 4n);
-    return roundFx(256n * mul(c, c));
-  }));
+  t.DIRW = Array.from({ length: 16 }, (_, k) =>
+    Array.from({ length: 8 }, (_, n) => {
+      const [, c] = sinCosFx((PI * BigInt(k)) / 16n - (PI * BigInt(n)) / 4n);
+      return roundFx(256n * mul(c, c));
+    }),
+  );
 
   // Deposit response to pressure, ×256 at P_NONE.
   t.PRESS = Array.from({ length: 256 }, (_, p) => (p === 0 ? 0 : roundFx(256n * powFx(fx(p, params.P_NONE), params.PRESS_GAMMA))));

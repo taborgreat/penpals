@@ -49,7 +49,15 @@ test('rejects what is not canonical or out of range', () => {
     fn(b);
     return b;
   };
-  assert.throws(() => decodeActs(mutate((b) => { b[0] = 0; })), /PNKA/);
+  assert.throws(
+    () =>
+      decodeActs(
+        mutate((b) => {
+          b[0] = 0;
+        }),
+      ),
+    /PNKA/,
+  );
   assert.throws(() => decodeActs(good.slice(0, good.length - 1)), /truncated|range/);
   assert.throws(() => decodeActs(new Uint8Array([...good, 0])), /trailing/);
   // a non-minimal varint for orgX (3 as 0x83 0x00) decodes but is not canonical

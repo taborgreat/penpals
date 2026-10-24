@@ -9,7 +9,9 @@ export const blockedEitherWay = (a, b) => hasBlocked(getAccount(a), b) || hasBlo
 // Everyone `me` has blocked plus everyone who has blocked `me`.
 export function blockedIds(me) {
   const mine = getAccount(me)?.blocked ?? [];
-  const theirs = allAccounts().filter((a) => a.blocked.includes(me)).map((a) => a.id);
+  const theirs = allAccounts()
+    .filter((a) => a.blocked.includes(me))
+    .map((a) => a.id);
   return [...new Set([...mine, ...theirs])];
 }
 

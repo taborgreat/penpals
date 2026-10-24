@@ -91,14 +91,7 @@ export default function CornerPicker({ photo, corners, onChange }) {
 
   return (
     <div className="corner-picker-wrap">
-      <canvas
-        ref={canvasRef}
-        className="corner-picker"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-      />
+      <canvas ref={canvasRef} className="corner-picker" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} />
     </div>
   );
 }

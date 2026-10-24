@@ -16,12 +16,17 @@ before(async () => {
   app = await startApp();
   app.ana = client(app.base);
   app.bo = client(app.base);
-  for (const [c, p] of [[app.ana, ana], [app.bo, bo]]) {
+  for (const [c, p] of [
+    [app.ana, ana],
+    [app.bo, bo],
+  ]) {
     app.resetLimits();
     assert.equal((await register(c, p)).status, 201);
   }
 });
-after(async () => { await app.close(); });
+after(async () => {
+  await app.close();
+});
 beforeEach(() => app.resetLimits());
 
 // What bo's device does with an ask: derive the sheet and phrase, write it, seal, open.

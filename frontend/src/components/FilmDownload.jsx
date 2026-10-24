@@ -27,8 +27,12 @@ export default function FilmDownload({ source, background = '#ffffff', name = 'p
       <button type="button" className="quiet" disabled={progress !== null} onClick={() => save('webm')} title="It being written, as a video">
         {progress === null ? 'Video' : `Making it… ${Math.round(progress * 100)}%`}
       </button>
-      <button type="button" className="quiet" disabled={progress !== null} onClick={() => save('gif')}>GIF</button>
-      <button type="button" className="quiet" disabled={progress !== null} onClick={() => save('gif', null)} title="A GIF with no background">clear GIF</button>
+      <button type="button" className="quiet" disabled={progress !== null} onClick={() => save('gif')}>
+        GIF
+      </button>
+      <button type="button" className="quiet" disabled={progress !== null} onClick={() => save('gif', null)} title="A GIF with no background">
+        clear GIF
+      </button>
       {error && <span className="error"> {error}</span>}
     </span>
   );

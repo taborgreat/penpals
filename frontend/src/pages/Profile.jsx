@@ -81,31 +81,70 @@ export default function Profile() {
 
   return (
     <>
-      <h1><Username name={name} height={1.4} /> {u.private && <small className="badge quiet-badge">private</small>}</h1>
-      {u.fingerprint && <p className="meta fingerprint" title={`Their key: ${u.publicKey}. Everything in this book is sealed by it.`}>key · {u.fingerprint}</p>}
+      <h1>
+        <Username name={name} height={1.4} /> {u.private && <small className="badge quiet-badge">private</small>}
+      </h1>
+      {u.fingerprint && (
+        <p className="meta fingerprint" title={`Their key: ${u.publicKey}. Everything in this book is sealed by it.`}>
+          key · {u.fingerprint}
+        </p>
+      )}
 
       {u.hidden ? (
-        u.blockedByMe
-          ? <p>You blocked this scripter. <button type="button" onClick={act(() => api.del(`/api/users/${name}/block`))}><Hand>Unblock</Hand></button></p>
-          : <p className="muted">This profile is private. Only their friends can see it.</p>
+        u.blockedByMe ? (
+          <p>
+            You blocked this scripter.{' '}
+            <button type="button" onClick={act(() => api.del(`/api/users/${name}/block`))}>
+              <Hand>Unblock</Hand>
+            </button>
+          </p>
+        ) : (
+          <p className="muted">This profile is private. Only their friends can see it.</p>
+        )
       ) : (
-        <p className="meta stats"><HandNumber value={u.lettersSent} /> <Hand name="sent-count">sent</Hand></p>
+        <p className="meta stats">
+          <HandNumber value={u.lettersSent} /> <Hand name="sent-count">sent</Hand>
+        </p>
       )}
 
       {user && !isMe && !u.blockedByMe && (
         <div className="row">
-          {!u.hidden && <Link to={`/write/${name}`} className="write-cta" title={`Write @${name} a letter`}><Hand>Write</Hand></Link>}
-          {relation === 'none' && <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}><Hand>Add friend</Hand></button>}
-          {relation === 'outgoing' && <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}><Hand>Cancel friend request</Hand></button>}
+          {!u.hidden && (
+            <Link to={`/write/${name}`} className="write-cta" title={`Write @${name} a letter`}>
+              <Hand>Write</Hand>
+            </Link>
+          )}
+          {relation === 'none' && (
+            <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}>
+              <Hand>Add friend</Hand>
+            </button>
+          )}
+          {relation === 'outgoing' && (
+            <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}>
+              <Hand>Cancel friend request</Hand>
+            </button>
+          )}
           {relation === 'incoming' && (
             <>
-              <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}><Hand>Accept friend request</Hand></button>
-              <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}><Hand>Decline</Hand></button>
+              <button type="button" onClick={act(() => api.post(`/api/users/${name}/friend`))}>
+                <Hand>Accept friend request</Hand>
+              </button>
+              <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}>
+                <Hand>Decline</Hand>
+              </button>
             </>
           )}
-          {relation === 'friends' && <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}><Hand>Unfriend</Hand></button>}
-          <Link to={`/proofs?to=${encodeURIComponent(name)}`} className="button quiet" title="Ask them to prove, by hand and right now, that they hold their key">Ask for a live proof</Link>
-          <button type="button" onClick={act(() => api.post(`/api/users/${name}/block`))}><Hand>Block</Hand></button>
+          {relation === 'friends' && (
+            <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}>
+              <Hand>Unfriend</Hand>
+            </button>
+          )}
+          <Link to={`/proofs?to=${encodeURIComponent(name)}`} className="button quiet" title="Ask them to prove, by hand and right now, that they hold their key">
+            Ask for a live proof
+          </Link>
+          <button type="button" onClick={act(() => api.post(`/api/users/${name}/block`))}>
+            <Hand>Block</Hand>
+          </button>
         </div>
       )}
       {!user && !u.hidden && <p className="muted">Log in to write to them.</p>}
@@ -113,8 +152,12 @@ export default function Profile() {
       {isMe && <SignatureCard name={u.username} />}
       {isMe && (
         <p className="book-download">
-          <a className="button" href="/api/books/me/download" download={`${u.username}.book`}>↓ Download my book</a>
-          <span className="meta">your journal and signature as one .book file (no letters, no login) · <Link to="/book">open a .book</Link></span>
+          <a className="button" href="/api/books/me/download" download={`${u.username}.book`}>
+            ↓ Download my book
+          </a>
+          <span className="meta">
+            your journal and signature as one .book file (no letters, no login) · <Link to="/book">open a .book</Link>
+          </span>
         </p>
       )}
 
@@ -132,20 +175,45 @@ export default function Profile() {
 
       {!u.hidden && (
         <>
-          <h2><Hand>Letters on this profile</Hand> (<HandNumber value={data.saved.length} />/<HandNumber value={10} />)</h2>
-          {data.saved.length === 0 && <p className="muted"><Hand>Nothing here yet.</Hand></p>}
+          <h2>
+            <Hand>Letters on this profile</Hand> (<HandNumber value={data.saved.length} />/<HandNumber value={10} />)
+          </h2>
+          {data.saved.length === 0 && (
+            <p className="muted">
+              <Hand>Nothing here yet.</Hand>
+            </p>
+          )}
           {data.saved.map((l) => (
             <div key={l.id} className="stack card">
               <LetterView letter={l} />
               <p className="meta">
                 by <Username name={l.from} /> · {new Date(l.createdAt).toLocaleDateString()} · {kb(l.bytes)}
-                {l.to ? <> · sent to <Username name={l.to} /></> : isMe && l.isMine ? ' · not sent yet' : ''}
+                {l.to ? (
+                  <>
+                    {' '}
+                    · sent to <Username name={l.to} />
+                  </>
+                ) : isMe && l.isMine ? (
+                  ' · not sent yet'
+                ) : (
+                  ''
+                )}
               </p>
               <div className="row">
-                {user && !l.isMine
-                  ? <button type="button" onClick={act(() => api.post(`/api/letters/${l.id}/upvote`))}>{l.upvotedByMe ? '▲ upvoted' : '▲ upvote'} <HandNumber value={l.upvotes} /></button>
-                  : <span className="muted">▲ <HandNumber value={l.upvotes} /></span>}
-                {isMe && <button type="button" onClick={() => remove(l)}><Hand>Remove from my profile</Hand></button>}
+                {user && !l.isMine ? (
+                  <button type="button" onClick={act(() => api.post(`/api/letters/${l.id}/upvote`))}>
+                    {l.upvotedByMe ? '▲ upvoted' : '▲ upvote'} <HandNumber value={l.upvotes} />
+                  </button>
+                ) : (
+                  <span className="muted">
+                    ▲ <HandNumber value={l.upvotes} />
+                  </span>
+                )}
+                {isMe && (
+                  <button type="button" onClick={() => remove(l)}>
+                    <Hand>Remove from my profile</Hand>
+                  </button>
+                )}
               </div>
               {isMe && l.isMine && <SendControl letter={l} onSent={load} />}
             </div>
@@ -167,26 +235,61 @@ function SignatureCard({ name }) {
   const [signing, setSigning] = useState(false);
   const [scene, setScene] = useState(() => sceneOn());
   const lowPower = useLowPower();
-  useEffect(() => { setScene(sceneOn()); }, [lowPower]);
+  useEffect(() => {
+    setScene(sceneOn());
+  }, [lowPower]);
   if (signature === undefined) return null;
   return (
     <div className="stack card signature-card">
-      <h2><Hand>Your signature</Hand></h2>
+      <h2>
+        <Hand>Your signature</Hand>
+      </h2>
       {signing ? (
         <KeyGate>
-          {(writer) => <SignSheet writer={writer} name={name} onDone={() => { refreshSignature(name); setSigning(false); }} onCancel={() => setSigning(false)} />}
+          {(writer) => (
+            <SignSheet
+              writer={writer}
+              name={name}
+              onDone={() => {
+                refreshSignature(name);
+                setSigning(false);
+              }}
+              onCancel={() => setSigning(false)}
+            />
+          )}
         </KeyGate>
       ) : (
         <>
           {scene && signature ? (
-            <SignatureScene name={name} signature={signature} onFlat={() => { setViewChoice('flat'); setScene(false); }} />
+            <SignatureScene
+              name={name}
+              signature={signature}
+              onFlat={() => {
+                setViewChoice('flat');
+                setScene(false);
+              }}
+            />
           ) : (
-            <p className="signature-show"><Username name={name} height={3} /></p>
+            <p className="signature-show">
+              <Username name={name} height={3} />
+            </p>
           )}
           <div className="row">
-            <button type="button" onClick={() => setSigning(true)}><Hand>Sign again</Hand></button>
+            <button type="button" onClick={() => setSigning(true)}>
+              <Hand>Sign again</Hand>
+            </button>
             {!scene && signature && sceneSupported() && (
-              <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="Your signature lit, in 3D">Scene</button>
+              <button
+                type="button"
+                className="quiet"
+                onClick={() => {
+                  setViewChoice('scene');
+                  setScene(true);
+                }}
+                title="Your signature lit, in 3D"
+              >
+                Scene
+              </button>
             )}
           </div>
         </>
@@ -206,15 +309,26 @@ function SignatureScene({ name, signature, onFlat }) {
   useEffect(() => {
     if (!line) return undefined;
     let alive = true;
-    sceneOf({ line, seed, lookUrl: signature.look }).then((d) => { if (alive) setData(d); }).catch(() => {});
-    return () => { alive = false; };
+    sceneOf({ line, seed, lookUrl: signature.look })
+      .then((d) => {
+        if (alive) setData(d);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, [line, seed, signature.look]);
   const sheets = useMemo(() => {
     if (!data) return [];
     const box = data.field?.box ?? data.look.box;
     return [{ id: 'signature', box, origin: [0, 0], cellPx: 1 / CELLS, field: data.field, detail: data.detail, look: data.look }];
   }, [data]);
-  if (!data) return <p className="signature-show"><Username name={name} height={3} /></p>;
+  if (!data)
+    return (
+      <p className="signature-show">
+        <Username name={name} height={3} />
+      </p>
+    );
   const box = data.field?.box ?? data.look.box;
   return (
     <div className="signature-scene" style={{ aspectRatio: `${box[2]} / ${box[3]}` }}>
@@ -249,7 +363,9 @@ function SignSheet({ writer, name, onDone, onCancel }) {
 
   return (
     <>
-      <p className="muted">Sign your name, {name}, on a line. It stands in for @{name} everywhere your name shows up.</p>
+      <p className="muted">
+        Sign your name, {name}, on a line. It stands in for @{name} everywhere your name shows up.
+      </p>
       <div className="field">
         <span>Ink</span>
         <div className="swatches" role="group" aria-label="Ink">
@@ -260,8 +376,12 @@ function SignSheet({ writer, name, onDone, onCancel }) {
       </div>
       {ink && <Pad ink={ink} size={SIGN_PAGE} inkColor={color} onChange={setStrokes} hint="Sign on one of the lines. Zoom in for a finer hand." />}
       <div className="row">
-        <button type="button" className="quiet" onClick={onCancel}><Hand>Cancel</Hand></button>
-        <button type="button" className="primary" onClick={save} disabled={!strokes || busy}>{busy ? 'Sealing…' : <Hand>Save signature</Hand>}</button>
+        <button type="button" className="quiet" onClick={onCancel}>
+          <Hand>Cancel</Hand>
+        </button>
+        <button type="button" className="primary" onClick={save} disabled={!strokes || busy}>
+          {busy ? 'Sealing…' : <Hand>Save signature</Hand>}
+        </button>
       </div>
       {error && <p className="error">{error}</p>}
     </>
@@ -270,7 +390,11 @@ function SignSheet({ writer, name, onDone, onCancel }) {
 
 // Privacy switch and friend lists, shown only to the profile's owner.
 function OwnControls({ social, act, writer, onSignedOut }) {
-  const friendLink = (n) => <Link key={n} to={`/u/${n}`}>@{n}</Link>;
+  const friendLink = (n) => (
+    <Link key={n} to={`/u/${n}`}>
+      @{n}
+    </Link>
+  );
   const everywhere = async () => {
     if (!window.confirm('Sign out on every device, this one too?')) return;
     await act(() => signOutEverywhere(writer))();
@@ -279,11 +403,19 @@ function OwnControls({ social, act, writer, onSignedOut }) {
   return (
     <div className="stack card">
       <PasswordSetting />
-      <p><Link to="/proofs">Live proofs</Link>: asks waiting for you, and the ones you made.</p>
       <p>
-        <button type="button" className="quiet" onClick={everywhere} disabled={!writer} title={writer ? 'Ends every session of this account' : 'Unlock first'}>Sign out everywhere</button>
+        <Link to="/proofs">Live proofs</Link>: asks waiting for you, and the ones you made.
       </p>
-      <p><Link to="/write" className="write-cta" title="Write a letter"><Hand>Write</Hand></Link></p>
+      <p>
+        <button type="button" className="quiet" onClick={everywhere} disabled={!writer} title={writer ? 'Ends every session of this account' : 'Unlock first'}>
+          Sign out everywhere
+        </button>
+      </p>
+      <p>
+        <Link to="/write" className="write-cta" title="Write a letter">
+          <Hand>Write</Hand>
+        </Link>
+      </p>
       <p>
         <Hand>Colours</Hand>: <ThemeToggle />
       </p>
@@ -300,8 +432,12 @@ function OwnControls({ social, act, writer, onSignedOut }) {
           {social.incoming.map((n) => (
             <span key={n}>
               {friendLink(n)}{' '}
-              <button type="button" onClick={act(() => api.post(`/api/users/${n}/friend`))}><Hand>accept</Hand></button>{' '}
-              <button type="button" onClick={act(() => api.del(`/api/users/${n}/friend`))}><Hand>decline</Hand></button>{' '}
+              <button type="button" onClick={act(() => api.post(`/api/users/${n}/friend`))}>
+                <Hand>accept</Hand>
+              </button>{' '}
+              <button type="button" onClick={act(() => api.del(`/api/users/${n}/friend`))}>
+                <Hand>decline</Hand>
+              </button>{' '}
             </span>
           ))}
         </p>
@@ -313,7 +449,10 @@ function OwnControls({ social, act, writer, onSignedOut }) {
           Blocked:{' '}
           {social.blocked.map((n) => (
             <span key={n}>
-              @{n} <button type="button" onClick={act(() => api.del(`/api/users/${n}/block`))}><Hand>unblock</Hand></button>{' '}
+              @{n}{' '}
+              <button type="button" onClick={act(() => api.del(`/api/users/${n}/block`))}>
+                <Hand>unblock</Hand>
+              </button>{' '}
             </span>
           ))}
         </p>

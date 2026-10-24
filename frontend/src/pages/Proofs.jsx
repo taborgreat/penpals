@@ -38,7 +38,9 @@ export default function Proofs() {
       setError(err.message);
     }
   }, []);
-  useEffect(() => { if (user) load(); }, [user, load]);
+  useEffect(() => {
+    if (user) load();
+  }, [user, load]);
 
   async function askFor(name) {
     setError(null);
@@ -55,22 +57,40 @@ export default function Proofs() {
   if (!user) return <p>Log in to ask for or answer a live proof.</p>;
   return (
     <div className="stack narrow proofs">
-      <h1><Hand>Live proofs</Hand></h1>
+      <h1>
+        <Hand>Live proofs</Hand>
+      </h1>
       <p className="muted">Ask someone to prove, by hand and right now, that they hold the key their book is sealed with.</p>
-      <form className="row" onSubmit={(e) => { e.preventDefault(); if (to) askFor(to); }}>
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (to) askFor(to);
+        }}
+      >
         <ScripterInput id="proof-to" value={to} onChange={setTo} />
-        <button className="primary" disabled={!to}>Ask</button>
+        <button className="primary" disabled={!to}>
+          Ask
+        </button>
       </form>
       {error && <p className="error">{error}</p>}
 
-      {pending.length > 0 && <h2><Hand>Asked of you</Hand></h2>}
+      {pending.length > 0 && (
+        <h2>
+          <Hand>Asked of you</Hand>
+        </h2>
+      )}
       {pending.map((p) => (
         <KeyGate key={p.id}>{(writer) => <Answer proof={p} writer={writer} onDone={load} />}</KeyGate>
       ))}
 
-      <h2><Hand>You asked</Hand></h2>
+      <h2>
+        <Hand>You asked</Hand>
+      </h2>
       {!mine.length && <p className="muted">Nothing yet.</p>}
-      {mine.map((p) => <Asked key={p.id} proof={p} />)}
+      {mine.map((p) => (
+        <Asked key={p.id} proof={p} />
+      ))}
     </div>
   );
 }
@@ -101,11 +121,17 @@ function Answer({ proof, writer, onDone }) {
 
   return (
     <div className="stack card">
-      <p><Username name={proof.from} /> asks for a live proof. Write, in your own hand:</p>
-      <p className="proof-phrase"><strong>{phrase}</strong></p>
+      <p>
+        <Username name={proof.from} /> asks for a live proof. Write, in your own hand:
+      </p>
+      <p className="proof-phrase">
+        <strong>{phrase}</strong>
+      </p>
       {ink && <Pad ink={ink} size={PROOF_PAD} onChange={setStrokes} hint="Write the four words on a line." />}
       <div className="row">
-        <button type="button" className="primary" disabled={!strokes || busy} onClick={send}>{busy ? 'Sealing…' : 'Seal and answer'}</button>
+        <button type="button" className="primary" disabled={!strokes || busy} onClick={send}>
+          {busy ? 'Sealing…' : 'Seal and answer'}
+        </button>
         <span className="meta">until {new Date(proof.expiresAt).toLocaleString()}</span>
       </div>
       {error && <p className="error">{error}</p>}
@@ -120,7 +146,10 @@ function Asked({ proof }) {
 
   useEffect(() => {
     if (!proof.answeredAt) return;
-    api.get(`/api/proofs/${proof.id}`).then(setBundle).catch((err) => setError(err.message));
+    api
+      .get(`/api/proofs/${proof.id}`)
+      .then(setBundle)
+      .catch((err) => setError(err.message));
   }, [proof.id, proof.answeredAt]);
 
   async function check() {
@@ -141,15 +170,27 @@ function Asked({ proof }) {
       </p>
       {bundle?.line && (
         <>
-          <p className="proof-phrase">The phrase: <strong>{bundle.line.ink.proof.phrase}</strong></p>
-          <img className="proof-look" src={`/api/proofs/${proof.id}/look`} alt={`${proof.to} writing the phrase`} />
+          <p className="proof-phrase">
+            The phrase: <strong>{bundle.line.ink.proof.phrase}</strong>
+          </p>
+          <img className="proof-look" src={`/api/proofs/${proof.id}/look`} loading="lazy" alt={`${proof.to} writing the phrase`} />
           <div className="row">
-            <button type="button" onClick={check} disabled={report === 'checking'}>{report === 'checking' ? 'Checking…' : 'Check it here'}</button>
-            <button type="button" className="quiet" onClick={() => download(new Blob([JSON.stringify(bundle, null, 1)], { type: 'application/json' }), `proof-${proof.to}-${proof.id}.json`)}>Download the proof</button>
+            <button type="button" onClick={check} disabled={report === 'checking'}>
+              {report === 'checking' ? 'Checking…' : 'Check it here'}
+            </button>
+            <button type="button" className="quiet" onClick={() => download(new Blob([JSON.stringify(bundle, null, 1)], { type: 'application/json' }), `proof-${proof.to}-${proof.id}.json`)}>
+              Download the proof
+            </button>
           </div>
-          {report && report !== 'checking' && (report.ok
-            ? <p><strong>It checks:</strong> sealed by their key, on the sheet your ask names, and grown again here exactly as sealed. Does it say the phrase? That part is for your eyes.</p>
-            : <p className="error">It does not check: {report.problems.join('; ')}</p>)}
+          {report &&
+            report !== 'checking' &&
+            (report.ok ? (
+              <p>
+                <strong>It checks:</strong> sealed by their key, on the sheet your ask names, and grown again here exactly as sealed. Does it say the phrase? That part is for your eyes.
+              </p>
+            ) : (
+              <p className="error">It does not check: {report.problems.join('; ')}</p>
+            ))}
         </>
       )}
       {error && <p className="error">{error}</p>}

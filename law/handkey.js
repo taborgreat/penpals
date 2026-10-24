@@ -32,7 +32,10 @@ export function centreOffsets(kind, readings) {
   const specs = specsFor(kind);
   const vals = readings.map(valuesOf);
   return specs.map((spec, i) => {
-    const m = floorDiv(vals.reduce((s, v) => s + mapped(v[i], spec), 0), vals.length);
+    const m = floorDiv(
+      vals.reduce((s, v) => s + mapped(v[i], spec), 0),
+      vals.length,
+    );
     const step = spec[2];
     return floorDiv(step, 2) - ((((m - spec[1]) % step) + step) % step);
   });
@@ -98,10 +101,18 @@ export function candidates(sketches, readings) {
 export const refreshSketch = (sketch, r, reading) => ({ ...makeSketch(sketch.kind, r, [reading]), id: sketch.id });
 
 export function checkSketch(s) {
-  const ok = s && typeof s.id === 'string' && /^[A-Za-z0-9_-]{12}$/.test(s.id) && KINDS.includes(s.kind)
-    && s.code === code(s.kind).id && Number.isInteger(s.hand) && Array.isArray(s.offsets)
-    && s.offsets.length === specsFor(s.kind).length && s.offsets.every((o) => Number.isInteger(o) && Math.abs(o) <= 4096)
-    && typeof s.helper === 'string' && fromB64url(s.helper).length === Math.ceil(code(s.kind).n / 8);
+  const ok =
+    s &&
+    typeof s.id === 'string' &&
+    /^[A-Za-z0-9_-]{12}$/.test(s.id) &&
+    KINDS.includes(s.kind) &&
+    s.code === code(s.kind).id &&
+    Number.isInteger(s.hand) &&
+    Array.isArray(s.offsets) &&
+    s.offsets.length === specsFor(s.kind).length &&
+    s.offsets.every((o) => Number.isInteger(o) && Math.abs(o) <= 4096) &&
+    typeof s.helper === 'string' &&
+    fromB64url(s.helper).length === Math.ceil(code(s.kind).n / 8);
   if (!ok) throw new Error('bad sketch');
   return { id: s.id, kind: s.kind, code: s.code, hand: s.hand, offsets: s.offsets.slice(), helper: s.helper };
 }

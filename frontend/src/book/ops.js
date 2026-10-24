@@ -60,4 +60,10 @@ export function applyLocal(skeleton, op) {
 }
 
 // A page id from whatever someone typed: "My Poems!" → "my-poems".
-export const pageIdFrom = (text) => String(text).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+export const pageIdFrom = (text) =>
+  String(text)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);

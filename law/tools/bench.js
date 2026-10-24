@@ -6,7 +6,8 @@ import { grow } from '../v1/sim.js';
 const runs = Number(process.argv[2] || 3);
 const family = { grain: 8, weight: 8, tooth: 0 };
 const paperKey = testPaperKey('bench');
-let totalWork = 0, totalMs = 0;
+let totalWork = 0,
+  totalMs = 0;
 for (const name of Object.keys(FIXTURES)) {
   const { rec } = fixtureBytes(name);
   grow(rec, { paperKey, family }); // warm

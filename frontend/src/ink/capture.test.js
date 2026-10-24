@@ -197,7 +197,8 @@ test('a held pen, live: hold samples that became final are kept, later ones give
 test('flex nib, mouse: holding still opens the tines (a square start), a stop before the lift holds them; a quick start is a point', async () => {
   const PEN = { nib: 1, size: 12, flex: 120, flow: 7, rgb: [20, 20, 20], angle: 35 };
   const th = (55 * Math.PI) / 180;
-  const hold = async (cap, clock, ms) => { // the held pen's own samples, every 16 ms of its clock
+  const hold = async (cap, clock, ms) => {
+    // the held pen's own samples, every 16 ms of its clock
     for (let k = 0; k < ms / 16; k++) {
       clock.t += 16;
       await new Promise((r) => setTimeout(r, 18));
@@ -209,7 +210,8 @@ test('flex nib, mouse: holding still opens the tines (a square start), a stop be
     cap.setFlex({ slant: 55, swell: 6, hold: true });
     cap.down({ x: 100, y: 100 }, ev(clock.t));
     await hold(cap, clock, holdMs);
-    for (let i = 1; i <= 20; i++) { // then down the slant
+    for (let i = 1; i <= 20; i++) {
+      // then down the slant
       clock.t += 8;
       cap.move({ x: 100 - Math.cos(th) * i * 1.5, y: 100 + Math.sin(th) * i * 1.5 }, ev(clock.t));
     }
@@ -221,7 +223,10 @@ test('flex nib, mouse: holding still opens the tines (a square start), a stop be
   const held = await write(400, 300);
   const quick = await write(0, 0);
   const firstMove = (pts) => pts.find((p, i) => i > 0 && (p.x !== pts[0].x || p.y !== pts[0].y));
-  assert.ok(held.some((p) => p.x === held[0].x && p.p > 0.9), 'held still, the tines open where it landed');
+  assert.ok(
+    held.some((p) => p.x === held[0].x && p.p > 0.9),
+    'held still, the tines open where it landed',
+  );
   assert.ok(firstMove(held).p > 0.9, `so the pull starts square (${firstMove(held).p.toFixed(2)})`);
   assert.ok(held.at(-1).p > 0.95, 'a stop before the lift holds them open: a square end');
   assert.ok(firstMove(quick).p < 0.5, `without the hold it starts near a point (${firstMove(quick).p.toFixed(2)})`);

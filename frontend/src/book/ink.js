@@ -5,8 +5,9 @@
 // sheets). These helpers size it and read its strokes for the reveal.
 import { decodeActs } from 'penpals-law/v2/acts'; // reads every law's acts (law 2's adds the pen's spatter)
 import { fromB64url } from 'penpals-law';
+import { CELLS_PER_UNIT } from 'penpals-law/v1/constants';
 
-export const CELLS = 2; // law cells per page unit
+export const CELLS = CELLS_PER_UNIT; // law cells per page unit (the law's own)
 export const SCALE_ONE = 64; // item scales are integers, 64 = as written
 export const SCALE_MIN = 4;
 export const SCALE_MAX = 640;
@@ -54,7 +55,9 @@ export function parseLines(text) {
     if (!line.trim()) continue;
     try {
       out.push(JSON.parse(line));
-    } catch { /* a damaged line is skipped */ }
+    } catch {
+      /* a damaged line is skipped */
+    }
   }
   return out;
 }

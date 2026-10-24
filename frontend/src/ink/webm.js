@@ -4,11 +4,32 @@
 // https://www.matroska.org/technical/elements.html
 
 const ids = {
-  EBML: 0x1a45dfa3, EBMLVersion: 0x4286, EBMLReadVersion: 0x42f7, EBMLMaxIDLength: 0x42f2, EBMLMaxSizeLength: 0x42f3,
-  DocType: 0x4282, DocTypeVersion: 0x4287, DocTypeReadVersion: 0x4285,
-  Segment: 0x18538067, Info: 0x1549a966, TimecodeScale: 0x2ad7b1, MuxingApp: 0x4d80, WritingApp: 0x5741, Duration: 0x4489,
-  Tracks: 0x1654ae6b, TrackEntry: 0xae, TrackNumber: 0xd7, TrackUID: 0x73c5, TrackType: 0x83, CodecID: 0x86,
-  Video: 0xe0, PixelWidth: 0xb0, PixelHeight: 0xba, Cluster: 0x1f43b675, Timecode: 0xe7, SimpleBlock: 0xa3,
+  EBML: 0x1a45dfa3,
+  EBMLVersion: 0x4286,
+  EBMLReadVersion: 0x42f7,
+  EBMLMaxIDLength: 0x42f2,
+  EBMLMaxSizeLength: 0x42f3,
+  DocType: 0x4282,
+  DocTypeVersion: 0x4287,
+  DocTypeReadVersion: 0x4285,
+  Segment: 0x18538067,
+  Info: 0x1549a966,
+  TimecodeScale: 0x2ad7b1,
+  MuxingApp: 0x4d80,
+  WritingApp: 0x5741,
+  Duration: 0x4489,
+  Tracks: 0x1654ae6b,
+  TrackEntry: 0xae,
+  TrackNumber: 0xd7,
+  TrackUID: 0x73c5,
+  TrackType: 0x83,
+  CodecID: 0x86,
+  Video: 0xe0,
+  PixelWidth: 0xb0,
+  PixelHeight: 0xba,
+  Cluster: 0x1f43b675,
+  Timecode: 0xe7,
+  SimpleBlock: 0xa3,
 };
 
 const concat = (parts) => {
@@ -53,13 +74,28 @@ const el = (id, ...body) => {
 
 // chunks: [{ data: Uint8Array, timestamp (µs), key: boolean }] in order.
 export function muxWebm({ codec, width, height, chunks, durationMs }) {
-  const header = el(ids.EBML,
-    el(ids.EBMLVersion, uint(1)), el(ids.EBMLReadVersion, uint(1)), el(ids.EBMLMaxIDLength, uint(4)), el(ids.EBMLMaxSizeLength, uint(8)),
-    el(ids.DocType, ascii('webm')), el(ids.DocTypeVersion, uint(4)), el(ids.DocTypeReadVersion, uint(2)));
+  const header = el(
+    ids.EBML,
+    el(ids.EBMLVersion, uint(1)),
+    el(ids.EBMLReadVersion, uint(1)),
+    el(ids.EBMLMaxIDLength, uint(4)),
+    el(ids.EBMLMaxSizeLength, uint(8)),
+    el(ids.DocType, ascii('webm')),
+    el(ids.DocTypeVersion, uint(4)),
+    el(ids.DocTypeReadVersion, uint(2)),
+  );
   const info = el(ids.Info, el(ids.TimecodeScale, uint(1000000)), el(ids.MuxingApp, ascii('penpals')), el(ids.WritingApp, ascii('penpals')), el(ids.Duration, f64(durationMs)));
-  const tracks = el(ids.Tracks, el(ids.TrackEntry,
-    el(ids.TrackNumber, uint(1)), el(ids.TrackUID, uint(1)), el(ids.TrackType, uint(1)), el(ids.CodecID, ascii(codec)),
-    el(ids.Video, el(ids.PixelWidth, uint(width)), el(ids.PixelHeight, uint(height)))));
+  const tracks = el(
+    ids.Tracks,
+    el(
+      ids.TrackEntry,
+      el(ids.TrackNumber, uint(1)),
+      el(ids.TrackUID, uint(1)),
+      el(ids.TrackType, uint(1)),
+      el(ids.CodecID, ascii(codec)),
+      el(ids.Video, el(ids.PixelWidth, uint(width)), el(ids.PixelHeight, uint(height))),
+    ),
+  );
   const clusters = [];
   let current = null;
   const close = () => {

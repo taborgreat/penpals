@@ -11,7 +11,10 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined); // undefined = still checking the session
 
   useEffect(() => {
-    api.get('/api/auth/me').then((d) => setUser(d.user)).catch(() => setUser(null));
+    api
+      .get('/api/auth/me')
+      .then((d) => setUser(d.user))
+      .catch(() => setUser(null));
   }, []);
 
   const value = useMemo(

@@ -1,0 +1,17 @@
+# Frozen or generated: never reshaped
+law/v1/
+law/v2/tables.js
+law/fixtures/
+law/lab/samples/
+# light-waves' modules: its own until integrated
+frontend/src/scene/light/
+frontend/scripts/
+frontend/e2e/grower.mjs
+frontend/public/
+5-steps/
+6-steps/
+**/node_modules/
+**/dist/
+*.md
+*.json
+*.html

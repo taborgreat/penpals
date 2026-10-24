@@ -3,13 +3,12 @@ import { config } from '../config.js';
 import { httpError } from '../files.js';
 import { requireAuth } from '../auth.js';
 import { findByName, getAccount } from '../store/accounts.js';
-import {
-  bookBytes, chainBytes, edit, getSkeleton, inkLine, sheetLine, openSeed, digestOf, landInk, landOpen, dryRunEdit, NEW_INK,
-} from '../store/books.js';
+import { bookBytes, chainBytes, edit, getSkeleton, inkLine, sheetLine, openSeed, digestOf, landInk, landOpen, dryRunEdit, NEW_INK } from '../store/books.js';
 import { CLIENT_OPS, SCALE } from '../store/ops.js';
 import { seedOf } from '../store/seeds.js';
 import { sheetUsedInLetters } from '../store/letters.js';
-import { readCached, writeCached, lookPath, lookName, filmPath } from '../store/cache.js';
+import { readCached, writeCached, lookPath, lookName, filmPath, scenePath } from '../store/cache.js';
+import { sightOf, windowed } from '../sight.js';
 import { countView, viewsOf } from '../store/exposure.js';
 import fs from 'node:fs/promises';
 import { writeAtomic } from '../files.js';
@@ -79,8 +78,10 @@ booksRouter.get('/:name/download', async (req, res) => {
 // or of the signature. Ink of law 2 is drawn as it is now: aged since it was
 // made (oak gall darkens) and faded by how often it has been seen; each viewer
 // counts once a day.
+//   ?lod=0..3                    the look at a level of detail (sight.js)
 //   ?mode=scene                  the scene's field (heights, depth, colour as it is now, holes):
-//                                deflated PNKS (law/v2/scene.js), never the seed or the paper's fields
+//                                deflated PNKS (law/v2/scene.js), never the seed or the paper's fields;
+//                                &at=x0,y0,w,h a window of it, &lod= at a level of detail (sight.js)
 //   ?mode=side&cut=x0,y0,x1,y1   a cut through the paper along that line (sheet cells)
 // (law 2; for anyone who may see the look, or only the writer and open sheets: config.book.depthForVisitors).
 booksRouter.get('/:name/look/:inkId', async (req, res) => {
@@ -93,12 +94,17 @@ booksRouter.get('/:name/look/:inkId', async (req, res) => {
   if (!line || line.ink.kind !== 'ink') throw httpError(404, 'no_ink', 'No such ink.');
   const skeleton = await getSkeleton(account.id);
   if (req.user?.id !== account.id) {
-    const shown = (skeleton.signature === inkId && scale === SCALE.one)
-      || Object.values(skeleton.pages).some((p) => p.items.some((it) => it.ink === inkId && it.scale === scale));
+    // the look at the scale it is shown at; the scene (grown at the record's own scale
+    // and laid over the item, however big) of anything shown
+    const onPage = (fit) => Object.values(skeleton.pages).some((p) => p.items.some((it) => it.ink === inkId && fit(it)));
+    const shown =
+      req.query.mode === 'scene'
+        ? scale === SCALE.one && (skeleton.signature === inkId || onPage(() => true))
+        : (skeleton.signature === inkId && scale === SCALE.one) || onPage((it) => it.scale === scale);
     if (!shown) throw httpError(404, 'no_ink', 'No such ink.');
   }
   if (req.query.mode !== undefined) return sendDepth(req, res, account, line, scale);
-  await sendLook(req, res, account, line, scale);
+  await sendLook(req, res, account, line, scale, { lod: sightOf(req.query, { window: false }).lod });
 });
 
 const CUT_RE = /^-?\d{1,6}(,-?\d{1,6}){3}$/;
@@ -113,23 +119,31 @@ async function sendDepth(req, res, account, line, scale) {
     cut = cutText.split(',').map(Number);
     if (Math.max(Math.abs(cut[2] - cut[0]), Math.abs(cut[3] - cut[1])) > MAX_CUT) throw httpError(400, 'bad_cut', 'That cut is too long.');
   }
+  const sight = mode === 'scene' ? sightOf(req.query) : null;
   if (line.ink.law < 2) throw httpError(400, 'no_depth', 'Ink written before depth (law 1) has no side view or scene.');
   const open = await openSeed(account.id, line.ink.sheet);
   if (req.user?.id !== account.id && !open && !config.book.depthForVisitors) throw httpError(403, 'closed_sheet', 'Only the writer sees into a closed sheet.');
   const view = viewOf(line.ink, line.made, await viewsOf('user', account.id, line.id));
   const name = `${lookName(line.id, scale, line.ink.law, view)}-${mode}${cut ? `-${cut.join('_')}` : ''}`;
-  res.set('ETag', `"${name}"`);
+  const etag = `"${name}${sight?.tag ?? ''}"`;
+  res.set('ETag', etag);
   res.set('Cache-Control', 'private, max-age=300');
   res.set('Vary', 'Cookie');
-  if (req.get('If-None-Match') === `"${name}"`) return res.status(304).end();
-  take('lookMissViewer', req.user?.id ?? ipKey(req));
-  const seedText = open ?? (await seedOf(account.id, line.ink.sheet));
-  if (!seedText) throw httpError(410, 'seed_missing', 'The paper of this sheet is not on the server.');
-  const seed = fromB64url(seedText, 64);
-  if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'The seed of this sheet does not match its record.');
-  const out = await settleOnServer({ law: line.ink.law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, view, mode, cut, key: `depth:${account.id}:${name}` });
-  if (mode === 'scene') return res.type('application/octet-stream').send(Buffer.from(out.scene));
-  res.type('png').send(Buffer.from(out.png));
+  if (req.get('If-None-Match') === etag) return res.status(304).end();
+  const kept = mode === 'scene' ? scenePath(account.id, name) : null;
+  let whole = kept && (await readCached(kept));
+  if (!whole) {
+    take('lookMissViewer', req.user?.id ?? ipKey(req));
+    const seedText = open ?? (await seedOf(account.id, line.ink.sheet));
+    if (!seedText) throw httpError(410, 'seed_missing', 'The paper of this sheet is not on the server.');
+    const seed = fromB64url(seedText, 64);
+    if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'The seed of this sheet does not match its record.');
+    const out = await settleOnServer({ law: line.ink.law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, view, mode, cut, key: `depth:${account.id}:${name}` });
+    if (mode !== 'scene') return res.type('png').send(Buffer.from(out.png));
+    whole = Buffer.from(out.scene);
+    await writeCached(kept, whole).catch((err) => console.warn('[cache]', err.message));
+  }
+  res.type('application/octet-stream').send(windowed(whole, sight));
 }
 
 // The film of one piece of ink (law/v1/film.js): it being written, frame by
@@ -146,7 +160,14 @@ booksRouter.get('/:name/film/:inkId', async (req, res) => {
     const shown = skeleton.signature === inkId || Object.values(skeleton.pages).some((p) => p.items.some((it) => it.ink === inkId));
     if (!shown) throw httpError(404, 'no_ink', 'No such ink.');
   }
-  await sendFilm(req, res, filmPath(account.id, inkId, line.ink.law), line.ink, async () => (await openSeed(account.id, line.ink.sheet)) ?? (await seedOf(account.id, line.ink.sheet)), `film:${account.id}:${inkId}`);
+  await sendFilm(
+    req,
+    res,
+    filmPath(account.id, inkId, line.ink.law),
+    line.ink,
+    async () => (await openSeed(account.id, line.ink.sheet)) ?? (await seedOf(account.id, line.ink.sheet)),
+    `film:${account.id}:${inkId}`,
+  );
 });
 
 export async function sendFilm(req, res, file, body, seedText, key, keep = () => true) {
@@ -166,24 +187,24 @@ export async function sendFilm(req, res, file, body, seedText, key, keep = () =>
   res.type('application/octet-stream').send(film);
 }
 
-export async function sendLook(req, res, account, line, scale, { cacheControl = 'private, max-age=300' } = {}) {
+export async function sendLook(req, res, account, line, scale, { cacheControl = 'private, max-age=300', lod = 0 } = {}) {
   const law = line.ink.law;
   const views = law >= 2 ? await countView('user', account.id, line.id, req.user?.id ?? ipKey(req)) : 0;
   const view = viewOf(line.ink, line.made, views);
-  const etag = `"${lookName(line.id, scale, law, view)}"`;
+  const etag = `"${lookName(line.id, scale, law, view)}${lod ? `-l${lod}` : ''}"`;
   res.set('ETag', etag);
   res.set('Cache-Control', cacheControl);
   res.set('Vary', 'Cookie');
   if (req.get('If-None-Match') === etag) return res.status(304).end();
-  const p = lookPath(account.id, line.id, scale, law, view);
+  const p = lookPath(account.id, line.id, scale, law, view, lod);
   let png = await readCached(p);
   if (!png) {
     take('lookMissViewer', req.user?.id ?? ipKey(req));
     const seedText = (await openSeed(account.id, line.ink.sheet)) ?? (await seedOf(account.id, line.ink.sheet));
-    if (!seedText) throw httpError(410, 'seed_missing', 'This sheet\'s paper is not on the server.');
+    if (!seedText) throw httpError(410, 'seed_missing', "This sheet's paper is not on the server.");
     const seed = fromB64url(seedText, 64);
-    if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'This sheet\'s seed does not match its record.');
-    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, png: true, view, priority: 'view', key: `look:${account.id}:${etag}` });
+    if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', "This sheet's seed does not match its record.");
+    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, png: true, lod, view, priority: 'view', key: `look:${account.id}:${etag}` });
     png = Buffer.from(out.png);
     await writeCached(p, png).catch((err) => console.warn('[cache]', err.message));
   }

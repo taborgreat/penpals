@@ -147,7 +147,8 @@ export async function applyOp(s, op, { inkBody }) {
       return null;
     }
     case 'family': {
-      const g = op.grain, w = op.weight;
+      const g = op.grain,
+        w = op.weight;
       if (!Number.isInteger(g) || g < 0 || g > 15 || !Number.isInteger(w) || w < 0 || w > 15) throw bad('A paper family is grain and weight, 0 to 15 each.');
       s.paperFamily = { grain: g, weight: w, tooth: 0 };
       return null;

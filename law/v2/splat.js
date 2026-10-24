@@ -40,7 +40,8 @@ function cs(deg) {
 //   dt ms, p pressure (1..255), flow 0..15, spatter 0..15, tooth: the paper's height at the nib (0..120)
 export function splatOdds({ x0, y0, x1, y1, pdx, pdy, dt, p, flow, spatter, tooth, i }) {
   if (!spatter || !flow) return { P: 0, score: 0 };
-  const dx = x1 - x0, dy = y1 - y0;
+  const dx = x1 - x0,
+    dy = y1 - y0;
   const L = lengthOf(dx, dy);
   const V = Math.min(V_MAX, floorDiv(L, dt));
   let sharp = 0; // 0 straight on .. 512 turned right back

@@ -20,7 +20,8 @@ function flush() {
   queue = new Set();
   for (let i = 0; i < names.length; i += 100) {
     const batch = names.slice(i, i + 100);
-    api.get(`/api/signatures?names=${batch.map(encodeURIComponent).join(',')}`)
+    api
+      .get(`/api/signatures?names=${batch.map(encodeURIComponent).join(',')}`)
       .then(({ signatures }) => {
         for (const n of batch) cache.set(n, asShown(signatures[n]));
         emit();

@@ -36,13 +36,16 @@ function PhotoLetter({ letter }) {
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    Promise.all([
-      showMask ? loadInk(letter.inkUrl) : null,
-      strokesSrc && playable ? loadStrokes(strokesSrc).catch(() => null) : null,
-    ])
-      .then(([img, data]) => { if (!cancelled) setAsset({ img, data }); })
-      .catch((err) => { if (!cancelled) setError(err.message); });
-    return () => { cancelled = true; };
+    Promise.all([showMask ? loadInk(letter.inkUrl) : null, strokesSrc && playable ? loadStrokes(strokesSrc).catch(() => null) : null])
+      .then(([img, data]) => {
+        if (!cancelled) setAsset({ img, data });
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [showMask, strokesSrc, playable, letter.inkUrl]);
 
   function paintStill() {
@@ -58,9 +61,7 @@ function PhotoLetter({ letter }) {
     playerRef.current?.stop();
     setPlaying(false);
     paintStill();
-    playerRef.current = asset.data
-      ? createPlayer(canvas, { data: asset.data, ink: asset.img }, { inkColor, paper, getSpeed: () => speedRef.current })
-      : null;
+    playerRef.current = asset.data ? createPlayer(canvas, { data: asset.data, ink: asset.img }, { inkColor, paper, getSpeed: () => speedRef.current }) : null;
   }, [asset, inkColor, paper, guides]);
 
   useEffect(() => () => playerRef.current?.stop(), []);
@@ -84,8 +85,16 @@ function PhotoLetter({ letter }) {
       <canvas ref={canvasRef} className="letter" />
       {asset?.data && playable && (
         <div className="row">
-          <button type="button" className="watch" onClick={watch} title={playing ? "Stop" : "Watch it being written"}>
-            {playing ? <>■ <Hand>Stop</Hand></> : <>▶ <Hand>Watch</Hand></>}
+          <button type="button" className="watch" onClick={watch} title={playing ? 'Stop' : 'Watch it being written'}>
+            {playing ? (
+              <>
+                ■ <Hand>Stop</Hand>
+              </>
+            ) : (
+              <>
+                ▶ <Hand>Watch</Hand>
+              </>
+            )}
           </button>
           <label className="meta">
             speed <input type="range" min="0.5" max="4" step="0.5" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} /> {speed}×
@@ -103,7 +112,7 @@ function Download({ asset, letter, animated }) {
   const [crop, setCrop] = useState(false);
   const [progress, setProgress] = useState(null); // 0..1 while a GIF is being made
   const [error, setError] = useState(null);
-  const opts = { inkColor: letter.inkColor ?? '#1a1a1a', paper: clear ? null : letter.background ?? letter.paper ?? 'plain', crop };
+  const opts = { inkColor: letter.inkColor ?? '#1a1a1a', paper: clear ? null : (letter.background ?? letter.paper ?? 'plain'), crop };
   const name = `penpals-${letter.from ? `${letter.from}-` : ''}${letter.id ?? 'letter'}${clear ? '-transparent' : ''}`;
 
   async function png() {
@@ -131,11 +140,17 @@ function Download({ asset, letter, animated }) {
     <details className="download">
       <summary>Download</summary>
       <div className="row">
-        <label><input type="checkbox" checked={clear} onChange={(e) => setClear(e.target.checked)} /> transparent background</label>
-        <label><input type="checkbox" checked={crop} onChange={(e) => setCrop(e.target.checked)} /> crop to the ink</label>
+        <label>
+          <input type="checkbox" checked={clear} onChange={(e) => setClear(e.target.checked)} /> transparent background
+        </label>
+        <label>
+          <input type="checkbox" checked={crop} onChange={(e) => setCrop(e.target.checked)} /> crop to the ink
+        </label>
       </div>
       <div className="row">
-        <button type="button" onClick={png}>PNG</button>
+        <button type="button" onClick={png}>
+          PNG
+        </button>
         {animated && (
           <button type="button" onClick={gif} disabled={progress !== null}>
             {progress === null ? 'GIF (written out)' : `Making GIF… ${Math.round(progress * 100)}%`}

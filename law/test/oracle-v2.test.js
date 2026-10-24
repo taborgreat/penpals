@@ -15,7 +15,11 @@ const family = { grain: 8, weight: 8, tooth: 0 };
 function xorshift(seed) {
   let s = seed >>> 0 || 1;
   return () => {
-    s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    s >>>= 0;
     return s / 4294967296;
   };
 }
@@ -38,9 +42,14 @@ function randomRecord(seed) {
     const n = int(2, 60);
     const scrub = r() < 0.25;
     const fast = r() < 0.4;
-    let x = int(100, 500), y = int(100, 500);
-    const x0 = x, y0 = y;
-    const xs = [], ys = [], ts = [], ps = [];
+    let x = int(100, 500),
+      y = int(100, 500);
+    const x0 = x,
+      y0 = y;
+    const xs = [],
+      ys = [],
+      ts = [],
+      ps = [];
     clock += k === 0 ? 0 : int(0, 1500);
     for (let i = 0; i < n; i++) {
       if (i > 0) {

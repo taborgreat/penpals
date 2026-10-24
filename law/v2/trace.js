@@ -11,9 +11,7 @@
 
 import { grow, filmLevel, heldE } from './sim.js';
 import { NB_DX, NB_DY } from './paper.js';
-import {
-  TILE, TICK_MS, DENT_SHIFT, DEPTH_SHIFT, THICK, WEAR_SHIFT, TORN,
-} from './constants.js';
+import { TILE, TICK_MS, DENT_SHIFT, DEPTH_SHIFT, THICK, WEAR_SHIFT, TORN } from './constants.js';
 import { EXP8 } from '../v1/tables.js';
 
 const DIRS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
@@ -34,8 +32,12 @@ export function trace(rec, { paperKey, family, scale = 64 }, [cx, cy]) {
   const carried = new Map();
 
   const instrument = {
-    tile(t) { if (t.tx === tx && t.ty === ty) tile = t; },
-    wet(t, i) { if (t === tile && i === idx && wetAt === null) wetAt = tick; },
+    tile(t) {
+      if (t.tx === tx && t.ty === ty) tile = t;
+    },
+    wet(t, i) {
+      if (t === tile && i === idx && wetAt === null) wetAt = tick;
+    },
     deposit(t, i, g, now) {
       if (t !== tile || i !== idx) return;
       deposits.set(now, (deposits.get(now) ?? 0) + g);
@@ -80,13 +82,13 @@ export function trace(rec, { paperKey, family, scale = 64 }, [cx, cy]) {
     cell: [cx, cy],
     paper: tile
       ? {
-        capacity: tile.cap[idx],
-        hold: tile.hold[idx],
-        sizing: tile.siz[idx],
-        height: tile.z[idx],
-        ridge: tile.ridge[idx],
-        fibers: NB_DX.map((dx, n) => ({ toward: dirOf(dx, NB_DY[n]), conductance: tile.link[idx * 8 + n] })).filter((f) => f.conductance > 0),
-      }
+          capacity: tile.cap[idx],
+          hold: tile.hold[idx],
+          sizing: tile.siz[idx],
+          height: tile.z[idx],
+          ridge: tile.ridge[idx],
+          fibers: NB_DX.map((dx, n) => ({ toward: dirOf(dx, NB_DY[n]), conductance: tile.link[idx * 8 + n] })).filter((f) => f.conductance > 0),
+        }
       : null,
     settled: {
       fixed,
@@ -95,16 +97,16 @@ export function trace(rec, { paperKey, family, scale = 64 }, [cx, cy]) {
     },
     depth: tile
       ? {
-        dent: tile.dentA[idx] >> DENT_SHIFT,
-        depth: Math.min(THICK, tile.depthA[idx] >> DEPTH_SHIFT),
-        peak: tile.peak[idx],
-        soak: Math.min(255, tile.soakA[idx] >> 8),
-        wear: Math.min(255, tile.wearA[idx] >> WEAR_SHIFT),
-        torn: !!(tile.flags[idx] & TORN),
-        cockle: tile.cockle[idx],
-        film: filmLevel(tile.filmA[idx]),
-        aired: tile.drainA[idx],
-      }
+          dent: tile.dentA[idx] >> DENT_SHIFT,
+          depth: Math.min(THICK, tile.depthA[idx] >> DEPTH_SHIFT),
+          peak: tile.peak[idx],
+          soak: Math.min(255, tile.soakA[idx] >> 8),
+          wear: Math.min(255, tile.wearA[idx] >> WEAR_SHIFT),
+          torn: !!(tile.flags[idx] & TORN),
+          cockle: tile.cockle[idx],
+          film: filmLevel(tile.filmA[idx]),
+          aired: tile.drainA[idx],
+        }
       : null,
     water: {
       wetAt: wetAt === null ? null : wetAt * TICK_MS,
@@ -113,10 +115,12 @@ export function trace(rec, { paperKey, family, scale = 64 }, [cx, cy]) {
       peakAt: peakAt === null ? null : peakAt * TICK_MS,
       standing: Math.max(0, peak - peakCap),
     },
-    deposits: [...deposits.entries()].sort((a, b) => a[0] - b[0]).map(([k, drops]) => {
-      const a = actAt(k);
-      return { at: k * TICK_MS, drops, stroke: a?.stroke ?? null, act: a?.act ?? null, p: a?.p ?? null };
-    }),
+    deposits: [...deposits.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([k, drops]) => {
+        const a = actAt(k);
+        return { at: k * TICK_MS, drops, stroke: a?.stroke ?? null, act: a?.act ?? null, p: a?.p ?? null };
+      }),
     carried: [...carried.entries()].map(([from, drops]) => ({ from, drops })),
   };
 }

@@ -10,8 +10,21 @@ import { requireAuth } from '../auth.js';
 import { findByName, getAccount, updateAccount } from '../store/accounts.js';
 import { sheetUsedInBook } from '../store/books.js';
 import {
-  allLetters, at, createLetter, deleteLetter, getLetter, inMail, inkPath, savedCount, strokesPath, updateLetter,
-  readLine, readSeed, lookDir, exists, sheetUsedInLetters,
+  allLetters,
+  at,
+  createLetter,
+  deleteLetter,
+  getLetter,
+  inMail,
+  inkPath,
+  savedCount,
+  strokesPath,
+  updateLetter,
+  readLine,
+  readSeed,
+  lookDir,
+  exists,
+  sheetUsedInLetters,
 } from '../store/letters.js';
 import { blockedEitherWay, blockedIds, canSeeProfile, hasBlocked, relation } from '../social.js';
 import { take, ipKey } from '../limits.js';
@@ -19,6 +32,7 @@ import { confirmFacts, settleOnServer, decodeField, viewOf } from '../services.j
 import { countView } from '../store/exposure.js';
 import { lookName } from '../store/cache.js';
 import { sendFilm } from './books.js';
+import { sightOf, windowed } from '../sight.js';
 import { writeAtomic } from '../files.js';
 import { keys as K, record as R, fromB64url, hex } from 'penpals-law';
 
@@ -28,7 +42,10 @@ const letterJson = express.json({ limit: '3mb' });
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.maxInkBytes, files: 2, fields: 10 },
-}).fields([{ name: 'ink', maxCount: 1 }, { name: 'strokes', maxCount: 1 }]);
+}).fields([
+  { name: 'ink', maxCount: 1 },
+  { name: 'strokes', maxCount: 1 },
+]);
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -127,7 +144,10 @@ function sendRefusal(me, recipient) {
 
 function rateLimit(meId, now) {
   const since = now - config.sendLimit.windowMs;
-  const recent = allLetters().filter((l) => l.senderId === meId && at(l.sentAt) > since).map((l) => at(l.sentAt)).sort((a, b) => a - b);
+  const recent = allLetters()
+    .filter((l) => l.senderId === meId && at(l.sentAt) > since)
+    .map((l) => at(l.sentAt))
+    .sort((a, b) => a - b);
   if (recent.length < config.sendLimit.count) return null;
   return Object.assign(httpError(429, 'send_limit', `You can only send ${config.sendLimit.count} letters an hour.`), { retryAt: new Date(recent[0] + config.sendLimit.windowMs).toISOString() });
 }
@@ -139,7 +159,10 @@ const delivery = (recipient, now) => ({
   expiresAt: new Date(now + config.unopenedTtlMs).toISOString(),
 });
 
-const countSent = (userId) => updateAccount(userId, (a) => { a.lettersSent = (a.lettersSent ?? 0) + 1; });
+const countSent = (userId) =>
+  updateAccount(userId, (a) => {
+    a.lettersSent = (a.lettersSent ?? 0) + 1;
+  });
 
 // Where it goes (if anywhere) and whether the sender's profile has room.
 function addressing(req, to, now) {
@@ -188,7 +211,7 @@ lettersRouter.post('/', requireAuth, letterJson, async (req, res) => {
   const D = R.verifySealed(line, fromB64url(account.publicKey, 32));
   const seed = decodeField(req.body.seed, 64, 'seed');
   R.verifySeedFor(body, seed);
-  if (sheetUsedInLetters(account.id, body.sheet) || await sheetUsedInBook(account.id, body.sheet)) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
+  if (sheetUsedInLetters(account.id, body.sheet) || (await sheetUsedInBook(account.id, body.sheet))) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
   const now = Date.now();
   const { recipient, room } = addressing(req, to, now);
   if (!page || !Number.isInteger(page.width) || !Number.isInteger(page.height) || page.width < 100 || page.width > 4000 || page.height < 100 || page.height > 6000) {
@@ -236,8 +259,8 @@ lettersRouter.post('/photo', requireAuth, upload, async (req, res) => {
   R.verifySealed(line, fromB64url(account.publicKey, 32));
   const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
   if (body.png !== sha(inkFile.buffer) || body.strokes !== (strokesFile ? sha(strokesFile.buffer) : null)) throw httpError(400, 'bad_hash', 'The sealed record names other files.');
-  if (body.size[0] !== size.width || body.size[1] !== size.height) throw httpError(400, 'bad_size', 'The sealed size is not the scan\'s size.');
-  if (sheetUsedInLetters(account.id, body.sheet) || await sheetUsedInBook(account.id, body.sheet)) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
+  if (body.size[0] !== size.width || body.size[1] !== size.height) throw httpError(400, 'bad_size', "The sealed size is not the scan's size.");
+  if (sheetUsedInLetters(account.id, body.sheet) || (await sheetUsedInBook(account.id, body.sheet))) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
   const { inkColor = '#1a1a1a', background = 'plain', display = 'mask', playable, to = '' } = req.body;
   if (!/^#[0-9a-f]{6}$/i.test(inkColor)) throw httpError(400, 'bad_color', 'Bad ink color.');
   const now = Date.now();
@@ -299,7 +322,9 @@ lettersRouter.get('/:id/line', async (req, res) => {
 });
 
 // The look of a pad letter, grown from its private seed (cached in the letter's
-// folder, one file per age and exposure bucket under law 2: see books.js).
+// folder, one file per age and exposure bucket under law 2: see books.js); its
+// scene (?mode=scene), whole or a window (&at=, &lod=: sight.js); ?lod= the look
+// at a level of detail.
 lettersRouter.get('/:id/look', async (req, res) => {
   const letter = findLetter(req);
   if (letter.kind !== 'pad') throw httpError(404, 'no_look', 'This letter is a photograph.');
@@ -312,24 +337,52 @@ lettersRouter.get('/:id/look', async (req, res) => {
   if (req.query.mode === 'scene') {
     // the scene's field (law/v2/scene.js): heights and colours as the letter looks now, never its seed or paper
     if (law < 2) throw httpError(400, 'no_depth', 'Ink written before depth (law 1) has no scene.');
-    take('lookMissViewer', req.user?.id ?? ipKey(req));
-    const seedText = await readSeed(letter.id);
-    if (!seedText) throw httpError(410, 'gone', 'That letter is gone.');
-    const seed = fromB64url(seedText, 64);
-    if (K.keyText(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'The seed of this letter does not match its record.');
-    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, view: viewOf(line.ink, line.made ?? letter.createdAt, 0), mode: 'scene', key: `letter-scene:${letter.id}`, timeout: config.render.timeoutMs.letter });
-    return res.type('application/octet-stream').send(Buffer.from(out.scene));
+    const sight = sightOf(req.query);
+    const view = viewOf(line.ink, line.made ?? letter.createdAt, 0);
+    const p = path.join(lookDir(letter.id), `${lookName('ink', 64, law, view)}-scene.pnks`);
+    let whole = await fs.readFile(p).catch(() => null);
+    if (!whole) {
+      take('lookMissViewer', req.user?.id ?? ipKey(req));
+      const seedText = await readSeed(letter.id);
+      if (!seedText) throw httpError(410, 'gone', 'That letter is gone.');
+      const seed = fromB64url(seedText, 64);
+      if (K.keyText(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'The seed of this letter does not match its record.');
+      const out = await settleOnServer({
+        law,
+        acts: fromB64url(line.ink.acts),
+        seed,
+        family: line.ink.paper,
+        view,
+        mode: 'scene',
+        key: `letter-scene:${letter.id}:${p}`,
+        timeout: config.render.timeoutMs.letter,
+      });
+      whole = Buffer.from(out.scene);
+      if (exists(letter.id)) await writeAtomic(p, whole).catch(() => {}); // never recreate a deleted letter's folder
+    }
+    return res.type('application/octet-stream').send(windowed(whole, sight));
   }
+  const { lod } = sightOf(req.query, { window: false });
   const views = law >= 2 ? await countView('letter', letter.id, 'ink', req.user?.id ?? ipKey(req), { keep: () => exists(letter.id) }) : 0;
   const view = viewOf(line.ink, line.made ?? letter.createdAt, views);
-  const p = path.join(lookDir(letter.id), `${lookName('ink', 64, law, view)}.png`);
+  const p = path.join(lookDir(letter.id), `${lookName('ink', 64, law, view)}${lod ? `-l${lod}` : ''}.png`);
   let png = await fs.readFile(p).catch(() => null);
   if (!png) {
     const seedText = await readSeed(letter.id);
     if (!seedText) throw httpError(410, 'gone', 'That letter is gone.');
     const seed = fromB64url(seedText, 64);
-    if (K.keyText(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'This letter\'s seed does not match its record.');
-    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, png: true, view, key: `letter:${letter.id}:${p}`, timeout: config.render.timeoutMs.letter });
+    if (K.keyText(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', "This letter's seed does not match its record.");
+    const out = await settleOnServer({
+      law,
+      acts: fromB64url(line.ink.acts),
+      seed,
+      family: line.ink.paper,
+      png: true,
+      lod,
+      view,
+      key: `letter:${letter.id}:${p}`,
+      timeout: config.render.timeoutMs.letter,
+    });
     png = Buffer.from(out.png);
     if (exists(letter.id)) await writeAtomic(p, png).catch(() => {}); // never recreate a deleted letter's folder
   }
@@ -344,7 +397,15 @@ lettersRouter.get('/:id/film', async (req, res) => {
   const line = await readLine(letter.id);
   if (!line) throw httpError(410, 'gone', 'That letter is gone.');
   // kept in the letter's own folder: it goes when the letter does (never recreated after)
-  await sendFilm(req, res, path.join(lookDir(letter.id), 'film.pnkf'), line.ink, () => readSeed(letter.id), `letter-film:${letter.id}`, () => exists(letter.id));
+  await sendFilm(
+    req,
+    res,
+    path.join(lookDir(letter.id), 'film.pnkf'),
+    line.ink,
+    () => readSeed(letter.id),
+    `letter-film:${letter.id}`,
+    () => exists(letter.id),
+  );
 });
 
 lettersRouter.post('/:id/send', requireAuth, express.json({ limit: '4kb' }), async (req, res) => {

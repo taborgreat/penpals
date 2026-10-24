@@ -19,8 +19,7 @@
 // read the paper's facts (depth, dents).
 
 import { sha256 } from '@noble/hashes/sha2.js';
-import { TILE, LAW, SCALE_ONE, THICK, DENT_SHIFT, DEPTH_SHIFT, WEAR_SHIFT, OAK_GALL, GALL_FRESH, AGE_CAP_H,
-  EXPOSURE_STEP, FADE_SHIFT, TORN, DENT_Z, FILM_Q } from './constants.js';
+import { TILE, LAW, SCALE_ONE, THICK, DENT_SHIFT, DEPTH_SHIFT, WEAR_SHIFT, OAK_GALL, GALL_FRESH, AGE_CAP_H, EXPOSURE_STEP, FADE_SHIFT, TORN, DENT_Z, FILM_Q } from './constants.js';
 import { EXP8, ABS_Q } from '../v1/tables.js';
 import { FADE, SURFACE } from './tables.js';
 import { GALL_ABS, darkAt, filmLevel } from './sim.js';
@@ -44,7 +43,9 @@ export function settledCells(tiles) {
   const cells = [];
   for (const t of tiles) {
     for (let i = 0; i < TT; i++) {
-      const f0 = t.F[3 * i], f1 = t.F[3 * i + 1], f2 = t.F[3 * i + 2];
+      const f0 = t.F[3 * i],
+        f1 = t.F[3 * i + 1],
+        f2 = t.F[3 * i + 2];
       const fg = t.FG ? t.FG[i] : 0;
       const dent = t.dentA[i] >> DENT_SHIFT;
       const depth = Math.min(THICK, t.depthA[i] >> DEPTH_SHIFT);
@@ -66,7 +67,10 @@ export function settledCells(tiles) {
 
 // The box of visible ink (pigment or gall), plus a margin.
 export function boxOf(cells) {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
   for (const c of cells) {
     if (Math.max(c[2], c[3], c[4], c[5]) < VISIBLE) continue;
     const [y, x] = c;
@@ -97,7 +101,9 @@ export function fadeOf(cell, views) {
 
 // Absorbance per channel of one cell, at a view.
 function cellAbs(c, ageH, views) {
-  let a0 = c[2], a1 = c[3], a2 = c[4];
+  let a0 = c[2],
+    a1 = c[3],
+    a2 = c[4];
   if (c[5]) {
     const factor = GALL_FRESH + Math.floor(((256 - GALL_FRESH) * gallDark(c, ageH)) / 256);
     a0 += Math.floor((c[5] * GN[0] * factor) / 65536);
@@ -119,7 +125,8 @@ export function lookRGB(cells, box, { ageH = 0, views = 0 } = {}) {
   const [x0, y0, w, h] = box;
   const out = new Uint8Array(w * h * 3).fill(255);
   for (const c of cells) {
-    const lx = c[1] - x0, ly = c[0] - y0;
+    const lx = c[1] - x0,
+      ly = c[0] - y0;
     if (lx < 0 || ly < 0 || lx >= w || ly >= h) continue;
     if (c[11] & TORN) continue;
     const [a0, a1, a2] = cellAbs(c, ageH, views);
@@ -136,7 +143,9 @@ export function lookRGBA(rgb, box) {
   const [, , w, h] = box;
   const out = new Uint8Array(w * h * 4);
   for (let i = 0; i < w * h; i++) {
-    const r = rgb[3 * i], g = rgb[3 * i + 1], b = rgb[3 * i + 2];
+    const r = rgb[3 * i],
+      g = rgb[3 * i + 1],
+      b = rgb[3 * i + 2];
     const a = 255 - Math.min(r, g, b);
     out[4 * i + 3] = a;
     if (a === 0) continue;
@@ -241,7 +250,8 @@ export function sideView(cells, { x0, y0, x1, y1 }, { px = 4, ageH = 0, views = 
     const s0 = Math.floor(t);
     const s1 = Math.min(n - 1, s0 + 1);
     const f = t - s0;
-    const a = samples[s0], b = samples[s1];
+    const a = samples[s0],
+      b = samples[s1];
     const near = f < 0.5 ? a : b;
     if (near.torn) continue; // the break: the page behind
     const surface = HEAD - Math.round(lerp(a.surface, b.surface, f) / DROPS_PX);
@@ -250,7 +260,11 @@ export function sideView(cells, { x0, y0, x1, y1 }, { px = 4, ageH = 0, views = 
     const bottom = HEAD + body;
     for (let y = Math.max(0, surface); y < bottom; y++) {
       const layer = (y - HEAD) % LV === 0 ? 0.94 : 1;
-      put(X, y, PAPER.map((v) => Math.round(v * layer)));
+      put(
+        X,
+        y,
+        PAPER.map((v) => Math.round(v * layer)),
+      );
     }
     const ink = near.ink ?? a.ink ?? b.ink;
     if (ink && depthPx > 0) {

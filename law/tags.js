@@ -126,10 +126,12 @@ function canon(v) {
     const proto = Object.getPrototypeOf(v);
     if (proto !== Object.prototype && proto !== null) throw new Error('JCS: plain objects only');
     const keys = Object.keys(v).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${keys.map((k) => {
-      if (v[k] === undefined) throw new Error('JCS: undefined value');
-      return `${canon(k)}:${canon(v[k])}`;
-    }).join(',')}}`;
+    return `{${keys
+      .map((k) => {
+        if (v[k] === undefined) throw new Error('JCS: undefined value');
+        return `${canon(k)}:${canon(v[k])}`;
+      })
+      .join(',')}}`;
   }
   throw new Error(`JCS: unsupported ${typeof v}`);
 }

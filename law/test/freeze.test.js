@@ -9,17 +9,23 @@ import { decide, applyFreeze, HAND_FILE } from '../lab/freeze.js';
 // A report as lab/analyze.js writes it, for the implemented measure (facts, centred).
 function report({ phraseGenuine, phoneShift = 0, tracer, stitcher, pageGenuine = [40, 50, 60, 70, 80, 60, 70], pageAttack = [300, 320, 310], ...extra }) {
   const res = (arm, genuine, perDevice, att) => ({
-    kind: 'facts', arm, center: true, reliable: false, nBits: arm === 'B' ? 300 : 1092,
-    genuine, cross: genuine.map((d) => d + 15), perDevice, attackers: { impostor: [100, 120], tracer: att.tracer, copier: [], stitcher: att.stitcher },
+    kind: 'facts',
+    arm,
+    center: true,
+    reliable: false,
+    nBits: arm === 'B' ? 300 : 1092,
+    genuine,
+    cross: genuine.map((d) => d + 15),
+    perDevice,
+    attackers: { impostor: [100, 120], tracer: att.tracer, copier: [], stitcher: att.stitcher },
   });
   const desktop = phraseGenuine;
   const phone = phraseGenuine.map((d) => d + phoneShift);
   return {
-    synthetic: false, people: ['ana', 'bo', 'cy'], devices: ['desktop', 'phone'],
-    results: [
-      res('B', [...desktop, ...phone], { desktop, phone }, { tracer, stitcher }),
-      res('PAGE', pageGenuine, { desktop: pageGenuine }, { tracer: pageAttack, stitcher: pageAttack }),
-    ],
+    synthetic: false,
+    people: ['ana', 'bo', 'cy'],
+    devices: ['desktop', 'phone'],
+    results: [res('B', [...desktop, ...phone], { desktop, phone }, { tracer, stitcher }), res('PAGE', pageGenuine, { desktop: pageGenuine }, { tracer: pageAttack, stitcher: pageAttack })],
     ...extra,
   };
 }

@@ -14,8 +14,13 @@ function absStrokes(bytes) {
   const rec = decodeCanonical(bytes);
   const pens = penTimeline(rec);
   return rec.strokes.map((s, i) => ({
-    x: [...s.x].map((v) => v + rec.orgX * 10), y: [...s.y].map((v) => v + rec.orgY * 10),
-    t: [...s.t], p: s.p ? [...s.p] : null, hasP: s.hasP, kind: s.kind, pen: pens[i][0][1],
+    x: [...s.x].map((v) => v + rec.orgX * 10),
+    y: [...s.y].map((v) => v + rec.orgY * 10),
+    t: [...s.t],
+    p: s.p ? [...s.p] : null,
+    hasP: s.hasP,
+    kind: s.kind,
+    pen: pens[i][0][1],
   }));
 }
 
@@ -36,7 +41,8 @@ export function stitch(letters, pangramBytes, phrase) {
   let heights = [];
   for (const [ch, bytes] of Object.entries(letters)) {
     const strokes = absStrokes(bytes);
-    const xs = strokes.flatMap((s) => s.x), ys = strokes.flatMap((s) => s.y);
+    const xs = strokes.flatMap((s) => s.x),
+      ys = strokes.flatMap((s) => s.y);
     glyphs[ch] = { strokes, x0: Math.min(...xs), x1: Math.max(...xs) };
     heights.push(Math.max(...ys) - Math.min(...ys));
   }
@@ -64,13 +70,22 @@ export function stitch(letters, pangramBytes, phrase) {
     }
     cursor += g.x1 - g.x0 + space;
   }
-  const xs = out.flatMap((s) => s.x), ys = out.flatMap((s) => s.y);
-  const orgX = Math.floor(Math.max(0, Math.min(...xs)) / 10), orgY = Math.floor(Math.max(0, Math.min(...ys)) / 10);
+  const xs = out.flatMap((s) => s.x),
+    ys = out.flatMap((s) => s.y);
+  const orgX = Math.floor(Math.max(0, Math.min(...xs)) / 10),
+    orgY = Math.floor(Math.max(0, Math.min(...ys)) / 10);
   return encodeActs({
-    orgX, orgY,
+    orgX,
+    orgY,
     strokes: out.map((s, i) => ({
-      hasP: s.hasP, kind: s.kind, synthP: false, x: s.x.map((v) => Math.max(0, v - orgX * 10)), y: s.y.map((v) => Math.max(0, v - orgY * 10)),
-      t: s.t, p: s.p, pens: i === 0 ? [{ at: 0, ...s.pen }] : [],
+      hasP: s.hasP,
+      kind: s.kind,
+      synthP: false,
+      x: s.x.map((v) => Math.max(0, v - orgX * 10)),
+      y: s.y.map((v) => Math.max(0, v - orgY * 10)),
+      t: s.t,
+      p: s.p,
+      pens: i === 0 ? [{ at: 0, ...s.pen }] : [],
     })),
   });
 }

@@ -108,7 +108,11 @@ export function makeCode(m, t, n) {
     const fixed = Uint8Array.from(y);
     if (any) {
       // Berlekamp–Massey: the error locator Λ.
-      let C = [1], B = [1], L = 0, shift = 1, b = 1;
+      let C = [1],
+        B = [1],
+        L = 0,
+        shift = 1,
+        b = 1;
       for (let i = 0; i < 2 * t; i++) {
         let d = S[i];
         for (let j = 1; j <= L; j++) d ^= F.mul(C[j] ?? 0, S[i - j]);
@@ -188,7 +192,9 @@ export function recover(kind, helper, w) {
 // Bits ↔ bytes (big-endian within a byte), for storage.
 export function packBits(bits) {
   const out = new Uint8Array(Math.ceil(bits.length / 8));
-  bits.forEach((b, i) => { if (b) out[i >> 3] |= 0x80 >> (i & 7); });
+  bits.forEach((b, i) => {
+    if (b) out[i >> 3] |= 0x80 >> (i & 7);
+  });
   return out;
 }
 export function unpackBits(bytes, n) {

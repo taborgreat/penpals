@@ -33,7 +33,7 @@ export async function loadProofs() {
   return index.size;
 }
 
-export const getProof = (id) => (ID.test(String(id)) ? index.get(id) ?? null : null);
+export const getProof = (id) => (ID.test(String(id)) ? (index.get(id) ?? null) : null);
 const live = (p, now) => !p.answeredAt && Date.parse(p.expiresAt) > now;
 export const pendingFor = (userId, now = Date.now()) => [...index.values()].filter((p) => p.toId === userId && live(p, now));
 export const askedBy = (userId) => [...index.values()].filter((p) => p.fromId === userId);

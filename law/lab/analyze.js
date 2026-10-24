@@ -79,7 +79,7 @@ function enroll(kind, arm, readings, center) {
     offsets = specs.map((spec, i) => {
       const m = vals.reduce((s, v) => s + mapped(v[i], spec), 0) / vals.length;
       const step = spec[2];
-      return Math.floor(step / 2) - (((Math.round(m) - spec[1]) % step) + step) % step;
+      return Math.floor(step / 2) - ((((Math.round(m) - spec[1]) % step) + step) % step);
     });
   }
   const bitsList = readings.map((r) => levelsToBits(levelsOf(kind, r, arm, offsets)));
@@ -175,7 +175,11 @@ export function analyze(samples, { log = () => {} } = {}) {
 
   for (const kind of ['facts', 'raw']) {
     for (const arm of ['B', 'A', 'PAGE']) {
-      for (const [center, reliable] of [[false, false], [true, false], [true, true]]) {
+      for (const [center, reliable] of [
+        [false, false],
+        [true, false],
+        [true, true],
+      ]) {
         const genuine = [];
         const cross = [];
         const att = { impostor: [], tracer: [], copier: [], stitcher: [] };
@@ -185,7 +189,12 @@ export function analyze(samples, { log = () => {} } = {}) {
           for (const device of devices) {
             const own = samples.filter((s) => s.person === p && s.device === device && s.task === arm).sort((a, b) => a.session - b.session);
             if (own.length < 4) continue;
-            const enrolled = enroll(kind, arm, own.slice(0, 3).map((s) => reading(kind, s.acts, arm)), center);
+            const enrolled = enroll(
+              kind,
+              arm,
+              own.slice(0, 3).map((s) => reading(kind, s.acts, arm)),
+              center,
+            );
             nBits = enrolled.ref.length;
             const dist = (bytes) => hd(bitsFor(kind, arm, reading(kind, bytes, arm), enrolled.offsets), enrolled.ref, reliable ? enrolled.mask : null);
             const g = own.slice(3).map((s) => dist(s.acts));
@@ -229,7 +238,10 @@ export function analyze(samples, { log = () => {} } = {}) {
 // feature differs between people relative to how much it wobbles within one.
 function discriminability(samples, people) {
   const out = [];
-  for (const [kind, names] of [['facts', [...ZONE_FEATURES, ...GLOBAL_FEATURES]], ['raw', [...RAW_ZONE, ...RAW_GLOBAL]]]) {
+  for (const [kind, names] of [
+    ['facts', [...ZONE_FEATURES, ...GLOBAL_FEATURES]],
+    ['raw', [...RAW_ZONE, ...RAW_GLOBAL]],
+  ]) {
     const byPerson = people.map((p) => samples.filter((s) => s.person === p && s.task === 'B').map((s) => valuesOf(reading(kind, s.acts, 'B'), 'B')));
     if (!byPerson.every((l) => l.length >= 2)) continue;
     const nf = byPerson[0][0].length;
@@ -256,19 +268,28 @@ export function report({ people, devices, results, discriminability: disc }, { s
   const lines = [];
   lines.push('# Phase 0 report: the hand through the ink', '');
   lines.push(`Source: ${source}. People: ${people.length} (${people.join(', ')}). Devices: ${devices.join(', ')}.`, '');
-  lines.push('Radius t is chosen as the smallest Hamming distance that keeps the false-reject rate at or under 5%; false-accept rates are read at that t. Enrollment is the per-bit majority of sessions 1–3; genuine tests are sessions 4 and later, same device. Cross-device: enrolled on one device, tested on the other.', '');
+  lines.push(
+    'Radius t is chosen as the smallest Hamming distance that keeps the false-reject rate at or under 5%; false-accept rates are read at that t. Enrollment is the per-bit majority of sessions 1–3; genuine tests are sessions 4 and later, same device. Cross-device: enrolled on one device, tested on the other.',
+    '',
+  );
   lines.push('| measure | arm | quantize | bits | t | FRR | FRR by device | cross-device FRR | impostor | tracer | copier | stitcher |');
   lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of results) {
     const f = r.pick.far;
-    lines.push(`| ${r.kind} | ${r.arm} | ${quant(r)} | ${r.nBits} | ${r.pick.t} | ${pct(r.pick.frr)} | ${Object.entries(r.deviceFrr).map(([d, v]) => `${d} ${pct(v)}`).join(', ')} | ${pct(r.crossFrr)} | ${pct(f.impostor)} | ${pct(f.tracer)} | ${pct(f.copier)} | ${pct(f.stitcher)} |`);
+    lines.push(
+      `| ${r.kind} | ${r.arm} | ${quant(r)} | ${r.nBits} | ${r.pick.t} | ${pct(r.pick.frr)} | ${Object.entries(r.deviceFrr)
+        .map(([d, v]) => `${d} ${pct(v)}`)
+        .join(', ')} | ${pct(r.crossFrr)} | ${pct(f.impostor)} | ${pct(f.tracer)} | ${pct(f.copier)} | ${pct(f.stitcher)} |`,
+    );
   }
   lines.push('');
   const n = (r) => `${r.kind}/${r.arm}/${quant(r)}`;
   lines.push('## Distances', '');
   for (const r of results) {
     const s = (ds) => (ds.length ? `min ${Math.min(...ds)} · median ${[...ds].sort((a, b) => a - b)[Math.floor(ds.length / 2)]} · max ${Math.max(...ds)} (n=${ds.length})` : '—');
-    lines.push(`- **${n(r)}** genuine: ${s(r.genuine)}; cross-device: ${s(r.cross)}; impostor: ${s(r.attackers.impostor)}; tracer: ${s(r.attackers.tracer)}; copier: ${s(r.attackers.copier)}; stitcher: ${s(r.attackers.stitcher)}`);
+    lines.push(
+      `- **${n(r)}** genuine: ${s(r.genuine)}; cross-device: ${s(r.cross)}; impostor: ${s(r.attackers.impostor)}; tracer: ${s(r.attackers.tracer)}; copier: ${s(r.attackers.copier)}; stitcher: ${s(r.attackers.stitcher)}`,
+    );
   }
   lines.push('');
   const facts = results.filter((r) => r.kind === 'facts' && r.arm === 'B');
@@ -277,15 +298,27 @@ export function report({ people, devices, results, discriminability: disc }, { s
     lines.push(`(The best facts/B quantization by stitcher FAR: ${quant(gate)}.)`, '');
     const ok = gate.pick.frr <= 0.05 && (gate.pick.far.tracer ?? 0) < 0.01;
     lines.push('## Gate (design B, facts measure)', '');
-    lines.push(`At t = ${gate.pick.t} of ${gate.nBits} bits: FRR ${pct(gate.pick.frr)}, tracer FAR ${pct(gate.pick.far.tracer)}, **stitcher FAR ${pct(gate.pick.far.stitcher)}** (the deciding number), impostor-with-phrase FAR ${pct(gate.pick.far.impostor)}.`);
+    lines.push(
+      `At t = ${gate.pick.t} of ${gate.nBits} bits: FRR ${pct(gate.pick.frr)}, tracer FAR ${pct(gate.pick.far.tracer)}, **stitcher FAR ${pct(gate.pick.far.stitcher)}** (the deciding number), impostor-with-phrase FAR ${pct(gate.pick.far.impostor)}.`,
+    );
     lines.push(ok ? 'FRR and tracer FAR are within the gate; the stitcher number decides.' : '**The gate is not met** (FRR > 5% or tracer FAR ≥ 1%).', '');
   }
   lines.push('## Which features separate people (Fisher ratio, B arm)', '');
   for (const kind of ['facts', 'raw']) {
     const list = disc.filter((d) => d.kind === kind).sort((a, b) => b.fisher - a.fisher);
     if (!list.length) continue;
-    lines.push(`- ${kind}, strongest: ${list.slice(0, 8).map((d) => `${d.feature} ${d.fisher === Infinity ? '∞' : d.fisher.toFixed(2)}`).join(', ')}`);
-    lines.push(`- ${kind}, weakest: ${list.slice(-6).map((d) => `${d.feature} ${d.fisher.toFixed(2)}`).join(', ')}`);
+    lines.push(
+      `- ${kind}, strongest: ${list
+        .slice(0, 8)
+        .map((d) => `${d.feature} ${d.fisher === Infinity ? '∞' : d.fisher.toFixed(2)}`)
+        .join(', ')}`,
+    );
+    lines.push(
+      `- ${kind}, weakest: ${list
+        .slice(-6)
+        .map((d) => `${d.feature} ${d.fisher.toFixed(2)}`)
+        .join(', ')}`,
+    );
   }
   lines.push('', `Small-sample caveat: ${people.length} people. Rates are counts over few comparisons; treat them as a first look, not a measurement of the population.`);
   return lines.join('\n');
@@ -304,7 +337,10 @@ if (process.argv[1] && path.resolve(process.argv[1]).endsWith(path.join('lab', '
   const out = opt('out', null);
   if (out) {
     fs.writeFileSync(out, text);
-    fs.writeFileSync(out.replace(/\.md$/, '.json'), JSON.stringify(res, (k, v) => (v instanceof Uint8Array ? undefined : v), 1));
+    fs.writeFileSync(
+      out.replace(/\.md$/, '.json'),
+      JSON.stringify(res, (k, v) => (v instanceof Uint8Array ? undefined : v), 1),
+    );
   }
   console.log(text);
   console.error(`analyzed ${samples.length} samples in ${((Date.now() - t0) / 1000).toFixed(1)} s`);

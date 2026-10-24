@@ -121,10 +121,32 @@ export default function LabPad({ width = 1000, height = 320, background = null, 
         onPointerCancel={onUp}
       />
       <div className="row" style={{ marginTop: 8, gap: 8, display: 'flex' }}>
-        <button type="button" onClick={() => { capRef.current.undo(); setCount(capRef.current.strokes.length); schedule(); }} disabled={!count}>Undo</button>
-        <button type="button" onClick={() => { capRef.current.clear(); setCount(0); schedule(); }} disabled={!count}>Clear</button>
+        <button
+          type="button"
+          onClick={() => {
+            capRef.current.undo();
+            setCount(capRef.current.strokes.length);
+            schedule();
+          }}
+          disabled={!count}
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            capRef.current.clear();
+            setCount(0);
+            schedule();
+          }}
+          disabled={!count}
+        >
+          Clear
+        </button>
         <span style={{ flex: 1 }} />
-        <button type="button" className="primary" disabled={!count || busy} onClick={() => onSave(capRef.current.strokes)}>{busy ? 'Saving…' : saveLabel}</button>
+        <button type="button" className="primary" disabled={!count || busy} onClick={() => onSave(capRef.current.strokes)}>
+          {busy ? 'Saving…' : saveLabel}
+        </button>
       </div>
     </div>
   );

@@ -11,14 +11,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const PARAMS = {
-  OX_N: 512, OX_TAU: 32, // OX[x] = 256·(1 − e^(−x/32)): darkness, x in 1/32 of the time constant
-  FADE_N: 4096, FADE_FLOOR: 64, FADE_TAU: 512, // FADE[k] = 64 + 192·e^(−k/512): light never takes all of it
+  OX_N: 512,
+  OX_TAU: 32, // OX[x] = 256·(1 − e^(−x/32)): darkness, x in 1/32 of the time constant
+  FADE_N: 4096,
+  FADE_FLOOR: 64,
+  FADE_TAU: 512, // FADE[k] = 64 + 192·e^(−k/512): light never takes all of it
   SURF_TAU: [8, 1], // SURFACE[d] = 256·e^(−d/8): how much light reaches ink sunk d levels
-  AIR_DEPTH: [10, 1], AIR_POOL: [4, 1], AIR_FLOOR: [3, 10], // AIR[d][thick] = 256·(0.3 + 0.7·e^(−d/10)·e^(−thick/4)): air always gets in, slowly
-  DENT_BASE: 120, DENT_GAMMA: [3, 2], // DENT_Q[p] = 120·(p/255)^(3/2) dentA per ms of pressing
-  WEAR_BASE: 5, WEAR_GAMMA: [3, 2], // WEAR_Q[p] = 5·(p/153)^(3/2) wearA per moving stamp over a wet cell
+  AIR_DEPTH: [10, 1],
+  AIR_POOL: [4, 1],
+  AIR_FLOOR: [3, 10], // AIR[d][thick] = 256·(0.3 + 0.7·e^(−d/10)·e^(−thick/4)): air always gets in, slowly
+  DENT_BASE: 120,
+  DENT_GAMMA: [3, 2], // DENT_Q[p] = 120·(p/255)^(3/2) dentA per ms of pressing
+  WEAR_BASE: 5,
+  WEAR_GAMMA: [3, 2], // WEAR_Q[p] = 5·(p/153)^(3/2) wearA per moving stamp over a wet cell
   THICK: 24,
-  COCKLE_LO: 32, COCKLE_HI: 96, // COCKLE[s]: smoothstep from soak 32 to 96, ×256
+  COCKLE_LO: 32,
+  COCKLE_HI: 96, // COCKLE[s]: smoothstep from soak 32 to 96, ×256
 };
 
 const D = 50n;
@@ -60,8 +68,14 @@ const LN2 = 2n * atanhFx(fx(1, 3));
 function lnFx(y) {
   let e = 0n;
   let m = y;
-  while (m >= 2n * S) { m /= 2n; e++; }
-  while (m < S) { m *= 2n; e--; }
+  while (m >= 2n * S) {
+    m /= 2n;
+    e++;
+  }
+  while (m < S) {
+    m *= 2n;
+    e--;
+  }
   return e * LN2 + 2n * atanhFx(div(m - S, m + S));
 }
 const powFx = (base, [num, den]) => expFx((lnFx(base) * BigInt(num)) / BigInt(den));
@@ -82,7 +96,9 @@ export function build(p = PARAMS) {
   // Light reaching ink sunk d levels into the fibers, ×256.
   t.SURFACE = Array.from({ length: p.THICK + 1 }, (_, d) => roundFx(256n * expFx(-div(fx(d), ratio(p.SURF_TAU)))));
   // Air reaching a cell, ×256, by depth (rows) and pool height (columns).
-  t.AIR = Array.from({ length: p.THICK + 1 }, (_, d) => Array.from({ length: 16 }, (_, k) => roundFx(256n * (ratio(p.AIR_FLOOR) + mul(S - ratio(p.AIR_FLOOR), mul(expFx(-div(fx(d), ratio(p.AIR_DEPTH))), expFx(-div(fx(k), ratio(p.AIR_POOL)))))))));
+  t.AIR = Array.from({ length: p.THICK + 1 }, (_, d) =>
+    Array.from({ length: 16 }, (_, k) => roundFx(256n * (ratio(p.AIR_FLOOR) + mul(S - ratio(p.AIR_FLOOR), mul(expFx(-div(fx(d), ratio(p.AIR_DEPTH))), expFx(-div(fx(k), ratio(p.AIR_POOL)))))))),
+  );
   // Pressing dents the paper: dentA per ms at pressure p.
   t.DENT_Q = Array.from({ length: 256 }, (_, q) => (q === 0 ? 0 : roundFx(BigInt(p.DENT_BASE) * powFx(fx(q, 255), p.DENT_GAMMA))));
   // Working a wet cell wears it: wearA per pass at pressure p.

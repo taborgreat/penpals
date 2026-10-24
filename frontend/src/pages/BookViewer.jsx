@@ -19,7 +19,7 @@ export function readBook(text) {
   const nl = text.indexOf('\n');
   const head = JSON.parse(nl < 0 ? text : text.slice(0, nl));
   if (head.book !== 2 || !head.pages) throw new Error(head.book === 1 ? 'That is an old .book, from before Living Ink: it cannot be checked.' : 'That is not a .book file.');
-  const { book, name, key, fingerprint, law, ...skeleton } = head;
+  const { book: _format, name, key, fingerprint, law, ...skeleton } = head;
   const lines = parseLines(nl < 0 ? '' : text.slice(nl + 1));
   const { inks, opened } = readChain(lines);
   const seeds = new Map(); // sheet → published seed
@@ -46,9 +46,12 @@ export default function BookViewer() {
     if (!mine) return undefined;
     let alive = true;
     const lines = [...book.inks.values()].filter((l) => l.ink.kind === 'ink' && !book.seeds.has(l.ink.sheet));
-    Promise.all(lines.map((l) => regrowHere(l.ink, seedOf(l.ink.sheet)).then((ok) => [l.id, ok])))
-      .then((rs) => { if (alive) setClosed({ ok: rs.filter(([, ok]) => ok).length, bad: rs.filter(([, ok]) => !ok).map(([id]) => id) }); });
-    return () => { alive = false; };
+    Promise.all(lines.map((l) => regrowHere(l.ink, seedOf(l.ink.sheet)).then((ok) => [l.id, ok]))).then((rs) => {
+      if (alive) setClosed({ ok: rs.filter(([, ok]) => ok).length, bad: rs.filter(([, ok]) => !ok).map(([id]) => id) });
+    });
+    return () => {
+      alive = false;
+    };
   }, [book, mine, seedOf]);
 
   async function open(file) {
@@ -66,14 +69,20 @@ export default function BookViewer() {
     }
   }
 
-  const sceneSrc = useCallback((item, line) => {
-    const seed = seedOf(line.ink.sheet);
-    return seed ? sceneOf({ line, seed }) : Promise.resolve(null);
-  }, [seedOf]);
-  const lookSrc = useCallback((item, line) => {
-    const seed = seedOf(line.ink.sheet);
-    return seed ? growLook(line.ink, seed, item.scale, viewAt(line)) : null;
-  }, [seedOf]);
+  const sceneSrc = useCallback(
+    (item, line, want) => {
+      const seed = seedOf(line.ink.sheet);
+      return seed ? sceneOf({ line, seed, want }) : Promise.resolve(null);
+    },
+    [seedOf],
+  );
+  const lookSrc = useCallback(
+    (item, line) => {
+      const seed = seedOf(line.ink.sheet);
+      return seed ? growLook(line.ink, seed, item.scale, viewAt(line)) : null;
+    },
+    [seedOf],
+  );
 
   const sig = book?.skeleton.signature && book.inks.get(book.skeleton.signature);
   const sigSeed = sig && book.seeds.get(sig.ink.sheet);
@@ -84,13 +93,20 @@ export default function BookViewer() {
   return (
     <div className="book-viewer">
       <h1>
-        {book && sig ? <span className="username signed book-signature"><InkItem src={sigSeed ? growLook(sig.ink, sigSeed, 64, viewAt(sig)) : null} body={sig.ink} /></span> : null}
+        {book && sig ? (
+          <span className="username signed book-signature">
+            <InkItem src={sigSeed ? growLook(sig.ink, sigSeed, 64, viewAt(sig)) : null} body={sig.ink} />
+          </span>
+        ) : null}
         {book ? ` @${book.name}` : 'Open a book'}
       </h1>
       <label
         className="dropzone"
         onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); open(e.dataTransfer.files?.[0]); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          open(e.dataTransfer.files?.[0]);
+        }}
       >
         <input type="file" accept=".book,text/plain" onChange={(e) => open(e.target.files?.[0])} />
         <span>{book ? 'Open a different .book' : 'Choose or drop a .book file'}</span>
@@ -98,23 +114,43 @@ export default function BookViewer() {
       {error && <p className="error">{error}</p>}
       {book && (
         <div className="stack card book-check">
-          <p className="meta">key {book.fingerprint ?? '?'} · law {book.law ?? '?'}</p>
+          <p className="meta">
+            key {book.fingerprint ?? '?'} · law {book.law ?? '?'}
+          </p>
           {report === 'checking' && <p className="muted">Checking every seal and regrowing the open sheets…</p>}
-          {done && (report.ok
-            ? <p><strong>The book checks.</strong> {sealed} sealed record{sealed === 1 ? '' : 's'}, all by this key; {regrown} open sheet{regrown === 1 ? '' : 's'} grown again here, exactly as sealed.</p>
-            : (
+          {done &&
+            (report.ok ? (
+              <p>
+                <strong>The book checks.</strong> {sealed} sealed record{sealed === 1 ? '' : 's'}, all by this key; {regrown} open sheet{regrown === 1 ? '' : 's'} grown again here, exactly as sealed.
+              </p>
+            ) : (
               <>
-                <p className="error"><strong>The book does not check.</strong></p>
+                <p className="error">
+                  <strong>The book does not check.</strong>
+                </p>
                 <ul>
-                  {report.problems.map((p) => <li key={p}>{p}</li>)}
-                  {report.results.filter((r) => r.error || r.regrown === false).map((r) => <li key={r.id}>{r.id}: {r.error ?? 'does not grow to its record'}</li>)}
+                  {report.problems.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                  {report.results
+                    .filter((r) => r.error || r.regrown === false)
+                    .map((r) => (
+                      <li key={r.id}>
+                        {r.id}: {r.error ?? 'does not grow to its record'}
+                      </li>
+                    ))}
                 </ul>
               </>
             ))}
           {mine && !closed && <p className="muted">Your key is in this tab: growing your closed sheets again too…</p>}
-          {closed && (closed.bad.length
-            ? <p className="error">Closed sheets that do not grow as sealed: {closed.bad.join(', ')}</p>
-            : <p>And with your key: {closed.ok} closed sheet{closed.ok === 1 ? '' : 's'} grown again here, exactly as sealed.</p>)}
+          {closed &&
+            (closed.bad.length ? (
+              <p className="error">Closed sheets that do not grow as sealed: {closed.bad.join(', ')}</p>
+            ) : (
+              <p>
+                And with your key: {closed.ok} closed sheet{closed.ok === 1 ? '' : 's'} grown again here, exactly as sealed.
+              </p>
+            ))}
         </div>
       )}
       {book && <Journal key={book.name + book.skeleton.version} name={book.name} fromFile={book} pageId={page} onPage={setPage} lookSrc={lookSrc} sceneSrc={sceneSrc} />}

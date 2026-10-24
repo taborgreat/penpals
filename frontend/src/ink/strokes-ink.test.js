@@ -107,7 +107,8 @@ test('a flex nib under a mouse: synthetic pressure in the acts, thick going down
   const rows = profile(acts, 'y');
   const up = [];
   const down = [];
-  for (let y = 70; y <= 90; y++) { // page units → cells ×2: rows 140..180
+  for (let y = 70; y <= 90; y++) {
+    // page units → cells ×2: rows 140..180
     const row = rows.get(2 * y);
     if (!row) continue;
     const xs = row.cells.sort((a, b) => a - b);

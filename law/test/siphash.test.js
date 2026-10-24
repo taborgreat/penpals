@@ -6,25 +6,48 @@ import { sipHash24, paperHasher } from '../v1/siphash.js';
 const M64 = (1n << 64n) - 1n;
 const rotl = (x, b) => ((x << BigInt(b)) | (x >> BigInt(64 - b))) & M64;
 function refSip(key, msg) {
-  const k0 = leBig(key, 0, 8), k1 = leBig(key, 8, 8);
-  let v0 = k0 ^ 0x736f6d6570736575n, v1 = k1 ^ 0x646f72616e646f6dn;
-  let v2 = k0 ^ 0x6c7967656e657261n, v3 = k1 ^ 0x7465646279746573n;
+  const k0 = leBig(key, 0, 8),
+    k1 = leBig(key, 8, 8);
+  let v0 = k0 ^ 0x736f6d6570736575n,
+    v1 = k1 ^ 0x646f72616e646f6dn;
+  let v2 = k0 ^ 0x6c7967656e657261n,
+    v3 = k1 ^ 0x7465646279746573n;
   const round = () => {
-    v0 = (v0 + v1) & M64; v1 = rotl(v1, 13); v1 ^= v0; v0 = rotl(v0, 32);
-    v2 = (v2 + v3) & M64; v3 = rotl(v3, 16); v3 ^= v2;
-    v0 = (v0 + v3) & M64; v3 = rotl(v3, 21); v3 ^= v0;
-    v2 = (v2 + v1) & M64; v1 = rotl(v1, 17); v1 ^= v2; v2 = rotl(v2, 32);
+    v0 = (v0 + v1) & M64;
+    v1 = rotl(v1, 13);
+    v1 ^= v0;
+    v0 = rotl(v0, 32);
+    v2 = (v2 + v3) & M64;
+    v3 = rotl(v3, 16);
+    v3 ^= v2;
+    v0 = (v0 + v3) & M64;
+    v3 = rotl(v3, 21);
+    v3 ^= v0;
+    v2 = (v2 + v1) & M64;
+    v1 = rotl(v1, 17);
+    v1 ^= v2;
+    v2 = rotl(v2, 32);
   };
   const n = msg.length;
   const full = n - (n % 8);
   for (let o = 0; o < full; o += 8) {
     const m = leBig(msg, o, 8);
-    v3 ^= m; round(); round(); v0 ^= m;
+    v3 ^= m;
+    round();
+    round();
+    v0 ^= m;
   }
   let b = BigInt(n & 0xff) << 56n;
   for (let i = 0; i < n % 8; i++) b |= BigInt(msg[full + i]) << BigInt(8 * i);
-  v3 ^= b; round(); round(); v0 ^= b;
-  v2 ^= 0xffn; round(); round(); round(); round();
+  v3 ^= b;
+  round();
+  round();
+  v0 ^= b;
+  v2 ^= 0xffn;
+  round();
+  round();
+  round();
+  round();
   return (v0 ^ v1 ^ v2 ^ v3) & M64;
 }
 function leBig(bytes, o, n) {
@@ -39,7 +62,11 @@ const seq = (n) => Uint8Array.from({ length: n }, (_, i) => i);
 function xorshift(seed) {
   let s = seed >>> 0 || 1;
   return () => {
-    s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    s >>>= 0;
     return s;
   };
 }
@@ -67,7 +94,12 @@ test('paperHasher(tag, a, b) is SipHash of u64le(tag<<56 | a<<28 | b)', () => {
   const key = Uint8Array.from({ length: 16 }, () => r() & 0xff);
   const H = paperHasher(key);
   const out = [0, 0];
-  const cases = [[0, 0, 0], [1, 1, 1], [255, 0x0fffffff, 0x0fffffff], [3, 12345, 678910]];
+  const cases = [
+    [0, 0, 0],
+    [1, 1, 1],
+    [255, 0x0fffffff, 0x0fffffff],
+    [3, 12345, 678910],
+  ];
   for (let i = 0; i < 200; i++) cases.push([r() & 0xff, r() & 0x0fffffff, r() & 0x0fffffff]);
   for (const [tag, a, b] of cases) {
     const v = (BigInt(tag) << 56n) | (BigInt(a) << 28n) | BigInt(b);

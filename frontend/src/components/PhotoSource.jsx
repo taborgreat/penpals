@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { kb } from '../format.js';
 import CornerPicker from './CornerPicker.jsx';
-import {
-  loadPhoto, detectPageCorners, defaultCorners, pageSize, warpPage, extractInk, encodeInkPng, traceStrokes, encodeStrokes,
-  layoutStrokes, sweepTiming,
-} from '../ink/index.js';
+import { loadPhoto, detectPageCorners, defaultCorners, pageSize, warpPage, extractInk, encodeInkPng, traceStrokes, encodeStrokes, layoutStrokes, sweepTiming } from '../ink/index.js';
 
 const PAGE_WIDTH = 1400; // px across the page; plenty for a screen, small on disk
 const DEFAULT_PARAMS = { threshold: 0.08, softness: 0.3, despeckle: 6, edgeTrim: 0.01 };
@@ -133,7 +130,9 @@ export default function PhotoSource({ onResult }) {
         source: 'photo',
       });
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [base, lines, onResult]);
 
   const setParam = (name) => (e) => setParams((p) => ({ ...p, [name]: Number(e.target.value) }));
@@ -142,12 +141,10 @@ export default function PhotoSource({ onResult }) {
   return (
     <>
       <div className="notice" role="note">
-        <strong>Experimental.</strong> Best for sharing something you've already written on paper. The automatic
-        parts (finding the ink, playback) are rough, so don't expect much from them.
+        <strong>Experimental.</strong> Best for sharing something you've already written on paper. The automatic parts (finding the ink, playback) are rough, so don't expect much from them.
       </div>
       <p className="muted">
-        Write on paper, then photograph the page. For the best result: page flat with all four corners in
-        frame, even light with no shadow across it, a dark pen, and shoot straight down.
+        Write on paper, then photograph the page. For the best result: page flat with all four corners in frame, even light with no shadow across it, a dark pen, and shoot straight down.
       </p>
       <label className="dropzone">
         <input type="file" accept="image/*" onChange={onFile} />
@@ -160,8 +157,12 @@ export default function PhotoSource({ onResult }) {
           <p className="muted">Drag the handles onto the corners of the page.</p>
           <CornerPicker photo={photo} corners={corners} onChange={setCorners} />
           <div className="row">
-            <button type="button" onClick={() => setCorners(detectPageCorners(photo) ?? defaultCorners(photo))}>Auto-detect</button>
-            <button type="button" onClick={() => setCorners(defaultCorners(photo))}>Whole photo</button>
+            <button type="button" onClick={() => setCorners(detectPageCorners(photo) ?? defaultCorners(photo))}>
+              Auto-detect
+            </button>
+            <button type="button" onClick={() => setCorners(defaultCorners(photo))}>
+              Whole photo
+            </button>
             <label>
               Page shape{' '}
               <select value={shape} onChange={(e) => setShape(e.target.value)}>
@@ -201,9 +202,8 @@ export default function PhotoSource({ onResult }) {
 
           <h2>Playback</h2>
           <p className="muted">
-            "Watch" reads the page line by line, so it needs to know where your lines are.
-            Auto finds ruled lines or the rows of writing; the dashed guides on the preview show what it found.
-            If they are wrong, set the line height by hand, or turn playback off for this letter.
+            "Watch" reads the page line by line, so it needs to know where your lines are. Auto finds ruled lines or the rows of writing; the dashed guides on the preview show what it found. If they
+            are wrong, set the line height by hand, or turn playback off for this letter.
           </p>
           <div className="row">
             {['auto', 'manual', 'off'].map((mode) => (
@@ -224,8 +224,7 @@ export default function PhotoSource({ onResult }) {
             </div>
           )}
           <p className="muted">
-            Pages that play well: lines an equal distance apart, descenders not reaching into the line below,
-            the page level in the photo (use Tilt above if not), and ruled paper helps.
+            Pages that play well: lines an equal distance apart, descenders not reaching into the line below, the page level in the photo (use Tilt above if not), and ruled paper helps.
           </p>
         </>
       )}

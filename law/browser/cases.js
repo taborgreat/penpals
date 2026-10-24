@@ -10,7 +10,9 @@ import { hex } from '../tags.js';
 const SLOW = ['cockle', 'washThenWrite', 'waterOverGall', 'slowCurve', 'flicksDry'];
 export const CASES = [
   ...Object.keys(FIXTURES).map((name) => `1:${name}`),
-  ...Object.keys(FIXTURES_V2).filter((n) => !SLOW.includes(n)).map((name) => `2:${name}`),
+  ...Object.keys(FIXTURES_V2)
+    .filter((n) => !SLOW.includes(n))
+    .map((name) => `2:${name}`),
 ];
 const family = { grain: 8, weight: 8, tooth: 0 };
 export const VIEW = { ageH: 168, views: 400 };

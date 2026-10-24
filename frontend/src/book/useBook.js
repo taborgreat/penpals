@@ -49,45 +49,53 @@ export function useBook(name, fromFile = null) {
 
   const show = (op) => setBook((b) => ({ ...b, skeleton: applyLocal(b.skeleton, op) }));
 
-  const send = useCallback((op) => {
-    show(op);
-    return enqueue(async () => {
-      try {
-        versionRef.current = (await api.post('/api/books/me/edit', { ...op, base: versionRef.current })).version;
-      } catch (err) {
-        if (err.status === 409) {
-          await load(); // someone else's edit landed first: take theirs, then put this one on top
-          try {
-            show(op);
-            versionRef.current = (await api.post('/api/books/me/edit', { ...op, base: versionRef.current })).version;
-            return;
-          } catch (again) {
-            err = again;
+  const send = useCallback(
+    (op) => {
+      show(op);
+      return enqueue(async () => {
+        try {
+          versionRef.current = (await api.post('/api/books/me/edit', { ...op, base: versionRef.current })).version;
+        } catch (first) {
+          let err = first;
+          if (err.status === 409) {
+            await load(); // someone else's edit landed first: take theirs, then put this one on top
+            try {
+              show(op);
+              versionRef.current = (await api.post('/api/books/me/edit', { ...op, base: versionRef.current })).version;
+              return;
+            } catch (again) {
+              err = again;
+            }
           }
+          setError(err.message);
+          await load();
         }
-        setError(err.message);
-        await load();
-      }
-    });
-  }, [load]);
+      });
+    },
+    [load],
+  );
 
   // New writing: the sealed record lands in the chain, then is placed (one request).
-  const addInk = useCallback((line, seed, place) => enqueue(async () => {
-    try {
-      const res = await api.post('/api/books/me/ink', { line, seed, place, base: versionRef.current });
-      versionRef.current = res.version;
-      setBook((b) => {
-        const inks = new Map(b.inks);
-        inks.set(res.ink, { id: res.ink, ...line });
-        return { ...b, inks, skeleton: applyLocal(b.skeleton, { ...place, op: 'add', id: res.item, ink: res.ink }) };
-      });
-      return res.item;
-    } catch (err) {
-      setError(err.message);
-      if (err.status === 409) await load();
-      return null;
-    }
-  }), [load]);
+  const addInk = useCallback(
+    (line, seed, place) =>
+      enqueue(async () => {
+        try {
+          const res = await api.post('/api/books/me/ink', { line, seed, place, base: versionRef.current });
+          versionRef.current = res.version;
+          setBook((b) => {
+            const inks = new Map(b.inks);
+            inks.set(res.ink, { id: res.ink, ...line });
+            return { ...b, inks, skeleton: applyLocal(b.skeleton, { ...place, op: 'add', id: res.item, ink: res.ink }) };
+          });
+          return res.item;
+        } catch (err) {
+          setError(err.message);
+          if (err.status === 409) await load();
+          return null;
+        }
+      }),
+    [load],
+  );
 
   const openSheet = useCallback(async (sheet, by) => {
     try {

@@ -25,18 +25,30 @@ export function encodeStrokesRaw({ width, height, tilt = 0, rows = [], strokes }
   let o = 0;
   for (const b of MAGIC) v.setUint8(o++, b);
   v.setUint8(o++, VERSION);
-  v.setUint16(o, width, true); o += 2;
-  v.setUint16(o, height, true); o += 2;
-  v.setUint32(o, strokes.length, true); o += 4;
-  v.setInt16(o, clamp(Math.round(tilt * 10000), -32768, 32767), true); o += 2;
-  v.setUint16(o, rows.length, true); o += 2;
-  for (const r of rows) { v.setInt16(o, clamp(Math.round(r * 4), -32768, 32767), true); o += 2; }
+  v.setUint16(o, width, true);
+  o += 2;
+  v.setUint16(o, height, true);
+  o += 2;
+  v.setUint32(o, strokes.length, true);
+  o += 4;
+  v.setInt16(o, clamp(Math.round(tilt * 10000), -32768, 32767), true);
+  o += 2;
+  v.setUint16(o, rows.length, true);
+  o += 2;
+  for (const r of rows) {
+    v.setInt16(o, clamp(Math.round(r * 4), -32768, 32767), true);
+    o += 2;
+  }
   let prevStart = 0;
   for (const s of strokes) {
     const hasAngle = s.angle != null;
     v.setUint8(o++, hasAngle ? 1 : 0);
-    if (hasAngle) { v.setUint16(o, clamp(Math.round(s.angle * 10), 0, 65535), true); o += 2; }
-    v.setUint32(o, s.points.length, true); o += 4;
+    if (hasAngle) {
+      v.setUint16(o, clamp(Math.round(s.angle * 10), 0, 65535), true);
+      o += 2;
+    }
+    v.setUint32(o, s.points.length, true);
+    o += 4;
     let px = 0;
     let py = 0;
     let prevT = prevStart;
@@ -53,7 +65,8 @@ export function encodeStrokesRaw({ width, height, tilt = 0, rows = [], strokes }
       }
       o += 4;
       const dt = clamp(Math.round((p.t || 0) - prevT), 0, 65535);
-      v.setUint16(o, dt, true); o += 2;
+      v.setUint16(o, dt, true);
+      o += 2;
       v.setUint8(o++, clamp(Math.round(p.w * 5), 1, 255));
       px = x;
       py = y;
@@ -70,15 +83,23 @@ export function decodeStrokesRaw(bytes) {
   for (const b of MAGIC) if (v.getUint8(o++) !== b) throw new Error('not a penpals strokes file');
   const version = v.getUint8(o++);
   if (version !== 1 && version !== 2) throw new Error(`unsupported strokes version ${version}`);
-  const width = v.getUint16(o, true); o += 2;
-  const height = v.getUint16(o, true); o += 2;
-  const count = v.getUint32(o, true); o += 4;
+  const width = v.getUint16(o, true);
+  o += 2;
+  const height = v.getUint16(o, true);
+  o += 2;
+  const count = v.getUint32(o, true);
+  o += 4;
   let tilt = 0;
   const rows = [];
   if (version >= 2) {
-    tilt = v.getInt16(o, true) / 10000; o += 2;
-    const rowCount = v.getUint16(o, true); o += 2;
-    for (let i = 0; i < rowCount; i++) { rows.push(v.getInt16(o, true) / 4); o += 2; }
+    tilt = v.getInt16(o, true) / 10000;
+    o += 2;
+    const rowCount = v.getUint16(o, true);
+    o += 2;
+    for (let i = 0; i < rowCount; i++) {
+      rows.push(v.getInt16(o, true) / 4);
+      o += 2;
+    }
   }
   const strokes = [];
   let t = 0;
@@ -86,8 +107,12 @@ export function decodeStrokesRaw(bytes) {
   for (let k = 0; k < count; k++) {
     const flags = v.getUint8(o++);
     let angle = null;
-    if (flags & 1) { angle = v.getUint16(o, true) / 10; o += 2; }
-    const n = v.getUint32(o, true); o += 4;
+    if (flags & 1) {
+      angle = v.getUint16(o, true) / 10;
+      o += 2;
+    }
+    const n = v.getUint32(o, true);
+    o += 4;
     const points = new Array(n);
     let x = 0;
     let y = 0;
@@ -101,7 +126,8 @@ export function decodeStrokesRaw(bytes) {
         y += v.getInt16(o + 2, true);
       }
       o += 4;
-      t += v.getUint16(o, true); o += 2;
+      t += v.getUint16(o, true);
+      o += 2;
       const w = v.getUint8(o++) / 5;
       points[i] = { x: x / 4, y: y / 4, t, w };
       if (i === 0) strokeStart = t;
@@ -117,8 +143,7 @@ export async function encodeStrokes(data) {
 
 // Accepts a Blob, an ArrayBuffer or a Uint8Array of the deflated file.
 export async function decodeStrokes(source) {
-  const bytes = source instanceof Blob ? new Uint8Array(await source.arrayBuffer())
-    : source instanceof ArrayBuffer ? new Uint8Array(source) : source;
+  const bytes = source instanceof Blob ? new Uint8Array(await source.arrayBuffer()) : source instanceof ArrayBuffer ? new Uint8Array(source) : source;
   return decodeStrokesRaw(await inflate(bytes));
 }
 
@@ -164,7 +189,11 @@ export function renderStrokes(ctx, data, { until = Infinity, minWidth = 0, grow 
       ctx.lineWidth = Math.max(0.8, minWidth) + grow;
       ctx.stroke();
     } else {
-      stampPath(ctx, pts, pts.map((p) => Math.max(p.w, minWidth) + grow));
+      stampPath(
+        ctx,
+        pts,
+        pts.map((p) => Math.max(p.w, minWidth) + grow),
+      );
       ctx.fill();
     }
   }

@@ -19,13 +19,17 @@ try {
   if (picked) speed = picked;
   else if (!localStorage.getItem(VISITED_KEY)) speed = FIRST_VISIT_SPEED;
   localStorage.setItem(VISITED_KEY, '1');
-} catch { /* the default */ }
+} catch {
+  /* the default */
+}
 export const getWriteSpeed = () => speed;
 export function setWriteSpeed(v) {
   speed = v;
   try {
     localStorage.setItem(SPEED_KEY, String(v));
-  } catch { /* not remembered */ }
+  } catch {
+    /* not remembered */
+  }
 }
 
 // How long a label takes to write: quicker than it was written, within bounds,

@@ -36,7 +36,9 @@ export default function SendControl({ letter, defaultTo = '', onSent }) {
       <label>
         Send to <ScripterInput id={`send-${letter.id}`} value={to} onChange={setTo} />
       </label>
-      <button type="button" className="seal" disabled={!to || busy} onClick={send}>{busy ? 'Sending…' : 'Send'}</button>
+      <button type="button" className="seal" disabled={!to || busy} onClick={send}>
+        {busy ? 'Sending…' : 'Send'}
+      </button>
       {error && <span className="error">{error}</span>}
     </div>
   );

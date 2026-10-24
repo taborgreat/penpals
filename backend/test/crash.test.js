@@ -13,17 +13,31 @@ import { person, register, bookInk, FAMILY, K, R, S, b64url } from './device.js'
 const SERVE = fileURLToPath(new URL('./serve.js', import.meta.url));
 const FSCK = fileURLToPath(new URL('../scripts/fsck.js', import.meta.url));
 const dirs = [];
-after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
+after(() => {
+  for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+});
 
 function serve(dir, crash = '') {
   const child = spawn(process.execPath, [SERVE], { env: { ...process.env, DATA_DIR: dir, RENDER_WORKERS: '0', PENPALS_CRASH: crash }, stdio: ['ignore', 'pipe', 'pipe'] });
   let err = '';
-  child.stderr.on('data', (d) => { err += d; });
+  child.stderr.on('data', (d) => {
+    err += d;
+  });
   const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
   return new Promise((resolve, reject) => {
     child.stdout.on('data', (d) => {
       const m = /port (\d+)/.exec(String(d));
-      if (m) resolve({ base: `http://127.0.0.1:${m[1]}`, child, exited, stderr: () => err, stop: () => { child.kill(); return exited; } });
+      if (m)
+        resolve({
+          base: `http://127.0.0.1:${m[1]}`,
+          child,
+          exited,
+          stderr: () => err,
+          stop: () => {
+            child.kill();
+            return exited;
+          },
+        });
     });
     child.on('exit', (code) => reject(new Error(`server exited ${code} before listening: ${err}`)));
   });
@@ -33,7 +47,10 @@ const fsck = (dir) => spawnSync(process.execPath, [FSCK, '--json'], { env: { ...
 
 async function crashThenRecover(dir, crash, step) {
   const s1 = await serve(dir, crash);
-  const died = step(s1.base).then(() => 'answered', () => 'no answer');
+  const died = step(s1.base).then(
+    () => 'answered',
+    () => 'no answer',
+  );
   const code = await s1.exited;
   assert.equal(code, 137, `the server should have stopped at ${crash}: ${s1.stderr()}`);
   assert.equal(await died, 'no answer');
@@ -173,9 +190,15 @@ test('fsck finds damage: a wrong seed, a changed record, a missing unlock file',
   };
   // the seed of another sheet in place of this sheet's
   const other = bookInk(ana);
-  assert.match(damage('seeds.chain', (t) => t.replace(/"seed":"[^"]+"/, `"seed":"${other.seedText}"`)), /seed/);
+  assert.match(
+    damage('seeds.chain', (t) => t.replace(/"seed":"[^"]+"/, `"seed":"${other.seedText}"`)),
+    /seed/,
+  );
   // one number in a sealed record changed
-  assert.match(damage(path.join('book', 'ink.chain'), (t) => t.replace(/"box":\[(\d+)/, (m, n) => `"box":[${Number(n) + 1}`)), /seal/);
+  assert.match(
+    damage(path.join('book', 'ink.chain'), (t) => t.replace(/"box":\[(\d+)/, (m, n) => `"box":[${Number(n) + 1}`)),
+    /seal/,
+  );
   // the unlock file gone
   assert.match(damage('unlock.json', null), /unlock/);
   assert.equal(fsck(dir).status, 0, 'and the restored data checks again');

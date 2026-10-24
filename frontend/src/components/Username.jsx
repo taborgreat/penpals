@@ -11,7 +11,7 @@ export default function Username({ name, height = 1.7 }) {
   const em = Math.min(height, (MAX_WIDE * h) / Math.max(1, w));
   return (
     <span className="username signed" title={`@${name}`}>
-      <img className="signature-look" src={signature.look} alt={`@${name}`} style={{ height: `${em}em`, aspectRatio: `${w} / ${h}` }} draggable={false} />
+      <img className="signature-look" src={signature.look} loading="lazy" alt={`@${name}`} style={{ height: `${em}em`, aspectRatio: `${w} / ${h}` }} draggable={false} />
     </span>
   );
 }

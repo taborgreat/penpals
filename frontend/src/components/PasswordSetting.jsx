@@ -23,16 +23,30 @@ export default function PasswordSetting() {
     <div className="stack password-setting">
       <p>
         Password backup: <strong>{on ? 'on' : 'off'}</strong>.{' '}
-        {!open && <button type="button" className="quiet" onClick={() => setOpen(true)}>{on ? 'Change or turn off' : 'Add one'}</button>}
+        {!open && (
+          <button type="button" className="quiet" onClick={() => setOpen(true)}>
+            {on ? 'Change or turn off' : 'Add one'}
+          </button>
+        )}
       </p>
       <p className="muted">
         {on
           ? 'Signing in takes your phrase, your hand and this password.'
-          : 'Signing in takes your phrase and your hand. Someone who learned your phrase and could write it like you would get in; a password stops them, and anyone who ever got hold of the server\'s files.'}
+          : "Signing in takes your phrase and your hand. Someone who learned your phrase and could write it like you would get in; a password stops them, and anyone who ever got hold of the server's files."}
       </p>
       {open && (
         <KeyGate>
-          {(writer) => <Change writer={writer} on={on} onDone={async () => { setOpen(false); signedIn((await api.get('/api/auth/me')).user); }} onCancel={() => setOpen(false)} />}
+          {(writer) => (
+            <Change
+              writer={writer}
+              on={on}
+              onDone={async () => {
+                setOpen(false);
+                signedIn((await api.get('/api/auth/me')).user);
+              }}
+              onCancel={() => setOpen(false)}
+            />
+          )}
         </KeyGate>
       )}
     </div>
@@ -78,7 +92,9 @@ function Change({ writer, on, onDone, onCancel }) {
         <>
           <label htmlFor="pw-current">Current password</label>
           <input id="pw-current" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
-          <label className="choice"><input type="checkbox" checked={turnOff} onChange={(e) => setTurnOff(e.target.checked)} /> Turn the password off</label>
+          <label className="choice">
+            <input type="checkbox" checked={turnOff} onChange={(e) => setTurnOff(e.target.checked)} /> Turn the password off
+          </label>
         </>
       )}
       {wantsNew && (
@@ -91,8 +107,12 @@ function Change({ writer, on, onDone, onCancel }) {
         </>
       )}
       <div className="row">
-        <button type="button" className="quiet" onClick={onCancel}>Cancel</button>
-        <button className="primary" disabled={!ready || busy}>{busy ? 'Locking your key again…' : turnOff ? 'Turn it off' : 'Save'}</button>
+        <button type="button" className="quiet" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="primary" disabled={!ready || busy}>
+          {busy ? 'Locking your key again…' : turnOff ? 'Turn it off' : 'Save'}
+        </button>
       </div>
       {error && <p className="error">{error}</p>}
     </form>

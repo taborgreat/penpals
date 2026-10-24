@@ -21,7 +21,9 @@ function lawToHttp(e) {
 export function createPool({ workers, queue: caps, timeoutMs, heapMb, maxCells }) {
   const inflight = new Map(); // key → promise
   let avgMs = 300;
-  const finish = (ms) => { avgMs = avgMs * 0.8 + ms * 0.2; };
+  const finish = (ms) => {
+    avgMs = avgMs * 0.8 + ms * 0.2;
+  };
 
   if (workers === 0) {
     return {
@@ -74,7 +76,9 @@ export function createPool({ workers, queue: caps, timeoutMs, heapMb, maxCells }
       pump();
     };
     w.on('error', (err) => lost(`render worker failed: ${err.message}`));
-    w.on('exit', (code) => { if (code !== 0 && !closed) lost('render worker stopped'); });
+    w.on('exit', (code) => {
+      if (code !== 0 && !closed) lost('render worker stopped');
+    });
     w.unref();
     return slot;
   }
@@ -116,7 +120,10 @@ export function createPool({ workers, queue: caps, timeoutMs, heapMb, maxCells }
       const p = new Promise((resolve, reject) => q.push({ id: nextId++, payload, resolve, reject, timeout }));
       if (key) {
         inflight.set(key, p);
-        p.then(() => inflight.delete(key), () => inflight.delete(key));
+        p.then(
+          () => inflight.delete(key),
+          () => inflight.delete(key),
+        );
       }
       pump();
       return p;

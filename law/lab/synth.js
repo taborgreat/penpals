@@ -11,9 +11,13 @@
 import { encodeActs } from '../v1/acts.js';
 
 export function prng(seed) {
-  let s = (seed >>> 0) || 0x9e3779b9;
+  let s = seed >>> 0 || 0x9e3779b9;
   return () => {
-    s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    s >>>= 0;
     return s / 4294967296;
   };
 }
@@ -43,10 +47,15 @@ export function glyph(ch) {
 function spline(pts, per = 12) {
   const out = [];
   for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const p0 = pts[Math.max(0, i - 1)],
+      p1 = pts[i],
+      p2 = pts[i + 1],
+      p3 = pts[Math.min(pts.length - 1, i + 2)];
     for (let k = 0; k < per; k++) {
-      const t = k / per, t2 = t * t, t3 = t2 * t;
-      out.push([0, 1].map((c) => 0.5 * ((2 * p1[c]) + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)));
+      const t = k / per,
+        t2 = t * t,
+        t3 = t2 * t;
+      out.push([0, 1].map((c) => 0.5 * (2 * p1[c] + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)));
     }
   }
   out.push(pts[pts.length - 1]);
@@ -100,11 +109,16 @@ function sessionOf(w, session, device) {
 // Turn a dense path into acts with the writer's dynamics. Returns stroke arrays.
 function actsAlong(path, s, { speedOf = null, dwellStart = s.dwellStart, dwellEnd = s.dwellEnd, pressure = null } = {}) {
   const dt = 8;
-  const xs = [], ys = [], ts = [], ps = [];
+  const xs = [],
+    ys = [],
+    ts = [],
+    ps = [];
   const sharp = path.map((p, i) => {
     if (i === 0 || i === path.length - 1) return 1;
-    const a = [p[0] - path[i - 1][0], p[1] - path[i - 1][1]], b = [path[i + 1][0] - p[0], path[i + 1][1] - p[1]];
-    const la = Math.hypot(...a), lb = Math.hypot(...b);
+    const a = [p[0] - path[i - 1][0], p[1] - path[i - 1][1]],
+      b = [path[i + 1][0] - p[0], path[i + 1][1] - p[1]];
+    const la = Math.hypot(...a),
+      lb = Math.hypot(...b);
     return la && lb ? (1 - (a[0] * b[0] + a[1] * b[1]) / (la * lb)) / 2 : 0;
   });
   let t = 0;
@@ -116,7 +130,10 @@ function actsAlong(path, s, { speedOf = null, dwellStart = s.dwellStart, dwellEn
   };
   const pAt = (i) => pressure ?? Math.min(1, Math.max(0.05, s.pressBase + (path[Math.min(i + 1, path.length - 1)][1] > path[i][1] ? s.pressDown : 0) + 0.04 * gauss(s.r)));
   push(path[0][0], path[0][1], pAt(0));
-  for (let k = 0; k < dwellStart / dt; k++) { t += dt; push(path[0][0], path[0][1], pAt(0)); }
+  for (let k = 0; k < dwellStart / dt; k++) {
+    t += dt;
+    push(path[0][0], path[0][1], pAt(0));
+  }
   let i = 0;
   let frac = 0;
   while (i < path.length - 1) {
@@ -135,11 +152,15 @@ function actsAlong(path, s, { speedOf = null, dwellStart = s.dwellStart, dwellEn
       }
     }
     t += dt;
-    const a = path[Math.min(i, path.length - 1)], b = path[Math.min(i + 1, path.length - 1)];
+    const a = path[Math.min(i, path.length - 1)],
+      b = path[Math.min(i + 1, path.length - 1)];
     push(a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac, pAt(i));
   }
   const last = path[path.length - 1];
-  for (let k = 0; k < dwellEnd / dt; k++) { t += dt; push(last[0], last[1], pAt(path.length - 1)); }
+  for (let k = 0; k < dwellEnd / dt; k++) {
+    t += dt;
+    push(last[0], last[1], pAt(path.length - 1));
+  }
   return { xs, ys, ts, ps };
 }
 
@@ -153,7 +174,8 @@ function layout(text, s, { originX = 40, originY = 40 } = {}) {
       if (!/[a-z]/.test(ch)) continue;
       const g = glyph(ch);
       for (const [gx, gy] of g.pts) {
-        const nx = gx + s.jitter * gauss(s.r), ny = gy + s.jitter * gauss(s.r);
+        const nx = gx + s.jitter * gauss(s.r),
+          ny = gy + s.jitter * gauss(s.r);
         pts.push([cx + (nx - s.slant * ny) * s.size, originY + ny * s.size]);
       }
       cx += (g.w + s.spacing) * s.size;
@@ -168,18 +190,24 @@ function layout(text, s, { originX = 40, originY = 40 } = {}) {
 // absolute position (whole units), so letters written in boxes keep their
 // place relative to the box (baseline and all), as the lab records them.
 function toRecord(strokes, s) {
-  let minX = Infinity, minY = Infinity;
-  for (const st of strokes) for (let i = 0; i < st.xs.length; i++) {
-    minX = Math.min(minX, st.xs[i]);
-    minY = Math.min(minY, st.ys[i]);
-  }
-  const orgX = Math.max(0, Math.floor(minX) - 2), orgY = Math.max(0, Math.floor(minY) - 2);
+  let minX = Infinity,
+    minY = Infinity;
+  for (const st of strokes)
+    for (let i = 0; i < st.xs.length; i++) {
+      minX = Math.min(minX, st.xs[i]);
+      minY = Math.min(minY, st.ys[i]);
+    }
+  const orgX = Math.max(0, Math.floor(minX) - 2),
+    orgY = Math.max(0, Math.floor(minY) - 2);
   const pen = { nib: 0, size: s.nib, flex: 0, flow: s.flow, rgb: s.rgb, angle: 0 };
   let prevEnd = 0;
   const out = { orgX, orgY, strokes: [] };
   strokes.forEach((st, k) => {
     const base = k === 0 ? 0 : prevEnd + Math.round(st.gap);
-    const x = [], y = [], t = [], p = [];
+    const x = [],
+      y = [],
+      t = [],
+      p = [];
     for (let i = 0; i < st.xs.length; i++) {
       x.push(Math.max(0, Math.round((st.xs[i] - orgX) * 10)));
       y.push(Math.max(0, Math.round((st.ys[i] - orgY) * 10)));
@@ -208,7 +236,8 @@ export function trace(sampleRec, tracerSeed) {
   const strokes = sampleRec.strokes.map((st, i) => {
     const path = [];
     for (let k = 0; k < st.x.length; k++) {
-      const x = st.x[k] / 10, y = st.y[k] / 10;
+      const x = st.x[k] / 10,
+        y = st.y[k] / 10;
       if (!path.length || Math.hypot(x - path[path.length - 1][0], y - path[path.length - 1][1]) > 0.3) path.push([x, y]);
     }
     if (path.length < 2) path.push([path[0][0] + 0.1, path[0][1]]);

@@ -15,6 +15,6 @@ export function useLiveInk(spec, id) {
     const made = createLiveInk(spec);
     setLive({ id, ink: made });
     return () => made.destroy();
-  }, [id, !!spec]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id, !!spec]);
   return spec && live && live.id === id ? live.ink : null;
 }

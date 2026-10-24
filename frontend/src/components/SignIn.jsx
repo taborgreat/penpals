@@ -33,9 +33,7 @@ export default function SignIn({ onDone, presetName = '', unlock = false }) {
     setError(null);
     try {
       const acts = ink.acts();
-      const user = await signIn(usePage
-        ? { username, password, pageActs: acts, failedPhrase }
-        : { username, password, phraseActs: acts });
+      const user = await signIn(usePage ? { username, password, pageActs: acts, failedPhrase } : { username, password, phraseActs: acts });
       onDone?.(user);
     } catch (err) {
       setError(err.status === 404 ? 'There is no one by that name.' : err.message);
@@ -54,27 +52,73 @@ export default function SignIn({ onDone, presetName = '', unlock = false }) {
 
   return (
     <form className="stack card auth signin" onSubmit={submit}>
-      <h2><Hand>{unlock ? 'Unlock to write' : 'log in'}</Hand></h2>
+      <h2>
+        <Hand>{unlock ? 'Unlock to write' : 'log in'}</Hand>
+      </h2>
       {unlock && <p className="muted">This tab does not hold your key yet. Write your phrase to open it here.</p>}
       {!unlock && (
         <>
-          <label className="auth-field" htmlFor="in-name"><Hand>username</Hand></label>
+          <label className="auth-field" htmlFor="in-name">
+            <Hand>username</Hand>
+          </label>
           <input id="in-name" value={username} onChange={(e) => setUsername(e.target.value.trim())} autoComplete="username" required />
         </>
       )}
       <p>{usePage ? <>Copy out the calibration page:</> : <>Write your phrase:</>}</p>
       {usePage && <blockquote className="calibration-text">{v1.CALIBRATION_TEXT}</blockquote>}
-      {ink && <Pad key={`${usePage}-${n}`} ink={ink} size={usePage ? PAGE_PAD : PHRASE_PAD} chase prompt={usePage ? v1.CALIBRATION_TEXT : null} onChange={setStrokes} hint={usePage ? 'Copy the text above.' : 'Write your phrase as you always do.'} />}
-      <label className="auth-field" htmlFor="in-pw"><Hand>password</Hand> {!ask && <span className="meta">(only if you set one)</span>}</label>
+      {ink && (
+        <Pad
+          key={`${usePage}-${n}`}
+          ink={ink}
+          size={usePage ? PAGE_PAD : PHRASE_PAD}
+          chase
+          prompt={usePage ? v1.CALIBRATION_TEXT : null}
+          onChange={setStrokes}
+          hint={usePage ? 'Copy the text above.' : 'Write your phrase as you always do.'}
+        />
+      )}
+      <label className="auth-field" htmlFor="in-pw">
+        <Hand>password</Hand> {!ask && <span className="meta">(only if you set one)</span>}
+      </label>
       <input id="in-pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required={ask} />
-      <button className="primary" disabled={busy || !strokes || !username || (ask && !password)}>{busy ? 'Opening…' : unlock ? 'Unlock' : <Hand>Log in</Hand>}</button>
-      {error && <p className="error" role="alert">{error}</p>}
-      {error === NOT_OPENED && !usePage && (
-        <p className="meta">
-          Still no luck? <button type="button" className="quiet" onClick={() => { setUsePage(true); setError(null); setN((v) => v + 1); }}>Write the calibration page instead</button>
+      <button className="primary" disabled={busy || !strokes || !username || (ask && !password)}>
+        {busy ? 'Opening…' : unlock ? 'Unlock' : <Hand>Log in</Hand>}
+      </button>
+      {error && (
+        <p className="error" role="alert">
+          {error}
         </p>
       )}
-      {usePage && <p className="meta"><button type="button" className="quiet" onClick={() => { setUsePage(false); setN((v) => v + 1); }}>Back to the phrase</button></p>}
+      {error === NOT_OPENED && !usePage && (
+        <p className="meta">
+          Still no luck?{' '}
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => {
+              setUsePage(true);
+              setError(null);
+              setN((v) => v + 1);
+            }}
+          >
+            Write the calibration page instead
+          </button>
+        </p>
+      )}
+      {usePage && (
+        <p className="meta">
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => {
+              setUsePage(false);
+              setN((v) => v + 1);
+            }}
+          >
+            Back to the phrase
+          </button>
+        </p>
+      )}
     </form>
   );
 }

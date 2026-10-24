@@ -57,7 +57,8 @@ test('switching 2D/3D mid-draft changes nothing in the draft', () => {
     const [x, y] = pageAt(cam, ndc[0], ndc[1], aspect);
     return { x, y };
   };
-  const f = through(flat, 1.4), t = through(tilted, 1.6);
+  const f = through(flat, 1.4),
+    t = through(tilted, 1.6);
   cap.down(f(path[0]), ev(path[0].t));
   path.slice(1, 45).forEach((p) => cap.move(f(p), ev(p.t)));
   path.slice(45, -1).forEach((p) => cap.move(t(p), ev(p.t)));
@@ -111,7 +112,10 @@ test('the chase in 3D: the camera target advances only on rightward motion insid
 
 test('the light is a beauty layer: by the clock, candles at night, dragged and returned; facts and digests never change', () => {
   const at = (h) => new Date(2026, 9, 23, h, 0, 0);
-  const morning = sunAt(at(8)), noon = sunAt(at(12)), evening = sunAt(at(17)), night = sunAt(at(23));
+  const morning = sunAt(at(8)),
+    noon = sunAt(at(12)),
+    evening = sunAt(at(17)),
+    night = sunAt(at(23));
   assert.ok(morning.el > 0 && morning.el < noon.el && evening.el < noon.el, 'low, high, low');
   assert.ok(morning.dir[0] < 0 && evening.dir[0] > 0, 'from the left in the morning, the right in the evening');
   assert.ok(noon.color[2] > morning.color[2], 'white at noon, warm when low');

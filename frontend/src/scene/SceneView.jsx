@@ -4,6 +4,7 @@ import { createView, engineReady } from './engine.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, MIN_WRITE_EL } from './camera.js';
 import { lightAt, returnTo, sunAt } from './light.js';
 import { isPhone } from './support.js';
+import { sightOf } from './sight.js';
 
 // The scene (the scene spec): the page as a lit 3D scene, seen straight down
 // (2D) or from anywhere (3D), one renderer for both. Facts decide; the scene
@@ -19,6 +20,8 @@ import { isPhone } from './support.js';
 //   cutSide     (a, b) => Promise<{ width, height, rgba }>: the cross-section picture for the cut plane
 //   moments     () => Promise<{ box, at } | [{ id, box, at }]>: show the moments (own and open sheets)
 //   momentsKey  changes when the writing does: shown moments are banded again
+//   onSight     (sight | null) => …: what the eye sees, once the view settles (sight.js);
+//               null while the view is out of sight
 //   ground      the sheets lie on the page (a journal page), not on the desk
 //   onFlat      the viewer chose the flat look
 //   toolsHost   an element to put the tools in (a pad's own bar, off the page), else over the view
@@ -42,9 +45,13 @@ function storedRelief() {
     return RELIEF;
   }
 }
+const SIGHT_MS = 150; // the view still this long: what it sees is told (and asked for)
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
-const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, frame2d, writer, follow, cutSide, moments, momentsKey, ground = false, onFlat, paper = null, tools = true, toolsHost = null, className = '', style }, ref) {
+const SceneView = forwardRef(function SceneView(
+  { page, mode, sheets, frame2d, writer, follow, cutSide, moments, momentsKey, onSight, ground = false, onFlat, paper = null, tools = true, toolsHost = null, className = '', style },
+  ref,
+) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const st = useRef(null);
@@ -58,15 +65,32 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const [crisp, setCrisp] = useState(false); // the page close up: smooth between its cells, or each cell crisp
   const [steep, setSteep] = useState(false); // too low to write
   const [bandsOn, setBandsOn] = useState(false);
-  const [banded, setBanded] = useState(0); // cells in a dark band (shown on the element: data-banded)
+  const [banded, setBanded] = useState([0, 0]); // cells in a dark band, of all with a moment (shown on the element: data-banded, data-timed)
   const [ready, setReady] = useState(null); // the renderer, once chosen: 'webgpu' | 'webgl2'
   const phone = useRef(isPhone()).current;
 
   if (!st.current) {
     const cam0 = mode === '3d' ? camera3d(...page) : camera2d(...page);
-    st.current = { cam: cam0, home: cam0, anim: null, override: null, back: null, raf: 0, last: 0, view: null, applied: new Map(), css: [1, 1], moveUntil: 0, pointers: new Map(), drag: null, taps: [] };
+    st.current = {
+      cam: cam0,
+      home: cam0,
+      anim: null,
+      override: null,
+      back: null,
+      raf: 0,
+      last: 0,
+      view: null,
+      applied: new Map(),
+      css: [1, 1],
+      moveUntil: 0,
+      pointers: new Map(),
+      drag: null,
+      taps: [],
+    };
   }
   const S = st.current;
+  const onSightRef = useRef(onSight);
+  onSightRef.current = onSight;
 
   const schedule = () => {
     if (!S.raf && S.view) S.raf = requestAnimationFrame(draw);
@@ -91,10 +115,25 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     return lightAt(new Date(), now / 1000, page[0], page[1], override);
   }
 
+  // What the eye sees, told once the view has settled (SIGHT_MS after it stops).
+  function seen(cam, moving) {
+    if (!onSightRef.current) return;
+    const key = [cam.mode, cam.target[0], cam.target[1], cam.dist, cam.az, cam.el, cam.view, S.css[0], S.css[1]].join();
+    if (key === S.sightKey && !moving) return;
+    clearTimeout(S.sightTimer);
+    S.sightTimer = setTimeout(() => {
+      if (S.hidden) return;
+      S.sightKey = key;
+      const dpr = window.devicePixelRatio || 1;
+      onSightRef.current?.(sightOf(cam, S.css[0] * dpr, S.css[1] * dpr));
+    }, SIGHT_MS);
+  }
+
   function draw(now) {
     S.raf = 0;
     if (!S.view || S.hidden) return; // out of sight: drawn again when it comes back
-    if (phone && now - S.last < 32 && S.anim === null) { // a frame cap on phones
+    if (phone && now - S.last < 32 && S.anim === null) {
+      // a frame cap on phones
       schedule();
       return;
     }
@@ -124,9 +163,11 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     }
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
+    seen(cam, moving);
     const low = cam.mode === '3d' && !!writer && !canWrite(cam);
     setSteep((was) => (was === low ? was : low));
-    if (S.anim || S.override || S.back) schedule(); // moving
+    if (S.anim || S.override || S.back)
+      schedule(); // moving
     else if (light.night > 0.01 && !S.flicker) {
       // only the candles flickering
       S.flicker = setTimeout(() => {
@@ -163,6 +204,11 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     const io = new IntersectionObserver(([e]) => {
       S.hidden = !e.isIntersecting;
       view.setVisible(!S.hidden);
+      if (S.hidden) {
+        clearTimeout(S.sightTimer);
+        S.sightKey = null;
+        onSightRef.current?.(null); // out of sight: nothing is asked for
+      }
       if (!S.hidden) schedule();
     });
     io.observe(wrapRef.current);
@@ -175,6 +221,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       clearTimeout(S.liveTimer);
       clearTimeout(S.flicker);
       clearTimeout(S.still);
+      clearTimeout(S.sightTimer);
       cancelAnimationFrame(S.raf);
       S.raf = 0;
       for (const a of S.applied.values()) a.unsub?.();
@@ -266,11 +313,31 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     const p = pageAt(S.shown ?? S.cam, nx, ny, aspect);
     return p ? { x: p[0], y: p[1] } : null;
   };
+  // The part of the line through a and b that lies on the page (Liang–Barsky), or null.
+  const withinPage = (a, b) => {
+    const d = [b[0] - a[0], b[1] - a[1]];
+    let t0 = -Infinity,
+      t1 = Infinity;
+    for (let i = 0; i < 2; i++) {
+      if (Math.abs(d[i]) < 1e-9) {
+        if (a[i] < 0 || a[i] > page[i]) return null;
+        continue;
+      }
+      const u = (0 - a[i]) / d[i],
+        v = (page[i] - a[i]) / d[i];
+      t0 = Math.max(t0, Math.min(u, v));
+      t1 = Math.min(t1, Math.max(u, v));
+    }
+    if (t1 - t0 < 1e-6) return null;
+    const at = (t) => [a[0] + d[0] * t, a[1] + d[1] * t];
+    return [at(t0), at(t1)];
+  };
   // the pen writes only where the ray meets the page (over the desk it lays nothing)
   const onPage = (p) => p && p.x >= 0 && p.y >= 0 && p.x <= page[0] && p.y <= page[1];
   const lightFromPointer = (e) => {
     const r = canvasRef.current.getBoundingClientRect();
-    const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+    const fx = (e.clientX - r.left) / r.width,
+      fy = (e.clientY - r.top) / r.height;
     return { az: (fx - 0.5) * 220, el: Math.max(2, Math.min(88, (1 - fy) * 90)) };
   };
 
@@ -304,7 +371,8 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       schedule();
       return;
     }
-    if (S.pointers.size >= 2) { // two fingers: orbit and pinch
+    if (S.pointers.size >= 2) {
+      // two fingers: orbit and pinch
       if (S.drag?.kind === 'write') writer?.cancel();
       const [a, b] = [...S.pointers.values()];
       S.drag = { kind: 'two', mid: [(a.x + b.x) / 2, (a.y + b.y) / 2], dist: Math.hypot(a.x - b.x, a.y - b.y) };
@@ -320,7 +388,8 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
         writer.down(at, e.nativeEvent, e.pointerType);
         return;
       }
-      if (can) { // the pen down on the desk: it writes from where it reaches the page
+      if (can) {
+        // the pen down on the desk: it writes from where it reaches the page
         S.drag = { kind: 'pen-off', type: e.pointerType };
         return;
       }
@@ -352,7 +421,8 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       const evs = e.nativeEvent.getCoalescedEvents?.() ?? [];
       for (const ev of evs.length ? evs : [e.nativeEvent]) {
         const p = pageOf(ev);
-        if (!onPage(p)) { // off the page: the stroke ends at its edge
+        if (!onPage(p)) {
+          // off the page: the stroke ends at its edge
           writer.up(d.last, ev);
           S.drag = null;
           break;
@@ -397,11 +467,14 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       schedule();
     } else if (d.kind === 'cut' && cutSide) {
       const len = Math.hypot(d.b[0] - d.a[0], d.b[1] - d.a[1]);
-      if (len > 2) {
-        cutSide(d.a, d.b).then((image) => {
-          S.view?.setCut({ line: [d.a, d.b], image });
-          schedule();
-        }).catch(() => {});
+      const across = len > 2 ? withinPage(d.a, d.b) : null; // the side view is of the paper, not the desk
+      if (across) {
+        cutSide(...across)
+          .then((image) => {
+            S.view?.setCut({ line: [d.a, d.b], image });
+            schedule();
+          })
+          .catch((err) => console.warn('[cut]', err.message)); // (the scene stays whole)
       }
     } else if (d.kind === 'write') {
       if (e.type === 'pointercancel') writer.cancel();
@@ -436,7 +509,18 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       return;
     }
     const step = Math.max(0.01, S.cam.dist * 0.04); // the speed scales with the distance
-    const moves = { w: [step, 0, 0], arrowup: [step, 0, 0], s: [-step, 0, 0], arrowdown: [-step, 0, 0], a: [0, -step, 0], arrowleft: [0, -step, 0], d: [0, step, 0], arrowright: [0, step, 0], q: [0, 0, 0.08], e: [0, 0, -0.08] };
+    const moves = {
+      w: [step, 0, 0],
+      arrowup: [step, 0, 0],
+      s: [-step, 0, 0],
+      arrowdown: [-step, 0, 0],
+      a: [0, -step, 0],
+      arrowleft: [0, -step, 0],
+      d: [0, step, 0],
+      arrowright: [0, step, 0],
+      q: [0, 0, 0.08],
+      e: [0, 0, -0.08],
+    };
     if (!moves[k]) return;
     e.preventDefault();
     S.cam = fly(S.cam, ...moves[k]);
@@ -455,16 +539,18 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   async function showBands() {
     const got = await moments();
     for (const s of sheets) S.view?.setBands(s.id, null);
-    let dark = 0;
-    for (const m of got == null ? [] : Array.isArray(got) ? got : [{ id: sheets[0].id, ...got }]) {
+    let dark = 0,
+      timed = 0;
+    for (const m of got == null ? [] : Array.isArray(got) ? got : [{ ...got, id: sheets[0].id }]) {
       const bands = new Uint8Array(m.at.length);
       for (let i = 0; i < bands.length; i++) {
         bands[i] = m.at[i] < 0 ? 0 : Math.floor(m.at[i] / BAND_MS) % 2;
         dark += bands[i];
+        if (m.at[i] >= 0) timed++;
       }
       S.view?.setBands(m.id, bands, m.box);
     }
-    setBanded(dark);
+    setBanded([dark, timed]);
     schedule();
   }
   async function toggleBands() {
@@ -507,7 +593,14 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const interactive = mode === '3d' || tool === 'light';
   const wrapTools = (el) => (toolsHost ? createPortal(el, toolsHost) : el);
   return (
-    <div ref={wrapRef} className={`scene-view ${mode} ${className}`} style={style} data-banded={bandsOn ? banded : undefined} data-gpu={ready ?? undefined}>
+    <div
+      ref={wrapRef}
+      className={`scene-view ${mode} ${className}`}
+      style={style}
+      data-banded={bandsOn ? banded[0] : undefined}
+      data-timed={bandsOn ? banded[1] : undefined}
+      data-gpu={ready ?? undefined}
+    >
       <canvas
         ref={canvasRef}
         className="scene-canvas"
@@ -520,31 +613,67 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
         onDoubleClick={onDoubleClick}
         onKeyDown={onKeyDown}
         onContextMenu={(e) => e.preventDefault()}
-        aria-label={mode === '3d' ? (penMode ? 'The page in 3D, the pen: drag to write, right-drag to turn, wheel to come closer, H for the hand' : 'The page in 3D: drag to turn it, right-drag to slide, wheel to come closer, double-click to fly to a spot, keys to fly') : 'The page, lit'}
+        aria-label={
+          mode === '3d'
+            ? penMode
+              ? 'The page in 3D, the pen: drag to write, right-drag to turn, wheel to come closer, H for the hand'
+              : 'The page in 3D: drag to turn it, right-drag to slide, wheel to come closer, double-click to fly to a spot, keys to fly'
+            : 'The page, lit'
+        }
       />
       {steep && penMode && <p className="scene-hint">Tilt up to write: below {MIN_WRITE_EL}° a pixel covers too much page.</p>}
       {penMode && !steep && mode === '3d' && <p className="scene-hint quiet">The pen: drag to write · right-drag to turn · H for the hand</p>}
-      {tools && wrapTools(
-        <div className={`scene-tools${toolsHost ? ' hosted' : ''}`} role="group" aria-label="View">
-          {writer && mode === '3d' && (
-            <button type="button" aria-pressed={!hand} onClick={() => setHand(!hand)} title="The pen writes (right-drag turns); the hand turns and slides the page (H)">{hand ? 'Hand' : 'Pen'}</button>
-          )}
-          {mode === '3d' && (
-            <button type="button" onClick={toSeat} title="Back to the writing view">Seat</button>
-          )}
-          <label className="scene-relief" title="How much taller than true the ink and paper are drawn (the scene only)">
-            Relief
-            <input type="range" min={0} max={100} value={posFrom(relief)} onChange={(e) => setRelief(reliefFrom(Number(e.target.value)))} aria-label={`Relief ${relief}×`} />
-          </label>
-          <button type="button" aria-pressed={crisp} onClick={() => setCrisp(!crisp)} title="Close up: each cell crisp, or smooth between them">Crisp</button>
-          <button type="button" aria-pressed={tool === 'light'} onClick={() => setTool(tool === 'light' ? null : 'light')} title="Drag to move the light; let go and it returns to the time of day">Light</button>
-          {mode === '3d' && cutSide && (
-            <button type="button" aria-pressed={tool === 'cut'} onClick={() => { setTool(tool === 'cut' ? null : 'cut'); if (tool === 'cut') { S.view?.setCut(null); schedule(); } }} title="Drag a line across the writing to cut through the paper">Cut</button>
-          )}
-          {moments && <button type="button" aria-pressed={bandsOn} onClick={toggleBands} title="Band the ink by when it went down, like tree rings">Moments</button>}
-          {onFlat && <button type="button" onClick={onFlat} title="The flat look: the record's own image">Flat</button>}
-        </div>,
-      )}
+      {tools &&
+        wrapTools(
+          <div className={`scene-tools${toolsHost ? ' hosted' : ''}`} role="group" aria-label="View">
+            {writer && mode === '3d' && (
+              <button type="button" aria-pressed={!hand} onClick={() => setHand(!hand)} title="The pen writes (right-drag turns); the hand turns and slides the page (H)">
+                {hand ? 'Hand' : 'Pen'}
+              </button>
+            )}
+            {mode === '3d' && (
+              <button type="button" onClick={toSeat} title="Back to the writing view">
+                Seat
+              </button>
+            )}
+            <label className="scene-relief" title="How much taller than true the ink and paper are drawn (the scene only)">
+              Relief
+              <input type="range" min={0} max={100} value={posFrom(relief)} onChange={(e) => setRelief(reliefFrom(Number(e.target.value)))} aria-label={`Relief ${relief}×`} />
+            </label>
+            <button type="button" aria-pressed={crisp} onClick={() => setCrisp(!crisp)} title="Close up: each cell crisp, or smooth between them">
+              Crisp
+            </button>
+            <button type="button" aria-pressed={tool === 'light'} onClick={() => setTool(tool === 'light' ? null : 'light')} title="Drag to move the light; let go and it returns to the time of day">
+              Light
+            </button>
+            {mode === '3d' && cutSide && (
+              <button
+                type="button"
+                aria-pressed={tool === 'cut'}
+                onClick={() => {
+                  setTool(tool === 'cut' ? null : 'cut');
+                  if (tool === 'cut') {
+                    S.view?.setCut(null);
+                    schedule();
+                  }
+                }}
+                title="Drag a line across the writing to cut through the paper"
+              >
+                Cut
+              </button>
+            )}
+            {moments && (
+              <button type="button" aria-pressed={bandsOn} onClick={toggleBands} title="Band the ink by when it went down, like tree rings">
+                Moments
+              </button>
+            )}
+            {onFlat && (
+              <button type="button" onClick={onFlat} title="The flat look: the record's own image">
+                Flat
+              </button>
+            )}
+          </div>,
+        )}
     </div>
   );
 });

@@ -90,9 +90,7 @@ function boxMean(values, width, height, r, mask, fallback) {
       const x0 = Math.max(0, x - r);
       const x1 = Math.min(width, x + r + 1);
       const sum = sums[y1 + x1] - sums[y0 + x1] - sums[y1 + x0] + sums[y0 + x0];
-      const count = counts
-        ? counts[y1 + x1] - counts[y0 + x1] - counts[y1 + x0] + counts[y0 + x0]
-        : (x1 - x0) * (ry1 - ry0);
+      const count = counts ? counts[y1 + x1] - counts[y0 + x1] - counts[y1 + x0] + counts[y0 + x0] : (x1 - x0) * (ry1 - ry0);
       const i = y * width + x;
       out[i] = counts && count < minCount ? fallback[i] : sum / count;
     }
@@ -117,8 +115,14 @@ function estimateInkColor(data, gray, background, alpha, paper) {
   for (let i = 0; i < n; i++) if (isCore(i)) core++;
   const useCore = core >= 200;
 
-  let ir = 0, ig = 0, ib = 0, ic = 0;
-  let pr = 0, pg = 0, pb = 0, pc = 0;
+  let ir = 0,
+    ig = 0,
+    ib = 0,
+    ic = 0;
+  let pr = 0,
+    pg = 0,
+    pb = 0,
+    pc = 0;
   for (let i = 0, p = 0; i < n; i++, p += 4) {
     if (alpha[i] === 255 && (!useCore || isCore(i))) {
       ir += data[p];

@@ -53,6 +53,9 @@ export function labelComponents(mask, width, height, eightConnected = false) {
 export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 export function rgbToHex(r, g, b) {
-  const hex = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  const hex = (v) =>
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, '0');
   return `#${hex(r)}${hex(g)}${hex(b)}`;
 }

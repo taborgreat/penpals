@@ -3,4 +3,6 @@
 // forward (setClockOffset) instead of waiting days.
 let offset = 0;
 export const now = () => Date.now() + offset;
-export const setClockOffset = (ms) => { offset = ms; };
+export const setClockOffset = (ms) => {
+  offset = ms;
+};

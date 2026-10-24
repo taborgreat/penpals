@@ -200,7 +200,10 @@ function edt1d(f, n, d, v, z) {
 // Zhang-Suen thinning to one-pixel centrelines.
 function thin(binary, width, height) {
   const img = Uint8Array.from(binary);
-  let minX = width, maxX = -1, minY = height, maxY = -1;
+  let minX = width,
+    maxX = -1,
+    minY = height,
+    maxY = -1;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (!img[y * width + x]) continue;
@@ -211,8 +214,10 @@ function thin(binary, width, height) {
     }
   }
   if (maxX < 0) return img;
-  minX = Math.max(1, minX - 1); maxX = Math.min(width - 2, maxX + 1);
-  minY = Math.max(1, minY - 1); maxY = Math.min(height - 2, maxY + 1);
+  minX = Math.max(1, minX - 1);
+  maxX = Math.min(width - 2, maxX + 1);
+  minY = Math.max(1, minY - 1);
+  maxY = Math.min(height - 2, maxY + 1);
   const gone = [];
   let changed = true;
   while (changed) {
@@ -223,15 +228,27 @@ function thin(binary, width, height) {
         for (let x = minX; x <= maxX; x++) {
           const i = y * width + x;
           if (!img[i]) continue;
-          const p2 = img[i - width], p3 = img[i - width + 1], p4 = img[i + 1], p5 = img[i + width + 1];
-          const p6 = img[i + width], p7 = img[i + width - 1], p8 = img[i - 1], p9 = img[i - width - 1];
+          const p2 = img[i - width],
+            p3 = img[i - width + 1],
+            p4 = img[i + 1],
+            p5 = img[i + width + 1];
+          const p6 = img[i + width],
+            p7 = img[i + width - 1],
+            p8 = img[i - 1],
+            p9 = img[i - width - 1];
           const b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
           if (b < 2 || b > 6) continue;
           let a = 0;
-          if (!p2 && p3) a++; if (!p3 && p4) a++; if (!p4 && p5) a++; if (!p5 && p6) a++;
-          if (!p6 && p7) a++; if (!p7 && p8) a++; if (!p8 && p9) a++; if (!p9 && p2) a++;
+          if (!p2 && p3) a++;
+          if (!p3 && p4) a++;
+          if (!p4 && p5) a++;
+          if (!p5 && p6) a++;
+          if (!p6 && p7) a++;
+          if (!p7 && p8) a++;
+          if (!p8 && p9) a++;
+          if (!p9 && p2) a++;
           if (a !== 1) continue;
-          if (step === 0 ? (p2 * p4 * p6 !== 0 || p4 * p6 * p8 !== 0) : (p2 * p4 * p8 !== 0 || p2 * p6 * p8 !== 0)) continue;
+          if (step === 0 ? p2 * p4 * p6 !== 0 || p4 * p6 * p8 !== 0 : p2 * p4 * p8 !== 0 || p2 * p6 * p8 !== 0) continue;
           gone.push(i);
         }
       }
@@ -245,7 +262,16 @@ function thin(binary, width, height) {
 // Zhang-Suen leaves redundant corner pixels on diagonals (staircases). Drop
 // every pixel whose neighbours are already connected to each other without it,
 // so the skeleton becomes a clean 8-connected line of single pixels.
-const RING = [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]];
+const RING = [
+  [-1, -1],
+  [0, -1],
+  [1, -1],
+  [1, 0],
+  [1, 1],
+  [0, 1],
+  [-1, 1],
+  [-1, 0],
+];
 function minimize(skel, width, height) {
   const parent = new Int32Array(8);
   const find = (a) => (parent[a] === a ? a : (parent[a] = find(parent[a])));
@@ -395,8 +421,10 @@ function assignLines(comps, ruled, width, height) {
   let inBand = false;
   for (let y = 0; y <= height; y++) {
     const on = y < height && smooth[y] > peak * 0.08;
-    if (on && !inBand) { bands.push({ y0: y, y1: y }); inBand = true; }
-    else if (on) bands[bands.length - 1].y1 = y;
+    if (on && !inBand) {
+      bands.push({ y0: y, y1: y });
+      inBand = true;
+    } else if (on) bands[bands.length - 1].y1 = y;
     else inBand = false;
   }
   for (const c of comps) {
@@ -404,7 +432,10 @@ function assignLines(comps, ruled, width, height) {
     let bestD = Infinity;
     bands.forEach((b, k) => {
       const d = c.cy < b.y0 ? b.y0 - c.cy : c.cy > b.y1 ? c.cy - b.y1 : 0;
-      if (d < bestD) { bestD = d; best = k; }
+      if (d < bestD) {
+        bestD = d;
+        best = k;
+      }
     });
     c.line = best;
   }
@@ -424,7 +455,10 @@ function orderComponents(comps, width) {
       if (h.line !== s.line) continue;
       const overlap = Math.min(h.maxX, s.maxX) - Math.max(h.minX, s.minX);
       const score = overlap >= 0 ? 1e6 + overlap : -Math.min(Math.abs(h.minX - s.maxX), Math.abs(s.minX - h.maxX));
-      if (score > bestScore) { bestScore = score; best = item; }
+      if (score > bestScore) {
+        bestScore = score;
+        best = item;
+      }
     }
     if (best && bestScore > -width * 0.05) best.sats.push(s);
     else items.push({ comp: s, sats: [] });
@@ -453,12 +487,18 @@ function walkComponent(comp, skeleton, visited, dist, width, height) {
   let bestX = Infinity;
   for (const i of comp.pixels) {
     const x = i % width;
-    if (x < bestX && isEnd(i)) { bestX = x; cur = i; }
+    if (x < bestX && isEnd(i)) {
+      bestX = x;
+      cur = i;
+    }
   }
   if (cur < 0) {
     for (const i of comp.pixels) {
       const x = i % width;
-      if (x < bestX) { bestX = x; cur = i; }
+      if (x < bestX) {
+        bestX = x;
+        cur = i;
+      }
     }
   }
 
@@ -490,7 +530,10 @@ function walkComponent(comp, skeleton, visited, dist, width, height) {
           const sy = (c - cx) / width - y;
           const len = Math.hypot(sx, sy);
           const dot = (dx * sx + dy * sy) / len - (len > 1 ? 0.01 : 0); // straight on, 4-neighbours first
-          if (dot > bestDot) { bestDot = dot; next = c; }
+          if (dot > bestDot) {
+            bestDot = dot;
+            next = c;
+          }
         }
       }
       const x = i % width;
@@ -533,8 +576,14 @@ function walkComponent(comp, skeleton, visited, dist, width, height) {
       const px = p % width;
       const py = (p - px) / width;
       const d = (px - lx) ** 2 + (py - ly) ** 2;
-      if (d < bestD) { bestD = d; best = p; }
-      if (d < bestEndD && isEnd(p)) { bestEndD = d; bestEnd = p; }
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+      if (d < bestEndD && isEnd(p)) {
+        bestEndD = d;
+        bestEnd = p;
+      }
     }
     cur = bestEnd >= 0 ? bestEnd : best;
     // Across a tiny gap the same stroke carries on; otherwise the pen lifts.
@@ -551,7 +600,9 @@ function smoothPoints(points) {
   for (let pass = 0; pass < 2; pass++) {
     const out = [pts[0]];
     for (let i = 1; i < pts.length - 1; i++) {
-      const a = pts[i - 1], b = pts[i], c = pts[i + 1];
+      const a = pts[i - 1],
+        b = pts[i],
+        c = pts[i + 1];
       out.push({ x: (a.x + 2 * b.x + c.x) / 4, y: (a.y + 2 * b.y + c.y) / 4, w: pass ? b.w : (a.w + 2 * b.w + c.w) / 4 });
     }
     out.push(pts[pts.length - 1]);
@@ -571,16 +622,23 @@ function simplify(points, tol) {
     const [a, b] = stack.pop();
     const A = points[a];
     const B = points[b];
-    const vx = B.x - A.x, vy = B.y - A.y, vw = (B.w - A.w) / 2;
+    const vx = B.x - A.x,
+      vy = B.y - A.y,
+      vw = (B.w - A.w) / 2;
     const len2 = vx * vx + vy * vy + vw * vw || 1;
     let worst = -1;
     let worstD = tol * tol;
     for (let i = a + 1; i < b; i++) {
       const P = points[i];
-      const px = P.x - A.x, py = P.y - A.y, pw = (P.w - A.w) / 2;
+      const px = P.x - A.x,
+        py = P.y - A.y,
+        pw = (P.w - A.w) / 2;
       const t = Math.max(0, Math.min(1, (px * vx + py * vy + pw * vw) / len2));
       const d = (px - vx * t) ** 2 + (py - vy * t) ** 2 + (pw - vw * t) ** 2;
-      if (d > worstD) { worstD = d; worst = i; }
+      if (d > worstD) {
+        worstD = d;
+        worst = i;
+      }
     }
     if (worst >= 0) {
       keep[worst] = 1;
@@ -597,11 +655,13 @@ export function rasterize(data) {
   const { width, height } = data;
   const out = new Uint8Array(width * height);
   const disc = (cx, cy, r) => {
-    const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(height - 1, Math.ceil(cy + r));
+    const y0 = Math.max(0, Math.floor(cy - r)),
+      y1 = Math.min(height - 1, Math.ceil(cy + r));
     for (let y = y0; y <= y1; y++) {
       const dy = y + 0.5 - cy;
       const half = Math.sqrt(Math.max(0, r * r - dy * dy));
-      const x0 = Math.max(0, Math.round(cx - half)), x1 = Math.min(width - 1, Math.round(cx + half) - 1);
+      const x0 = Math.max(0, Math.round(cx - half)),
+        x1 = Math.min(width - 1, Math.round(cx + half) - 1);
       for (let x = x0; x <= x1; x++) out[y * width + x] = 1;
     }
   };
@@ -609,7 +669,8 @@ export function rasterize(data) {
     const pts = s.points;
     if (pts.length === 1) disc(pts[0].x, pts[0].y, Math.max(0.5, pts[0].w / 2));
     for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i];
+      const a = pts[i - 1],
+        b = pts[i];
       const len = Math.hypot(b.x - a.x, b.y - a.y);
       const steps = Math.max(1, Math.ceil(len / 0.5));
       for (let k = 0; k <= steps; k++) {

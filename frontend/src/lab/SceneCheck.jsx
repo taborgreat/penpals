@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import SceneView from '../scene/SceneView.jsx';
 import { sceneSupported } from '../scene/support.js';
 import { engineReady } from '../scene/engine.js';
+import { CELLS } from '../book/ink.js';
 
 // /scene-check (dev only): law 2 fixtures in the scene, lit by the clock (or
 // ?hour=), straight down or in 3D (?mode=3d), for looking at the renderer
 // (WebGPU where there is one; ?gpu=webgl2 for WebGL2).
 const NAMES = ['gallHairPool', 'flicks', 'tearThenInk', 'flexSquare', 'cockle'];
-const CELLS = 2;
 
 export default function SceneCheck() {
   const params = new URLSearchParams(window.location.search);
@@ -16,15 +16,18 @@ export default function SceneCheck() {
   // chosen while rendering, before the scene's own effects ask
   const chosen = useMemo(() => engineReady(params.get('gpu')), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [gpu, setGpu] = useState(null);
-  useEffect(() => { chosen.then(setGpu); }, [chosen]);
+  useEffect(() => {
+    chosen.then(setGpu);
+  }, [chosen]);
   const sceneRef = useRef(null);
   const worker = useRef(null);
   const waiting = useRef(new Map());
-  const ask = (msg) => new Promise((resolve, reject) => {
-    const id = Math.random();
-    waiting.current.set(id, { resolve, reject });
-    worker.current.postMessage({ ...msg, id });
-  });
+  const ask = (msg) =>
+    new Promise((resolve, reject) => {
+      const id = Math.random();
+      waiting.current.set(id, { resolve, reject });
+      worker.current.postMessage({ ...msg, id });
+    });
 
   useEffect(() => {
     if (params.get('hour')) {
@@ -60,8 +63,21 @@ export default function SceneCheck() {
       const look = params.get('look');
       if (look && params.get('mode') === '3d') {
         const l = out.find((o) => o.name === look);
-        const cx = l.origin[0] + l.field.box[2] / CELLS / 2, cy = l.origin[1] + l.field.box[3] / CELLS / 2;
-        setTimeout(() => sceneRef.current?.setCamera({ mode: '3d', target: [cx + Number(params.get('dx') ?? 0), cy + Number(params.get('dy') ?? 0)], dist: Number(params.get('dist') ?? 120), az: Number(params.get('az') ?? 0), el: Number(params.get('el') ?? 40), fov: 40, view: 200 }), 50);
+        const cx = l.origin[0] + l.field.box[2] / CELLS / 2,
+          cy = l.origin[1] + l.field.box[3] / CELLS / 2;
+        setTimeout(
+          () =>
+            sceneRef.current?.setCamera({
+              mode: '3d',
+              target: [cx + Number(params.get('dx') ?? 0), cy + Number(params.get('dy') ?? 0)],
+              dist: Number(params.get('dist') ?? 120),
+              az: Number(params.get('az') ?? 0),
+              el: Number(params.get('el') ?? 40),
+              fov: 40,
+              view: 200,
+            }),
+          50,
+        );
       }
     })();
     return () => worker.current.terminate();
@@ -69,14 +85,18 @@ export default function SceneCheck() {
 
   const width = loaded.length ? loaded.at(-1).origin[0] + loaded.at(-1).field.box[2] / CELLS + 20 : 1000;
   const height = Math.max(400, ...loaded.map((l) => l.field.box[3] / CELLS + 40));
-  const sheets = useMemo(() => loaded.map((l) => ({
-    id: l.name,
-    box: l.field.box,
-    origin: l.origin,
-    cellPx: 1 / CELLS,
-    field: l.field,
-    detail: { data: l.detail, box: l.field.box },
-  })), [loaded]);
+  const sheets = useMemo(
+    () =>
+      loaded.map((l) => ({
+        id: l.name,
+        box: l.field.box,
+        origin: l.origin,
+        cellPx: 1 / CELLS,
+        field: l.field,
+        detail: { data: l.detail, box: l.field.box },
+      })),
+    [loaded],
+  );
   const at = (name) => loaded.find((l) => l.name === name);
 
   return (
@@ -101,7 +121,9 @@ export default function SceneCheck() {
             }}
             moments={() => ask({ type: 'moments', name: 'gallHairPool' })}
           />
-        ) : <p>No WebGL2 here: the flat look is shown instead.</p>}
+        ) : (
+          <p>No WebGL2 here: the flat look is shown instead.</p>
+        )}
       </div>
     </div>
   );

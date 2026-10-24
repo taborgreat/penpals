@@ -29,15 +29,16 @@ export function computeGoldens() {
   }
   const p = sha256.create();
   const paper = makePaper(testPaperKey('golden'), family);
-  for (let ty = -1; ty <= 2; ty++) for (let tx = -1; tx <= 2; tx++) {
-    const f = paper.tileFields(tx * 16, ty * 16);
-    for (const k of ['cap', 'hold', 'siz', 'z', 'link']) {
-      const b = new Uint8Array(f[k].length * 2);
-      const dv = new DataView(b.buffer);
-      f[k].forEach((v, i) => dv.setUint16(i * 2, v, false));
-      p.update(b);
+  for (let ty = -1; ty <= 2; ty++)
+    for (let tx = -1; tx <= 2; tx++) {
+      const f = paper.tileFields(tx * 16, ty * 16);
+      for (const k of ['cap', 'hold', 'siz', 'z', 'link']) {
+        const b = new Uint8Array(f[k].length * 2);
+        const dv = new DataView(b.buffer);
+        f[k].forEach((v, i) => dv.setUint16(i * 2, v, false));
+        p.update(b);
+      }
     }
-  }
   const fixtures = {};
   for (const name of Object.keys(FIXTURES)) {
     const { bytes, rec } = fixtureBytes(name);

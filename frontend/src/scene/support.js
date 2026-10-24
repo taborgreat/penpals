@@ -15,27 +15,34 @@ let lowPower = false;
 const lowListeners = new Set();
 export function watchBattery(nav = typeof navigator === 'undefined' ? null : navigator) {
   if (!nav?.getBattery) return Promise.resolve(false);
-  return nav.getBattery().then((b) => {
-    const update = () => {
-      const low = !b.charging && b.level <= LOW_BATTERY;
-      if (low === lowPower) return;
-      lowPower = low;
-      for (const fn of lowListeners) fn();
-    };
-    update();
-    b.addEventListener('chargingchange', update);
-    b.addEventListener('levelchange', update);
-    return true;
-  }, () => false);
+  return nav.getBattery().then(
+    (b) => {
+      const update = () => {
+        const low = !b.charging && b.level <= LOW_BATTERY;
+        if (low === lowPower) return;
+        lowPower = low;
+        for (const fn of lowListeners) fn();
+      };
+      update();
+      b.addEventListener('chargingchange', update);
+      b.addEventListener('levelchange', update);
+      return true;
+    },
+    () => false,
+  );
 }
 watchBattery();
 export const isLowPower = () => lowPower;
 // Low power as React state: a view goes flat while it lasts, and back after.
 export function useLowPower() {
-  return useSyncExternalStore((fn) => {
-    lowListeners.add(fn);
-    return () => lowListeners.delete(fn);
-  }, isLowPower, () => false);
+  return useSyncExternalStore(
+    (fn) => {
+      lowListeners.add(fn);
+      return () => lowListeners.delete(fn);
+    },
+    isLowPower,
+    () => false,
+  );
 }
 
 let webgl2 = null;

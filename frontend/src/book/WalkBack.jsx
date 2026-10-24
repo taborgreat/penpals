@@ -70,7 +70,9 @@ export default function WalkBack({ line, seed, src, onClose }) {
         <strong>Walk back</strong>
         <span className="meta">tap any spot of the writing</span>
         <span className="spacer" />
-        <button type="button" className="quiet" onClick={onClose}>Close</button>
+        <button type="button" className="quiet" onClick={onClose}>
+          Close
+        </button>
       </div>
       <button type="button" className="walk-back-art" style={{ aspectRatio: `${w} / ${h}` }} onClick={pick} disabled={busy} aria-label="Pick a spot">
         <InkItem src={src} body={body} />
@@ -100,14 +102,13 @@ export default function WalkBack({ line, seed, src, onClose }) {
             mode={sceneMode}
             onMode={setSceneMode}
             sheets={sheets}
-            cutSide={(a, b) => depthHere(body, seed, { mode: 'side', cut: [...toCell(a), ...toCell(b)], view: viewAt(line) }).then(async (d) => {
-              const img = await createImageBitmap(await (await fetch(d.url)).blob());
-              const c = document.createElement('canvas');
-              c.width = img.width;
-              c.height = img.height;
-              c.getContext('2d').drawImage(img, 0, 0);
-              return { width: img.width, height: img.height, rgba: new Uint8Array(c.getContext('2d').getImageData(0, 0, img.width, img.height).data.buffer) };
-            })}
+            cutSide={(a, b) =>
+              // (its pixels as grown: a blob: URL is no address the site's CSP lets it fetch)
+              depthHere(body, seed, { mode: 'side', cut: [...toCell(a), ...toCell(b)], view: viewAt(line) }).then((d) => {
+                URL.revokeObjectURL(d.url);
+                return { width: d.width, height: d.height, rgba: d.rgba };
+              })
+            }
             moments={() => momentsHere(body, seed)}
           />
         </div>
@@ -116,7 +117,8 @@ export default function WalkBack({ line, seed, src, onClose }) {
       {error && <p className="error">{error}</p>}
       {t && (
         <dl className="trace">
-          <dt>cell</dt><dd>{t.cell.join(', ')}</dd>
+          <dt>cell</dt>
+          <dd>{t.cell.join(', ')}</dd>
           {t.paper && (
             <>
               <dt>paper</dt>
@@ -134,7 +136,9 @@ export default function WalkBack({ line, seed, src, onClose }) {
           </dd>
           <dt>water</dt>
           <dd>
-            {t.water.wetAt === null ? 'never wet' : `wet at ${t.water.wetAt} ms, dry by ${t.water.dryAt} ms; at most ${t.water.peak} drops at ${t.water.peakAt} ms${t.water.standing ? `, ${t.water.standing} of them standing above the paper (a bead)` : ''}`}
+            {t.water.wetAt === null
+              ? 'never wet'
+              : `wet at ${t.water.wetAt} ms, dry by ${t.water.dryAt} ms; at most ${t.water.peak} drops at ${t.water.peakAt} ms${t.water.standing ? `, ${t.water.standing} of them standing above the paper (a bead)` : ''}`}
           </dd>
           {t.carried.length > 0 && (
             <>
@@ -149,19 +153,22 @@ export default function WalkBack({ line, seed, src, onClose }) {
                 {t.depth.torn
                   ? 'torn through: worked while wet until the fibers gave; it holds nothing'
                   : [
-                    t.depth.dent ? `pressed ${t.depth.dent} deep` : 'not pressed in',
-                    `ink sank ${t.depth.depth} of the paper's layers`,
-                    t.depth.peak ? `a bead stood ${t.depth.peak} high` : null,
-                    t.depth.soak ? `the paper remembers water (${t.depth.soak})` : null,
-                    t.depth.cockle ? `it dried buckled (ridge ${t.depth.cockle})` : null,
-                    t.depth.wear ? `worn ${t.depth.wear}` : null,
-                  ].filter(Boolean).join('; ')}
+                      t.depth.dent ? `pressed ${t.depth.dent} deep` : 'not pressed in',
+                      `ink sank ${t.depth.depth} of the paper's layers`,
+                      t.depth.peak ? `a bead stood ${t.depth.peak} high` : null,
+                      t.depth.soak ? `the paper remembers water (${t.depth.soak})` : null,
+                      t.depth.cockle ? `it dried buckled (ridge ${t.depth.cockle})` : null,
+                      t.depth.wear ? `worn ${t.depth.wear}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join('; ')}
               </dd>
             </>
           )}
           <dt>settled</dt>
           <dd>
-            pigment {t.settled.fixed.join(' / ')}{t.settled.gall ? `; oak gall ${t.settled.gall} (it darkens with air over days)` : ''}; shows as{' '}
+            pigment {t.settled.fixed.join(' / ')}
+            {t.settled.gall ? `; oak gall ${t.settled.gall} (it darkens with air over days)` : ''}; shows as{' '}
             <span className="swatch" style={{ background: `rgb(${t.settled.transmittance.join(',')})` }} /> rgb({t.settled.transmittance.join(', ')})
           </dd>
         </dl>

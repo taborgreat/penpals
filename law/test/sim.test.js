@@ -24,8 +24,15 @@ test('pigment is conserved exactly: every deposited unit ends up fixed', () => {
     const rgb = rec.strokes[0].pens[0].rgb;
     const added = [0, 0, 0];
     const instrument = {
-      tile() {}, wet() {}, strokeStart() {}, step() {}, finish() {}, fiber() {},
-      deposit(t, i, g) { for (let c = 0; c < 3; c++) added[c] += Math.floor((g * ABS_Q[rgb[c]]) / 256); },
+      tile() {},
+      wet() {},
+      strokeStart() {},
+      step() {},
+      finish() {},
+      fiber() {},
+      deposit(t, i, g) {
+        for (let c = 0; c < 3; c++) added[c] += Math.floor((g * ABS_Q[rgb[c]]) / 256);
+      },
     };
     const res = grow(rec, { paperKey, family, instrument });
     const fixed = [0, 0, 0];

@@ -51,7 +51,9 @@ async function getChain(userId) {
       c.bytes += Buffer.byteLength(line) + 1;
       try {
         index(c, JSON.parse(line));
-      } catch { /* a damaged line: skipped, the rest stands */ }
+      } catch {
+        /* a damaged line: skipped, the rest stands */
+      }
     }
     chains.set(userId, c);
   }
@@ -131,7 +133,7 @@ export const edit = (userId, op, base) => serial(lock(userId), () => landEdit(us
 export const NEW_INK = 'k_new';
 export async function dryRunEdit(userId, op, pending = null) {
   const copy = structuredClone(await getSkeleton(userId));
-  await applyOp(copy, op, { inkBody: async (id) => (id === NEW_INK ? pending : (await inkLine(userId, id))?.ink ?? null) });
+  await applyOp(copy, op, { inkBody: async (id) => (id === NEW_INK ? pending : ((await inkLine(userId, id))?.ink ?? null)) });
 }
 
 // A verified sheet of writing lands: seed (closed sheets) → line → layout.
@@ -210,4 +212,3 @@ export function forgetBook(userId) {
   skeletons.delete(userId);
   chains.delete(userId);
 }
-

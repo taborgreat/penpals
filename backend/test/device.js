@@ -40,7 +40,14 @@ export async function register(c, p, { family = FAMILY } = {}) {
   const nonce = begin.data.nonce;
   const proof = K.authProof(p.sk, { purpose: 'register', origin: c.origin, nonce: fromB64url(nonce, 32), username: p.username });
   return c.post('/api/auth/register/finish', {
-    username: p.username, nonce, origin: c.origin, publicKey: b64url(p.pk), proof: b64url(proof), keyring, sketches, line,
+    username: p.username,
+    nonce,
+    origin: c.origin,
+    publicKey: b64url(p.pk),
+    proof: b64url(proof),
+    keyring,
+    sketches,
+    line,
   });
 }
 

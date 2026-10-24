@@ -140,7 +140,8 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
     ctx.clearRect(0, 0, ink.width, ink.height);
     ctx.drawImage(screen, 0, 0);
     const k = scaleRef.current;
-    if (draftRef.current.strokes.length) { // waiting in write mode: shown faint
+    if (draftRef.current.strokes.length) {
+      // waiting in write mode: shown faint
       ctx.globalAlpha = 0.35;
       ctx.setTransform(k, 0, 0, k, 0, 0);
       for (const d of draftRef.current.strokes) renderStroke(ctx, d.stroke);
@@ -165,43 +166,46 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
   }, [present]);
 
   // Encode the drawing a moment after the last change (or after `wait` ms).
-  const scheduleEmit = useCallback((wait = 500) => {
-    clearTimeout(emitTimer.current);
-    const empty = !strokesRef.current.length;
-    onResult(null, empty);
-    if (empty) return;
-    emitTimer.current = setTimeout(async () => {
-      const job = ++jobRef.current;
-      const layer = layerRef.current;
-      const t0 = performance.now();
-      const { data } = layer.getContext('2d').getImageData(0, 0, layer.width, layer.height);
-      const alpha = new Uint8ClampedArray(layer.width * layer.height);
-      for (let i = 0, p = 3; i < alpha.length; i++, p += 4) alpha[i] = data[p];
-      const png = await encodeInkPng({ width: layer.width, height: layer.height, alpha });
-      const strokesData = {
-        width: layer.width,
-        height: layer.height,
-        tilt: 0,
-        rows: guideRows(guide, spacing, layer.height), // the baselines the writer used
-        strokes: timedStrokes(strokesRef.current),
-      };
-      const strokesBlob = await encodeStrokes(strokesData);
-      if (job !== jobRef.current) return;
-      onResult({
-        png,
-        strokesBlob,
-        strokesData,
-        fidelity: 1,
-        strokeCount: strokesData.strokes.length,
-        display: 'strokes',
-        detectedColor: null,
-        width: layer.width,
-        height: layer.height,
-        ms: Math.round(performance.now() - t0),
-        source: 'pad',
-      });
-    }, wait);
-  }, [onResult, guide, spacing]);
+  const scheduleEmit = useCallback(
+    (wait = 500) => {
+      clearTimeout(emitTimer.current);
+      const empty = !strokesRef.current.length;
+      onResult(null, empty);
+      if (empty) return;
+      emitTimer.current = setTimeout(async () => {
+        const job = ++jobRef.current;
+        const layer = layerRef.current;
+        const t0 = performance.now();
+        const { data } = layer.getContext('2d').getImageData(0, 0, layer.width, layer.height);
+        const alpha = new Uint8ClampedArray(layer.width * layer.height);
+        for (let i = 0, p = 3; i < alpha.length; i++, p += 4) alpha[i] = data[p];
+        const png = await encodeInkPng({ width: layer.width, height: layer.height, alpha });
+        const strokesData = {
+          width: layer.width,
+          height: layer.height,
+          tilt: 0,
+          rows: guideRows(guide, spacing, layer.height), // the baselines the writer used
+          strokes: timedStrokes(strokesRef.current),
+        };
+        const strokesBlob = await encodeStrokes(strokesData);
+        if (job !== jobRef.current) return;
+        onResult({
+          png,
+          strokesBlob,
+          strokesData,
+          fidelity: 1,
+          strokeCount: strokesData.strokes.length,
+          display: 'strokes',
+          detectedColor: null,
+          width: layer.width,
+          height: layer.height,
+          ms: Math.round(performance.now() - t0),
+          source: 'pad',
+        });
+      }, wait);
+    },
+    [onResult, guide, spacing],
+  );
 
   // A new page size means a new page layer; strokes are redrawn onto it.
   useEffect(() => {
@@ -263,13 +267,14 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
   }, []);
 
   // To the next preset zoom.
-  const stepZoom = useCallback((dir, ax, ay) => {
-    const z = zoomRef.current;
-    const next = dir > 0
-      ? ZOOMS.find((v) => v > z + 1e-3) ?? ZOOMS[ZOOMS.length - 1]
-      : ZOOMS.findLast((v) => v < z - 1e-3) ?? ZOOMS[0];
-    zoomTo(next, ax, ay);
-  }, [zoomTo]);
+  const stepZoom = useCallback(
+    (dir, ax, ay) => {
+      const z = zoomRef.current;
+      const next = dir > 0 ? (ZOOMS.find((v) => v > z + 1e-3) ?? ZOOMS[ZOOMS.length - 1]) : (ZOOMS.findLast((v) => v < z - 1e-3) ?? ZOOMS[0]);
+      zoomTo(next, ax, ay);
+    },
+    [zoomTo],
+  );
 
   // Ctrl/⌘ + wheel (and trackpad pinch) zooms around the pointer.
   useEffect(() => {
@@ -289,8 +294,12 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
 
   useEffect(() => {
     if (!adjustOpen) return undefined;
-    const outside = (e) => { if (!adjustRef.current?.contains(e.target)) setAdjustOpen(false); };
-    const esc = (e) => { if (e.key === 'Escape') setAdjustOpen(false); };
+    const outside = (e) => {
+      if (!adjustRef.current?.contains(e.target)) setAdjustOpen(false);
+    };
+    const esc = (e) => {
+      if (e.key === 'Escape') setAdjustOpen(false);
+    };
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', esc);
     return () => {
@@ -505,11 +514,17 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
   const setFlexField = (field) => (e) => setFlex((f) => ({ ...f, [field]: Number(e.target.value) }));
   const num = (e) => Number(e.target.value);
   const panning = hand || spaceHeld;
-  const hint = hintText ? hintText
-    : draftCount ? `${draftCount} stroke${draftCount === 1 ? '' : 's'} waiting in the chase: they join the letter when you press Play there.`
-    : !compact && !strokeCount ? 'Choose your pen, then Chase: zoomed in on your line, and the page follows you along it.'
-    : penSeen ? 'The pen writes; fingers scroll.'
-      : zoom > 1 ? 'Hold Space and drag, use Move, or two fingers, to get around.' : 'Zoom in to write smaller and fit more on the page.';
+  const hint = hintText
+    ? hintText
+    : draftCount
+      ? `${draftCount} stroke${draftCount === 1 ? '' : 's'} waiting in the chase: they join the letter when you press Play there.`
+      : !compact && !strokeCount
+        ? 'Choose your pen, then Chase: zoomed in on your line, and the page follows you along it.'
+        : penSeen
+          ? 'The pen writes; fingers scroll.'
+          : zoom > 1
+            ? 'Hold Space and drag, use Move, or two fingers, to get around.'
+            : 'Zoom in to write smaller and fit more on the page.';
 
   return (
     <div className={compact ? 'pad compact' : 'pad'}>
@@ -519,7 +534,9 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
           <div className="nib-picker" role="group" aria-label="Nib">
             {Object.keys(NIBS).map((id) => (
               <button key={id} type="button" aria-pressed={nib === id} title={NIBS[id].name} onClick={() => setNib(id)}>
-                <svg viewBox="0 0 36 18" aria-hidden="true">{NIB_CHOICES[id].sample}</svg>
+                <svg viewBox="0 0 36 18" aria-hidden="true">
+                  {NIB_CHOICES[id].sample}
+                </svg>
                 {NIB_CHOICES[id].label}
               </button>
             ))}
@@ -529,7 +546,11 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
           <label className="field">
             <span>Size</span>
             <select id="size" value={penSize} onChange={(e) => setPenSize(e.target.value)}>
-              {Object.keys(PEN_SIZES).map((s) => <option key={s} value={s}>{s}</option>)}
+              {Object.keys(PEN_SIZES).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </label>
         )}
@@ -537,7 +558,11 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
           <label className="field">
             <span>Size</span>
             <select id="size" value={broadSize} onChange={(e) => setBroadSize(e.target.value)}>
-              {Object.keys(BROAD_SIZES).map((s) => <option key={s} value={s}>{s}</option>)}
+              {Object.keys(BROAD_SIZES).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </label>
         )}
@@ -545,7 +570,11 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
           <label className="field">
             <span>Preset</span>
             <select id="preset" value={preset} onChange={(e) => e.target.value !== 'custom' && choosePreset(e.target.value)}>
-              {Object.entries(FLEX_PRESETS).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}
+              {Object.entries(FLEX_PRESETS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.name}
+                </option>
+              ))}
               <option value="custom">custom</option>
             </select>
           </label>
@@ -595,7 +624,11 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
         <label className="field">
           <span>Lines</span>
           <select id="guide" value={guide} onChange={(e) => setGuide(e.target.value)}>
-            {Object.keys(GUIDES).map((g) => <option key={g} value={g}>{GUIDE_NAMES[g] ?? g}</option>)}
+            {Object.keys(GUIDES).map((g) => (
+              <option key={g} value={g}>
+                {GUIDE_NAMES[g] ?? g}
+              </option>
+            ))}
           </select>
         </label>
         <label className="field">
@@ -607,55 +640,75 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
           <label className="field">
             <span>Paper</span>
             <select value={paper} onChange={(e) => onPaperChange(e.target.value)}>
-              {Object.entries(PAPERS).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}
+              {Object.entries(PAPERS).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {p.name}
+                </option>
+              ))}
             </select>
           </label>
         )}
-        {!compact && <div className="field">
-          <span>Page</span>
-          <div className="tabs small" role="group" aria-label="Page">
-            {Object.keys(PAGES).map((p) => (
-              <button key={p} type="button" aria-pressed={page === p} onClick={() => setPage(p)}>{p}</button>
-            ))}
+        {!compact && (
+          <div className="field">
+            <span>Page</span>
+            <div className="tabs small" role="group" aria-label="Page">
+              {Object.keys(PAGES).map((p) => (
+                <button key={p} type="button" aria-pressed={page === p} onClick={() => setPage(p)}>
+                  {p}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>}
+        )}
       </div>
 
       <div className="pad-desk">
         <div className="pad-bar">
           <div className="cluster">
-            <button type="button" onClick={undo} disabled={!steps.undo} title="Undo (Ctrl+Z)">Undo</button>
-            <button type="button" onClick={redo} disabled={!steps.redo} title="Redo (Ctrl+Shift+Z)">Redo</button>
-            <button type="button" className="quiet" onClick={clear} disabled={!strokeCount}>Clear</button>
+            <button type="button" onClick={undo} disabled={!steps.undo} title="Undo (Ctrl+Z)">
+              Undo
+            </button>
+            <button type="button" onClick={redo} disabled={!steps.redo} title="Redo (Ctrl+Shift+Z)">
+              Redo
+            </button>
+            <button type="button" className="quiet" onClick={clear} disabled={!strokeCount}>
+              Clear
+            </button>
           </div>
           <span className="pad-hint">{hint}</span>
           <div className="cluster">
-            {!compact && <>
-            <div className="split">
-              <button
-                type="button"
-                aria-pressed={writing}
-                className="toggle write-enter"
-                onClick={enterWriting}
-                title="Chase: zoom in on your line, full screen, and the page follows your pen along it"
-              >
-                {draftCount ? 'Chase · back to it' : 'Chase'}
-              </button>
-              <button type="button" aria-expanded={chaseOpen} aria-label="Chase settings" className="more" onClick={() => setChaseOpen((o) => !o)}>
-                ⚙
-              </button>
-            </div>
-            <span className="tool-sep" aria-hidden="true" />
-            </>}
+            {!compact && (
+              <>
+                <div className="split">
+                  <button
+                    type="button"
+                    aria-pressed={writing}
+                    className="toggle write-enter"
+                    onClick={enterWriting}
+                    title="Chase: zoom in on your line, full screen, and the page follows your pen along it"
+                  >
+                    {draftCount ? 'Chase · back to it' : 'Chase'}
+                  </button>
+                  <button type="button" aria-expanded={chaseOpen} aria-label="Chase settings" className="more" onClick={() => setChaseOpen((o) => !o)}>
+                    ⚙
+                  </button>
+                </div>
+                <span className="tool-sep" aria-hidden="true" />
+              </>
+            )}
             <button type="button" aria-pressed={hand} className="toggle" onClick={() => setHand((h) => !h)} title="Drag to move around the page">
               Move
             </button>
             <div className="zoom" role="group" aria-label="Zoom">
-              <button type="button" onClick={() => stepZoom(-1)} disabled={zoom <= ZOOMS[0]} aria-label="Zoom out">−</button>
+              <button type="button" onClick={() => stepZoom(-1)} disabled={zoom <= ZOOMS[0]} aria-label="Zoom out">
+                −
+              </button>
               <button type="button" className="zoom-level" onClick={() => zoomTo(1)} title="Fit the page to the width">
                 {Math.abs(zoom - 1) < 1e-3 ? 'fit' : `${Math.round(zoom * 100)}%`}
               </button>
-              <button type="button" onClick={() => stepZoom(1)} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} aria-label="Zoom in">+</button>
+              <button type="button" onClick={() => stepZoom(1)} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} aria-label="Zoom in">
+                +
+              </button>
             </div>
           </div>
           {chaseOpen && !compact && <ChaseSettings settings={chase} onChange={(patch) => setChaseSettings(setChase(patch))} />}
@@ -664,8 +717,12 @@ export default function VectorPad({ onResult, inkColor = '#1a1a1a', size = null,
           <div
             className="pad-view"
             ref={viewRef}
-            onPointerEnter={() => { hoverRef.current = true; }}
-            onPointerLeave={() => { hoverRef.current = false; }}
+            onPointerEnter={() => {
+              hoverRef.current = true;
+            }}
+            onPointerLeave={() => {
+              hoverRef.current = false;
+            }}
           >
             <div className="pad-page" ref={pageRef} style={{ width: `${zoom * 100}%` }}>
               <canvas ref={guideRef} className="guide" width={screenW} height={screenH} />

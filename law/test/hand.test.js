@@ -28,7 +28,11 @@ test('the reading is of the hand, not of the pen it was written with', () => {
   const other = encodeActs({
     ...rec,
     strokes: rec.strokes.map((s, i) => ({
-      ...s, x: [...s.x], y: [...s.y], t: [...s.t], p: s.p ? [...s.p] : null,
+      ...s,
+      x: [...s.x],
+      y: [...s.y],
+      t: [...s.t],
+      p: s.p ? [...s.p] : null,
       pens: i === 0 ? [{ at: 0, nib: 2, size: 200, flex: 0, flow: 13, rgb: [200, 10, 10], angle: 70 }] : [],
     })),
   });

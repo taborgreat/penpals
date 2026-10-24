@@ -18,7 +18,9 @@ export default function HandStudio() {
   const labels = useMemo(() => {
     const listed = HAND_LABELS.map(toEntry);
     const names = new Set(listed.map((e) => e.name));
-    const extra = Object.entries(HAND).filter(([n]) => !names.has(n)).map(([n, a]) => ({ text: a.text, name: n }));
+    const extra = Object.entries(HAND)
+      .filter(([n]) => !names.has(n))
+      .map(([n, a]) => ({ text: a.text, name: n }));
     return [...listed, ...extra];
   }, []);
   const firstMissing = labels.find((e) => !HAND[e.name]);
@@ -34,7 +36,13 @@ export default function HandStudio() {
   const draft = useMemo(() => (written ? { ...written, scale } : null), [written, scale]);
   const savedScaled = useMemo(() => (saved ? { ...saved, scale } : null), [saved, scale]);
   // Other drawn labels to compare sizes with.
-  const others = useMemo(() => Object.entries(HAND).filter(([n]) => n !== name).slice(0, 4), [name]);
+  const others = useMemo(
+    () =>
+      Object.entries(HAND)
+        .filter(([n]) => n !== name)
+        .slice(0, 4),
+    [name],
+  );
   const onResult = useCallback((r) => setResult(r), []);
   const done = labels.filter((e) => HAND[e.name]).length;
 
@@ -75,8 +83,7 @@ export default function HandStudio() {
       <div className="studio-head">
         <h1>Handwriting studio</h1>
         <p className="muted">
-          {done} of {labels.length} labels drawn. Write the word on one ruled line, at the size you'd write it
-          in a letter; the line spacing sets its size next to text.
+          {done} of {labels.length} labels drawn. Write the word on one ruled line, at the size you'd write it in a letter; the line spacing sets its size next to text.
         </p>
       </div>
 
@@ -84,14 +91,25 @@ export default function HandStudio() {
         {labels.map((e) => (
           <li key={e.name}>
             <button type="button" aria-pressed={e.name === name} className={HAND[e.name] ? 'drawn' : undefined} onClick={() => pick(e)} title={e.name}>
-              {HAND[e.name] ? '✓ ' : ''}{e.text}{e.name !== handName(e.text) ? ` (${e.name})` : ''}
+              {HAND[e.name] ? '✓ ' : ''}
+              {e.text}
+              {e.name !== handName(e.text) ? ` (${e.name})` : ''}
             </button>
           </li>
         ))}
         <li>
-          <form className="row" onSubmit={(e) => { e.preventDefault(); pick(toEntry(custom.trim())); setCustom(''); }}>
+          <form
+            className="row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              pick(toEntry(custom.trim()));
+              setCustom('');
+            }}
+          >
             <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="another label…" />
-            <button type="submit" disabled={!custom.trim()}>Add</button>
+            <button type="submit" disabled={!custom.trim()}>
+              Add
+            </button>
           </form>
         </li>
       </ul>
@@ -99,7 +117,9 @@ export default function HandStudio() {
       <div className="studio-prompt">
         <span className="meta">write</span>
         <strong>{text}</strong>
-        <span className="meta">→ {name}.json{saved ? ' (drawn; saving replaces it)' : ''}</span>
+        <span className="meta">
+          → {name}.json{saved ? ' (drawn; saving replaces it)' : ''}
+        </span>
       </div>
 
       <Pad key={`${name}-${session}`} size={LABEL_PAGE} onResult={onResult} hint="Write it on one line. Zoom in for a finer hand." />
@@ -112,14 +132,24 @@ export default function HandStudio() {
               <div key={which} className="studio-sample">
                 <span className="meta">{which} · hover to replay</span>
                 <p className="row">
-                  <button type="button"><HandDrawn key={JSON.stringify(asset.s).length + which} asset={asset} label={text} /></button>
-                  <button type="button" className="primary"><HandDrawn asset={asset} label={text} /></button>
-                  <a href="#preview" onClick={(e) => e.preventDefault()}><HandDrawn asset={asset} label={text} /></a>
+                  <button type="button">
+                    <HandDrawn key={JSON.stringify(asset.s).length + which} asset={asset} label={text} />
+                  </button>
+                  <button type="button" className="primary">
+                    <HandDrawn asset={asset} label={text} />
+                  </button>
+                  <a href="#preview" onClick={(e) => e.preventDefault()}>
+                    <HandDrawn asset={asset} label={text} />
+                  </a>
                 </p>
-                <p style={{ fontSize: 28 }}><HandDrawn asset={asset} label={text} /> <span className="muted">next to text</span></p>
+                <p style={{ fontSize: 28 }}>
+                  <HandDrawn asset={asset} label={text} /> <span className="muted">next to text</span>
+                </p>
                 {others.length > 0 && (
                   <p className="studio-compare">
-                    {others.map(([n, a]) => <HandDrawn key={n} asset={a} label={a.text} />)}
+                    {others.map(([n, a]) => (
+                      <HandDrawn key={n} asset={a} label={a.text} />
+                    ))}
                     <HandDrawn asset={asset} label={text} />
                     <span className="meta">next to your other labels</span>
                   </p>
@@ -136,11 +166,19 @@ export default function HandStudio() {
             <input type="range" min="0.4" max="2.5" step="0.05" value={scale} onChange={(e) => setScale(Number(e.target.value))} />
             <output>{Math.round(scale * 100)}%</output>
           </label>
-          <button type="button" className="primary" disabled={!draft} onClick={() => save()}>Save {name}.json</button>
+          <button type="button" className="primary" disabled={!draft} onClick={() => save()}>
+            Save {name}.json
+          </button>
           {!draft && saved && (saved.scale ?? 1) !== scale && (
-            <button type="button" onClick={() => save(savedScaled)}>Save the new size</button>
+            <button type="button" onClick={() => save(savedScaled)}>
+              Save the new size
+            </button>
           )}
-          {nextMissing && <button type="button" onClick={() => pick(nextMissing)}>Next: {nextMissing.text} →</button>}
+          {nextMissing && (
+            <button type="button" onClick={() => pick(nextMissing)}>
+              Next: {nextMissing.text} →
+            </button>
+          )}
           {status && <span className="meta">{status}</span>}
         </div>
       </div>

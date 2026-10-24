@@ -19,7 +19,9 @@ async function load(userId) {
       try {
         const { sheet, seed } = JSON.parse(line);
         if (!m.has(sheet)) m.set(sheet, seed);
-      } catch { /* a damaged line: skipped */ }
+      } catch {
+        /* a damaged line: skipped */
+      }
     }
     cache.set(userId, m);
   }

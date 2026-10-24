@@ -31,12 +31,19 @@ export function makeFilm({ actsBytes, rec, paperKey, family, box }) {
   out.set(MAGIC, 0);
   out[4] = 1;
   let o = 5;
-  for (const v of box) { dv.setInt32(o, v, true); o += 4; }
-  dv.setUint16(o, FPS, true); o += 2;
-  dv.setUint32(o, step, true); o += 4;
-  dv.setUint32(o, frames.length, true); o += 4;
+  for (const v of box) {
+    dv.setInt32(o, v, true);
+    o += 4;
+  }
+  dv.setUint16(o, FPS, true);
+  o += 2;
+  dv.setUint32(o, step, true);
+  o += 4;
+  dv.setUint32(o, frames.length, true);
+  o += 4;
   for (const tiles of frames) {
-    dv.setUint32(o, tiles.length, true); o += 4;
+    dv.setUint32(o, tiles.length, true);
+    o += 4;
     for (const t of tiles) {
       dv.setInt32(o, t.tx, true);
       dv.setInt32(o + 4, t.ty, true);

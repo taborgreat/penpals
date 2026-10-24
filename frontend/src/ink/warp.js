@@ -71,16 +71,15 @@ export function warpPage(photo, corners, outWidth, outHeight, { rotate = 0 } = {
   const a = (rotate * Math.PI) / 180;
   const cos = Math.cos(a);
   const sin = Math.sin(a);
-  const zoom = Math.max(
-    (outWidth * Math.abs(cos) + outHeight * Math.abs(sin)) / outWidth,
-    (outWidth * Math.abs(sin) + outHeight * Math.abs(cos)) / outHeight,
-  );
+  const zoom = Math.max((outWidth * Math.abs(cos) + outHeight * Math.abs(sin)) / outWidth, (outWidth * Math.abs(sin) + outHeight * Math.abs(cos)) / outHeight);
   const cx = outWidth / 2;
   const cy = outHeight / 2;
   let o = 0;
   for (let v = 0; v < outHeight; v++) {
     for (let u = 0; u < outWidth; u++, o += 4) {
-      let r = 0, g = 0, b = 0;
+      let r = 0,
+        g = 0,
+        b = 0;
       for (let j = 0; j < offsets.length; j++) {
         const V0 = v + offsets[j];
         for (let k = 0; k < offsets.length; k++) {

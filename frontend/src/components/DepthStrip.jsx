@@ -47,7 +47,9 @@ export default function DepthStrip({ ink }) {
     <figure className="depth-view live">
       <canvas ref={ref} hidden={!pic} />
       <figcaption className="meta">
-        {pic ? 'Through the paper along your last line: the bead standing while it is wet, the ink sinking in, dents and ridges.' : 'Write something: a cut through the paper along your last line shows here.'}
+        {pic
+          ? 'Through the paper along your last line: the bead standing while it is wet, the ink sinking in, dents and ridges.'
+          : 'Write something: a cut through the paper along your last line shows here.'}
       </figcaption>
     </figure>
   );

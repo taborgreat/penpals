@@ -13,7 +13,10 @@ test('RFC 9497 A.1.1 (ristretto255-SHA512, OPRF mode): key and outputs', () => {
   const kp = o.deriveKeyPair(fromHex('a3'.repeat(32)), new TextEncoder().encode('test key'));
   assert.equal(hex(kp.secretKey), '5ebcea5ee37023ccb9fc2d2019f9d7737be85591ae8652ffa9ef0f4d37063b0e');
   assert.equal(hex(o.evaluate(kp.secretKey, fromHex('00'))), '527759c3d9366f277d8c6020418d96bb393ba2afb20ff90df23fb7708264e2f3ab9135e3bd69955851de4b1f9fe8a0973396719b7912ba9ee8aa7d0b5e24bcf6');
-  assert.equal(hex(o.evaluate(kp.secretKey, fromHex('5a'.repeat(17)))), 'f4a74c9c592497375e796aa837e907b1a045d34306a749db9f34221f7e750cb4f2a6413a6bf6fa5e19ba6348eb673934a722a7ede2e7621306d18951e7cf2c73');
+  assert.equal(
+    hex(o.evaluate(kp.secretKey, fromHex('5a'.repeat(17)))),
+    'f4a74c9c592497375e796aa837e907b1a045d34306a749db9f34221f7e750cb4f2a6413a6bf6fa5e19ba6348eb673934a722a7ede2e7621306d18951e7cf2c73',
+  );
   // and the blinded round trip gives the same as evaluating directly
   const input = U.unlockInput('ana', new Uint8Array(rBits()).fill(1), 'correct horse');
   const { blind, blinded } = U.blindInput(input);
@@ -111,7 +114,7 @@ test('a keyring may open without a password: the flag travels with it, older key
   assert.equal(U.usesPassword(locked), true);
   assert.equal(U.openKeyring(locked, 'ana', open('')), null, 'with the backup on, the hand alone opens nothing');
   // the flag survives the server's shape check; a keyring from before it counts as passworded
-  const legacy = { ...locked, openers: locked.openers.map(({ password, ...o }) => o) };
+  const legacy = { ...locked, openers: locked.openers.map(({ password: _password, ...o }) => o) };
   assert.equal(U.usesPassword(legacy), true);
   assert.equal(U.checkKeyring(U.newKeyring('ana', K, new Uint8Array(32), U.newKdf(), { password: false })).openers[0].password, false);
 });

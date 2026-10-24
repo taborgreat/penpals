@@ -51,12 +51,20 @@ function run(flow) {
 
 const mean = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
 
-for (const [flow, settledBy] of [[7, 2], [15, 10]]) {
+for (const [flow, settledBy] of [
+  [7, 2],
+  [15, 10],
+]) {
   test(`a minute-long stroke at flow ${flow}: flat work once its oldest ink has dried`, () => {
     const s = run(flow);
     const early = s.slice(settledBy, settledBy + 10);
     const late = s.slice(50, 60);
-    console.log(`flow ${flow}: per second of writing ${s.filter((_, k) => k % 10 === 0 || k === 59).map((x) => `${x.ms.toFixed(0)} ms / ${x.active.toFixed(0)} active / ${x.sent.toFixed(0)} sent`).join(' · ')}`);
+    console.log(
+      `flow ${flow}: per second of writing ${s
+        .filter((_, k) => k % 10 === 0 || k === 59)
+        .map((x) => `${x.ms.toFixed(0)} ms / ${x.active.toFixed(0)} active / ${x.sent.toFixed(0)} sent`)
+        .join(' · ')}`,
+    );
     assert.ok(mean(late.map((x) => x.active)) <= 1.15 * mean(early.map((x) => x.active)), 'tiles walked per tick keep growing');
     assert.ok(mean(late.map((x) => x.sent)) <= 1.15 * mean(early.map((x) => x.sent)) + 1, 'tiles sent per frame keep growing');
     assert.ok(Math.max(...late.map((x) => x.active)) < 200, 'the active set stays a trail, not the page');

@@ -71,12 +71,24 @@ function compose(canvas, width, height, inkLayer, paper) {
 export function paintLetter(canvas, ink, { inkColor = '#1a1a1a', paper = 'plain' } = {}) {
   const width = ink.naturalWidth || ink.width;
   const height = ink.naturalHeight || ink.height;
-  compose(canvas, width, height, tinted(width, height, (ctx) => ctx.drawImage(ink, 0, 0), inkColor), paper);
+  compose(
+    canvas,
+    width,
+    height,
+    tinted(width, height, (ctx) => ctx.drawImage(ink, 0, 0), inkColor),
+    paper,
+  );
 }
 
 // Strokes onto paper, optionally only what was written by `until` ms.
 export function paintStrokes(canvas, data, { inkColor = '#1a1a1a', paper = 'plain', until = Infinity } = {}) {
-  compose(canvas, data.width, data.height, tinted(data.width, data.height, (ctx) => renderStrokes(ctx, data, { until }), inkColor), paper);
+  compose(
+    canvas,
+    data.width,
+    data.height,
+    tinted(data.width, data.height, (ctx) => renderStrokes(ctx, data, { until }), inkColor),
+    paper,
+  );
 }
 
 const lastT = (s) => s.points[s.points.length - 1].t;
@@ -112,10 +124,15 @@ export function createPlayer(canvas, { data, ink = null }, { inkColor = '#1a1a1a
       renderStrokes(dctx, { width, height, strokes: [data.strokes[doneCount]] });
       doneCount++;
     }
-    const layer = tinted(width, height, (ctx) => {
-      ctx.drawImage(done, 0, 0);
-      if (doneCount < data.strokes.length) renderStrokes(ctx, { width, height, strokes: [data.strokes[doneCount]] }, { until });
-    }, inkColor);
+    const layer = tinted(
+      width,
+      height,
+      (ctx) => {
+        ctx.drawImage(done, 0, 0);
+        if (doneCount < data.strokes.length) renderStrokes(ctx, { width, height, strokes: [data.strokes[doneCount]] }, { until });
+      },
+      inkColor,
+    );
     compose(canvas, width, height, layer, paper);
   };
 

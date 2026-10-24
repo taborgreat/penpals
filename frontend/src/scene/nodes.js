@@ -21,7 +21,40 @@
 
 import * as THREE from 'three';
 import { MeshBasicNodeMaterial, NodeMaterial, SpriteNodeMaterial } from 'three/webgpu';
-import { Fn, If, Loop, Discard, select, uniform, uniformArray, texture, uv, positionLocal, positionWorld, normalWorld, cameraPosition, vec2, vec3, vec4, float, mix, clamp, normalize, dot, max, min, abs, pow, length, mod, floor, fract, step, sqrt, smoothstep } from 'three/tsl';
+import {
+  Fn,
+  If,
+  Loop,
+  Discard,
+  select,
+  uniform,
+  uniformArray,
+  texture,
+  uv,
+  positionLocal,
+  positionWorld,
+  normalWorld,
+  cameraPosition,
+  vec2,
+  vec3,
+  vec4,
+  float,
+  mix,
+  clamp,
+  normalize,
+  dot,
+  max,
+  min,
+  abs,
+  pow,
+  length,
+  mod,
+  floor,
+  fract,
+  step,
+  sqrt,
+  smoothstep,
+} from 'three/tsl';
 
 export { WebGPURenderer, ClippingGroup } from 'three/webgpu';
 
@@ -34,15 +67,26 @@ function between(T, q, n, L) {
   const st = q.mul(n).sub(0.5);
   const i = floor(st);
   const f = fract(st);
-  const f2 = f.mul(f), f3 = f2.mul(f);
+  const f2 = f.mul(f),
+    f3 = f2.mul(f);
   const w0 = f3.negate().add(f2.mul(3)).sub(f.mul(3)).add(1).div(6);
   const w1 = f3.mul(3).sub(f2.mul(6)).add(4).div(6);
   const w2 = f3.mul(-3).add(f2.mul(3)).add(f.mul(3)).add(1).div(6);
   const w3 = f3.div(6);
-  const g0 = w0.add(w1), g1 = w2.add(w3);
-  const h0 = w1.div(g0).sub(0.5).add(i).div(n), h1 = w3.div(g1).add(1.5).add(i).div(n);
-  const smooth = at(T, vec2(h0.x, h0.y)).mul(g0.x).add(at(T, vec2(h1.x, h0.y)).mul(g1.x)).mul(g0.y)
-    .add(at(T, vec2(h0.x, h1.y)).mul(g0.x).add(at(T, vec2(h1.x, h1.y)).mul(g1.x)).mul(g1.y));
+  const g0 = w0.add(w1),
+    g1 = w2.add(w3);
+  const h0 = w1.div(g0).sub(0.5).add(i).div(n),
+    h1 = w3.div(g1).add(1.5).add(i).div(n);
+  const smooth = at(T, vec2(h0.x, h0.y))
+    .mul(g0.x)
+    .add(at(T, vec2(h1.x, h0.y)).mul(g1.x))
+    .mul(g0.y)
+    .add(
+      at(T, vec2(h0.x, h1.y))
+        .mul(g0.x)
+        .add(at(T, vec2(h1.x, h1.y)).mul(g1.x))
+        .mul(g1.y),
+    );
   const crisp = at(T, floor(q.mul(n)).add(0.5).div(n));
   return mix(smooth, crisp, L.crisp);
 }
@@ -91,8 +135,14 @@ export function lightUniforms(paper, dropPx) {
     dropPx: uniform(dropPx), // page px a drop of height (the relief's exaggeration in it)
     crisp: uniform(0), // the page close up: 1 crisp cells, 0 smooth (bicubic)
     // sheets of paper lying on the table, and on the page (world x0, y0, x1, y1): their shadows
-    rests: uniformArray(Array.from({ length: RESTS }, () => new THREE.Vector4(0, 0, 0, 0)), 'vec4'),
-    onPage: uniformArray(Array.from({ length: RESTS }, () => new THREE.Vector4(0, 0, 0, 0)), 'vec4'),
+    rests: uniformArray(
+      Array.from({ length: RESTS }, () => new THREE.Vector4(0, 0, 0, 0)),
+      'vec4',
+    ),
+    onPage: uniformArray(
+      Array.from({ length: RESTS }, () => new THREE.Vector4(0, 0, 0, 0)),
+      'vec4',
+    ),
     thick: uniform(3), // a sheet's thickness, page px
   };
   L.candleAt = L.candlePos.value.map((v) => uniform(v));
@@ -151,26 +201,36 @@ export function surfaceBake(L, K, c = null) {
   const detail = detailOf(u, K);
   const texel = 1 / K.TEXN;
   const hPx = (q) => at(u.H, q).r.mul(L.dropPx).add(detail(q).mul(DETAIL_PX)); // height, page px
-  return bakeMaterial(Fn(() => {
-    const q = uv().toVar();
-    // a groove is smooth even where the nib pressed unevenly cell by cell: 3 × 3 cells
-    const sum = float(0).toVar();
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) sum.addAssign(at(u.H, q.add(vec2(dx * texel, dy * texel))).r);
-    // the normal over a few cells (page y runs down the texture, world y up)
-    const gx = hPx(q.add(vec2(3 * texel, 0))).sub(hPx(q.sub(vec2(3 * texel, 0))));
-    const gy = hPx(q.add(vec2(0, 3 * texel))).sub(hPx(q.sub(vec2(0, 3 * texel))));
-    const n = normalize(vec3(gx.negate().div(u.cellPx.mul(6)), gy.div(u.cellPx.mul(6)), 1)).toVar();
-    // how open to the sky: the steepest rise around, in eight directions
-    const h0 = hPx(q).toVar();
-    const shut = float(0).toVar();
-    for (let k = 0; k < 8; k++) {
-      const d = [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)];
-      const rise = float(0).toVar();
-      for (const r of [2, 4, 8]) rise.assign(max(rise, hPx(q.add(vec2(d[0] * r * texel, d[1] * r * texel))).sub(h0).div(u.cellPx.mul(r))));
-      shut.addAssign(clamp(rise, 0, 1));
-    }
-    return vec4(sum.div(9), n.x, n.y, float(1).sub(shut.mul(0.6 / 8)));
-  })());
+  return bakeMaterial(
+    Fn(() => {
+      const q = uv().toVar();
+      // a groove is smooth even where the nib pressed unevenly cell by cell: 3 × 3 cells
+      const sum = float(0).toVar();
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) sum.addAssign(at(u.H, q.add(vec2(dx * texel, dy * texel))).r);
+      // the normal over a few cells (page y runs down the texture, world y up)
+      const gx = hPx(q.add(vec2(3 * texel, 0))).sub(hPx(q.sub(vec2(3 * texel, 0))));
+      const gy = hPx(q.add(vec2(0, 3 * texel))).sub(hPx(q.sub(vec2(0, 3 * texel))));
+      const n = normalize(vec3(gx.negate().div(u.cellPx.mul(6)), gy.div(u.cellPx.mul(6)), 1)).toVar();
+      // how open to the sky: the steepest rise around, in eight directions
+      const h0 = hPx(q).toVar();
+      const shut = float(0).toVar();
+      for (let k = 0; k < 8; k++) {
+        const d = [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)];
+        const rise = float(0).toVar();
+        for (const r of [2, 4, 8])
+          rise.assign(
+            max(
+              rise,
+              hPx(q.add(vec2(d[0] * r * texel, d[1] * r * texel)))
+                .sub(h0)
+                .div(u.cellPx.mul(r)),
+            ),
+          );
+        shut.addAssign(clamp(rise, 0, 1));
+      }
+      return vec4(sum.div(9), n.x, n.y, float(1).sub(shut.mul(0.6 / 8)));
+    })(),
+  );
 }
 
 // The shade: how lit toward (the sun, candle 1, candle 2); 1 where nothing is in the way.
@@ -191,7 +251,9 @@ export function shadeBake(L, K, c = null) {
       const t = float(1.2).toVar();
       Loop(16, () => {
         const q = clamp(q0.add(dirUv.mul(t)), vec2(0), vec2(1));
-        const over = hPx(q).sub(h0.add(0.02).add(slope.mul(t))).toVar();
+        const over = hPx(q)
+          .sub(h0.add(0.02).add(slope.mul(t)))
+          .toVar();
         If(over.greaterThan(0), () => {
           lit.subAssign(clamp(over.mul(0.9), 0, 0.35));
         });
@@ -201,16 +263,18 @@ export function shadeBake(L, K, c = null) {
     });
     return lit;
   };
-  return bakeMaterial(Fn(() => {
-    const q = uv().toVar();
-    const h0 = hPx(q).toVar();
-    // where this cell is in the world (for the candles, which are points)
-    const core = q.mul(K.TEXN).sub(K.APRON).div(K.CHUNK);
-    const here = vec3(u.origin.x.add(core.x.mul(u.size)), u.origin.y.sub(core.y.mul(u.size)), h0);
-    const lit = [march(q, h0, normalize(L.sunDir))];
-    for (const pos of L.candleAt) lit.push(march(q, h0, normalize(pos.sub(here))));
-    return vec4(lit[0], lit[1], lit[2], 1);
-  })());
+  return bakeMaterial(
+    Fn(() => {
+      const q = uv().toVar();
+      const h0 = hPx(q).toVar();
+      // where this cell is in the world (for the candles, which are points)
+      const core = q.mul(K.TEXN).sub(K.APRON).div(K.CHUNK);
+      const here = vec3(u.origin.x.add(core.x.mul(u.size)), u.origin.y.sub(core.y.mul(u.size)), h0);
+      const lit = [march(q, h0, normalize(L.sunDir))];
+      for (const pos of L.candleAt) lit.push(march(q, h0, normalize(pos.sub(here))));
+      return vec4(lit[0], lit[1], lit[2], 1);
+    })(),
+  );
 }
 
 // --- drawn ---
@@ -300,7 +364,9 @@ export function flameMaterial() {
     const body = smoothstep(0.62, 0.18, r);
     const core = smoothstep(0.3, 0.02, r);
     const glow = smoothstep(1.1, 0.2, length(uv().sub(vec2(0.5, 0.4)).mul(vec2(1.6, 1.1)))).mul(0.25);
-    const col = mix(vec3(1, 0.42, 0.08), vec3(1, 0.93, 0.7), core).mul(body).add(vec3(1, 0.55, 0.2).mul(glow));
+    const col = mix(vec3(1, 0.42, 0.08), vec3(1, 0.93, 0.7), core)
+      .mul(body)
+      .add(vec3(1, 0.55, 0.2).mul(glow));
     return vec4(col.mul(brightness), body.add(glow).clamp(0, 1).mul(brightness));
   })();
   m.brightness = brightness;
@@ -324,7 +390,14 @@ function lit(base, n, open, shade, wet, V, L, band) {
     const dist = length(toC);
     const Lc = toC.div(dist).toVar();
     const att = (i === 0 ? L.candleInt.x : L.candleInt.y).div(float(1).add(pow(dist.div(900), 2).mul(2))).toVar();
-    col.addAssign(base.mul(L.candleColor).mul(max(dot(n, Lc), 0)).mul(att).mul(i === 0 ? shade.y : shade.z).mul(L.ambient.oneMinus()));
+    col.addAssign(
+      base
+        .mul(L.candleColor)
+        .mul(max(dot(n, Lc), 0))
+        .mul(att)
+        .mul(i === 0 ? shade.y : shade.z)
+        .mul(L.ambient.oneMinus()),
+    );
     If(wet.greaterThan(0.5), () => {
       spec.addAssign(pow(max(dot(n, normalize(Lc.add(V))), 0), 60).mul(att));
     });

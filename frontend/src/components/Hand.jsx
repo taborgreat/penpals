@@ -130,7 +130,9 @@ export function HandDrawn({ asset, label, size = LINE_EM, fit = null, writeIn = 
     } else {
       draw(1);
     }
-    const unsize = onResize(box, () => { if (!isPlaying(player)) draw(shown); });
+    const unsize = onResize(box, () => {
+      if (!isPlaying(player)) draw(shown);
+    });
     // A new theme means new colours; 'penpals:recolor' is for anything else that
     // changes colours without a hover (e.g. a tab becoming the chosen one).
     const scheme = window.matchMedia?.('(prefers-color-scheme: dark)');
@@ -168,25 +170,13 @@ export function HandDrawn({ asset, label, size = LINE_EM, fit = null, writeIn = 
   // link. The box is the drawing's own size, with its baseline on the text's.
   if (fit) {
     return (
-      <span
-        ref={boxRef}
-        className="hand fit"
-        role="img"
-        aria-label={label}
-        style={{ width: `${((fit * asset.w) / asset.h).toFixed(4)}em`, aspectRatio: `${asset.w} / ${asset.h}` }}
-      >
+      <span ref={boxRef} className="hand fit" role="img" aria-label={label} style={{ width: `${((fit * asset.w) / asset.h).toFixed(4)}em`, aspectRatio: `${asset.w} / ${asset.h}` }}>
         <canvas ref={canvasRef} style={BLEED_STYLE} />
       </span>
     );
   }
   return (
-    <span
-      ref={boxRef}
-      className="hand"
-      role="img"
-      aria-label={label}
-      style={{ width: em(asset.w), height: em(asset.h), verticalAlign: `-${em(asset.h - asset.base)}` }}
-    >
+    <span ref={boxRef} className="hand" role="img" aria-label={label} style={{ width: em(asset.w), height: em(asset.h), verticalAlign: `-${em(asset.h - asset.base)}` }}>
       <canvas ref={canvasRef} style={BLEED_STYLE} />
     </span>
   );

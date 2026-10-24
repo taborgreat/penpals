@@ -69,7 +69,9 @@ export function quantize(clock, pt, hasP, first) {
     p: hasP ? Math.min(255, Math.max(1, Math.round((pt.p ?? 0.5) * 255))) : null,
   };
 }
-const endClockStroke = (clock) => { clock.prevEnd = clock.last; };
+const endClockStroke = (clock) => {
+  clock.prevEnd = clock.last;
+};
 
 // `live`: queue what becomes final for a live sheet (drain()); off, nothing is kept for one.
 export function createCapture({ now = () => performance.now(), pen: startPen = null, live = false } = {}) {
@@ -80,7 +82,9 @@ export function createCapture({ now = () => performance.now(), pen: startPen = n
   let pen = startPen;
   let clock = newClock();
   let ops = []; // for the live sheet: what became final since the last drain (live only)
-  const queue = (...o) => { if (live) ops.push(...o); };
+  const queue = (...o) => {
+    if (live) ops.push(...o);
+  };
   let fed = 0; // points of `cur` already quantized and queued
   let flex = null; // { slant (deg), swell (page units) } while the pen is a flex nib
 
@@ -178,16 +182,25 @@ export function createCapture({ now = () => performance.now(), pen: startPen = n
   };
 
   return {
-    get strokes() { return strokes; },
-    get drawing() { return cur; },
-    get pen() { return pen; },
+    get strokes() {
+      return strokes;
+    },
+    get drawing() {
+      return cur;
+    },
+    get pen() {
+      return pen;
+    },
     down(pt, ev, type = ev?.pointerType ?? 'mouse') {
       if (cur) this.up(pt, ev);
       let t = ev && Number.isFinite(ev.timeStamp) && ev.timeStamp > 0 ? ev.timeStamp : now();
       if (t <= lastT) t = lastT + 1;
       const synthP = type !== 'pen' && !!flex && pen?.nib === 1;
       cur = {
-        type, kind: KINDS[type] ?? 3, hasP: type === 'pen' || synthP, synthP,
+        type,
+        kind: KINDS[type] ?? 3,
+        hasP: type === 'pen' || synthP,
+        synthP,
         points: [{ x: pt.x, y: pt.y, t, p: pressureOf(ev, type) }],
         pens: [[0, pen]],
         clock0: { ...clock },
@@ -295,11 +308,13 @@ export function strokesToActs(list, pen, { margin = 2 } = {}) {
     endClockStroke(clock);
     return pts;
   });
-  let minX = Infinity, minY = Infinity;
-  for (const pts of recs) for (const p of pts) {
-    if (p.x < minX) minX = p.x;
-    if (p.y < minY) minY = p.y;
-  }
+  let minX = Infinity,
+    minY = Infinity;
+  for (const pts of recs)
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+    }
   const orgX = Math.max(0, Math.floor(minX / 10) - margin);
   const orgY = Math.max(0, Math.floor(minY / 10) - margin);
   let carried = null;
@@ -326,5 +341,13 @@ export function strokesToActs(list, pen, { margin = 2 } = {}) {
   return encodeActs({ orgX, orgY, strokes: out });
 }
 
-const samePen = (a, b) => a.nib === b.nib && a.size === b.size && a.flex === b.flex && a.flow === b.flow && a.angle === b.angle
-  && a.rgb[0] === b.rgb[0] && a.rgb[1] === b.rgb[1] && a.rgb[2] === b.rgb[2] && a.spatter === b.spatter;
+const samePen = (a, b) =>
+  a.nib === b.nib &&
+  a.size === b.size &&
+  a.flex === b.flex &&
+  a.flow === b.flow &&
+  a.angle === b.angle &&
+  a.rgb[0] === b.rgb[0] &&
+  a.rgb[1] === b.rgb[1] &&
+  a.rgb[2] === b.rgb[2] &&
+  a.spatter === b.spatter;

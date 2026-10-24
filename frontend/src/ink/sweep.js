@@ -11,7 +11,12 @@ const shear = (p, tilt) => p.y - p.x * tilt;
 
 function measure(stroke, tilt) {
   const pts = stroke.points;
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, sumR = 0, length = 0;
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity,
+    sumR = 0,
+    length = 0;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     if (p.x < minX) minX = p.x;
@@ -93,7 +98,11 @@ function geometryFromStrokes(data) {
     const pitch = median(gaps);
     let worst = -1;
     let worstGap = Infinity;
-    for (let i = 0; i < gaps.length; i++) if (gaps[i] < worstGap) { worstGap = gaps[i]; worst = i; }
+    for (let i = 0; i < gaps.length; i++)
+      if (gaps[i] < worstGap) {
+        worstGap = gaps[i];
+        worst = i;
+      }
     if (worstGap >= 0.55 * pitch) break;
     // drop whichever end of the small gap has the shallower valley
     const a = rows[worst] + margin;
@@ -110,9 +119,7 @@ export function layoutStrokes(data) {
   const geometry = data.rows?.length ? { tilt: data.tilt ?? 0, rows: data.rows } : geometryFromStrokes(data);
   const { tilt, rows } = geometry;
   const stats = data.strokes.map((s) => measure(s, tilt));
-  const spacing = rows.length >= 2
-    ? median(rows.slice(1).map((r, i) => r - rows[i]))
-    : Math.max(24, 2 * median(stats.map((s) => s.maxY - s.minY)));
+  const spacing = rows.length >= 2 ? median(rows.slice(1).map((r, i) => r - rows[i])) : Math.max(24, 2 * median(stats.map((s) => s.maxY - s.minY)));
 
   const bands = Array.from({ length: rows.length + 1 }, () => ({ items: [], words: [] }));
   stats.forEach((s, i) => {
@@ -148,7 +155,10 @@ export function layoutStrokes(data) {
       let bestD = Infinity;
       for (const w of band.words) {
         const d = cx < w.minX ? w.minX - cx : cx > w.maxX ? cx - w.maxX : 0;
-        if (d < bestD) { bestD = d; best = w; }
+        if (d < bestD) {
+          bestD = d;
+          best = w;
+        }
       }
       if (best && bestD <= spacing) {
         best.satellites.push(i);

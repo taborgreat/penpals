@@ -84,7 +84,10 @@ usersRouter.post('/:username/friend', requireAuth, async (req, res) => {
 });
 
 const unfriend = (A, B) => {
-  for (const [x, y] of [[A, B], [B, A]]) {
+  for (const [x, y] of [
+    [A, B],
+    [B, A],
+  ]) {
     x.friends = without(x.friends, y.id);
     x.incoming = without(x.incoming, y.id);
     x.outgoing = without(x.outgoing, y.id);
@@ -114,6 +117,9 @@ usersRouter.post('/:username/block', requireAuth, async (req, res) => {
 usersRouter.delete('/:username/block', requireAuth, async (req, res) => {
   const them = other(req, res);
   if (!them) return;
-  if (them.id !== req.user.id) await updateTwo(req.user.id, them.id, (A) => { A.blocked = without(A.blocked, them.id); });
+  if (them.id !== req.user.id)
+    await updateTwo(req.user.id, them.id, (A) => {
+      A.blocked = without(A.blocked, them.id);
+    });
   res.json({ ok: true });
 });
