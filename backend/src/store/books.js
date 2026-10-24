@@ -173,6 +173,17 @@ export function landInk(userId, { line, D, seed, then, base }) {
   });
 }
 
+// Lines of other kinds (a shared sheet's birth and its stamped acts, store/shared.js),
+// appended under the book's lock. → the lines as written (with their ids).
+export function appendLines(userId, list) {
+  return serial(lock(userId), async () => {
+    const c = await getChain(userId);
+    const out = [];
+    for (const fields of list) out.push(await appendChain(userId, c, fields));
+    return out;
+  });
+}
+
 // Publishing a sheet's seed later: an open line, signed open by the key.
 export function landOpen(userId, { sheet, seed, by }) {
   return serial(lock(userId), async () => {

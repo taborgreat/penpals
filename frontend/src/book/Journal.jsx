@@ -20,6 +20,8 @@ import FilmDownload from '../components/FilmDownload.jsx';
 import { fromB64url } from 'penpals-law';
 import { roomSeedsOf } from '../room/seeds.js';
 import { createWallInk } from '../room/wallInk.js';
+import { useTogether } from '../room/together.js';
+import TogetherBar from '../room/TogetherBar.jsx';
 
 // The living journal (books.md, Part B; keys.md): a book of handwritten pages.
 // The owner writes anything anywhere (each piece a sheet of the law's paper,
@@ -32,7 +34,8 @@ import { createWallInk } from '../room/wallInk.js';
 // surfaces are its pages too (rooms.md §1, §2): their walls, floor, ceiling and
 // table, grown from their key, carry what they wrote there. The owner writes on
 // a surface from Look, the pen pointed at it (room/wallInk.js); `timeZone` is
-// the room's own clock.
+// the room's own clock. Others in the room are there with you, and shared
+// sheets lie on its table to write on together (rooms.md §4–§6, room/together.js).
 const WRITE_PAD = { width: 1000, height: 470 }; // writing is placed at the size it was written on a page-wide pad
 const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c.light }));
 const BACKGROUNDS = ['#f6f1e7', '#ffffff', '#f2e8d0', '#e8eef6', '#f6e6e6', '#e7f1e6', '#2b2a33', '#1f2a40'];
@@ -67,6 +70,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const [wallBusy, setWallBusy] = useState(false);
   const [reading, setReading] = useState(false); // the book pulled down from the shelf, to flip through
   const [gazeAt, setGazeAt] = useState(null); // a door to a surface was followed: { surface, n } (the head turns to it)
+  const [tableColor, setTableColor] = useState(INK_COLORS[0].hex); // the pen on shared sheets
   const navigate = useNavigate();
   // Through a door (rooms.md §3): to a page of this book, to a surface of this room
   // (the head turns to it), or into someone's room (entering their space).
@@ -188,9 +192,18 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   );
   // the shelf: the owner's own book (their journal), until Tabor rules which others stand there
   const shelf = useMemo(() => ({ books: [{ id: 'journal', color: clothOf(seeds) }], onOpen: () => setReading(true) }), [seeds]);
+  // together in this room: who else is here, the shared sheets on its table
+  const together = useTogether({
+    name: fromFile ? null : name,
+    key,
+    me: user?.username ?? null,
+    mine: !!key && key.publicKey === book.key,
+    pageW: (book.page ?? DEFAULT_PAGE).width,
+    color: tableColor,
+  });
   const room = useMemo(
-    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, timeZone, wallWriter, live: wall ? [wall.mark] : [], shelf, follow, gazeAt }),
-    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf, follow, gazeAt],
+    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, timeZone, wallWriter, live: wall ? [wall.mark] : [], shelf, follow, gazeAt, together: together.scene }),
+    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf, follow, gazeAt, together.scene],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
@@ -198,7 +211,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   if (book.status === 'error') return <p className="error">Could not open the book: {book.error}</p>;
   const size = book.page ?? DEFAULT_PAGE;
   // Nothing written in the whole book yet, on a page or in the room: visitors see nothing rather than a blank page.
-  if (!editable && Object.values(skeleton.pages).every((p) => !p.items.length) && Object.values(skeleton.surfaces ?? {}).every((f) => !f.items.length)) return null; // (writing on the room's surfaces counts)
+  if (!editable && !together.sheets.length && Object.values(skeleton.pages).every((p) => !p.items.length) && Object.values(skeleton.surfaces ?? {}).every((f) => !f.items.length)) return null; // (writing on the room's surfaces counts, and sheets on its table)
   const missing = pageId && !skeleton.pages[pageId];
 
   function newPage() {
@@ -393,6 +406,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       )}
       {missing && <p className="muted">There is no page "{pageId}" in this book, so here is the first page.</p>}
 
+      {!fromFile && <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={tableColor} onColor={setTableColor} />}
       <JournalPage
         pageId={current}
         page={page}

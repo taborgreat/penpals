@@ -1,10 +1,15 @@
-// Your room (rooms.md Phase 1), in a real browser, the way a person goes:
+// Your room (rooms.md Phases 1 to 3), in a real browser, the way a person goes:
 // the lobby, seen in black and white; registering on its paper; the eye closing
 // and opening in your own room, where colour comes in; looking around (Look),
 // pulling your book down from the shelf, writing on a wall and placing it there,
-// where it stays: a sheet of the book, on the wall.
-//   node frontend/e2e/room.mjs            through a Vite dev server (and a backend on a fresh data dir)
-//   node frontend/e2e/room.mjs --webgpu   in the full Chromium on this machine's GPU
+// where it stays: a sheet of the book, on the wall. Then visiting (another person,
+// in their own browser): reading the wall, the book, a door. Then together: a
+// shared sheet laid on the other's table, both writing on it, one stamper, both
+// screens growing it to the same facts; a lift; taken back.
+//   node frontend/e2e/room.mjs                 through a Vite dev server (and a backend on a fresh
+//                                              data dir), in the full Chromium on this machine's GPU
+//   node frontend/e2e/room.mjs --swiftshader   drawn on the CPU instead (slow: two people's rooms at
+//                                              once can take the browser down on SwiftShader)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -185,13 +190,17 @@ const marksIn =
   };
 const PX_PER_M = 1400 / 0.2159;
 
-const webgpu = process.argv.includes('--webgpu');
-const browser = await chromium.launch(webgpu ? { channel: 'chromium', args: ['--enable-unsafe-webgpu'] } : { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const onCpu = process.argv.includes('--swiftshader'); // SwiftShader, on the CPU (else the GPU)
+const launch = () =>
+  chromium.launch(onCpu ? { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-watchdog'] } : { channel: 'chromium', args: ['--enable-unsafe-webgpu'] });
+const browser = await launch();
+let browser2 = null; // the other person: their own browser (two people, two machines)
 let failed = null;
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   const page = await context.newPage();
   page.on('pageerror', (err) => console.log('  [page error]', err.message));
+  page.on('crash', () => console.log('  [page crashed]'));
   page.on('console', (m) => {
     if (m.type() === 'error') console.log('  [console error]', m.text());
   });
@@ -200,6 +209,7 @@ try {
   step('the lobby: the room everyone comes in by, seen in black and white');
   await page.locator('.lobby-scene[data-gpu]').waitFor({ timeout: 60000 });
   await page.waitForTimeout(2500); // the room's light settles, the eye on it
+  await page.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-lobby.png') });
   const lobby = await onScreen(page, '.lobby-scene', colourOf);
   console.log(`   colour spread ${lobby.spread.toFixed(1)}, brightness ${lobby.lum.toFixed(0)}`);
   if (lobby.spread > 2.5) throw new Error(`the lobby is not in black and white (spread ${lobby.spread.toFixed(1)})`);
@@ -292,10 +302,12 @@ try {
   console.log(`   (a picture: ${path.join(os.tmpdir(), 'penpals-e2e-room.png')})`);
 
   step("a door: the writing on the wall made a way into someone else's room");
-  const other = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  browser2 = await launch();
+  const other = await browser2.newContext({ viewport: { width: 1280, height: 1000 } });
   const guest = await other.newPage();
   guest.on('pageerror', (err) => console.log('  [guest page error]', err.message));
-  guest.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && console.log('  [guest console]', m.text()));
+  guest.on('crash', () => console.log('  [guest crashed]'));
+  guest.on('console', (m) => m.type() === 'error' && console.log('  [guest console]', m.text()));
   await guest.goto(base);
   await guest.locator('.lobby-scene[data-gpu]').waitFor({ timeout: 60000 });
   await register(guest, 'bo');
@@ -358,15 +370,123 @@ try {
   await guest.mouse.click(...gmid);
   await guest.waitForURL(/\/u\/bo$/, { timeout: 15000 });
   console.log("   through the door: into bo's room");
+
+  step("together: tabor makes a shared sheet on his table and lays it on bo's");
+  const bar = (p) => p.locator('.together');
+  await bar(page).getByRole('button', { name: '+ A shared sheet' }).click();
+  const made = bar(page).locator('.shared-sheet').first();
+  await made.waitFor({ timeout: 15000 });
+  const sheetId = await made.getAttribute('data-sheet');
+  page.once('dialog', (d) => d.accept('bo'));
+  await made.getByRole('button', { name: 'Lay it on…' }).click();
+  await bar(page).locator(`.shared-sheet.away[data-sheet="${sheetId}"]`).waitFor({ timeout: 15000 });
+  console.log(`   ${await bar(page).locator('.shared-sheet.away .meta').first().textContent()}`);
+
+  // a line across the middle of the view, as a hand writes it
+  const across = (a, b, n = 28) => [[...Array(n).keys()].map((i) => [a[0] + ((b[0] - a[0]) * i) / (n - 1), a[1] + ((b[1] - a[1]) * i) / (n - 1)])];
+  const stampedOn = (p) => p.waitForResponse((r) => r.url().endsWith(`/api/shared/${sheetId}/acts`) && r.request().method() === 'POST', { timeout: 30000 });
+  async function writeOnSheet(p, sel, at, strokes) {
+    const on = bar(p).locator(`.shared-sheet[data-sheet="${sheetId}"]`);
+    await on.getByRole('button', { name: 'Write on it' }).click();
+    await p.waitForTimeout(900); // the eye goes to it
+    await p.locator(sel).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await p.waitForTimeout(300);
+    const b = await p.locator(`${sel} canvas.scene-canvas`).boundingBox();
+    const [res] = await Promise.all([stampedOn(p), strokesIn(p, { x: b.x + b.width / 2 - 90 + at[0], y: b.y + b.height / 2 - 40 + at[1], width: 180, height: 80 }, strokes, 12)]);
+    if (res.status() !== 201) throw new Error(`a stroke on the shared sheet: ${res.status()} ${await res.text()}`);
+    return (await res.json()).line.n;
+  }
+
+  step('bo writes on it, in his own room: his ink shows at once, and as stamped');
+  await bar(guest).locator(`.shared-sheet[data-sheet="${sheetId}"]`).waitFor({ timeout: 15000 });
+  await guest.getByRole('button', { name: 'Preview' }).click(); // (his own room, as it is seen: not the editing page)
+  await guest.locator(`${there}[data-gpu]`).waitFor({ timeout: 60000 });
+  const bare = await (async () => {
+    await bar(guest).locator(`.shared-sheet[data-sheet="${sheetId}"]`).getByRole('button', { name: 'Write on it' }).click();
+    await guest.waitForTimeout(1200);
+    return gcentre().then(() => onScreen(guest, there, pixels));
+  })();
+  const boN = await writeOnSheet(guest, there, [0, 0], across([0, 0.5], [1, 0.5]));
+  console.log(`   bo's stroke stamped: place ${boN}`);
+  // grown from the stamped acts (the guess gone): the ink on the sheet, on his screen
+  await bar(guest).locator(`.shared-sheet[data-sheet="${sheetId}"][data-grown="2"][data-facts]`).waitFor({ timeout: 30000 });
+  let inkGuest = 0;
+  for (const end = Date.now() + 20000; Date.now() < end && inkGuest < 150;) {
+    await guest.waitForTimeout(400);
+    await gcentre();
+    inkGuest = darkened(bare, await onScreen(guest, there, pixels), 0.5);
+  }
+  console.log(`   on bo's screen: ${inkGuest} pixels of ink on the sheet`);
+  if (inkGuest < 150) throw new Error('the ink on the shared sheet does not show');
+
+  step("tabor comes into bo's room and writes across it: one sheet, two writers, one stamper");
+  await page.goto(`${base}/u/bo`);
+  await page.locator(`${scene}[data-gpu]`).waitFor({ timeout: 60000 });
+  await bar(page).locator(`.shared-sheet[data-sheet="${sheetId}"]`).waitFor({ timeout: 15000 });
+  await bar(guest).locator('.here').filter({ hasText: '@tabor' }).waitFor({ timeout: 15000 });
+  console.log(`   bo's room: ${await bar(guest).locator('.here').textContent()}`);
+  const taborN = await writeOnSheet(page, scene, [0, 0], across([0.5, 0], [0.5, 1]));
+  console.log(`   tabor's stroke stamped: place ${taborN}`);
+  // every screen grows the sheet from the stamper's acts, and they end byte-identical
+  const { shared: SH, b64url: b64 } = await import('penpals-law');
+  const factsNow = async () => {
+    const view = await (await page.request.get(`${base}/api/shared/${sheetId}`)).json();
+    const born = SH.checkBirth(view.birth, view);
+    return { lines: view.lines.length, facts: b64(SH.growShared(view.lines, { seed: born.seed, family: born.family }).facts) };
+  };
+  const agree = async (lines) => {
+    let a, b;
+    for (const end = Date.now() + 30000; Date.now() < end;) {
+      const sel = `.shared-sheet[data-sheet="${sheetId}"][data-grown="${lines}"]`;
+      a = await bar(page)
+        .locator(sel)
+        .getAttribute('data-facts', { timeout: 500 })
+        .catch(() => null);
+      b = await bar(guest)
+        .locator(sel)
+        .getAttribute('data-facts', { timeout: 500 })
+        .catch(() => null);
+      if (a && b) break;
+      await page.waitForTimeout(300);
+    }
+    const truth = await factsNow();
+    if (truth.lines !== lines || a !== truth.facts || b !== truth.facts) throw new Error(`the screens do not agree with the stamper: ${a} · ${b} · ${JSON.stringify(truth)}`);
+    return truth.facts;
+  };
+  const both = await agree(3);
+  console.log(`   both screens grew it to the stamper's facts: ${both}`);
+  const visitor = (await (await page.request.get(`${base}/api/rooms/bo/table`)).json()).beings.find((b) => b.name === 'tabor');
+  if (!visitor?.pose) throw new Error(`tabor is not a being in bo's room: ${JSON.stringify(visitor)}`);
+  console.log(`   tabor, a being in bo's room: head at ${visitor.pose.pos.join(', ')} m, turned ${visitor.pose.yaw}°`);
+  await page.waitForTimeout(3000); // (SwiftShader: a picture taken in the burst of growing and drawing can take the tab down)
+  await page.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-together.png') });
+  await guest.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-together-bo.png') });
+
+  step('bo lifts his stroke: a forward act; his pigment goes, the sheet grows anew on both screens');
+  const lifted = stampedOn(guest);
+  await bar(guest).locator(`.shared-sheet[data-sheet="${sheetId}"]`).getByRole('button', { name: 'Lift my last stroke' }).click();
+  if ((await lifted).status() !== 201) throw new Error('the lift was not stamped');
+  const after2 = await agree(4);
+  if (after2 === both) throw new Error('the lift changed nothing');
+  console.log(`   lifted, both screens: ${after2}`);
+
+  step("tabor takes it back: it leaves bo's table, and bo can no longer write on it");
+  await bar(page).locator(`.shared-sheet[data-sheet="${sheetId}"]`).getByRole('button', { name: 'Take it back' }).click();
+  await bar(guest).locator(`.shared-sheet[data-sheet="${sheetId}"]`).waitFor({ state: 'detached', timeout: 15000 });
+  const home = (await (await page.request.get(`${base}/api/shared/mine`)).json()).sheets.find((s) => s.sheet === sheetId);
+  if (home?.on !== 'tabor') throw new Error(`the sheet is not home: ${home?.on}`);
+  console.log("   back on tabor's table; gone from bo's");
   await other.close();
-  console.log('ok: the lobby, your room, the shelf, a wall written on; visiting, a door into another room');
+  console.log('ok: the lobby, your room, the shelf, a wall written on; visiting, a door into another room; writing together on one shared sheet');
 } catch (err) {
   failed = err;
 } finally {
   await browser.close();
+  await browser2?.close();
   await vite.close();
   server.kill();
-  fs.rmSync(dataDir, { recursive: true, force: true });
+  if (failed) console.error('(the data kept: ' + dataDir + ')');
+  else fs.rmSync(dataDir, { recursive: true, force: true });
 }
 if (failed) {
   console.error('FAILED:', failed.message);

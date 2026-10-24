@@ -19,6 +19,8 @@ import { socialRouter } from './routes/social.js';
 import { signaturesRouter } from './routes/signatures.js';
 import { booksRouter } from './routes/books.js';
 import { lawRouter } from './routes/law.js';
+import { roomsRouter, sharedRouter } from './routes/rooms.js';
+import { loadShared } from './store/shared.js';
 
 // The data directory says which layout it holds; anything else is refused
 // rather than misread (the password-era data is gone: Living Ink starts clean).
@@ -87,6 +89,7 @@ export async function createApp() {
   const letters = await loadLetters();
   const proofs = await loadProofs();
   await loadCache();
+  await loadShared(); // which table every shared sheet lies on (rooms.md §5)
   const pool = createPool({ ...config.render, workers: config.render.workers });
   setPool(pool);
 
@@ -104,6 +107,8 @@ export async function createApp() {
   app.use('/api/letters', lettersRouter);
   app.use('/api/proofs', proofsRouter);
   app.use('/api/social', express.json({ limit: '64kb' }), socialRouter);
+  app.use('/api/rooms', roomsRouter);
+  app.use('/api/shared', sharedRouter);
   app.use('/api', (req, res, next) => next(httpError(404, 'not_found', 'Not found.')));
 
   // Production: serve the built frontend (`npm run build`). In dev, Vite serves it and proxies /api here.

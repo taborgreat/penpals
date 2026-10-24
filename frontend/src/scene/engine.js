@@ -393,6 +393,52 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // the shelf (rooms.md §3): its board, and the owner's books on it, spine out
   const shelf = { group: new THREE.Group(), mats: [] };
   roomGroup.add(shelf.group);
+  // the others in the room (rooms.md §4): each a ball of a body, a head that turns, two hands, a pen.
+  // Their matter is made once for the view: a being coming, hiding or going makes no new shaders.
+  const ball = new THREE.SphereGeometry(1, 24, 16);
+  const beings = new Map(); // name → { group, body, head, face, hands, pen }
+  const beingMat = (curve, matter) => Object.assign(gpu.objectMaterial(lights, { pair: { light: curve, dark: curve } }), { matter: matter ?? { light: curve, dark: curve } });
+  const beingMats = {
+    cloth: [
+      [96, 40, 44],
+      [44, 70, 96],
+      [70, 90, 52],
+      [92, 70, 40],
+      [70, 52, 88],
+    ].map((c) => beingMat(paperCurve(c))),
+    skin: beingMat(paperCurve([214, 178, 150])),
+    dark: beingMat(curves.MATTER.wick),
+    pen: beingMat(curves.MATTER.brass, 'brass'),
+  };
+  const allBeingMats = [...beingMats.cloth, beingMats.skin, beingMats.dark, beingMats.pen];
+  // their shaders made now, while the room loads, on specks no one sees: one built when
+  // someone first comes in would stall the pen mid-stroke
+  const specks = new THREE.Group();
+  for (const m of allBeingMats) {
+    const speck = new THREE.Mesh(m === beingMats.pen ? box : ball, m);
+    speck.scale.setScalar(1e-6);
+    speck.frustumCulled = false;
+    specks.add(speck);
+  }
+  roomGroup.add(specks);
+  const made = () => roomGroup.remove(specks);
+  (renderer.compileAsync?.(specks, persp, scene) ?? Promise.resolve()).then(made, made);
+  const clothOf = (name) => beingMats.cloth[[...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % beingMats.cloth.length];
+  function beingOf(name) {
+    let b = beings.get(name);
+    if (b) return b;
+    const mats = { body: clothOf(name), skin: beingMats.skin, dark: beingMats.dark, pen: beingMats.pen };
+    const group = new THREE.Group();
+    const part = (geo, m) => {
+      const mesh = new THREE.Mesh(geo, m);
+      group.add(mesh);
+      return mesh;
+    };
+    b = { group, body: part(ball, mats.body), head: part(ball, mats.skin), face: part(ball, mats.dark), hands: [part(ball, mats.skin), part(ball, mats.skin)], pen: part(box, mats.pen) };
+    roomGroup.add(group);
+    beings.set(name, b);
+    return b;
+  }
   // ink on the room's surfaces (rooms.md §2): drawn in the surfaces' own cells
   const marks = createMarks({ gpu, lights, group: roomGroup, geom: GEOM, meshes: R.meshes, seedOf, webgpu: own });
   // two candles standing on it, either side of the page: wax, a wick, a flame
@@ -761,7 +807,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lights.slabMax.value.set(...W([t.x1, t.y1, t.top]));
       lightRoom(l, performance.now());
       marks.light(l.ambient);
-      for (const m of [...objectMats, ...shelf.mats]) {
+      for (const m of [...objectMats, ...shelf.mats, ...allBeingMats]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
         m.ambient.A.value.set(...A);
         m.ambient.B.value.set(...B);
@@ -808,6 +854,48 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       for (const m of roomMats) m.seed.value = seedOf(m.seedName);
       for (const m of objectMats) if (m.seed) m.seed.value = seedOf('table');
       marks.reseed();
+    },
+    // The others in the room (rooms.md §4): [{ name, pose: { pos (the head, room m), yaw,
+    // pitch, body, size }, hidden? }], as they are now (the view glides them between their acts).
+    setBeings(list) {
+      const here = new Set();
+      for (const { name, pose, hidden } of list ?? []) {
+        if (!pose) continue;
+        here.add(name);
+        const b = beingOf(name);
+        b.group.visible = !hidden;
+        if (hidden) continue;
+        const s = pose.size ?? 1;
+        const rad = (d) => (d * Math.PI) / 180;
+        const [x, y, z] = pose.pos;
+        const by = rad(pose.body ?? pose.yaw),
+          hy = rad(pose.yaw),
+          hp = rad(pose.pitch);
+        const ahead = (a, d) => [Math.sin(a) * d, Math.cos(a) * d];
+        b.head.position.set(x, y, z);
+        b.head.scale.setScalar(0.1 * s);
+        // the face looks where the head does
+        const f = [Math.sin(hy) * Math.cos(hp), Math.cos(hy) * Math.cos(hp), Math.sin(hp)];
+        b.face.position.set(x + f[0] * 0.085 * s, y + f[1] * 0.085 * s, z + f[2] * 0.085 * s);
+        b.face.scale.set(0.035 * s, 0.035 * s, 0.02 * s);
+        b.body.position.set(x, y, z - 0.42 * s);
+        b.body.scale.set(0.2 * s, 0.2 * s, 0.26 * s);
+        b.hands.forEach((h, i) => {
+          const [ax, ay] = ahead(by, 0.22 * s);
+          const [sx, sy] = ahead(by + (i ? 1 : -1) * (Math.PI / 2), 0.16 * s);
+          h.position.set(x + ax + sx, y + ay + sy, z - 0.38 * s);
+          h.scale.setScalar(0.045 * s);
+        });
+        const [px, py] = ahead(by, 0.24 * s);
+        const [qx, qy] = ahead(by + Math.PI / 2, 0.16 * s);
+        b.pen.position.set(x + px + qx, y + py + qy, z - 0.33 * s);
+        b.pen.scale.set(0.008 * s, 0.008 * s, 0.13 * s);
+      }
+      for (const [name, b] of beings) {
+        if (here.has(name)) continue;
+        roomGroup.remove(b.group);
+        beings.delete(name);
+      }
     },
     // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], their cloth's colour.
     setShelf(books) {
@@ -1018,6 +1106,9 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       for (const id of [...sheets.keys()]) view.removeSheet(id);
       marks.dispose();
       view.setShelf(null);
+      view.setBeings(null);
+      for (const m of allBeingMats) m.dispose();
+      ball.dispose();
       view.setGround(null);
       view.setCut(null);
       shared.views.delete(view);

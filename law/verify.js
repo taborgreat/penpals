@@ -9,6 +9,7 @@
 import { checkInkBody, checkPhotoBody, verifySealed, verifyOpenFor, regrow } from './record.js';
 import { proofOf, isGoodPublicKey, fingerprint } from './keys.js';
 import { fromB64url, b64url } from './tags.js';
+import { checkBirth, replay, growShared } from './shared.js';
 
 const ID_RE = /^k_\d{6}$/;
 
@@ -44,6 +45,8 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
   const results = [];
   const bySheet = new Map();
   const byId = new Map();
+  const shares = new Map(); // a shared sheet (rooms.md §6): its owner, its stamped acts
+
   lines.forEach((line, i) => {
     const expect = `k_${String(i + 1).padStart(6, '0')}`;
     if (line.id !== expect) problems.push(`chain ids jump at ${line.id ?? '?'} (expected ${expect}): lines were removed or reordered`);
@@ -68,6 +71,24 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
           r.open = true;
           if (regrowOpen) r.regrown = regrow(line.ink, seed).ok;
         }
+      } else if (line.share) {
+        // a shared sheet: the owner's own, open from birth
+        r.kind = 'shared-sheet';
+        r.sheet = line.share.birth?.sheet ?? null;
+        const born = checkBirth(line.share.birth, line.share);
+        if (born.owner !== head.key) throw new Error('a shared sheet in a book is its owner’s own');
+        if (bySheet.has(r.sheet) || shares.has(r.sheet)) throw new Error(`sheet ${r.sheet} is used twice`);
+        shares.set(r.sheet, { ...born, lines: [], r });
+        r.sealed = true;
+        r.open = true;
+      } else if (typeof line.shared === 'string') {
+        // an act on it, as the stamper placed it
+        r.kind = 'shared';
+        r.sheet = line.shared;
+        const sh = shares.get(line.shared);
+        if (!sh) throw new Error('an act on a sheet that is not in this book');
+        sh.lines.push({ n: line.n, at: line.at, act: line.act, seal: line.seal });
+        r.sealed = true;
       } else if (typeof line.open === 'string') {
         r.kind = 'open';
         r.sheet = line.open;
@@ -82,6 +103,21 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
       r.error = err.message;
     }
   });
+  // Each shared sheet replayed: every place in order, every seal its writer's, every
+  // act allowed by the chain before it (possession, lifts); then it grows.
+  for (const [sheet, sh] of shares) {
+    const { problems: wrong } = replay(sh.owner, sh.lines);
+    for (const w of wrong) problems.push(`shared sheet ${sheet}, ${w}`);
+    if (regrowOpen && !wrong.length) {
+      try {
+        growShared(sh.lines, { seed: sh.seed, family: sh.family });
+        sh.r.regrown = true;
+      } catch (err) {
+        sh.r.regrown = false;
+        sh.r.error = err.message;
+      }
+    }
+  }
   // The layout points only at ink that is there.
   for (const [pid, page] of Object.entries(head.pages ?? {})) {
     for (const it of page.items ?? []) {

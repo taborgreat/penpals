@@ -13,5 +13,7 @@ export * as keys from './keys.js';
 export * as record from './record.js';
 export * as verify from './verify.js';
 export * as unlock from './unlock.js';
+export * as shared from './shared.js';
+export * as being from './being.js';
 export { T, jcs, b64url, fromB64url, hex, fromHex, concat } from './tags.js';
 export const LAW = Object.freeze({ current: 2, accept: Object.freeze([1, 2]) });

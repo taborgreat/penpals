@@ -31,6 +31,8 @@ import { CHUNK } from '../scene/engine.js';
 // room, room/seeds.js), timeZone (the room's clock), wallWriter (the owner's pen
 // on the walls, from Look), live (marks being written now) }. Ink on a surface is
 // drawn on it (scene/marks.js), every piece of it (there are few), whole.
+// `room.together` (room/together.js): the shared sheets on the table beside the
+// page, the pen on them, and the others in the room.
 export default function JournalPage({ pageId, page, size, inks, editable, selected, onSelect, onOp, onFollow, lookSrc, sceneSrc = null, momentsSrc = null, room = null }) {
   const ref = useRef(null);
   const [k, setK] = useState(0); // CSS px per page unit
@@ -109,6 +111,9 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
       }),
     [placed, shown],
   );
+  // the shared sheets lying on the table beside the page
+  const tableSheets = room?.together?.sheets;
+  const allSheets = useMemo(() => (tableSheets?.length ? [...sheets, ...tableSheets] : sheets), [sheets, tableSheets]);
   // ink on the room's surfaces: each piece's whole field (or its look), set on its surface
   const [onWalls, setOnWalls] = useState(() => new Map()); // item key → mark
   const surfaceItems = useMemo(
@@ -217,7 +222,7 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           page={[size.width, size.height]}
           mode={sceneMode}
           onMode={setSceneMode}
-          sheets={sheets}
+          sheets={allSheets}
           paper={paper}
           moments={moments}
           onSight={setSight}
@@ -229,6 +234,10 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           doors={doors}
           onDoor={room?.follow ?? ((link) => link.page && onFollow(link.page))}
           gazeAt={room?.gazeAt ?? null}
+          beings={room?.together?.beings ?? null}
+          onPose={room?.together?.onPose ?? null}
+          tableWriter={room?.together?.tableWriter ?? null}
+          focus={room?.together?.focus ?? null}
           ground
           onFlat={() => {
             setViewChoice('flat');

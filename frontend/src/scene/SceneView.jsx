@@ -6,6 +6,7 @@ import { theLight, originOf, withinRoom, returnTo, sunAt, zoned, GEOM } from './
 import { roomCamera, hit as roomHit, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
 import { surfaceFrame, fromRoom, onSurface, surfaceOfHit } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
+import { poseNow } from '../room/presence.js';
 import { shelfLayout, rayBox } from './shelf.js';
 import { isPhone } from './support.js';
 import { sightOf } from './sight.js';
@@ -42,6 +43,14 @@ import { sightOf } from './sight.js';
 //   doors       [{ id, surface (null: the page), rect: [x0, y0, x1, y1] (that page's units), link }]:
 //               writing that leads somewhere (rooms.md §3); a click on one is onDoor(link)
 //   gazeAt      { surface, n }: turn the head to that surface (a door to it was followed)
+//   beings      [{ name, from, to, t0 }]: the others in the room (rooms.md §4, room/presence.js),
+//               each drawn gliding between its last two motion acts
+//   onPose      ({ pos, yaw, pitch, size, flying }) => …: where your head is (room m, degrees), as it
+//               moves; seated (the writing view), ({ at }): the point on the table you look at
+//   tableWriter { sheets: [{ sheet, origin: [x, y], size: [w, h] }] (page px), down(sheet, p, ev, type),
+//               move(p, ev), up(p, ev), cancel() }: writing on shared sheets on the table (rooms.md §6),
+//               p in that sheet's own units
+//   focus       { at: [x, y] (page px), size, n }: the eye goes to that place on the table
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
 const LIVE_MS = 16; // a sheet being written is drawn again at most this often (about every frame)
@@ -69,6 +78,7 @@ const FOV = 40;
 const TURN = 0.25; // degrees a CSS px
 const FLY_KEYS = { w: 'forward', arrowup: 'forward', s: 'back', arrowdown: 'back', a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', q: 'up', e: 'down' };
 const toRoomDir = (d) => [d[0], -d[1], d[2]]; // page frame ↔ the room's (y flips)
+const INSIDE_M = 0.3; // another's head nearer your eye than this (at their size): you are in it, and do not see it
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
 const SceneView = forwardRef(function SceneView(
@@ -100,6 +110,10 @@ const SceneView = forwardRef(function SceneView(
     doors = null,
     onDoor = null,
     gazeAt = null,
+    beings = null,
+    onPose = null,
+    tableWriter = null,
+    focus = null,
   },
   ref,
 ) {
@@ -116,7 +130,7 @@ const SceneView = forwardRef(function SceneView(
   // the hand (drag turns, right-drag or shift slides) or the pen (drag writes, right-drag turns):
   // the pen where there is writing to do, the hand in viewers
   const [handChoice, setHand] = useState(null); // null: as the view is (a writer: the pen)
-  const canPen = !!(writer || wallWriter); // the page to write on, or the room's surfaces (from Look)
+  const canPen = !!(writer || wallWriter || tableWriter); // the page, the room's surfaces (from Look), shared sheets on the table
   const hand = handChoice ?? !canPen;
   const penMode = canPen && !hand;
   const [relief, setRelief] = useState(storedRelief);
@@ -176,6 +190,9 @@ const SceneView = forwardRef(function SceneView(
   }
   const onSightRef = useRef(onSight);
   onSightRef.current = onSight;
+  const onPoseRef = useRef(onPose);
+  onPoseRef.current = onPose;
+  S.beings = beings;
 
   const schedule = () => {
     if (!S.raf && S.view) S.raf = requestAnimationFrame(draw);
@@ -271,6 +288,20 @@ const SceneView = forwardRef(function SceneView(
         if (!S.anim && !follow) S.cam = kept;
       }
     }
+    // your head (room m): the camera, for you
+    const head = cam.mode === '2d' ? null : (S.pose ?? poseOfCam(cam));
+    // the others here, each where its glide has it now (one whose head yours is in is not seen)
+    let gliding = false;
+    if (S.beings?.length || S.beingsOn) {
+      const list = (S.beings ?? []).map((b) => {
+        const { pose, moving } = poseNow(b, now);
+        gliding ||= moving;
+        const inside = !!pose && !!head && Math.hypot(...pose.pos.map((v, k) => v - head.pos[k])) < INSIDE_M * (pose.size ?? 1);
+        return { name: b.name, pose, hidden: inside };
+      });
+      S.view.setBeings(list);
+      S.beingsOn = list.length > 0;
+    }
     const light = currentLight(now);
     S.view.setLight(light, originOf(page[0], page[1]));
     // the resolution: capped; lower while moving and for the flicker alone (full again once still)
@@ -286,9 +317,14 @@ const SceneView = forwardRef(function SceneView(
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     seen(cam, moving);
-    const low = cam.mode === '3d' && !!writer && !canWrite(cam);
+    // your head, for the others (room/presence.js sends it when it has moved enough)
+    if (onPoseRef.current && head) {
+      if (S.pose) onPoseRef.current({ pos: head.pos, yaw: head.yaw, pitch: head.pitch, size: head.size ?? 1, flying: S.pose.mode === 'fly' });
+      else if (cam.target) onPoseRef.current({ at: pageToRoom([cam.target[0], cam.target[1], 0], origin()) });
+    }
+    const low = cam.mode === '3d' && !!(writer || tableWriter) && !canWrite(cam);
     setSteep((was) => (was === low ? was : low));
-    if (S.anim || S.override || S.back || S.glide || (S.pose && S.keys.size))
+    if (S.anim || S.override || S.back || S.glide || (S.pose && S.keys.size) || gliding)
       schedule(); // moving
     else if (light.settling && !S.settle) {
       // the room's light settling, the eye adapting: a few frames a second
@@ -476,6 +512,24 @@ const SceneView = forwardRef(function SceneView(
     schedule();
   }
 
+  // the others moved: draw them where they are going
+  useEffect(schedule, [beings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // a place on the table to look at (a shared sheet to write on): the eye goes there, seated
+  useEffect(() => {
+    if (!focus?.at || fixed) return;
+    if (S.pose) {
+      S.pose = null;
+      S.glide = null;
+      setLooking(false);
+    }
+    const from = S.shown ?? S.cam;
+    const to = { ...S.home, target: [...focus.at], dist: Math.max(focus.size ?? 0, 200) * 1.4, el: Math.max(from.el ?? 55, 62), az: 0 };
+    S.anim = { from, to, t0: performance.now(), ms: 600 };
+    S.cam = to;
+    schedule();
+  }, [focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // a door to a surface was followed: the head turns to it (into Look)
   useEffect(() => {
     if (!gazeAt?.surface || fixed) return;
@@ -591,6 +645,7 @@ const SceneView = forwardRef(function SceneView(
   };
   // the pen writes only where the ray meets the page (over the desk it lays nothing)
   const onPage = (p) => p && p.x >= 0 && p.y >= 0 && p.x <= page[0] && p.y <= page[1];
+  const inSheet = (t, p) => p && p.x >= t.origin[0] && p.y >= t.origin[1] && p.x <= t.origin[0] + t.size[0] && p.y <= t.origin[1] + t.size[1];
   const lightFromPointer = (e) => {
     const r = canvasRef.current.getBoundingClientRect();
     const fx = (e.clientX - r.left) / r.width,
@@ -632,6 +687,7 @@ const SceneView = forwardRef(function SceneView(
     if (S.pointers.size >= 2) {
       // two fingers: orbit and pinch
       if (S.drag?.kind === 'write') writer?.cancel();
+      if (S.drag?.kind === 'table') tableWriter?.cancel();
       const [a, b] = [...S.pointers.values()];
       S.drag = { kind: 'two', mid: [(a.x + b.x) / 2, (a.y + b.y) / 2], dist: Math.hypot(a.x - b.x, a.y - b.y) };
       return;
@@ -647,6 +703,18 @@ const SceneView = forwardRef(function SceneView(
       }
       S.drag = { kind: 'turn', x: e.clientX, y: e.clientY };
       return;
+    }
+    if (tableWriter && penMode && leftish && !e.shiftKey && canWrite(S.shown ?? S.cam)) {
+      // the pen on a shared sheet lying on the table: it writes there, in that sheet's own units
+      const at = pageOf(e);
+      const on = at && tableWriter.sheets.find((t) => inSheet(t, at));
+      if (on) {
+        const q = { x: at.x - on.origin[0], y: at.y - on.origin[1] };
+        if (tableWriter.down(on.sheet, q, e.nativeEvent, e.pointerType) !== false) {
+          S.drag = { kind: 'table', on, last: q };
+          return;
+        }
+      }
     }
     if (writer && penMode && leftish && !e.shiftKey) {
       const can = canWrite(S.shown ?? S.cam);
@@ -698,6 +766,19 @@ const SceneView = forwardRef(function SceneView(
         }
         wallWriter.move(at.p, ev);
         d.last = at.p;
+      }
+    } else if (d.kind === 'table') {
+      const evs = e.nativeEvent.getCoalescedEvents?.() ?? [];
+      for (const ev of evs.length ? evs : [e.nativeEvent]) {
+        const p = pageOf(ev);
+        if (!inSheet(d.on, p)) {
+          // off the sheet: the stroke ends at its edge
+          tableWriter.up(d.last, ev);
+          S.drag = null;
+          break;
+        }
+        d.last = { x: p.x - d.on.origin[0], y: p.y - d.on.origin[1] };
+        tableWriter.move(d.last, ev);
       }
     } else if (d.kind === 'pen-off') {
       const p = pageOf(e);
@@ -778,7 +859,7 @@ const SceneView = forwardRef(function SceneView(
   };
   const onPointerUp = (e) => {
     S.pointers.delete(e.pointerId);
-    if (S.drag?.kind !== 'write' && S.drag?.kind !== 'wall' && pick(e)) {
+    if (S.drag?.kind !== 'write' && S.drag?.kind !== 'wall' && S.drag?.kind !== 'table' && pick(e)) {
       S.drag = null;
       return;
     }
@@ -804,6 +885,12 @@ const SceneView = forwardRef(function SceneView(
             schedule();
           })
           .catch((err) => console.warn('[cut]', err.message)); // (the scene stays whole)
+      }
+    } else if (d.kind === 'table') {
+      if (e.type === 'pointercancel') tableWriter.cancel();
+      else {
+        const p = pageOf(e);
+        tableWriter.up(inSheet(d.on, p) ? { x: p.x - d.on.origin[0], y: p.y - d.on.origin[1] } : d.last, e.nativeEvent);
       }
     } else if (d.kind === 'wall') {
       if (e.type === 'pointercancel') wallWriter.cancel();
@@ -987,8 +1074,8 @@ const SceneView = forwardRef(function SceneView(
       {steep && penMode && <p className="scene-hint">Tilt up to write: below {MIN_WRITE_EL}° a pixel covers too much page.</p>}
       {penMode && !steep && mode === '3d' && (
         <p className="scene-hint quiet">
-          {writer && !looking
-            ? 'The pen: drag to write · right-drag to turn · H for the hand'
+          {(writer || tableWriter) && !looking
+            ? `The pen: drag to write${writer ? '' : ' on a shared sheet'} · right-drag to turn · H for the hand`
             : looking
               ? 'The pen: write on a wall, the floor, the ceiling · drag the room to turn your head · L to sit'
               : 'L to look around and write on the walls · H for the hand'}
