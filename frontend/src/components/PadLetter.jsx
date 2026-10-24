@@ -1,17 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { paperCss, PAPERS } from '../ink/paper.js';
 import FilmDownload from './FilmDownload.jsx';
 import InkItem from '../book/InkItem.jsx';
 import { CELLS } from '../book/ink.js';
+import SceneView from '../scene/SceneView.jsx';
+import { sceneOn, setViewChoice } from '../scene/support.js';
+import { sceneOf, hexRgb } from '../scene/sources.js';
 
 // A letter written on the pad (Living Ink): its sealed record's look, grown by
 // the server from the letter's own private sheet, laid on its paper where it
 // was written, and revealed along its strokes the first time it is seen.
 // `letter`: the server's letter ({ lineUrl, lookUrl, page, box, background }).
+// Shown as the scene where the device can (lit by the time of day; 2D or 3D):
+// the server's scene field, heights and colours, never the letter's paper.
 export default function PadLetter({ letter }) {
   const [line, setLine] = useState(null);
   const [error, setError] = useState(null);
   const [round, setRound] = useState(0); // Watch again: a new reveal
+  const [scene, setScene] = useState(() => sceneOn());
+  const [sceneMode, setSceneMode] = useState('2d');
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    if (!scene || !line || !letter.id) return undefined;
+    let alive = true;
+    sceneOf({ line, seed: null, lookUrl: letter.lookUrl, sceneUrl: `/api/letters/${letter.id}/look?mode=scene` })
+      .then((d) => { if (alive) setData(d); })
+      .catch(() => { if (alive) setScene(false); });
+    return () => { alive = false; };
+  }, [scene, line, letter.id, letter.lookUrl]);
+  const sheets = useMemo(() => {
+    if (!data) return [];
+    const b = data.field?.box ?? data.look.box;
+    return [{ id: 'letter', box: b, origin: [b[0] / CELLS, b[1] / CELLS], cellPx: 1 / CELLS, field: data.field, look: data.look }];
+  }, [data]);
 
   useEffect(() => {
     let alive = true;
@@ -29,10 +50,21 @@ export default function PadLetter({ letter }) {
   return (
     <div className="letter-box">
       <div className="letter pad-letter" style={{ background: paperCss(letter.background ?? letter.paper ?? 'plain'), aspectRatio: `${page.width} / ${page.height}`, position: 'relative' }}>
-        {line && box && (
+        {line && box && !(scene && data) && (
           <span className="ink-item" style={{ position: 'absolute', left: pct(box[0], page.width), top: pct(box[1], page.height), width: pct(box[2], page.width), height: pct(box[3], page.height) }}>
             <InkItem key={round} src={letter.lookUrl} body={line.ink} />
           </span>
+        )}
+        {scene && data && (
+          <SceneView
+            className="letter-scene"
+            page={[page.width, page.height]}
+            mode={sceneMode}
+            onMode={setSceneMode}
+            sheets={sheets}
+            paper={hexRgb((PAPERS[letter.background ?? letter.paper] ?? PAPERS.plain).color)}
+            onFlat={() => { setViewChoice('flat'); setScene(false); }}
+          />
         )}
       </div>
       {line && (

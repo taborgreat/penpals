@@ -27,7 +27,7 @@ export const config = {
   cleanupIntervalMs: 10 * 60 * 1000,
   sessionTtlMs: 30 * 24 * 60 * 60 * 1000,
 
-  law: { current: 1, accept: [1] },
+  law: { current: 2, accept: [1, 2] },
 
   auth: {
     nonceTtlMs: 120 * 1000,
@@ -86,6 +86,7 @@ export const config = {
     maxLetterActsBytes: 1536 * 1024,
     maxChainBytes: 50 * 1024 * 1024,
     visitorsCanDownload: false, // ruling: only the owner downloads their .book
+    depthForVisitors: true, // the scene and the side view of a closed sheet for anyone who may see its look (Tabor's to rule; false: writer and open sheets only)
     defaultBackground: '#f6f1e7',
   },
 

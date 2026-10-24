@@ -65,7 +65,7 @@ export function newSheet(key, sheet = K.newSheetId()) {
 
 // Seal what was written on `sheet` (settled: { acts, facts, box } from the ink worker).
 export function sealInk(key, { sheet, seed, use, family, settled, name, proof }) {
-  return R.sealSettled({ sk: key.sk, pk: key.pk, sheet, use, family, acts: settled.acts, seed, box: settled.box, facts: settled.facts, name, proof });
+  return R.sealSettled({ sk: key.sk, pk: key.pk, sheet, use, family, acts: settled.acts, seed, box: settled.box, facts: settled.facts, name, proof, law: settled.law });
 }
 
 export const openBy = (key, D, sheet, seed) => R.makeOpen(key.sk, D, sheet, seed);

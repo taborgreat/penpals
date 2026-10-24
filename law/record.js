@@ -13,11 +13,9 @@
 // another context or attached to another sheet's paper.
 
 import { sha256 } from '@noble/hashes/sha2.js';
-import { decodeCanonical } from './v1/acts.js';
-import { grow } from './v1/sim.js';
-import { settledCells, boxOf, lookRGB, factsDigest } from './v1/look.js';
 import { checkFamily } from './v1/paper.js';
-import { LAW } from './v1/constants.js';
+import { LAW as HAND_LAW } from './v1/constants.js';
+import { lawOf, CURRENT, ACCEPTED } from './laws.js';
 import {
   sheetSeed, commitOf, paperKeyOf, recordDigest, sealOf, verifySeal, verifySeed, openBy, verifyOpen, isSheetId,
   isGoodPublicKey, KEY_BYTES, SIG_BYTES,
@@ -26,7 +24,8 @@ import { b64url, fromB64url, hex, equalBytes } from './tags.js';
 
 export const USES = ['book', 'signature', 'letter', 'proof'];
 export const NAME_RE = /^[a-z0-9_]{2,20}$/i;
-export const LAWS_ACCEPTED = [1];
+export const LAWS_ACCEPTED = ACCEPTED;
+export { CURRENT as LAW_CURRENT };
 const HEX64 = /^[0-9a-f]{64}$/;
 
 export class RecordError extends Error {
@@ -41,32 +40,35 @@ const bad = (code, msg) => new RecordError(code, msg);
 
 // --- settling a record on its paper ---
 
-// The facts of acts grown on the paper of `seed` with `family`, at `scale` (64 = 1×).
-export function settle(actsBytes, seed, family, scale = 64) {
-  const rec = decodeCanonical(actsBytes);
-  const res = grow(rec, { paperKey: paperKeyOf(seed), family, scale });
-  const cells = settledCells(res.tiles);
-  const box = boxOf(cells);
-  return { cells, box, facts: factsDigest({ cells, box, actsBytes, family, scale }), rec, ticks: res.ticks, work: res.work };
+// The facts of acts grown under `law` on the paper of `seed` with `family`, at `scale` (64 = 1×).
+export function settle(actsBytes, seed, family, scale = 64, law = CURRENT) {
+  const L = lawOf(law);
+  const rec = L.decodeCanonical(actsBytes);
+  const res = L.grow(rec, { paperKey: paperKeyOf(seed), family, scale });
+  const cells = L.settledCells(res.tiles);
+  const box = L.boxOf(cells);
+  return { law, cells, box, facts: L.factsDigest({ cells, box, actsBytes, family, scale }), rec, ticks: res.ticks, work: res.work };
 }
-export const lookOf = (settled) => lookRGB(settled.cells, settled.box);
+// The look of settled facts at a view ({ ageH, views }; law 1 ignores it).
+export const lookOf = (settled, view = {}) => lawOf(settled.law).lookRGB(settled.cells, settled.box, view);
 
 // --- making (the writer's device) ---
 
-export function makeInk({ sk, pk, sheet, use, family, acts, name, proof }) {
+export function makeInk({ sk, pk, sheet, use, family, acts, name, proof, law = CURRENT }) {
   if (!USES.includes(use) || !isSheetId(sheet)) throw bad('bad_record', 'bad use or sheet');
   const seed = sheetSeed(sk, sheet);
-  const s = settle(acts, seed, family);
-  return { ...sealSettled({ sk, pk, sheet, use, family, acts, seed, box: s.box, facts: s.facts, name, proof }), seed, settled: s };
+  const s = settle(acts, seed, family, 64, law);
+  return { ...sealSettled({ sk, pk, sheet, use, family, acts, seed, box: s.box, facts: s.facts, name, proof, law }), seed, settled: s };
 }
 
 // The same record from facts already grown (the writer's device grows them in
 // its ink worker, off the main thread). The server grows them again and refuses
 // the record if they differ.
-export function sealSettled({ sk, pk, sheet, use, family, acts, seed, box, facts, name, proof }) {
+export function sealSettled({ sk, pk, sheet, use, family, acts, seed, box, facts, name, proof, law = CURRENT }) {
   if (!USES.includes(use) || !isSheetId(sheet)) throw bad('bad_record', 'bad use or sheet');
+  if (!ACCEPTED.includes(law)) throw bad('law_unknown', 'this law version is not accepted');
   const body = {
-    v: 2, kind: 'ink', law: LAW, use, sheet, key: b64url(pk), paper: { grain: family.grain, weight: family.weight, tooth: family.tooth },
+    v: 2, kind: 'ink', law, use, sheet, key: b64url(pk), paper: { grain: family.grain, weight: family.weight, tooth: family.tooth },
     acts: b64url(acts), box: [...box], commit: b64url(commitOf(seed)), facts: b64url(facts),
   };
   if (name !== undefined) body.name = name;
@@ -84,7 +86,7 @@ export function makePhoto({ sk, pk, sheet, size, png, strokes }) {
 }
 
 export function makeLogin({ sk, pk, nonce, sketch, measure, acts }) {
-  const body = { v: 2, kind: 'login', law: LAW, key: b64url(pk), nonce: b64url(nonce), sketch, measure, acts: hex(sha256(acts)) };
+  const body = { v: 2, kind: 'login', law: HAND_LAW, key: b64url(pk), nonce: b64url(nonce), sketch, measure, acts: hex(sha256(acts)) };
   const D = recordDigest(body);
   return { body, seal: b64url(sealOf(sk, D)), D };
 }
@@ -132,7 +134,7 @@ export function checkInkBody(body, { maxActsBytes = 1 << 20 } = {}) {
   if (acts.length > maxActsBytes) throw bad('too_much_ink', 'that is too much writing for one sheet');
   let rec;
   try {
-    rec = decodeCanonical(acts);
+    rec = lawOf(body.law).decodeCanonical(acts);
   } catch (err) {
     throw bad('bad_acts', `acts: ${err.message}`);
   }
@@ -182,7 +184,7 @@ export function verifyOpenFor(body, D, open) {
 
 // Regrow the ink from the seed and compare with what the record sealed.
 export function regrow(body, seed) {
-  const s = settle(fromB64url(body.acts), seed, body.paper);
+  const s = settle(fromB64url(body.acts), seed, body.paper, 64, body.law);
   const ok = b64url(s.facts) === body.facts && JSON.stringify(s.box) === JSON.stringify(body.box);
   return { ok, settled: s };
 }

@@ -16,6 +16,7 @@ import WriteSpeed from './components/WriteSpeed.jsx';
 // Dev-only tools for Living Ink's Phase 0 (never in a production build).
 const HandLab = import.meta.env.DEV ? lazy(() => import('./lab/HandLab.jsx')) : null;
 const LawCheck = import.meta.env.DEV ? lazy(() => import('./lab/LawCheck.jsx')) : null;
+const SceneCheck = import.meta.env.DEV ? lazy(() => import('./lab/SceneCheck.jsx')) : null;
 
 // You, your mailbox, and the way out, in that order.
 function UserMenu() {
@@ -59,6 +60,7 @@ export default function App() {
           <Route path="/hand" element={<HandStudio />} />
           {HandLab && <Route path="/hand-lab" element={<Suspense fallback={null}><HandLab /></Suspense>} />}
           {LawCheck && <Route path="/law-check" element={<Suspense fallback={null}><LawCheck /></Suspense>} />}
+          {SceneCheck && <Route path="/scene-check" element={<Suspense fallback={null}><SceneCheck /></Suspense>} />}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

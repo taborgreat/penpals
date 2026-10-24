@@ -243,6 +243,11 @@ the tab, regrows your closed sheets too).
 the signature colour and signature removal are gone.
 • Scale is an integer in 64ths (4..640, 64 = as written). Each size is its own look, grown again from the
 scaled acts, not a stretched picture; a look is served only at a size the item is shown at.
+• Every record carries its law ("law": 1 or 2). New writing is law 2 (depth, water, oak gall: keys.md); a
+record grows, looks and verifies under its own law for good. A law-2 look is drawn at a moment: hours since
+the line was made (oak gall darkens) and views so far (light fades it), in buckets, cached per bucket. Views
+count once per viewer per day, in users/<id>/exposure.json (letters: letters/<id>/exposure.json), written only
+when someone looks. The .book carries no exposure: offline, a sheet shows its fresh exposure at its true age.
 • The skeleton has paperFamily ({grain, weight, tooth}); the family op changes it for new sheets. Every
 record carries the family it was grown on.
 • The signature is a record of use signature, open from birth. Sheet 0 is the one written at registration;

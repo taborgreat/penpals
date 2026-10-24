@@ -56,7 +56,7 @@ export async function register({ key, username, password, phraseReadings, pageRe
   const keyring = U.newKeyring(username, key.K, unlockKey, kdf, { password: !!password });
   const { line, D } = R.sealSettled({
     sk: key.sk, pk: key.pk, sheet: K.SHEET_ZERO, use: 'signature', family: signature.family,
-    acts: signature.settled.acts, seed: signature.seed, box: signature.settled.box, facts: signature.settled.facts, name: username,
+    acts: signature.settled.acts, seed: signature.seed, box: signature.settled.box, facts: signature.settled.facts, name: username, law: signature.settled.law,
   });
   const open = R.makeOpen(key.sk, D, K.SHEET_ZERO, signature.seed);
   const res = await api.post('/api/auth/register/finish', {

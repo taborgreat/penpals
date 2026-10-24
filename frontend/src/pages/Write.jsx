@@ -16,6 +16,7 @@ import { paperCss } from '../ink/paper.js';
 import { newSheet, sealInk } from '../keys/session.js';
 import { useLiveInk } from '../ink/useLiveInk.js';
 import { CELLS } from '../ink/live.js';
+import InkWell from '../ink/InkWell.jsx';
 
 const PAGE_WIDTH = 1400;
 const DEFAULT_FAMILY = { grain: 8, weight: 8, tooth: 0 };
@@ -179,10 +180,17 @@ function Writer({ writer, user }) {
       <section className="letter-section" id="letter">
         <h2><Hand>Your letter</Hand></h2>
         <div className="row">
-          <label className="field">
-            <span>Ink</span>
-            <input type="color" value={color} onChange={(e) => setInkColor(e.target.value)} />
-          </label>
+          {mode === 'photo' ? (
+            <label className="field">
+              <span>Ink</span>
+              <input type="color" value={color} onChange={(e) => setInkColor(e.target.value)} />
+            </label>
+          ) : (
+            <span className="field">
+              <span>Ink</span>
+              <InkWell value={color} onChange={setInkColor} />
+            </span>
+          )}
           {mode === 'photo' && inkColor && photo?.detectedColor && <button type="button" className="quiet" onClick={() => setInkColor(null)}>use detected</button>}
           <label className="field">
             <span>Paper</span>

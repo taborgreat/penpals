@@ -3,7 +3,7 @@
 // shows on a page is its look: the settled ink the law grows on the sheet's
 // paper, a PNG one pixel per cell, from the server (or grown here for open
 // sheets). These helpers size it and read its strokes for the reveal.
-import { decodeActs } from 'penpals-law/v1/acts';
+import { decodeActs } from 'penpals-law/v2/acts'; // reads every law's acts (law 2's adds the pen's spatter)
 import { fromB64url } from 'penpals-law';
 
 export const CELLS = 2; // law cells per page unit

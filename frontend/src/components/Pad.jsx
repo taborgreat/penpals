@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { NIBS, PEN_SIZES, BROAD_SIZES, FLEX_PRESETS, GUIDES, PX_PER_MM, drawGuides, guideRows } from '../ink/nibs.js';
 import { PAPERS } from '../ink/paper.js';
-import { lawPen, FLOW_DEFAULT } from '../ink/pens.js';
+import { lawPen, FLOW_DEFAULT, SPATTER_DEFAULT } from '../ink/pens.js';
 import { CELLS } from '../ink/live.js';
 import WriteMode from './WriteMode.jsx';
 import { CHASE, setChase } from './chase.js';
 import ChaseSettings from './ChaseSettings.jsx';
+import DepthStrip from './DepthStrip.jsx';
+import SceneView from '../scene/SceneView.jsx';
+import { sceneOn, setViewChoice } from '../scene/support.js';
+import { createCameraStack } from '../scene/stack.js';
 
 const PAGE_WIDTH = 1400; // same page width as a photographed letter
 export const PAGES = { half: 905, full: 1811 };
@@ -57,6 +61,7 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   const [broadSize, setBroadSize] = useState('2.4 mm');
   const [angle, setAngle] = useState(35);
   const [flow, setFlow] = useState(FLOW_DEFAULT);
+  const [spatterSet, setSpatter] = useState(null); // null: the nib's default (law 2 sheets only)
   const [guide, setGuide] = useState('plain');
   const [spacing, setSpacing] = useState(() => Math.round(FLEX_PRESETS.copperplate.lineMm * PX_PER_MM));
   const [page, setPage] = useState('half');
@@ -64,6 +69,15 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   const [zoom, setZoom] = useState(1);
   const [cssWidth, setCssWidth] = useState(0); // on-screen width of the page
   const [hand, setHand] = useState(false); // the move tool
+  const [depth, setDepth] = useState(false); // a cut through the paper below the pad (law 2)
+  // The scene (lit 2D by default, 3D to choose; the flat look where the device can't, or by choice).
+  // (not on the pads that read the hand: law 1 sheets stay as they are)
+  const [scene, setScene] = useState(() => ink.law >= 2 && sceneOn());
+  const [toolsHost, setToolsHost] = useState(null);
+  const [sceneMode, setSceneMode] = useState('2d');
+  const sceneRef = useRef(null);
+  const sceneBoxRef = useRef(null);
+  const camStack = useRef(createCameraStack()).current;
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [penSeen, setPenSeen] = useState(false); // once a stylus writes, fingers scroll
   const [writing, setWriting] = useState(false); // in write mode
@@ -119,6 +133,58 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   }, [present]);
   useEffect(() => () => cancelAnimationFrame(frameRef.current), []);
 
+  useEffect(() => { ink.scene?.(scene); }, [ink, scene]);
+  const liveSheet = useMemo(() => [{ id: 'live', box: [0, 0, Math.ceil(pageW * CELLS), Math.ceil(height * CELLS)], origin: [0, 0], cellPx: 1 / CELLS, live: ink }], [ink, pageW, height]);
+  // The scene's frame: in 2D the part of the page in sight (the page scrolls and
+  // zooms as ever, the scene shows just that part, lit); in 3D the whole view.
+  const placeScene = useCallback(() => {
+    const box = sceneBoxRef.current;
+    const wrap = viewRef.current?.parentElement;
+    const inkEl = inkRef.current;
+    if (!box || !wrap || !inkEl) return;
+    const w = wrap.getBoundingClientRect();
+    const r = sceneMode === '3d' ? w : inkEl.getBoundingClientRect();
+    const v = viewRef.current.getBoundingClientRect();
+    const x0 = Math.max(r.left, sceneMode === '3d' ? w.left : v.left, 0), x1 = Math.min(r.right, sceneMode === '3d' ? w.right : v.right, window.innerWidth);
+    const y0 = Math.max(r.top, 0), y1 = Math.min(r.bottom, window.innerHeight);
+    box.style.left = `${x0 - w.left}px`;
+    box.style.top = `${y0 - w.top}px`;
+    box.style.width = `${Math.max(0, x1 - x0)}px`;
+    box.style.height = `${Math.max(0, y1 - y0)}px`;
+    box.dataset.frame = [(x0 - r.left) / r.width, (y0 - r.top) / r.height, (x1 - r.left) / r.width, (y1 - r.top) / r.height].join(',');
+    sceneRef.current?.invalidate();
+  }, [sceneMode]);
+  const frame2d = useCallback(() => {
+    const [fx0, fy0, fx1, fy1] = (sceneBoxRef.current?.dataset.frame ?? '0,0,1,1').split(',').map(Number);
+    const { pageW: w, height: h } = sizeRef.current;
+    return [fx0 * w, fy0 * h, fx1 * w, fy1 * h];
+  }, []);
+  useLayoutEffect(() => {
+    if (!scene) return undefined;
+    placeScene();
+    const on = () => placeScene();
+    window.addEventListener('scroll', on, { passive: true });
+    window.addEventListener('resize', on);
+    viewRef.current?.addEventListener('scroll', on, { passive: true });
+    const view = viewRef.current;
+    return () => {
+      window.removeEventListener('scroll', on);
+      window.removeEventListener('resize', on);
+      view?.removeEventListener('scroll', on);
+    };
+  }, [scene, placeScene, zoom, screenW, screenH, cssWidth]);
+  const sceneWriter = useMemo(() => ({
+    penDown: (cam) => camStack.penDown(cam),
+    down: (p, ev, type) => { downRef.current = true; ink.capture.down(p, ev, type); },
+    move: (p, ev) => ink.capture.move(p, ev),
+    up: (p, ev) => { downRef.current = false; ink.capture.up(p, ev); },
+    cancel: () => { downRef.current = false; ink.capture.cancel(); camStack.undo(); },
+  }), [ink, camStack]);
+  const paperRgb = useMemo(() => {
+    const hex = (PAPERS[paper] ?? PAPERS.plain).color;
+    return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  }, [paper]);
+
   useEffect(() => ink.onChange(() => {
     schedule();
     setStrokeCount(ink.strokes);
@@ -134,8 +200,9 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
 
   // The pen the next ink is written with (mid-stroke too: the flow wheel). A flex
   // nib under a mouse or finger gets its thick and thin from the slant (capture.js).
-  useEffect(() => { ink.setPen(lawPen(nibSettings(), inkColor, flow)); }, [ink, nibSettings, inkColor, flow]);
-  useEffect(() => { ink.capture.setFlex(nib === 'flex' ? { slant: flex.slant, swell: flex.swell } : null); }, [ink, nib, flex.slant, flex.swell]);
+  const spatter = ink.law >= 2 ? (spatterSet ?? SPATTER_DEFAULT[nib]) : undefined;
+  useEffect(() => { ink.setPen(lawPen(nibSettings(), inkColor, flow, spatter)); }, [ink, nibSettings, inkColor, flow, spatter]);
+  useEffect(() => { ink.capture.setFlex(nib === 'flex' ? { slant: flex.slant, swell: flex.swell, hold: ink.law >= 2 } : null); }, [ink, nib, flex.slant, flex.swell]);
 
   useLayoutEffect(() => { present(); }, [screenW, screenH, present]);
 
@@ -280,6 +347,7 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
     }
     if (e.button !== 0 || panRef.current) return;
     downRef.current = true;
+    camStack.penDown(scene ? sceneRef.current?.camera() ?? null : null);
     ink.capture.down(toPage(e), e.nativeEvent, e.pointerType);
   };
 
@@ -349,6 +417,13 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   const undo = () => {
     if (downRef.current) return;
     const s = ink.undo();
+    if (s) {
+      const cam = camStack.undo(); // the camera as it was before that stroke, with the ink
+      if (cam && scene) {
+        if (cam.mode !== sceneMode) setSceneMode(cam.mode);
+        sceneRef.current?.setCamera(cam);
+      }
+    }
     const draft = draftRef.current.strokes;
     if (s && draft.length && draft.at(-1).captured === s) {
       draft.pop();
@@ -359,6 +434,7 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   const clear = () => {
     if (!ink.strokes || downRef.current) return;
     ink.clear();
+    camStack.clear();
     draftRef.current = { strokes: [], camera: null };
     setDraftCount(0);
   };
@@ -434,6 +510,12 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           <span>Flow</span>
           <input type="range" min="0" max="15" step="1" value={flow} onChange={(e) => setFlow(num(e))} title="How freely the nib gives ink (Alt + wheel)" />
         </label>
+        {spatter !== undefined && (
+          <label className="field">
+            <span>Spatter</span>
+            <input type="range" min="0" max="15" step="1" value={spatter} onChange={(e) => setSpatter(num(e))} title="How readily the pen throws ink on fast flicks, hard landings and heavy dwells (0: never)" />
+          </label>
+        )}
         {nib !== 'pen' && (
           <div className="popover-wrap" ref={adjustRef}>
             <button type="button" className="adjust" aria-expanded={adjustOpen} onClick={() => setAdjustOpen((o) => !o)}>
@@ -505,6 +587,7 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
         <div className="pad-bar">
           <div className="cluster">
             <button type="button" onClick={undo} disabled={!strokeCount} title="Undo (Ctrl+Z)">Undo</button>
+            {scene && <span ref={setToolsHost} className="scene-tools-host" />}
             <button type="button" className="quiet" onClick={clear} disabled={!strokeCount}>Clear</button>
           </div>
           <span className="pad-hint">{error ?? hint}</span>
@@ -529,6 +612,11 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
             <button type="button" aria-pressed={hand} className="toggle" onClick={() => setHand((h) => !h)} title="Drag to move around the page">
               Move
             </button>
+            {ink.law >= 2 && (
+              <button type="button" aria-pressed={depth} className="toggle" onClick={() => setDepth((d) => !d)} title="A cut through the paper along your last line, live: the bead, the ink sinking in, dents">
+                Into the paper
+              </button>
+            )}
             <div className="zoom" role="group" aria-label="Zoom">
               <button type="button" onClick={() => stepZoom(-1)} disabled={zoom <= ZOOMS[0]} aria-label="Zoom out">−</button>
               <button type="button" className="zoom-level" onClick={() => zoomTo(1)} title="Fit the page to the width">
@@ -539,7 +627,24 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           </div>
           {chaseOpen && showChase && <ChaseSettings settings={chase} onChange={(patch) => setChaseSettings(setChase(patch))} />}
         </div>
-        <div className="pad-view-wrap">
+        <div className={`pad-view-wrap${scene ? ` scene-on scene-${sceneMode}` : ''}`}>
+          {scene && (
+            <div ref={sceneBoxRef} className="pad-scene">
+              <SceneView
+                ref={sceneRef}
+                page={[pageW, height]}
+                mode={sceneMode}
+                onMode={setSceneMode}
+                sheets={liveSheet}
+                frame2d={frame2d}
+                writer={sceneWriter}
+                paper={paperRgb}
+                cutSide={ink.law >= 2 ? (a, b) => ink.cut(Math.round(a[0] * CELLS), Math.round(a[1] * CELLS), Math.round(b[0] * CELLS), Math.round(b[1] * CELLS)) : null}
+                onFlat={() => { setViewChoice('flat'); setScene(false); }}
+                toolsHost={toolsHost}
+              />
+            </div>
+          )}
           <div
             className="pad-view"
             ref={viewRef}
@@ -562,6 +667,7 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           </div>
         </div>
       </div>
+      {depth && <DepthStrip ink={ink} />}
       {writing && (
         <WriteMode
           getStrokes={() => ink.capture.strokes}

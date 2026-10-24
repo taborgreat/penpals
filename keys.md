@@ -352,6 +352,29 @@ ink facts     (react -> fact)        what settled, and why
 
 ---
 
+## Depth, water and oak gall (law 2)
+
+Nothing computes unless it is touched or viewed. A tile runs only while it has wet ink; time is applied to a record only when someone looks at it, in one step, never tick by tick while nobody is there. Ink ages by two clocks: **air** by time (oak gall darkens) and **light** by being seen (every colour fades, counted in views). Both are applied at view time.
+
+**Versions.** Law 1 is frozen: its goldens are unchanged, and every law-1 record keeps settling exactly as before (tested through the registry). Law 2 is a new frozen package, `law/v2/`, with its own goldens (`law/fixtures/goldens-v2.json`). Every record carries its law and grows, looks, plays and verifies under it for good (`law/laws.js`). New writing is law 2. The hand measure stays law 1, and login records say so.
+
+What law 2 adds. Every one is a fact (in the facts digest), computed only under the nib or in the wet loop:
+
+- **Dents.** Pressure × time under the nib: real pressure, or the flex nib's synthetic pressure and dwell when there is none. A dent never recovers. It sits lower (ink runs into it), holds more, and drinks slower (compressed fibers), so ink sits wet longer and settles darker. A wet line across a groove leaves about a third more ink in it.
+- **Ink in depth.** How far settled ink sank (thirsty cells and dents sink deeper), and **peak**, the highest a bead stood.
+- **Paper remembers water.** **Soak** only goes up. It washes the sizing out, so the paper is thirstier and wicks ink into dry washed paper: ink over a dried wash spreads wider. That stops growing at "fully washed" (soak 64). It also loosens the fibers. Above soak 32 the paper dries **cockled**, in ridges from its own grain, and later wet ink runs into the valleys.
+- **Tears.** Working a wet cell wears it, where strength = base − water − soak. Past that the cell tears for good: it holds nothing, shows the page behind, is a break in the side view, and ink pools at its rim. A still nib wears it far less, and dry paper not at all. What a tear took is accounted (`lost`).
+- **Oak gall** (`#353438`). Its own channel, allocated only on tiles gall reached. It is pale as it goes down and darkens with air at view time: dark = OX[age × OX_BASE × AIR[depth, pool]]. Hairlines darken first; pools lag, then end deepest. Mixed with another colour, only the gall darkens.
+- **The water brush** (the pen colour pure white). Water and no pigment. On every dry step, water over fixed ink turns some of it wet again (REDISSOLVE × W/W_SAT), and the normal flow carries it, so it bleeds past the old edge. Oak gall resists by (1 − dark). A water deposit wakes the tile.
+- **Fading.** Exposure is a view count per record, at most once per viewer per day (refreshes don't count), the owner included. fade = FADE[views × SURFACE[depth]]: surface ink fades first, while sunk and dented ink survive longest.
+- **Splatter.** Pens throw ink: a spray when the nib snags the paper's tooth on a fast upstroke, drops flung on a fast sharp turn, a few around a fast loaded landing, a fat drop from a nib dwelling at high flow. The law has no randomness, so the odds come from the moment (speed, turn, landing, dwell, flow, pressure, the paper's height at the nib) times the pen's **spatter** (0..15; 0 never), and the sheet's paper hash decides: whether the act fires, how many drops, how big (mostly specks, rarely a big one) and where (along the motion, farther the faster). A drop is an ordinary deposit of water and the pen's ink; it dents and wears nothing. The same strokes on the same paper splatter the same; on another sheet's paper, differently, so a tracer cannot copy them. Undo takes a stroke's drops with it, and every drop's water is in the accounts. Spatter is a pen field, so writing with it uses PNKA format 2 (law 1 refuses it); writing without it encodes exactly as law 1's PNKA.
+
+**Looking.** A look is a pure function of the facts, an age bucket (whole hours, capped at 30 days, and only for ink with gall) and an exposure bucket (steps of 8 views). It is cached per (ink, scale, age, exposure). Nothing runs and nothing is written for a sheet nobody looks at; the counts live in `exposure.json` (per book and per letter) and change only on a view. Verification is unchanged: facts never age.
+
+**Into the paper.** Walk back shows a **side view** (a cut through the paper's layers: the surface with dents and ridges, ink sunk below, the bead above, live while wet and from the peak once dry) and a **relief view** (the top lit from one side). The published look stays flat. The server serves both with `/look?mode=side&cut=x0,y0,x1,y1` and `?mode=relief`.
+
+**Cost.** Law 2 adds dent, depth, peak, soak, wear and flags (one byte each per cell, published as levels) and gall only where it went; exposure is one integer per record. The water brush and oak gall are pen colours, already in PNKA; spatter adds one byte to a pen act that sets it. Splatter's drops are stored nowhere: they regrow from the acts and the paper.
+
 ## Rulings taken in this build
 
 Tabor's rulings, and the defaults taken where none was given. Each is one constant or flag in the code.
@@ -377,8 +400,16 @@ Tabor's rulings, and the defaults taken where none was given. Each is one consta
 | Phone mid-stroke control | none in this build |
 | Mix vs dry, dry quantum | 10 ms ticks, a dry step every 50 ms of recorded time |
 | Sketch cap | 5 phrase sketches (room for at least two devices), 2 page sketches |
-| Determinism | tested on Node, Chromium, Firefox and WebKit, byte for byte |
+| Determinism | tested on Node, Chromium, Firefox and WebKit, byte for byte (law 1 and law 2, the aged and faded look too) |
 | Registration length | name, password backup (optional), phrase ×3, signature, calibration page: **accepted for the experiment**, revisited after real hands are measured |
+| Water on sealed sheets (law 2) | **drafts only** (default): the water brush acts on the sheet being written. Writing over a sealed sheet needs a continuation-sheet ruling; the sim has the hook (`gallAgeH`, the age of the gall the water meets) |
+| Oak gall colour, darkening, cap (law 2) | `#353438`; at the surface most of the way in about 3.5 days (the time constant); no change after 30 days (defaults) |
+| Fading (law 2) | about 1000 views leave surface ink at 71%, never below 25%; the count is not shown (defaults) |
+| Side and relief views (law 2) | the writer's, and anyone's once the sheet is open (default: depth reveals the secret paper) |
+| Paper thickness, dents (law 2) | 24 depth levels; dents up to 32 levels; a mouse or finger dents only by dwelling or through the flex nib's synthetic pressure (defaults) |
+| Tearing (law 2) | on for every paper family; a hard scrub over one wet spot tears it, the same strokes dry never do (default) |
+| Splatter (law 2) | on, low: spatter 3 for the flex nib, 1 for the others, settable 0..15 on the pad (default) |
+| The water brush in the acts (law 2) | the pen colour pure white, not a new pen kind: acts don't grow (white ink is no ink anyway) |
 
 ### Where this build departs from the text above, and why
 
@@ -405,6 +436,7 @@ Tabor's rulings, and the defaults taken where none was given. Each is one consta
 - Whether visitors' profiles mention the hand at all (default: no).
 - The hand's code radii and quantizer: frozen only after real hands are measured (three people, ten sessions, phone and desktop). Until then `LAW_HAND_UNFROZEN` is on and the radii are the synthetic run's, loose enough for one person on a phone and a desktop.
 - The sketch cap, confirmed by that device report.
+- Law 2: water on sealed sheets (a continuation sheet, or drafts only); the oak gall colour, its darkening time and cap; how strong fading is and whether the count is shown; whether visitors see side and relief views; paper thickness and dent strength for mouse and thumb; how easily paper tears, and whether tearing is on by default or a paper-family setting; the default spatter, and whether it is on by default. Each is a constant (`law/v2/constants.js`, `law/tools/gen-tables-v2.js`); any change before v2 writing exists means new goldens; after, a law 3.
 
 ## Build order
 

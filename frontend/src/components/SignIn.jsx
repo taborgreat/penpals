@@ -7,7 +7,7 @@ import Hand from './Hand.jsx';
 
 const PHRASE_PAD = { width: 1000, height: 420 };
 const PAGE_PAD = { width: 1400, height: 905 };
-const CALIBRATION = { paperKey: v1.calibrationPaperKey(), family: v1.CALIBRATION_FAMILY };
+const CALIBRATION = { paperKey: v1.calibrationPaperKey(), family: v1.CALIBRATION_FAMILY, law: 1 }; // the hand is read under law 1
 
 // Sign in: write your secret phrase (and type your password, if the account has a backup). `unlock` (with the
 // name fixed) opens the key in a tab that is signed in but does not hold it.

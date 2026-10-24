@@ -150,6 +150,14 @@ for (const id of dirs(path.join(root, 'users'))) {
     }
   }
   chainLines(path.join(dir, 'logins.chain'));
+
+  // Exposure (law 2 fading): view counts of ink in this book, nothing else.
+  if (fs.existsSync(path.join(dir, 'exposure.json'))) {
+    const ex = readJson(path.join(dir, 'exposure.json'));
+    const bad = !ex || typeof ex !== 'object' || Array.isArray(ex)
+      || Object.entries(ex).some(([k, v]) => !/^k_\d{6}$/.test(k) || !Number.isSafeInteger(v) || v < 0 || !chain.some((l) => l.id === k && l.ink));
+    if (bad) problems.push(`${a.username}: exposure.json holds something other than view counts of this book's ink`);
+  }
 }
 
 // Letters: sealed by the sender, naming exactly their files; one use per sheet.

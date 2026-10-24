@@ -27,7 +27,13 @@
 // quantizer over the same points, so the live sheet and the sealed record are
 // fed the very same acts.
 
-import { encodeActs } from 'penpals-law/v1/acts';
+import { encodeActs } from 'penpals-law/v2/acts'; // law 2's PNKA: law 1's bytes exactly, unless a pen sets spatter
+
+// A still flex nib (mouse, thumb) opens its tines: full pressure after about
+// 1 / HOLD_RAMP ms of holding (Tabor's to rule). A held pen repeats its point
+// exactly (the hold samples): only that is holding, never a pause in the events.
+export const HOLD_RAMP = 1 / 300;
+const HOLD_STILL = 1e-9; // page units: no movement at all
 
 const HOLD_MS = 16; // a held pen adds a sample this often
 const COMMIT_MS = 50; // a hold sample becomes final once no real sample older than it can still arrive
@@ -80,7 +86,9 @@ export function createCapture({ now = () => performance.now(), pen: startPen = n
 
   // Synthetic pressure for a flex nib without a pressure pen: the heading of the
   // pen from its previous final point, against the slant (down it = pressed),
-  // eased in over the swell distance. Only past points: written once, final.
+  // eased in over the swell distance. Holding still presses: the tines open
+  // (HOLD_RAMP), so a shade can start square, and at a stop before the lift the
+  // pressure holds, so it ends square. Only past points: written once, final.
   function synthesize(p, i) {
     const f = cur.flex;
     if (i > 0) {
@@ -88,7 +96,10 @@ export function createCapture({ now = () => performance.now(), pen: startPen = n
       const dx = p.x - a.x;
       const dy = p.y - a.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > 0) {
+      const dt = Math.max(0, p.t - a.t);
+      if (f.hold && dist < HOLD_STILL) {
+        f.level = Math.min(1, f.level + HOLD_RAMP * dt);
+      } else if (dist > 0) {
         const th = (f.slant * Math.PI) / 180;
         const along = (-dx * Math.cos(th) + dy * Math.sin(th)) / dist; // 1 = straight down the slant
         const k = Math.min(1, Math.max(0, (along - 0.3) / 0.6));
@@ -220,7 +231,8 @@ export function createCapture({ now = () => performance.now(), pen: startPen = n
     },
     // A flex nib (mouse and touch then get synthetic pressure), or null.
     setFlex(next) {
-      flex = next ? { slant: next.slant ?? 55, swell: Math.max(1, next.swell ?? 25) } : null;
+      // hold: a still nib opens its tines (law 2 sheets; law 1's pressure, which the hand is read by, stays as it was)
+      flex = next ? { slant: next.slant ?? 55, swell: Math.max(1, next.swell ?? 25), hold: !!next.hold } : null;
     },
     // A stroke the system took back (pointercancel): as if never written.
     cancel() {
@@ -315,4 +327,4 @@ export function strokesToActs(list, pen, { margin = 2 } = {}) {
 }
 
 const samePen = (a, b) => a.nib === b.nib && a.size === b.size && a.flex === b.flex && a.flow === b.flow && a.angle === b.angle
-  && a.rgb[0] === b.rgb[0] && a.rgb[1] === b.rgb[1] && a.rgb[2] === b.rgb[2];
+  && a.rgb[0] === b.rgb[0] && a.rgb[1] === b.rgb[1] && a.rgb[2] === b.rgb[2] && a.spatter === b.spatter;

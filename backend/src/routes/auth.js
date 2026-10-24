@@ -128,7 +128,7 @@ authRouter.post('/register/finish', json, async (req, res) => {
     await writeUnlock(id, { oprfKey: K.keyText(held.oprfKey), keyring: ring, sketches: sk.map((s) => ({ ...s, created: now, lastUsed: null })) });
     crashpoint('register:before-account');
     const a = await commitAccount({ id, username, publicKey, createdAt: now });
-    await writeCached(lookPath(id, record.id, 64), Buffer.from(settled.png)).catch(() => {});
+    await writeCached(lookPath(id, record.id, 64, body.law, { ageH: 0, views: 0 }), Buffer.from(settled.png)).catch(() => {});
     return a;
   });
   setSessionCookie(res, await createSession(account.id));

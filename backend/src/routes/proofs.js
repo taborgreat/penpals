@@ -86,7 +86,8 @@ proofsRouter.get('/:id/look', requireAuth, async (req, res) => {
   let png = await fs.readFile(proofLookPath(p.id)).catch(() => null);
   if (!png) {
     const seed = fromB64url(p.line.open.seed, 64);
-    const out = await settleOnServer({ acts: fromB64url(p.line.ink.acts), seed, family: p.line.ink.paper, png: true, key: `proof:${p.id}` });
+    // a proof is read as it was written (fresh): it shows the hand, not the ink's age
+    const out = await settleOnServer({ law: p.line.ink.law, acts: fromB64url(p.line.ink.acts), seed, family: p.line.ink.paper, png: true, key: `proof:${p.id}` });
     png = Buffer.from(out.png);
     await writeAtomic(proofLookPath(p.id), png).catch(() => {});
   }

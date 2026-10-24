@@ -1,0 +1,1035 @@
+{
+ "law": 2,
+ "tables": "6a17439a1f591bb1cec7d47a0367f77691f6455e920ccd4ca5a0883b9db133a1",
+ "paper": "9ef169c596c3ed677cf90104fc02e27e40952336ed12fc07c7aabfda1db24f06",
+ "fixtures": {
+  "v1:hairline@64": {
+   "facts": "d5618cb54d0ce27dee3a729e2ba7a5cb67e929139bea2e42af4354f17c97b486",
+   "look": "2bf127d58a1c6965babee7d4564097f231274733393fa092dad520f44089cc57",
+   "box": [
+    27,
+    26,
+    606,
+    48
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "436242de4952bc1999db9d0eda3a0e1202d0a0f5d9c8bedae8d93c5321996581"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "df42312d0fddec667fb689b2f8ed1cb3fabfbb80f8b742a600549460b9d805f2"
+    ]
+   ]
+  },
+  "v1:hairline@40": {
+   "facts": "365295ed0e64684d777293a9bc199db97f505c0cc4fada37b46beb91f3b47ebc",
+   "look": "ac5acfddea1850cb721ccf61f7bd45715d6dcac4fb947adbc949733ce1992f16",
+   "box": [
+    24,
+    23,
+    380,
+    32
+   ]
+  },
+  "v1:hairline@100": {
+   "facts": "0c8643abae5536f8ab112bec4660e517ee1944051623ca6954e243a8439fa321",
+   "look": "51e8a6db4055a3526bf0076c3fdf987167d8a582a84382a55d2060c73c41407d",
+   "box": [
+    32,
+    31,
+    945,
+    72
+   ]
+  },
+  "v1:slowCurve@64": {
+   "facts": "c1e053038a97509577a2c8bb2f446d2c10277703bec114236f4e11f9e536444a",
+   "look": "09ea9af196da0af01fba7ca46b543a86567e94a62f19914559ceee06b4da2f15",
+   "box": [
+    23,
+    22,
+    214,
+    215
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "3053eaaedb85b184fae9b8b7374b7101e8f977aaf2715ae2346d078c488a59e9"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "4a6fb7baaf10dc452c8f4e7d3c33f3acbb559c1f1d4142307a1089fa3958c116"
+    ]
+   ]
+  },
+  "v1:slowCurve@40": {
+   "facts": "be39f1aafb6535c613698a08460d18425724acdbe00a3f4e6e2987dcca6b244a",
+   "look": "0ead84d5fc8d59350384dc9f464a30c2aac951611b5c6aba2c3abc7dd0bea27d",
+   "box": [
+    21,
+    21,
+    136,
+    135
+   ]
+  },
+  "v1:slowCurve@100": {
+   "facts": "36da360ddb9fd52a4ee53363ab3395d20323f96c362312d9f4173544d3ddf490",
+   "look": "37164d3787db14c36f8ec663dc82eecb8379f03d6125ace1b72e68dd13f6bc0a",
+   "box": [
+    26,
+    26,
+    332,
+    332
+   ]
+  },
+  "v1:dwell@64": {
+   "facts": "f1d9a0ba6e7f74b36cf9f28a1491de5ffe72ac6c4a12c836bdbb4d5b6380d4bc",
+   "look": "143ae8ba0d9573a4eaf891a43af06c76b5b1130c051bdf194581a27ddfa5c973",
+   "box": [
+    23,
+    23,
+    334,
+    94
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "a89f4d5b5dc9c72cd193e5f9e89332e0f532d601fec906ae1ddd0b726402fe88"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "dad72e756af7668ad22f2a058c7ceaee99b3d78e4ca9f30d7109220584bae5e7"
+    ]
+   ]
+  },
+  "v1:dwell@40": {
+   "facts": "fbf699bd9e19ec9ed84cc792151618bab54611efad1c935b22ae9e955b19202b",
+   "look": "73557b7c5d94aef3de858174e6c945adb9f8a971610ae01b4a5cbf1e408b5613",
+   "box": [
+    22,
+    21,
+    209,
+    60
+   ]
+  },
+  "v1:dwell@100": {
+   "facts": "080af693f75b59d02a46c694b5af88418adc54656457da4cc6e50d1cc2167ab3",
+   "look": "8cf237556e2ec44dce3af2da9eb31ddca99ec5dc946691aa30e77d0d1669de5c",
+   "box": [
+    26,
+    26,
+    519,
+    144
+   ]
+  },
+  "v1:dwellLight@64": {
+   "facts": "d9847d6d5bd83030359848c34c06fc7b50cba812863f71d31ac31269913ab6c4",
+   "look": "9dceab9c7a94c5b54ea46c7c5544eb1e0b00ef9085a78bfcdee609eb20540bd3",
+   "box": [
+    23,
+    23,
+    334,
+    94
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "b9a7fee6d07f1d151039fae272e4638a18594bdc707bff54211dce3ed7a9e61c"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "51c229e999d976bb41823ebb414f35d232c6b9b4fb3a81c261fbf045579a4b90"
+    ]
+   ]
+  },
+  "v1:dwellLight@40": {
+   "facts": "a67278c97f2fe470bf2f3d04e471f5745453f8b42eddb1d865b2345f72c2c687",
+   "look": "4150a3641dadcbffdf2b9d8df80594a9e23d7082d8f13a01ebc7a838c44daca0",
+   "box": [
+    22,
+    21,
+    209,
+    60
+   ]
+  },
+  "v1:dwellLight@100": {
+   "facts": "7e6f0421377d5a361e5b796e5c5c1f9b34d9e9010cb5c84f21a0b1d982b4ba04",
+   "look": "19de12ab6a95825eee56489da0fbc1a20f2b05276085875c1e54d8601072c1cb",
+   "box": [
+    26,
+    26,
+    519,
+    144
+   ]
+  },
+  "v1:mixWet@64": {
+   "facts": "b295767453e2b8d406e8fa798ac37abeb7b9f910a637b539ccb2d51315ad9f3a",
+   "look": "49dc06c61b3b4900897676fba7de723b627e4e22ef3bb6abd230903c5858b850",
+   "box": [
+    23,
+    21,
+    134,
+    28
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "f9049426285a3e776794fef9e94aea8a5dac950607792cdc2d94656678406f90"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "fd3baef4c539d4758878148437eadf5e20cd6fd0ec384640ebec9e6149acdcdf"
+    ]
+   ]
+  },
+  "v1:mixWet@40": {
+   "facts": "8d129352d287f80c772cc0237ae9861339a590c4b4078064fe1c686192e0f3ce",
+   "look": "d4465179fced34c64f2f0d0f7d0eafc29c2fb1a05c007545b7c882edb0e7a236",
+   "box": [
+    22,
+    20,
+    84,
+    19
+   ]
+  },
+  "v1:mixWet@100": {
+   "facts": "dffcfd38b66d8e0396a0491134e8a55506062f6136afd6965d1b3d9461c21088",
+   "look": "679189fdfd8f6d11d89e01cbbac1974e8c348b7c71eab921a4e1eb166db762e3",
+   "box": [
+    26,
+    24,
+    207,
+    39
+   ]
+  },
+  "v1:mixDry@64": {
+   "facts": "48a17ce078acd1b1d32655eb59c18393e18270b46f67d888031d8da056b2bfca",
+   "look": "212941867329c226ab52e377f5e78f5c56b95688cbccab31fc3d1ee626c9b56d",
+   "box": [
+    23,
+    21,
+    134,
+    28
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "f523ba4f8fe4c8784e21e11291c22087bb9fcbdab2c8a7925890b460df933c02"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "a6176612918f8f2abf9f2a26b6ac9407f971f000d6c2cadf7557ee7d256c2f75"
+    ]
+   ]
+  },
+  "v1:mixDry@40": {
+   "facts": "4cabaddba1b50a8e00794234f10147bb659904ebdcffbf59d6b34e2b6a06de9b",
+   "look": "9c4b14a871b1654220370142c88e071f96b2eba6c18b07e4437debddccebf18b",
+   "box": [
+    22,
+    20,
+    84,
+    19
+   ]
+  },
+  "v1:mixDry@100": {
+   "facts": "1f587a1d263aad89e594449ebf6e5787958ee24a7b97b400bb88a48cb848bc26",
+   "look": "2a2aca6a0583f9c33321cb0287bf362a1d8057dfe6a670ae1a84a12969ec3f77",
+   "box": [
+    26,
+    24,
+    207,
+    39
+   ]
+  },
+  "v1:broad@64": {
+   "facts": "eeed75953cc6d49076bb8c6694cd2d5abb9b1ac82e2066154342698294b72c32",
+   "look": "aa0479319a97640e262ab3f17b43108fd398b86d50f94b190924bb0ebc6fd3a2",
+   "box": [
+    15,
+    18,
+    510,
+    104
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "e5ce5cdb25217564453dba7184fe8dac0bb9bbfb82f1ab6c7f61b20215b51700"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "510300850e93806637e0943c923c9d0e618f31ea80df66689d0c832a74ad1d63"
+    ]
+   ]
+  },
+  "v1:broad@40": {
+   "facts": "9f04238091d778abb18b06b44243f81371e5776f721d359bab2964b5e7c326ae",
+   "look": "f823f74198a45138f97a43cee39100ff16a345e7e9e1b2616a86813d68b3a8d6",
+   "box": [
+    16,
+    18,
+    321,
+    66
+   ]
+  },
+  "v1:broad@100": {
+   "facts": "ac62ddc72dcf3ceace7de64277107d5b88469090d867799846fce4e59e2bd812",
+   "look": "f4ac1e2f0384e4bc86df4610d841eb7fbcf3c55de8861ec1958a17cce4c4b45c",
+   "box": [
+    13,
+    18,
+    797,
+    163
+   ]
+  },
+  "v1:flexPressure@64": {
+   "facts": "88f24bf6d50baf6ecda26326bda51e6f0062cd3f90a4a70592a28c8658149b33",
+   "look": "647c92a69f843e0bd6aa2fc69363d2bcdce3836386a46aa38ea83b6006e7e490",
+   "box": [
+    27,
+    23,
+    527,
+    151
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "7714a83d756cd25f7a7dc86c7b30c778e41d088b085357e20507d79aeb3d1bf8"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "339d5be7a7fed8425600d47a6fe8e57600d0e10e4e043e4a356fa07844c88390"
+    ]
+   ]
+  },
+  "v1:flexPressure@40": {
+   "facts": "ca29188fe3ad31d224f198db5d320631e916f4c5ba3854712678a1c998ec1894",
+   "look": "b2b843352446d86c57f36c110bb6ff364b21dfbc8afd33a63f8212abc81b8c31",
+   "box": [
+    24,
+    21,
+    330,
+    96
+   ]
+  },
+  "v1:flexPressure@100": {
+   "facts": "a020c33b9f64dfc201871d75f38f53293d9242982da9855907b3d2174cddd230",
+   "look": "4d30f70316234d49da8ff1f71696e2c358e7e1365c7780fd7e246a5d70356e85",
+   "box": [
+    31,
+    27,
+    822,
+    232
+   ]
+  },
+  "v1:cursive@64": {
+   "facts": "1d9b9a7d0354196b0d9f080e838927b81f5ad0dbbaa6f5c7632f2d90a7a8596b",
+   "look": "f8961020f2347d2e8ea0a27c1a3d93ae399448493e2251d8a717386e6cbb5b31",
+   "box": [
+    23,
+    23,
+    794,
+    94
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "ab5a0ddf4b6756e77e8e39df068bf33b82ddcfa28ca295a830ac89ce6405a504"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "6213435044942af188d77a45ab6e43fb22599348b55388f3d78312ebb969d751"
+    ]
+   ]
+  },
+  "v1:cursive@40": {
+   "facts": "04c234a65f57baead49508b19a41fcb8154f31bf271e5c068d19af28139b3a43",
+   "look": "7cb28eb97934a448330882c9346692744053a30de141bce6248c4bd075a82956",
+   "box": [
+    22,
+    21,
+    497,
+    61
+   ]
+  },
+  "v1:cursive@100": {
+   "facts": "dc6e9392662ae16522cc09a0689e1374f3a3b086c3461118cfdeda4643f67ba9",
+   "look": "1d719f141e5b92327c517890064dda0051bbeb8de3c09c7a8bae7f42c05360af",
+   "box": [
+    26,
+    26,
+    1238,
+    145
+   ]
+  },
+  "gallLine@64": {
+   "facts": "e3c7458173ad8043a38dc4b0e0119a95aa4b358058b169b59e85d452dd8e3ac4",
+   "look": "1820d15d3aae37aa5a92fa748662be4baf7a5cebb6c6524c950ad58352a44dd5",
+   "box": [
+    24,
+    24,
+    412,
+    72
+   ],
+   "views": [
+    [
+     {
+      "ageH": 24
+     },
+     "15dc8391472225949cfa05bfb4f9622f93866410e42cedfd55c77ef7a13750c3"
+    ],
+    [
+     {
+      "ageH": 720
+     },
+     "6229fb60359deaaf1f97f04e879b074576f2dcf7fed309c0cfb4c86ad2c5af9f"
+    ],
+    [
+     {
+      "views": 400
+     },
+     "2ab4105d94dac81c807708eaaff69d0f1ce8bc3405ebc0d7f6ba1dec5cbf00ed"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "95d58b5f9a10e79692fb174167be27f28d13c5df376eedbce79e580de8d11e4e"
+    ]
+   ]
+  },
+  "gallHairPool@64": {
+   "facts": "909a6a3677d1feb3d110101f2adf69b9c623205adfe040e04c2d9abae391bcae",
+   "look": "f1b4524fcd01d955d024d26503cd832ff62be1d50de962ba1ab9eb53043c7bec",
+   "box": [
+    25,
+    26,
+    528,
+    172
+   ],
+   "views": [
+    [
+     {
+      "ageH": 24
+     },
+     "a1dd96251790a5e0b92a2ac4b34bf1a3324932520cbb4bdc348241520d66e309"
+    ],
+    [
+     {
+      "ageH": 720
+     },
+     "d0811ce00ae17fece062a2d6078a662d0b09bb470787e52d8dc1bf140b67d343"
+    ],
+    [
+     {
+      "views": 400
+     },
+     "2ce2ac29c01084a99b54b46801a9a0c84421054fd63feca225d5b111d7d790b5"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "7665321bff260de01b5a127f0fcfc11318bb8bd5b975bf857755c66e116e6b0b"
+    ]
+   ]
+  },
+  "gallOverBlue@64": {
+   "facts": "16bbcc389f32077f21a73ab87105715a440b87f5c91c0d99567d85d892034d8b",
+   "look": "a22185968589e670690be2e2ec0d4d7597d9532f96d4ce1da1c884eb8394e1d9",
+   "box": [
+    23,
+    25,
+    414,
+    211
+   ],
+   "views": [
+    [
+     {
+      "ageH": 24
+     },
+     "7acc01dfffe70ba9e1e1b8ff9bac98e36e3c347528981c9104bdb39d28362d37"
+    ],
+    [
+     {
+      "ageH": 720
+     },
+     "7734a24c8a63a336e8e014c52de9b05f15994819b1504471810fb5d20bc65252"
+    ],
+    [
+     {
+      "views": 400
+     },
+     "b6c90bb8c6a4a4a5579bdf30f9d22c9a576d63fa49e5519a752e0c854646b555"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "a93c4223c1efbd6f1b0542d75abb324ee5d792eec60ada10b124e7094e311048"
+    ]
+   ]
+  },
+  "waterOverInk@64": {
+   "facts": "a4974975976b8c703041f03a917c2e23e08cbda5a4e1d8e25c43f96dd5960eb5",
+   "look": "9c35a1814ab3cf23376314d73baaae3f296ebbb5bb9f31a4c4073063c24db713",
+   "box": [
+    23,
+    76,
+    454,
+    26
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "7fbb1aa6348c257e8c42ce0bf5d000d6eac4fcae4c940a7b49be75a6b772593e"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "07f2e4a20616fcbdf4a09f246985fc31589f65320c4e4f1fea159a844a46fc90"
+    ]
+   ]
+  },
+  "dents@64": {
+   "facts": "d31dfdad27f8d8d81e128522b4cb7f408e3532e16956e70fc9ace00a22801428",
+   "look": "e3fe896d32aebf0166df93fc222a9157aeca77dbc82eaa6aed76142372d2489b",
+   "box": [
+    23,
+    21,
+    335,
+    256
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "601b14f5115cd753693cde0237dbdf1ea0201b9ac81d861e455a20cb757e0a87"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "1a702e72d8f6129845aa73bd3517657aedb5b67bf5323eab4f5513bcca5e83d8"
+    ]
+   ]
+  },
+  "groove@64": {
+   "facts": "24be2beefe99bbd8bdc6c8f8d5489ccaba577330320211dece41c39ded6226bf",
+   "look": "f26620f7bf0594bf4d8f4401d800666e9ec0253fd3ada7875917d7b66ac76d21",
+   "box": [
+    222,
+    24,
+    16,
+    213
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "06d933a06efda40704c3222436b103d97f49770d566b9363f67e7a37a4be3c0b"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "528c08a52e57beefd2597102dee4e40cee83142a65dffee0722cc23c1b6e5973"
+    ]
+   ]
+  },
+  "grooveNone@64": {
+   "facts": "18e6f68cdd7ef15a441c4313fe468150727f7da284741e2c9602f2824624bc13",
+   "look": "2939e8fe0b7ec4fb75301c121f6bde054fc803d5942bc31523ac3eca1b2532bc",
+   "box": [
+    222,
+    24,
+    16,
+    213
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "4c8c45eedd3c24c6f3bc889e539c3b947602374604463dff06caeac13896bbfb"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "4ce80dfe39766dafa500a02a0a32a1b8502dbdf8ea61b87a7013cf330499650e"
+    ]
+   ]
+  },
+  "waterOverGall@64": {
+   "facts": "20f744108355e63827256b46866ca33914c9d2396ead60d124c16775531139f9",
+   "look": "5e68262b4f16e64144d3b2653c53654ec6366759ab9efa00b9d1a4a307d328f8",
+   "box": [
+    25,
+    79,
+    451,
+    21
+   ],
+   "views": [
+    [
+     {
+      "ageH": 24
+     },
+     "19a2ed4f023e07bd1b6c2dab1a43458279de83b9a296af71402c7d4acc7fdc4e"
+    ],
+    [
+     {
+      "ageH": 720
+     },
+     "6f245270b5c26b0a8280b88a6a4834f656eb004e1dd855cfa98ae4fce392ebf4"
+    ],
+    [
+     {
+      "views": 400
+     },
+     "f758eff907aa17ff5848713e589251989efaae9bf148099ce580ef60f8960134"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "5f9f4d8f7089c49df860c41dc76ae50e1bb7c6efc1d66e22dc1d9686aed81cad"
+    ]
+   ]
+  },
+  "scrub@64": {
+   "facts": "82f27028967e2651d441e5f20b408af04f409fa8da7622649665f3fa4f148f2e",
+   "look": "d7c027ccd048a2499af37b59b0d19dab992240f70b8263818ed452d73c0577f4",
+   "box": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "d7c027ccd048a2499af37b59b0d19dab992240f70b8263818ed452d73c0577f4"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "d7c027ccd048a2499af37b59b0d19dab992240f70b8263818ed452d73c0577f4"
+    ]
+   ]
+  },
+  "scrubDry@64": {
+   "facts": "5a7465ff9c9f2326c17cd17c4f2e841e96b1af57e09aca078016da8bcab4081e",
+   "look": "d7c027ccd048a2499af37b59b0d19dab992240f70b8263818ed452d73c0577f4",
+   "box": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "d7c027ccd048a2499af37b59b0d19dab992240f70b8263818ed452d73c0577f4"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "d7c027ccd048a2499af37b59b0d19dab992240f70b8263818ed452d73c0577f4"
+    ]
+   ]
+  },
+  "tearThenInk@64": {
+   "facts": "752157687ebba7177eeee6c8cc507766a234532bfd2b25819d01f71cd5aafcaf",
+   "look": "881c77d9a4a1f7b6415d7b05606cc924c8bff4ec095452dfd48bbdf8d3436dc5",
+   "box": [
+    23,
+    17,
+    254,
+    26
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "15fea95ccde12a5b19cf77f7c29fc1ceb40efc0d2bb11eb7c88d59c2f8ea7884"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "d23f65fcce2f414e656a83684b9ea470478e1451b1ffd3ffd5b1d29913808e7b"
+    ]
+   ]
+  },
+  "cockle@64": {
+   "facts": "ce4486b30becc4bb1f36edaa1bbcf26b135e65945be64e96f10e548dfe824dd7",
+   "look": "87f000a02da62b591bb514b87a3544abe86c0bfbe9ae1e11e735de67ba05f2ac",
+   "box": [
+    22,
+    45,
+    256,
+    50
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "6ae5cd18aabb23922eb9a57b39963e6c31522d77de699538fa87aef45d61af2f"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "795c45f929ace049f2f7e36f12a87550cf551cee95965633871a0e955b75f0df"
+    ]
+   ]
+  },
+  "flicks@64": {
+   "facts": "6b12aa34147cbd7495eea92c2ebe27d4678602e89c58f4e15695164c4204ff5b",
+   "look": "71a40c4700e06db8b25c6fe70da0dd759466a82791ce23cc7e044d5c95cc5bd4",
+   "box": [
+    21,
+    23,
+    338,
+    177
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "53952cb401ed3f5a2b68a855b157239a12e38c1f5d4f4ff767ba8ff0f0cb630e"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "c4563cbed1751b94a4f43b942094ef9da66f33628cdd87a3efd1485dfe22ddb0"
+    ]
+   ]
+  },
+  "slowCurve@64": {
+   "facts": "ebcf943291b1c3e18ae8083eb2c4c11734d3b24df4dfc5d70450eacf09ccbde7",
+   "look": "3ddddb1cd1f1eebc6f7a23a8e03b7db0f036de5e9e12921ef99999a372ca63e9",
+   "box": [
+    20,
+    23,
+    340,
+    96
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "904709214f0d47eadac8dc12b462b55512c5c47f2a7a325b54c1191fef743edd"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "c1f51386ec6f3c22819b67772ef24e3962b1ed143f78b37c29d4b05e7e6540b4"
+    ]
+   ]
+  },
+  "flicksDry@64": {
+   "facts": "3b6586bd96461268d7cad0c65c812545a2e445bc7878c33b9fb035d7d40c0f8b",
+   "look": "411036d53b54b1373d48cb945d05d114f9b2cfc470a099eba96727852482687a",
+   "box": [
+    21,
+    23,
+    338,
+    174
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "c7c10b1cdb35bab4910f2c77deefcec459130c54c0d5cd7d3d53e44c1c7c30fd"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "c5c28f00129f802f2654dd134ad23ead81e37037bfe9f96afd75bd4c607002c4"
+    ]
+   ]
+  },
+  "bead@64": {
+   "facts": "0b475f4d03c8d85c2b4303317ae95cd385c45013c72cf1bf992f08d07f9fd572",
+   "look": "5a19d50a181d1dce53a45e86251622c985b4d98d3846c77d37ce78216f2b6b1e",
+   "box": [
+    21,
+    22,
+    18,
+    17
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "c3155e29473148ddeffab2d1f7b6ca9230113d8f41649cd1e982a714e8656db4"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "8be6050f53c54e55d7cd3667ba45fed48b319f8e69a5423a32ca44c569fdfedd"
+    ]
+   ]
+  },
+  "beadLong@64": {
+   "facts": "6076f2f886075e0e5afa134296aed201d4556262e0c304d5247ee2ac8fcd6da8",
+   "look": "d7cacd029261cd9b9627cc2defb5f7d93505ab6a185119926bd3e43e59014f05",
+   "box": [
+    21,
+    22,
+    18,
+    17
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "0b8237b8fd66e8ca7df29d3c0c503355526288a16260c678e98fc2a72ef7dd62"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "956b47419fcb3c976e241f68c39dd020dc09012e9f29a70066ebbf3f045c0bb0"
+    ]
+   ]
+  },
+  "sCurve@64": {
+   "facts": "4236965269710ec817b71bb92fdeec59ab0cdb635acf40644d83a373259105f8",
+   "look": "961dd533a96fdda306bd2a25d8bfdaee2ffeb8f81c419434d97f055d076ab54c",
+   "box": [
+    22,
+    23,
+    616,
+    495
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "8ea4eaf9896e26bdc4864ef97dd1e2627b80c7b04c87e8487cd2efae3c90fc9a"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "febc6ae8fd8c4e1165ba9eec85ee63c9d075f8fa6306de0c3b77debdf3f33e0f"
+    ]
+   ]
+  },
+  "flexSquare@64": {
+   "facts": "31f66fb9d258b080256a41ed96d6e828490f8228dee06ca469eeb95163fc6d12",
+   "look": "2ac2574416b63fe02afb420ab7544a193c453b08dd090940f8850ab2e621ddda",
+   "box": [
+    14,
+    20,
+    121,
+    154
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "4c8cbb69e798bc3c3c04aaef3637826f734895e7d0a3c9fc6f6aa0af0b53551b"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "d855b153b6bbc65c458b4f6e5a5c684e070eefbe17c5275fd44061410e78f5b8"
+    ]
+   ]
+  },
+  "flexPointed@64": {
+   "facts": "d0a4bebc2e85773cecfc08d57b7db971ce2d20505ed3c40f740d15a97c44edc5",
+   "look": "19b66c8d77b4fd4ff34ebf37e8fef7102ff25561902f7393a61f0bdf5bf45173",
+   "box": [
+    26,
+    27,
+    99,
+    137
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "9abee87a437592357cb938b272f5a50f46844fc2f6c04158fc6f2ed1d1bb753c"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "03a52b10bf7873360bfaf46263763471c991fe89c3f696a5247b97c89d6f2698"
+    ]
+   ]
+  },
+  "flexTouch@64": {
+   "facts": "9a491ac792015083dc2baacf25c31b067fe00f64823baa37bb608b31fcbc6a8c",
+   "look": "20399f3e4889fde139e3e53adc164de3e660292a931e3c6575b4fadb295ea71b",
+   "box": [
+    26,
+    26,
+    8,
+    8
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "ec198922a61b23050a6ee9ac70c5c546273a587f28be6a64c1b6c07ae15ab424"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "bf3e84801b691a8c1bc8b18d9a3d7a6abc4ede9ab6a10e5cbfd3f1701c4f7064"
+    ]
+   ]
+  },
+  "flexUp@64": {
+   "facts": "a3491ffd80349003b7d439806230fa4ab48891594e78078e84ddc88e51d96788",
+   "look": "bc032ebd3e0abc52cee8f5d0a7e3205b110d794671330fb84a7b581ec9ce29af",
+   "box": [
+    26,
+    26,
+    130,
+    110
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "fd87b8d6d17a1892e62eb6c5a2fbe2e91489442023729b708a72422624e893ae"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "d31dc55948ee8a88290184f44b43db7cada0fdc3d995aa0c6c1461be3d7530d8"
+    ]
+   ]
+  },
+  "washThenWrite@64": {
+   "facts": "57dd638f431e032027e762b93ccc8da737045e3335e1d32cfd647c8e6aa77ab5",
+   "look": "1a4ec6226b06358fef3c2399300eaffa100104b619450f5b275c2a25913b8bd2",
+   "box": [
+    43,
+    111,
+    194,
+    417
+   ],
+   "views": [
+    [
+     {
+      "views": 400
+     },
+     "5b59494aa363f69bb83dd5d3d7bf587f2352c7fe4f1a4a6a8fd7cdd7e2043b7a"
+    ],
+    [
+     {
+      "ageH": 168,
+      "views": 4000
+     },
+     "ae334b140e3ae6b9fe04a11789f8b351545595219a3ee2a83e2b7ac7b57890d2"
+    ]
+   ]
+  }
+ }
+}

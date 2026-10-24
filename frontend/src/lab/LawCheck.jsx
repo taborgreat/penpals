@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FIXTURES } from 'penpals-law/tools/fixtures';
+import { CASES } from 'penpals-law/browser/cases';
 
 // /law-check (dev only): the law running in this browser. Each fixture's look
 // is drawn at one device pixel per cell (how fine the grain really is on this
@@ -12,7 +12,7 @@ export default function LawCheck() {
   useEffect(() => {
     const worker = new Worker(new URL('./lawWorker.js', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => setResults((r) => ({ ...r, [data.name]: data }));
-    for (const name of Object.keys(FIXTURES)) worker.postMessage({ name });
+    for (const name of CASES) worker.postMessage({ name });
     return () => worker.terminate();
   }, []);
   const dpr = window.devicePixelRatio || 1;
@@ -23,7 +23,7 @@ export default function LawCheck() {
         Device pixel ratio {dpr}. The first picture of each is one device pixel per cell (a cell is half an ink unit). If the ink reads as blur
         at that size rather than as ink texture, the law needs more cells per unit before it is frozen.
       </p>
-      {Object.keys(FIXTURES).map((name) => {
+      {CASES.map((name) => {
         const r = results[name];
         return (
           <section key={name} data-fixture={name} data-facts={r && !r.error ? r.facts : ''} data-error={r?.error ?? ''}>
@@ -32,7 +32,7 @@ export default function LawCheck() {
               {r?.error && <span className="error"> {r.error}</span>}
               {!r && <span className="muted"> growing…</span>}
             </h2>
-            {r && !r.error && (
+            {r && !r.error && r.box[2] > 0 && r.box[3] > 0 && (
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 {[1, 2, 4].map((k) => <Look key={k} data={r} cssWidth={(r.box[2] * k) / dpr} />)}
               </div>

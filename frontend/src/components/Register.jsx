@@ -11,7 +11,7 @@ const FAMILY = Object.freeze({ grain: 8, weight: 8, tooth: 0 }); // the paper yo
 const PHRASE_PAD = { width: 1000, height: 420 };
 const NAME_PAD = { width: 760, height: 300 };
 const PAGE_PAD = { width: 1400, height: 905 };
-const CALIBRATION = { paperKey: v1.calibrationPaperKey(), family: v1.CALIBRATION_FAMILY };
+const CALIBRATION = { paperKey: v1.calibrationPaperKey(), family: v1.CALIBRATION_FAMILY, law: 1 }; // the hand is read under law 1
 
 // Making an account (keys.md, design B). Six steps, all on this device until
 // the last: a name; a password backup, or none; your secret login phrase, written three

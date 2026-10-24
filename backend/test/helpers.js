@@ -18,11 +18,14 @@ export async function startApp(extraEnv = {}) {
   });
   const base = `http://127.0.0.1:${server.address().port}`;
   const { resetLimits } = await import('../src/limits.js');
+  const { setClockOffset } = await import('../src/clock.js');
   return {
     base,
     dir,
     resetLimits, // every test client is 127.0.0.1: tests that are not about limits start with full buckets
+    setClockOffset, // move the server's clock (looks age at view time)
     async close() {
+      setClockOffset(0);
       server.closeAllConnections();
       await new Promise((r) => server.close(r));
       await made.close();

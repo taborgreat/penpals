@@ -5,7 +5,8 @@ import { writeAtomic } from '../files.js';
 
 // The look cache: rendered PNGs, disposable (every one can be grown again from
 // the chain and the seeds). File names say exactly what they are, so a name
-// never holds anything else:  looks/<userId>/<inkId>@<scale>.L<law>-r<rev>.png
+// never holds anything else:  looks/<userId>/<inkId>@<scale>.L<law>[-a<ageH>-e<views>]-r<rev>.png
+// (law 2 looks age and fade: one file per age bucket in hours and views bucket).
 // Least-recently-used files go first when the cache passes cacheMaxBytes.
 
 export const cacheDir = path.join(config.dataDir, 'cache', 'looks');
@@ -13,8 +14,9 @@ const entries = new Map(); // path → { size, used }
 let total = 0;
 
 // Films (law/v1/film.js) of closed sheets: disposable too, outside the looks' budget.
-export const filmPath = (owner, id) => path.join(config.dataDir, 'cache', 'films', owner, `${id}.L${config.law.current}-r${config.render.rev}.pnkf`);
-export const lookPath = (userId, inkId, scale) => path.join(cacheDir, userId, `${inkId}@${scale}.L${config.law.current}-r${config.render.rev}.png`);
+export const filmPath = (owner, id, law) => path.join(config.dataDir, 'cache', 'films', owner, `${id}.L${law}-r${config.render.rev}.pnkf`);
+export const lookName = (inkId, scale, law, view = { ageH: 0, views: 0 }) => `${inkId}@${scale}.L${law}${law >= 2 ? `-a${view.ageH}-e${view.views}` : ''}-r${config.render.rev}`;
+export const lookPath = (userId, inkId, scale, law, view) => path.join(cacheDir, userId, `${lookName(inkId, scale, law, view)}.png`);
 
 export async function loadCache() {
   entries.clear();

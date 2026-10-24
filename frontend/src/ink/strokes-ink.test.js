@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCapture } from './capture.js';
 import { lawPen } from './pens.js';
-import { decodeActs } from 'penpals-law/v1/acts';
+import { decodeActs } from 'penpals-law/v2/acts';
 import { settle } from 'penpals-law/record';
 
 const FAMILY = { grain: 8, weight: 8, tooth: 0 };

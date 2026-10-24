@@ -15,7 +15,7 @@ async function serverFilm(url) {
   return new Uint8Array(await new Response(inflated).arrayBuffer());
 }
 
-// source: { url } (a server film) or { local: { actsBytes, paperKey, family, box } }
+// source: { url } (a server film) or { local: { actsBytes, paperKey, family, box, law } }
 export async function exportFilm(source, { format = 'webm', background = '#ffffff', onProgress } = {}) {
   const film = source.url ? await serverFilm(source.url) : null;
   const worker = new Worker(new URL('./filmWorker.js', import.meta.url), { type: 'module' });

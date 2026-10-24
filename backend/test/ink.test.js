@@ -1,6 +1,7 @@
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -192,6 +193,7 @@ test('the privacy canary: no secret is in any response, request or file', async 
   const closed = [];
   const w = await writeInk(A(), ana);
   closed.push(w.ink.seedText);
+  const closedBytes = closed.map((t) => Buffer.from(t, 'base64url').subarray(0, 24));
   const scan = (where, text) => {
     for (const [what, s] of secrets) assert.ok(!text.includes(s), `${what} found in ${where}`);
   };
@@ -200,12 +202,20 @@ test('the privacy canary: no secret is in any response, request or file', async 
   // every GET a visitor can make
   const viewers = { owner: app.ana, friend: app.bo, stranger: app.cy, anonymous: client(app.base) };
   const gets = ['/api/auth/me', '/api/users', '/api/users/ana', '/api/books/ana', '/api/books/ana/ink', '/api/signatures?names=ana,bo,cy', '/api/letters/top', '/api/law'];
+  // and every ink's scene (heights and colours of the sheet: never its seed or paper), inflated before scanning
+  const chainNow = (await app.ana.get('/api/books/ana/ink')).data.toString('utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const scenes = chainNow.filter((l) => l.ink?.kind === 'ink' && l.ink.law >= 2).map((l) => `/api/books/ana/look/${l.id}?mode=scene`);
+  assert.ok(scenes.length > 0);
   for (const [who, c] of Object.entries(viewers)) {
-    for (const g of [...gets, ...(who === 'owner' ? ['/api/books/ana/download', '/api/social'] : [])]) {
+    for (const g of [...gets, ...scenes, ...(who === 'owner' ? ['/api/books/ana/download', '/api/social'] : [])]) {
       const r = await c.get(g);
-      const text = Buffer.isBuffer(r.data) ? r.data.toString('utf8') : JSON.stringify(r.data);
-      scan(`${who} GET ${g}`, text);
-      for (const s of closed) assert.ok(!text.includes(s), `a closed seed was served to ${who} by ${g}`);
+      const inflated = g.includes('mode=scene') && r.status === 200 ? zlib.inflateRawSync(Buffer.from(r.data)) : null;
+      for (const body of inflated ? [Buffer.from(r.data), inflated] : [r.data]) {
+        const text = Buffer.isBuffer(body) ? body.toString('latin1') : JSON.stringify(body);
+        scan(`${who} GET ${g}`, text);
+        for (const s of closed) assert.ok(!text.includes(s), `a closed seed was served to ${who} by ${g}`);
+        if (Buffer.isBuffer(body)) for (const s of closedBytes) assert.equal(body.indexOf(s), -1, `a closed seed's bytes were served to ${who} by ${g}`);
+      }
     }
   }
   // the begin answer (public to anyone who knows a name) carries no secret either

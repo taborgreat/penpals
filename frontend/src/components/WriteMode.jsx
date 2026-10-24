@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { PX_PER_MM, renderStroke, drawGuides } from '../ink/nibs.js';
 import { createPlayer } from '../ink/render.js';
 import { CHASE, isPhone, zoneStart, clampLinePx, zoomFor, toPage, penDown, penAt, chase, lineStart, endGlow, inEndZone } from './chase.js';
+import SceneView from '../scene/SceneView.jsx';
+import { sceneOn } from '../scene/support.js';
 
 // Playback shows the page cropped to the lines written on (a line's room either side), so it reads at phone size.
 function inkRows(data) {
@@ -78,6 +80,13 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
   const playerRef = useRef(null);
   const [count, setCount] = useState(draftRef.current.strokes.length);
   const [playing, setPlaying] = useState(null); // the whole letter, while it is written out
+  // The chase in 3D (the scene): the camera's target slides along the line with the chase.
+  const [view3d, setView3d] = useState(false);
+  const view3dRef = useRef(false);
+  view3dRef.current = view3d;
+  const sceneRef = useRef(null);
+  const followRef = useRef({ base: [0, 0], offset: [0, 0] });
+  const sceneCamRef = useRef(null);
 
   const camMax = () => pageW - sizeRef.current.w / camRef.current.zoom;
   // A page narrower than the view (a wide screen) sits in its middle, not against
@@ -152,6 +161,10 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
       end.style.width = `${zone * c.zoom}px`;
       end.style.top = `${-c.camY * c.zoom}px`;
       end.style.height = `${height * c.zoom}px`;
+    }
+    if (view3dRef.current) { // in 3D the scene looks where the chase's view is
+      followRef.current.offset = [c.cam + w / 2 / c.zoom, c.camY + h / 2 / c.zoom];
+      sceneRef.current?.invalidate();
     }
   }, [getStrokes, draftRef, pageW, height, guide, spacing, slant, paper, inkColor, live]);
 
@@ -406,6 +419,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     c.camY = d.before.camY;
     c.line = d.before.line;
     c.prevX = null;
+    if (d.before.view && view3dRef.current) sceneRef.current?.setCamera(d.before.view); // the whole camera, in 3D
     setCount(draftRef.current.strokes.length);
     schedule();
   };
@@ -485,8 +499,56 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     return () => el.removeEventListener('wheel', onWheel);
   }, [schedule]);
 
+  // Writing in 3D: the pointer's page point comes by ray from the scene; the chase
+  // runs on its screen motion exactly as in 2D (1. chase, 2. convert, 3. store, 4. pen).
+  const sheets3d = useMemo(() => (live ? [{ id: 'live', box: [0, 0, Math.ceil(pageW * 2), Math.ceil(height * 2)], origin: [0, 0], cellPx: 0.5, live }] : []), [live, pageW, height]);
+  const writer3d = useMemo(() => {
+    const screen = (ev) => ({ x: ev.clientX - sizeRef.current.left, y: ev.clientY - sizeRef.current.top });
+    const point = (p, ev, type) => ({ x: p.x, y: p.y, t: ev.timeStamp || performance.now(), p: ev.pressure || 0.5, pen: type === 'pen' });
+    return {
+      penDown: (cam) => { sceneCamRef.current = cam; },
+      down(p, ev, type) {
+        if (playing || curRef.current) return;
+        const c = camRef.current;
+        const s = screen(ev);
+        cancelReset();
+        const before = { ...penDown(c, s.x, s.y), view: sceneCamRef.current };
+        curRef.current = { stroke: { ...nib(), points: [point(p, ev, type)] }, before };
+        capture?.down(curRef.current.stroke.points[0], ev, type);
+        schedule();
+      },
+      move(p, ev) {
+        const cur = curRef.current;
+        if (!cur) return;
+        const c = camRef.current;
+        const s = screen(ev);
+        chase(c, s.x, s.y, zoneStart(sizeRef.current.w), camMax());
+        const pt = point(p, ev, ev.pointerType);
+        cur.stroke.points.push(pt);
+        capture?.move(pt, ev);
+        penAt(c, s.x, s.y);
+        schedule();
+      },
+      up(p, ev) {
+        onPointerUp({ pointerId: -1, nativeEvent: ev });
+      },
+      cancel() {
+        const cur = curRef.current;
+        if (!cur) return;
+        Object.assign(camRef.current, cur.before);
+        curRef.current = null;
+        capture?.cancel();
+        schedule();
+      },
+    };
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (view3d) live?.scene?.(true);
+    schedule();
+  }, [view3d]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return createPortal(
-    <div className="monk" ref={rootRef} role="dialog" aria-modal="true" aria-label="Write mode">
+    <div className={`monk${view3d ? ' monk-3d' : ''}`} ref={rootRef} role="dialog" aria-modal="true" aria-label="Write mode">
       <canvas ref={paperRef} className="monk-paper" />
       <div ref={endRef} className={`monk-end ${CHASE.RESET_EDGE === 'view' ? 'at-view' : ''}`} style={CHASE.RESET_EDGE === 'view' ? { width: `${CHASE.VIEW_EDGE * 100}%` } : undefined} aria-hidden="true" />
       <canvas
@@ -499,10 +561,23 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
         onPointerLeave={(e) => { if (e.buttons === 0 && !resetRef.current) glow(0, 300); }}
         onContextMenu={(e) => e.preventDefault()}
       />
+      {view3d && (
+        <SceneView
+          ref={sceneRef}
+          className="monk-scene"
+          page={[pageW, height]}
+          mode="3d"
+          onMode={(m) => setView3d(m === '3d')}
+          sheets={sheets3d}
+          follow={followRef.current}
+          writer={writer3d}
+        />
+      )}
       {prompt && <div className="monk-prompt" aria-label="Copy this">{prompt}</div>}
       <div className="monk-bar">
         <button type="button" onClick={leave} disabled={!!playing} title="Leave write mode (Esc)">Escape</button>
         <button type="button" onClick={undo} disabled={!!playing || !count} title="Take back the last stroke (Ctrl+Z)">Undo</button>
+        {live && sceneOn() && !view3d && <button type="button" onClick={() => setView3d(true)} disabled={!!playing} title="Write on the page in 3D: the chase moves the camera along the line">3D</button>}
         <button type="button" className="primary" onClick={play} disabled={!!playing || (!count && !getStrokes().length)} title="Watch it written out, then save or send">
           ▶ Play
         </button>

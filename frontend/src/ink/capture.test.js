@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCapture, strokesToActs } from './capture.js';
-import { decodeActs } from 'penpals-law/v1/acts';
+import { decodeActs } from 'penpals-law/v2/acts';
 
 const PEN = { nib: 0, size: 40, flex: 0, flow: 7, rgb: [20, 20, 20], angle: 0 };
 const ev = (timeStamp, extra = {}) => ({ timeStamp, pressure: 0.5, pointerType: 'mouse', ...extra });
@@ -71,7 +71,10 @@ test('strokes become canonical acts that keep their place and their pauses', () 
 
 // --- writing live: the sheet is fed exactly the acts that are encoded ---
 
-import { createLive } from 'penpals-law/v1/live';
+import { lawOf, CURRENT } from 'penpals-law/laws';
+
+// the device writes under the current law
+const { createLive } = lawOf(CURRENT);
 import { settle } from 'penpals-law/record';
 import { paperKeyOf } from 'penpals-law/keys';
 import { b64url } from 'penpals-law/tags';
@@ -189,4 +192,37 @@ test('a held pen, live: hold samples that became final are kept, later ones give
   const rec = decodeActs(acts);
   assert.ok(rec.strokes[0].x.length > 9, 'the dwell left samples');
   assert.equal(b64url(live.finish(acts).facts), b64url(settle(acts, SEED, FAMILY).facts));
+});
+
+test('flex nib, mouse: holding still opens the tines (a square start), a stop before the lift holds them; a quick start is a point', async () => {
+  const PEN = { nib: 1, size: 12, flex: 120, flow: 7, rgb: [20, 20, 20], angle: 35 };
+  const th = (55 * Math.PI) / 180;
+  const hold = async (cap, clock, ms) => { // the held pen's own samples, every 16 ms of its clock
+    for (let k = 0; k < ms / 16; k++) {
+      clock.t += 16;
+      await new Promise((r) => setTimeout(r, 18));
+    }
+  };
+  const write = async (holdMs, endHoldMs) => {
+    const clock = { t: 1000 };
+    const cap = createCapture({ now: () => clock.t, pen: PEN });
+    cap.setFlex({ slant: 55, swell: 6, hold: true });
+    cap.down({ x: 100, y: 100 }, ev(clock.t));
+    await hold(cap, clock, holdMs);
+    for (let i = 1; i <= 20; i++) { // then down the slant
+      clock.t += 8;
+      cap.move({ x: 100 - Math.cos(th) * i * 1.5, y: 100 + Math.sin(th) * i * 1.5 }, ev(clock.t));
+    }
+    await hold(cap, clock, endHoldMs);
+    cap.up(null, ev(clock.t + 30));
+    assert.ok(cap.strokes[0].synthP, 'a mouse on a flex nib writes synthetic pressure');
+    return cap.strokes[0].points;
+  };
+  const held = await write(400, 300);
+  const quick = await write(0, 0);
+  const firstMove = (pts) => pts.find((p, i) => i > 0 && (p.x !== pts[0].x || p.y !== pts[0].y));
+  assert.ok(held.some((p) => p.x === held[0].x && p.p > 0.9), 'held still, the tines open where it landed');
+  assert.ok(firstMove(held).p > 0.9, `so the pull starts square (${firstMove(held).p.toFixed(2)})`);
+  assert.ok(held.at(-1).p > 0.95, 'a stop before the lift holds them open: a square end');
+  assert.ok(firstMove(quick).p < 0.5, `without the hold it starts near a point (${firstMove(quick).p.toFixed(2)})`);
 });

@@ -66,6 +66,8 @@ node law/bin/verify.js <file.book | proof.json> [--json]
 ```
 law/                 the law (workspace package penpals-law): pure ESM, integers, no DOM
   v1/                FROZEN: paper, acts (PNKA), the sim (+ live, playback, film, trace), look, hand
+  v2/                depth, water and oak gall: dents, ink depth, soak, tears, cockle, gall, fading, splatter (keys.md)
+  laws.js            the laws by number: a record grows, looks and verifies under the law it carries
   keys.js            the key, sheet seeds, seals, opens, auth messages, proofs, fingerprints
   fuzzy.js unlock.js handkey.js   BCH fuzzy commitment, OPRF + argon2id + keyring, sketches
   record.js verify.js bin/verify.js   records, and checking a .book or proof anywhere
@@ -98,7 +100,8 @@ backend/data/
   users/<id>/seeds.chain          private: seeds of closed sheets (never served)
   users/<id>/book/skeleton.json   pages, items (integer scales), links, paper family, signature ref
   users/<id>/book/ink.chain       append-only: sealed records, and opens
-  letters/<id>/                   letter.json + ink.line.json (+ sheet.seed, private) or the photo's PNG + strokes
+  users/<id>/exposure.json        views of each ink (law 2 fading): once per viewer per day, written only on a view
+  letters/<id>/                   letter.json + ink.line.json (+ sheet.seed, private, exposure.json) or the photo's PNG + strokes
   proofs/<id>/proof.json          an ask and its answer
   sessions/<sha256>.json          login sessions (only a hash of each token)
   cache/                          looks and films: disposable, rebuilt on demand
@@ -121,6 +124,11 @@ and a letter each have one commit point, so a crash never leaves half of one.
 - **Looks**: the server grows a sheet's settled ink from its private seed (1 px per cell,
   colour to alpha), only for those who may see it, at integer sizes.
 - **Opening a sheet** publishes its seed, signed open by the key: anyone can regrow it.
+- **Law 2** (new writing): the nib dents the paper, ink sinks in, a water brush wets dry
+  ink again, wet paper wears and tears, soaked paper cockles, pens throw ink (splatter, decided
+  by the paper), and oak gall darkens over days while every colour fades with views: aging is
+  applied when someone looks, never on a timer.
+  Law 1 sheets settle exactly as they always did. Side and relief views in walk back.
 - **Walk back**: tap a spot of your own (or an open) sheet and see why it looks that way.
 - **Films**: the sheet being written, frame by frame, saved as WebM (WebCodecs) or GIF.
 - **Live proofs**: ask someone; your challenge and their key name a sheet and a phrase;

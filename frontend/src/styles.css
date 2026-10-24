@@ -672,6 +672,14 @@ a:hover .username.signed, button:hover .username.signed, a:focus-visible .userna
 .swatches.small { gap: 5px; align-items: center; }
 .swatches.small button { width: 22px; height: 22px; }
 .swatches.small input[type='color'] { width: 30px; height: 24px; padding: 2px; }
+/* oak gall: pale as written, dark after days in the air */
+.ink-well button.gall, :root[data-theme='dark'] .ink-well button.gall { background: linear-gradient(135deg, #b9bcc8 0 45%, #353438 55% 100%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .ink-well button.gall { background: linear-gradient(135deg, #b9bcc8 0 45%, #353438 55% 100%); } }
+/* the water brush: water, no pigment */
+.ink-well button.water, :root[data-theme='dark'] .ink-well button.water { background: radial-gradient(circle at 35% 35%, #ffffff 0 30%, #cfe0f5 60%, #9dbbe3 100%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .ink-well button.water { background: radial-gradient(circle at 35% 35%, #ffffff 0 30%, #cfe0f5 60%, #9dbbe3 100%); } }
+.depth-view { margin: 0; overflow-x: auto; }
+.depth-view img { image-rendering: pixelated; max-width: none; display: block; }
 button.danger:hover:not(:disabled) { color: var(--wax); }
 .write-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 12px; }
 .write-panel .row { justify-content: flex-start; }
@@ -689,6 +697,17 @@ button.danger:hover:not(:disabled) { color: var(--wax); }
 }
 .journal-page.editing { overflow: visible; outline: 1px dashed var(--rule-strong); outline-offset: 3px; }
 .ink-item { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; box-shadow: none; border-radius: 0; }
+/* the journal's scene: behind its items in 2D (the items stay for links, unseen), over everything in 3D */
+.journal-scene { position: absolute; inset: 0; z-index: 0; }
+.journal-page.scene-shown .ink-item { opacity: 0; z-index: 1; }
+.journal-page.scene-3d .journal-scene { z-index: 5; }
+.journal-page.scene-3d { overflow: visible; }
+.letter-scene { position: absolute; inset: 0; }
+.monk-scene { position: absolute; inset: 0; z-index: 2; }
+.walk-back-scene { height: min(60vh, 460px); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.walk-back-scene .scene-view { width: 100%; height: 100%; }
+.monk-3d canvas.monk-paper, .monk-3d canvas.monk-ink { visibility: hidden; }
+.monk-3d .monk-scene .scene-tools { bottom: 64px; }
 .ink-item-art { position: relative; display: block; width: 100%; height: 100%; }
 .ink-item-art canvas { position: absolute; display: block; pointer-events: none; }
 button.ink-link { cursor: pointer; transition: transform 0.15s ease, filter 0.15s ease; }
@@ -1022,6 +1041,22 @@ canvas.corner-picker {
 .pad-page canvas.ink.pen-scroll { touch-action: pan-x pan-y; }
 .pad-page canvas.ink.grab { cursor: grab; }
 .pad-page canvas.ink.grab:active { cursor: grabbing; }
+/* the scene (lit 2D, or 3D) over the page: in 2D the guides show above it and the
+   flat ink canvas above them takes the pointer, unseen; in 3D the scene takes over */
+.pad-scene { position: absolute; z-index: 2; pointer-events: none; overflow: hidden; }
+.pad-scene .scene-view { position: absolute; inset: 0; }
+.scene-on.scene-2d .pad-page canvas.guide { position: relative; z-index: 3; mix-blend-mode: multiply; }
+.scene-on.scene-2d .pad-page canvas.ink { z-index: 4; opacity: 0; }
+.scene-on.scene-3d .pad-scene { z-index: 5; pointer-events: auto; }
+.scene-on.scene-3d .pad-view { visibility: hidden; }
+.scene-view { position: relative; }
+.scene-canvas { width: 100%; height: 100%; display: block; outline: none; }
+.scene-tools { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 4px; pointer-events: auto; z-index: 6; }
+.scene-tools button { font-size: 12px; padding: 3px 8px; background: color-mix(in srgb, var(--surface) 88%, transparent); }
+.scene-tools.hosted { position: static; display: inline-flex; }
+.scene-tools-host { display: inline-flex; }
+.scene-tools button[aria-pressed='true'] { box-shadow: inset 0 0 0 1px var(--text); }
+.scene-hint { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); margin: 0; padding: 4px 10px; border-radius: 6px; background: color-mix(in srgb, var(--surface) 92%, transparent); font-size: 13px; pointer-events: none; }
 
 @media (max-width: 640px) {
   main { padding: 24px 14px 64px; }

@@ -5,7 +5,8 @@ import { useKey } from '../keys/session.js';
 import Journal from '../book/Journal.jsx';
 import { parseLines, readChain } from '../book/ink.js';
 import InkItem from '../book/InkItem.jsx';
-import { verifyBookHere, growLook, regrowHere } from '../ink/grown.js';
+import { verifyBookHere, growLook, regrowHere, viewAt } from '../ink/grown.js';
+import { sceneOf } from '../scene/sources.js';
 
 // Open a downloaded .book (books.md A7, keys.md) and check it here, with no
 // server: line 1 is the head (name, key, layout), the rest the chain of sealed
@@ -65,9 +66,13 @@ export default function BookViewer() {
     }
   }
 
+  const sceneSrc = useCallback((item, line) => {
+    const seed = seedOf(line.ink.sheet);
+    return seed ? sceneOf({ line, seed }) : Promise.resolve(null);
+  }, [seedOf]);
   const lookSrc = useCallback((item, line) => {
     const seed = seedOf(line.ink.sheet);
-    return seed ? growLook(line.ink, seed, item.scale) : null;
+    return seed ? growLook(line.ink, seed, item.scale, viewAt(line)) : null;
   }, [seedOf]);
 
   const sig = book?.skeleton.signature && book.inks.get(book.skeleton.signature);
@@ -79,7 +84,7 @@ export default function BookViewer() {
   return (
     <div className="book-viewer">
       <h1>
-        {book && sig ? <span className="username signed book-signature"><InkItem src={sigSeed ? growLook(sig.ink, sigSeed, 64) : null} body={sig.ink} /></span> : null}
+        {book && sig ? <span className="username signed book-signature"><InkItem src={sigSeed ? growLook(sig.ink, sigSeed, 64, viewAt(sig)) : null} body={sig.ink} /></span> : null}
         {book ? ` @${book.name}` : 'Open a book'}
       </h1>
       <label
@@ -112,7 +117,7 @@ export default function BookViewer() {
             : <p>And with your key: {closed.ok} closed sheet{closed.ok === 1 ? '' : 's'} grown again here, exactly as sealed.</p>)}
         </div>
       )}
-      {book && <Journal key={book.name + book.skeleton.version} name={book.name} fromFile={book} pageId={page} onPage={setPage} lookSrc={lookSrc} />}
+      {book && <Journal key={book.name + book.skeleton.version} name={book.name} fromFile={book} pageId={page} onPage={setPage} lookSrc={lookSrc} sceneSrc={sceneSrc} />}
     </div>
   );
 }

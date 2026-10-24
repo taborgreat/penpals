@@ -1,18 +1,30 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import InkItem from './InkItem.jsx';
-import { traceHere } from '../ink/grown.js';
+import { traceHere, depthHere, viewAt, momentsHere } from '../ink/grown.js';
+import SceneView from '../scene/SceneView.jsx';
+import { sceneSupported } from '../scene/support.js';
+import { sceneOf } from '../scene/sources.js';
+import { CELLS } from './ink.js';
 
 // Walk back (keys.md): tap a spot of a piece of writing and see why it looks
 // that way: the paper there (its capacity, sizing, fibers), when the nib was
 // over it and how much ink it gave, the water that stood or ran in along a
 // fiber, and what settled. It grows the sheet again on this device, so it needs
 // the sheet's seed: yours (your key is in this tab) or a sheet that is open.
+// Ink of law 2 also has depth: the dent, how far the ink sank, the film the ink
+// dried to, the water the paper remembers; a cut through the paper along the row
+// you tapped (the side view); and the sheet in the scene, its own paper and all,
+// to turn in 3D, cut through, and band by the moments its ink went down.
 export default function WalkBack({ line, seed, src, onClose }) {
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [picture, setPicture] = useState(null); // { mode, url, width, height }
+  const [scene, setScene] = useState(null); // { field, detail } once asked for
+  const [sceneMode, setSceneMode] = useState('3d');
   const body = line.ink;
   const [, , w, h] = body.box;
+  const deep = body.law >= 2;
 
   async function pick(e) {
     const r = e.currentTarget.getBoundingClientRect();
@@ -28,6 +40,27 @@ export default function WalkBack({ line, seed, src, onClose }) {
     }
   }
 
+  async function show(mode) {
+    setBusy(true);
+    setError(null);
+    try {
+      if (mode === 'scene') {
+        setScene(await sceneOf({ line, seed }));
+        return;
+      }
+      const row = result ? result.cell[1] : body.box[1] + (h >> 1);
+      const cut = [body.box[0], row, body.box[0] + w - 1, row];
+      if (picture) URL.revokeObjectURL(picture.url);
+      setPicture({ mode, ...(await depthHere(body, seed, { mode, cut, view: viewAt(line) })) });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const sheets = useMemo(() => (scene ? [{ id: 'sheet', box: scene.field.box, origin: [scene.field.box[0] / CELLS, scene.field.box[1] / CELLS], cellPx: 1 / CELLS, field: scene.field, detail: scene.detail }] : []), [scene]);
+  const toCell = (p) => [Math.round(p[0] * CELLS), Math.round(p[1] * CELLS)];
+
   const t = result;
   return (
     <div className="stack card walk-back">
@@ -40,6 +73,43 @@ export default function WalkBack({ line, seed, src, onClose }) {
       <button type="button" className="walk-back-art" style={{ aspectRatio: `${w} / ${h}` }} onClick={pick} disabled={busy} aria-label="Pick a spot">
         <InkItem src={src} body={body} />
       </button>
+      {deep && (
+        <div className="row">
+          <button type="button" className="quiet" onClick={() => show('side')} disabled={busy} title="A cut through the paper along the row you tapped">
+            Side view{t ? ' here' : ''}
+          </button>
+          {sceneSupported() && (
+            <button type="button" className="quiet" onClick={() => show('scene')} disabled={busy} title="The sheet in the scene: turn it, cut through it, band it by its moments">
+              Scene
+            </button>
+          )}
+        </div>
+      )}
+      {picture && (
+        <figure className="depth-view">
+          <img src={picture.url} width={picture.width} height={picture.height} alt="A cut through the paper" />
+          <figcaption className="meta">the paper in layers; the liquid sunk into it, the ink darker near the top; the film it dried to above; a break where it tore</figcaption>
+        </figure>
+      )}
+      {scene && (
+        <div className="walk-back-scene">
+          <SceneView
+            page={[(scene.field.box[0] + scene.field.box[2]) / CELLS, (scene.field.box[1] + scene.field.box[3]) / CELLS]}
+            mode={sceneMode}
+            onMode={setSceneMode}
+            sheets={sheets}
+            cutSide={(a, b) => depthHere(body, seed, { mode: 'side', cut: [...toCell(a), ...toCell(b)], view: viewAt(line) }).then(async (d) => {
+              const img = await createImageBitmap(await (await fetch(d.url)).blob());
+              const c = document.createElement('canvas');
+              c.width = img.width;
+              c.height = img.height;
+              c.getContext('2d').drawImage(img, 0, 0);
+              return { width: img.width, height: img.height, rgba: new Uint8Array(c.getContext('2d').getImageData(0, 0, img.width, img.height).data.buffer) };
+            })}
+            moments={() => momentsHere(body, seed)}
+          />
+        </div>
+      )}
       {busy && <p className="muted">Growing the sheet again…</p>}
       {error && <p className="error">{error}</p>}
       {t && (
@@ -70,9 +140,26 @@ export default function WalkBack({ line, seed, src, onClose }) {
               <dd>{t.carried.map((c) => `${c.drops} along a fiber from the ${c.from}`).join('; ')}</dd>
             </>
           )}
+          {t.depth && (
+            <>
+              <dt>depth</dt>
+              <dd>
+                {t.depth.torn
+                  ? 'torn through: worked while wet until the fibers gave; it holds nothing'
+                  : [
+                    t.depth.dent ? `pressed ${t.depth.dent} deep` : 'not pressed in',
+                    `ink sank ${t.depth.depth} of the paper's layers`,
+                    t.depth.peak ? `a bead stood ${t.depth.peak} high` : null,
+                    t.depth.soak ? `the paper remembers water (${t.depth.soak})` : null,
+                    t.depth.cockle ? `it dried buckled (ridge ${t.depth.cockle})` : null,
+                    t.depth.wear ? `worn ${t.depth.wear}` : null,
+                  ].filter(Boolean).join('; ')}
+              </dd>
+            </>
+          )}
           <dt>settled</dt>
           <dd>
-            pigment {t.settled.fixed.join(' / ')}; shows as{' '}
+            pigment {t.settled.fixed.join(' / ')}{t.settled.gall ? `; oak gall ${t.settled.gall} (it darkens with air over days)` : ''}; shows as{' '}
             <span className="swatch" style={{ background: `rgb(${t.settled.transmittance.join(',')})` }} /> rgb({t.settled.transmittance.join(', ')})
           </dd>
         </dl>

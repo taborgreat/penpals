@@ -1,6 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import InkItem from './InkItem.jsx';
-import { itemSize, clampScale } from './ink.js';
+import { itemSize, clampScale, CELLS, SCALE_ONE } from './ink.js';
+import SceneView from '../scene/SceneView.jsx';
+import { sceneOn, setViewChoice } from '../scene/support.js';
+import { hexRgb } from '../scene/sources.js';
 
 // One page of a journal: its background, and its writing in list order (later
 // items on top). Each item is a sealed record's look; `lookSrc(item, line)`
@@ -10,9 +13,39 @@ import { itemSize, clampScale } from './ink.js';
 // View mode: writing that links to a page is a button that goes there.
 // Edit mode (`editable`): a tap selects, dragging moves, the corner handle
 // resizes; each finished gesture is one edit (`onOp`).
-export default function JournalPage({ pageId, page, size, inks, editable, selected, onSelect, onOp, onFollow, lookSrc }) {
+//
+// The scene (`sceneSrc(item, line)` → its field or look): every item a sheet in
+// one scene over the page, lit by the time of day; 2D (the page as ever, lit) or
+// 3D. In 2D the page's own items stay above it, unseen, for links and editing.
+export default function JournalPage({ pageId, page, size, inks, editable, selected, onSelect, onOp, onFollow, lookSrc, sceneSrc = null }) {
   const ref = useRef(null);
   const [k, setK] = useState(0); // CSS px per page unit
+  const [scene, setScene] = useState(() => !!sceneSrc && sceneOn());
+  const [sceneMode, setSceneMode] = useState('2d');
+  const [shown, setShown] = useState(() => new Map()); // item key → { field, detail } | { look }
+  const keyOf = (item) => `${item.id}:${item.ink}`;
+  useEffect(() => {
+    if (!scene) return;
+    let alive = true;
+    for (const item of page.items) {
+      const line = inks.get(item.ink);
+      if (!line?.ink || shown.has(keyOf(item))) continue;
+      sceneSrc(item, line).then((d) => {
+        if (alive && d) setShown((m) => new Map(m).set(keyOf(item), d));
+      }).catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [scene, page.items, inks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sheets = useMemo(() => page.items.flatMap((item) => {
+    const d = shown.get(keyOf(item));
+    const line = inks.get(item.ink);
+    if (!d || !line?.ink) return [];
+    const box = d.field?.box ?? d.look.box;
+    const cellPx = item.scale / SCALE_ONE / CELLS;
+    return [{ id: keyOf(item), box, origin: [item.x + (box[0] - line.ink.box[0]) * cellPx, item.y + (box[1] - line.ink.box[1]) * cellPx], cellPx, field: d.field, detail: d.detail, look: d.look }];
+  }), [page.items, shown, inks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paper = useMemo(() => hexRgb(page.background), [page.background]);
+  const sceneShows = scene && !editable;
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -26,7 +59,7 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
   return (
     <div
       ref={ref}
-      className={`journal-page${editable ? ' editing' : ''}`}
+      className={`journal-page${editable ? ' editing' : ''}${sceneShows ? ` scene-shown scene-${sceneMode}` : ''}`}
       style={{ background: page.background, aspectRatio: `${size.width} / ${size.height}` }}
       onPointerDown={(e) => { if (editable && e.target === ref.current) onSelect(null); }}
     >
@@ -50,6 +83,17 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           />
         );
       })}
+      {sceneShows && (
+        <SceneView
+          className="journal-scene"
+          page={[size.width, size.height]}
+          mode={sceneMode}
+          onMode={setSceneMode}
+          sheets={sheets}
+          paper={paper}
+          onFlat={() => { setViewChoice('flat'); setScene(false); }}
+        />
+      )}
     </div>
   );
 }

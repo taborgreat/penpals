@@ -83,8 +83,8 @@ export async function signIn(c, p, { session = 5, password = p.password, actsOve
 }
 
 // A piece of book ink: sealed on a fresh sheet, sent with its seed.
-export function bookInk(p, { family = FAMILY, acts = S.write(p.writer, 'hello there', 2), use = 'book', sheet = K.newSheetId() } = {}) {
-  const made = R.makeInk({ sk: p.sk, pk: p.pk, sheet, use, family, acts });
+export function bookInk(p, { family = FAMILY, acts = S.write(p.writer, 'hello there', 2), use = 'book', sheet = K.newSheetId(), law } = {}) {
+  const made = R.makeInk({ sk: p.sk, pk: p.pk, sheet, use, family, acts, law });
   return { ...made, seedText: b64url(made.seed) };
 }
 

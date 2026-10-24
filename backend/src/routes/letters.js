@@ -14,8 +14,10 @@ import {
   readLine, readSeed, lookDir, exists, sheetUsedInLetters,
 } from '../store/letters.js';
 import { blockedEitherWay, blockedIds, canSeeProfile, hasBlocked, relation } from '../social.js';
-import { take } from '../limits.js';
-import { confirmFacts, settleOnServer, decodeField } from '../services.js';
+import { take, ipKey } from '../limits.js';
+import { confirmFacts, settleOnServer, decodeField, viewOf } from '../services.js';
+import { countView } from '../store/exposure.js';
+import { lookName } from '../store/cache.js';
 import { sendFilm } from './books.js';
 import { writeAtomic } from '../files.js';
 import { keys as K, record as R, fromB64url, hex } from 'penpals-law';
@@ -204,7 +206,7 @@ lettersRouter.post('/', requireAuth, letterJson, async (req, res) => {
     digest: hex(D),
   };
   const letter = await createLetter(meta, { line: { ink: body, seal: line.seal }, seed: K.keyText(seed) });
-  await writeAtomic(path.join(lookDir(letter.id), '64.png'), Buffer.from(settled.png)).catch(() => {});
+  await writeAtomic(path.join(lookDir(letter.id), `${lookName('ink', 64, body.law, { ageH: 0, views: 0 })}.png`), Buffer.from(settled.png)).catch(() => {});
   if (recipient) await countSent(req.user.id);
   res.status(201).json({ letter: letterJsonOf(letter, req.user), kept: room });
 });
@@ -296,22 +298,38 @@ lettersRouter.get('/:id/line', async (req, res) => {
   res.json({ line: await readLine(letter.id) });
 });
 
-// The look of a pad letter, grown from its private seed (cached in the letter's folder).
+// The look of a pad letter, grown from its private seed (cached in the letter's
+// folder, one file per age and exposure bucket under law 2: see books.js).
 lettersRouter.get('/:id/look', async (req, res) => {
   const letter = findLetter(req);
   if (letter.kind !== 'pad') throw httpError(404, 'no_look', 'This letter is a photograph.');
   if (!canView(letter, req.user)) throw httpError(403, 'not_yours', 'Not your letter.');
   res.set('Cache-Control', 'private, max-age=300');
   res.set('Vary', 'Cookie');
-  const p = path.join(lookDir(letter.id), '64.png');
+  const line = await readLine(letter.id);
+  if (!line) throw httpError(410, 'gone', 'That letter is gone.');
+  const law = line.ink.law;
+  if (req.query.mode === 'scene') {
+    // the scene's field (law/v2/scene.js): heights and colours as the letter looks now, never its seed or paper
+    if (law < 2) throw httpError(400, 'no_depth', 'Ink written before depth (law 1) has no scene.');
+    take('lookMissViewer', req.user?.id ?? ipKey(req));
+    const seedText = await readSeed(letter.id);
+    if (!seedText) throw httpError(410, 'gone', 'That letter is gone.');
+    const seed = fromB64url(seedText, 64);
+    if (K.keyText(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'The seed of this letter does not match its record.');
+    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, view: viewOf(line.ink, line.made ?? letter.createdAt, 0), mode: 'scene', key: `letter-scene:${letter.id}`, timeout: config.render.timeoutMs.letter });
+    return res.type('application/octet-stream').send(Buffer.from(out.scene));
+  }
+  const views = law >= 2 ? await countView('letter', letter.id, 'ink', req.user?.id ?? ipKey(req), { keep: () => exists(letter.id) }) : 0;
+  const view = viewOf(line.ink, line.made ?? letter.createdAt, views);
+  const p = path.join(lookDir(letter.id), `${lookName('ink', 64, law, view)}.png`);
   let png = await fs.readFile(p).catch(() => null);
   if (!png) {
-    const line = await readLine(letter.id);
     const seedText = await readSeed(letter.id);
-    if (!line || !seedText) throw httpError(410, 'gone', 'That letter is gone.');
+    if (!seedText) throw httpError(410, 'gone', 'That letter is gone.');
     const seed = fromB64url(seedText, 64);
     if (K.keyText(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'This letter\'s seed does not match its record.');
-    const out = await settleOnServer({ acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, png: true, key: `letter:${letter.id}`, timeout: config.render.timeoutMs.letter });
+    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, png: true, view, key: `letter:${letter.id}:${p}`, timeout: config.render.timeoutMs.letter });
     png = Buffer.from(out.png);
     if (exists(letter.id)) await writeAtomic(p, png).catch(() => {}); // never recreate a deleted letter's folder
   }

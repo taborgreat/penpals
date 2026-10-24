@@ -12,6 +12,8 @@ import { itemSize, SCALE_ONE } from './ink.js';
 import { pageIdFrom } from './ops.js';
 import JournalPage from './JournalPage.jsx';
 import WalkBack from './WalkBack.jsx';
+import { sceneOf } from '../scene/sources.js';
+import InkWell from '../ink/InkWell.jsx';
 import FilmDownload from '../components/FilmDownload.jsx';
 import { fromB64url } from 'penpals-law';
 
@@ -26,7 +28,7 @@ const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c
 const BACKGROUNDS = ['#f6f1e7', '#ffffff', '#f2e8d0', '#e8eef6', '#f6e6e6', '#e7f1e6', '#2b2a33', '#1f2a40'];
 const DEFAULT_PAGE = { width: 1000, height: 1400 };
 
-export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null }) {
+export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null }) {
   const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
   const { user } = useAuth();
   const key = useKey(user);
@@ -64,11 +66,18 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const op = useCallback((o) => send(o), [send]);
   const bookName = book.name ?? name;
   const looks = useCallback((item) => `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?s=${item.scale}`, [bookName]);
+  // The scene of a piece of writing: grown here when this device can (yours, or open), else the server's.
+  const scenes = useCallback((item, line) => sceneOf({
+    line,
+    seed: seedOf(item),
+    lookUrl: `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?s=64`,
+    sceneUrl: `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?mode=scene&s=64`,
+  }), [bookName, book.seeds, key]); // eslint-disable-line react-hooks/exhaustive-deps
   // A sheet's film: grown here when this device can (yours, or open), else the server's.
   const filmOf = (it) => {
     const line = book.inks.get(it.ink);
     const seed = seedOf(it);
-    if (seed) return { local: { actsBytes: fromB64url(line.ink.acts), paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: line.ink.paper, box: line.ink.box } };
+    if (seed) return { local: { actsBytes: fromB64url(line.ink.acts), paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: line.ink.paper, box: line.ink.box, law: line.ink.law } };
     return { url: `/api/books/${encodeURIComponent(bookName)}/film/${it.ink}` };
   };
   // A sheet's seed, to grow it here: published (open), or made with your key (yours).
@@ -198,6 +207,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         onOp={op}
         onFollow={(id) => onPage(id === skeleton.home ? null : id)}
         lookSrc={lookSrc ?? looks}
+        sceneSrc={sceneSrc ?? (fromFile ? null : scenes)}
       />
       {editing && !page.items.length && <p className="hint journal-empty">An empty page. Press ✎ Write to put something on it.</p>}
     </section>
@@ -262,19 +272,14 @@ function WriteSheet({ writer, family, onPlace }) {
       <div className="row">
         <span className="field">
           <span>Ink</span>
-          <span className="swatches small" role="group" aria-label="Ink colour">
-            {INK_COLORS.map((c) => (
-              <button key={c.id} type="button" title={c.name} aria-pressed={color === c.hex} style={{ '--sig-l': c.hex, '--sig-d': c.hex }} onClick={() => setColor(c.hex)} />
-            ))}
-            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} title="Any colour" />
-          </span>
+          <InkWell value={color} onChange={setColor} />
         </span>
         <span className="spacer" />
         <button type="button" className="primary" disabled={!strokes || busy} onClick={put}>
           {busy ? 'Sealing…' : 'Place on page'}
         </button>
       </div>
-      {ink && <Pad key={sheet.sheet} ink={ink} size={WRITE_PAD} inkColor={color} onChange={setStrokes} hint="Write anything: a word, a sentence, a drawing. Colours mix while wet. Then place it on the page." />}
+      {ink && <Pad key={sheet.sheet} ink={ink} size={WRITE_PAD} inkColor={color} onChange={setStrokes} hint="Write anything: a word, a sentence, a drawing. Colours mix while wet; the water brush wets dry ink again. Then place it on the page." />}
       {error && <p className="error">{error}</p>}
     </div>
   );

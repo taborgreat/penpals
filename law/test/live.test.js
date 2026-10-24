@@ -1,20 +1,17 @@
 // Writing live equals growing the finished record: the live sim, fed act by
 // act with idle drying between strokes, undos and replays in any order, settles
-// to exactly the facts grow() gives the encoded record.
+// to exactly the facts grow() gives the encoded record. Under every law.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createLive, livePoints } from '../v1/live.js';
+import { livePoints } from '../v1/live.js';
+import { readFilm, paintFrame } from '../v1/film.js';
 import { decodeActs, penTimeline } from '../v1/acts.js';
-import { settle } from '../record.js';
+import { settle as settleAt } from '../record.js';
+import { lawOf } from '../laws.js';
 import { paperKeyOf } from '../keys.js';
 import { fixtureBytes } from '../tools/fixtures.js';
 import * as S from '../lab/synth.js';
 import { b64url } from '../tags.js';
-
-const family = { grain: 8, weight: 8, tooth: 0 };
-const seed = new Uint8Array(64).map((_, i) => (i * 37 + 11) & 255);
-const paperKey = paperKeyOf(seed);
-const seen = { advances: 0, mistakes: 0, rewrites: 0, pastDrain: 0 };
 
 function rng(n) {
   let s = n >>> 0 || 1;
@@ -23,6 +20,16 @@ function rng(n) {
     return s / 2 ** 32;
   };
 }
+
+const family = { grain: 8, weight: 8, tooth: 0 };
+const seed = new Uint8Array(64).map((_, i) => (i * 37 + 11) & 255);
+const paperKey = paperKeyOf(seed);
+
+for (const law of [1, 2]) {
+const { createLive, createPlayback, trace, grow, settledCells, boxOf, factsDigest, makeFilm, lookRGB, lookRGBA } = lawOf(law);
+const settle = (bytes, seed, family) => settleAt(bytes, seed, family, 64, law);
+const seen = { advances: 0, mistakes: 0, rewrites: 0, pastDrain: 0 };
+
 
 // Feed a record live, with random idle drying, mistakes that are undone, and
 // strokes undone and written again. Returns the live facts.
@@ -94,7 +101,7 @@ const records = () => [
   ['phone', S.write(S.makeWriter(4), 'held still', 2, 'phone')],
 ];
 
-test('live writing settles exactly as the finished record grows', () => {
+test(`law ${law}: live writing settles exactly as the finished record grows`, () => {
   for (const [name, bytes] of records()) {
     const batch = settle(bytes, seed, family);
     for (const k of [1, 2, 3]) {
@@ -106,7 +113,7 @@ test('live writing settles exactly as the finished record grows', () => {
   for (const [k, n] of Object.entries(seen)) assert.ok(n > 0, `the runs never exercised ${k}`);
 });
 
-test('undo far back replays from the start and still settles the same', () => {
+test(`law ${law}: undo far back replays from the start and still settles the same`, () => {
   for (const [name, bytes] of records().slice(3, 8)) {
     const batch = settle(bytes, seed, family);
     const live = writeLive(bytes, rng(31337), { keep: 1 });
@@ -114,7 +121,7 @@ test('undo far back replays from the start and still settles the same', () => {
   }
 });
 
-test('the live view hands back the tiles ink touched, and only those', () => {
+test(`law ${law}: the live view hands back the tiles ink touched, and only those`, () => {
   const bytes = fixtureBytes('dwell').bytes;
   const rec = decodeActs(bytes);
   const [s] = livePoints(rec, penTimeline(rec));
@@ -131,8 +138,7 @@ test('the live view hands back the tiles ink touched, and only those', () => {
   assert.throws(() => { live.down(s.points[0], s.pens[0][1], s.hasP); live.advanceTo(1e9); }, /pen is down/);
 });
 
-test('playback, run forward in any steps, ends exactly where the record settles', async () => {
-  const { createPlayback } = await import('../v1/live.js');
+test(`law ${law}: playback, run forward in any steps, ends exactly where the record settles`, () => {
   for (const [name, bytes] of records().slice(0, 7)) {
     const rec = decodeActs(bytes);
     const batch = settle(bytes, seed, family);
@@ -150,10 +156,7 @@ test('playback, run forward in any steps, ends exactly where the record settles'
   }
 });
 
-test('walking back a cell reads the sheet without changing it', async () => {
-  const { trace } = await import('../v1/trace.js');
-  const { grow } = await import('../v1/sim.js');
-  const { settledCells, boxOf, factsDigest } = await import('../v1/look.js');
+test(`law ${law}: walking back a cell reads the sheet without changing it`, () => {
   const bytes = fixtureBytes('dwell').bytes;
   const rec = decodeActs(bytes);
   const plain = settle(bytes, seed, family);
@@ -176,15 +179,13 @@ test('walking back a cell reads the sheet without changing it', async () => {
   assert.ok(t.paper.capacity > 0);
   // the same sheet grown with and without the observer: the same facts
   const again = settledCells(grow(rec, { paperKey, family }).tiles);
-  assert.equal(b64url(factsDigest({ cells: again, box: boxOf(again), actsBytes: bytes, family })), b64url(plain.facts));
+  assert.equal(b64url(factsDigest({ cells: again, box: boxOf(again), actsBytes: bytes, family, scale: 64 })), b64url(plain.facts));
   // a cell off the path: no ink put down, maybe some carried
   const off = trace(rec, { paperKey, family }, [x, y - 40]);
   assert.equal(off.deposits.length, 0);
 });
 
-test('a film ends on the sealed look, frame by frame', async () => {
-  const { makeFilm, readFilm, paintFrame } = await import('../v1/film.js');
-  const { lookRGBA, lookRGB } = await import('../v1/look.js');
+test(`law ${law}: a film ends on the sealed look, frame by frame`, () => {
   const bytes = fixtureBytes('mixWet').bytes;
   const rec = decodeActs(bytes);
   const s = settle(bytes, seed, family);
@@ -197,7 +198,7 @@ test('a film ends on the sealed look, frame by frame', async () => {
   assert.deepEqual([...pixels], [...lookRGBA(lookRGB(s.cells, s.box), s.box)], 'the last frame is the look');
 });
 
-test('undo shows the sheet as it was: from a snapshot, and when it grows the sheet again', () => {
+test(`law ${law}: undo shows the sheet as it was: from a snapshot, and when it grows the sheet again`, () => {
   const rec = decodeActs(fixtureBytes('cursive').bytes);
   const [s1, s2] = livePoints(rec, penTimeline(rec));
   const blank = [...new Uint8ClampedArray(1024)].join();
@@ -229,3 +230,4 @@ test('undo shows the sheet as it was: from a snapshot, and when it grows the she
   vb.paint();
   for (const [k, v] of vb.pixels) assert.equal(v, blank, `tile ${k} still shows ink after undoing everything`);
 });
+}

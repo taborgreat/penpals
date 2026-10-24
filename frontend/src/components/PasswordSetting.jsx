@@ -8,7 +8,7 @@ import KeyGate from './KeyGate.jsx';
 import Pad from './Pad.jsx';
 
 const PHRASE_PAD = { width: 1000, height: 420 };
-const CALIBRATION = { paperKey: v1.calibrationPaperKey(), family: v1.CALIBRATION_FAMILY };
+const CALIBRATION = { paperKey: v1.calibrationPaperKey(), family: v1.CALIBRATION_FAMILY, law: 1 }; // the hand is read under law 1
 
 // Your password backup, on or off (keys.md): your name, your phrase and your
 // hand open your account; a password, if you add one, is needed as well.

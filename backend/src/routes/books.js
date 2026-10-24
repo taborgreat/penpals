@@ -9,12 +9,13 @@ import {
 import { CLIENT_OPS, SCALE } from '../store/ops.js';
 import { seedOf } from '../store/seeds.js';
 import { sheetUsedInLetters } from '../store/letters.js';
-import { readCached, writeCached, lookPath, filmPath } from '../store/cache.js';
+import { readCached, writeCached, lookPath, lookName, filmPath } from '../store/cache.js';
+import { countView, viewsOf } from '../store/exposure.js';
 import fs from 'node:fs/promises';
 import { writeAtomic } from '../files.js';
 import { canSeeProfile, hasBlocked } from '../social.js';
 import { take, ipKey } from '../limits.js';
-import { confirmFacts, settleOnServer, filmOnServer, decodeField } from '../services.js';
+import { confirmFacts, settleOnServer, filmOnServer, decodeField, viewOf } from '../services.js';
 import { keys as K, record as R, fromB64url, b64url } from 'penpals-law';
 
 // Books (books.md, keys.md): visitors get the skeleton, the chain, and looks
@@ -75,7 +76,13 @@ booksRouter.get('/:name/download', async (req, res) => {
 // The look of one piece of ink at one size: a PNG of the settled ink (colour to
 // alpha), one pixel per cell. Visibility is checked before anything is served
 // from the cache. Visitors only get looks of ink that is on a page at that size,
-// or of the signature.
+// or of the signature. Ink of law 2 is drawn as it is now: aged since it was
+// made (oak gall darkens) and faded by how often it has been seen; each viewer
+// counts once a day.
+//   ?mode=scene                  the scene's field (heights, depth, colour as it is now, holes):
+//                                deflated PNKS (law/v2/scene.js), never the seed or the paper's fields
+//   ?mode=side&cut=x0,y0,x1,y1   a cut through the paper along that line (sheet cells)
+// (law 2; for anyone who may see the look, or only the writer and open sheets: config.book.depthForVisitors).
 booksRouter.get('/:name/look/:inkId', async (req, res) => {
   const account = owner(req);
   const inkId = req.params.inkId;
@@ -90,8 +97,40 @@ booksRouter.get('/:name/look/:inkId', async (req, res) => {
       || Object.values(skeleton.pages).some((p) => p.items.some((it) => it.ink === inkId && it.scale === scale));
     if (!shown) throw httpError(404, 'no_ink', 'No such ink.');
   }
+  if (req.query.mode !== undefined) return sendDepth(req, res, account, line, scale);
   await sendLook(req, res, account, line, scale);
 });
+
+const CUT_RE = /^-?\d{1,6}(,-?\d{1,6}){3}$/;
+const MAX_CUT = 2000;
+
+async function sendDepth(req, res, account, line, scale) {
+  const { mode, cut: cutText } = req.query;
+  if (mode !== 'side' && mode !== 'scene') throw httpError(400, 'bad_look', 'Bad look request.');
+  let cut = null;
+  if (mode === 'side') {
+    if (typeof cutText !== 'string' || !CUT_RE.test(cutText)) throw httpError(400, 'bad_cut', 'A side view needs a cut: x0,y0,x1,y1.');
+    cut = cutText.split(',').map(Number);
+    if (Math.max(Math.abs(cut[2] - cut[0]), Math.abs(cut[3] - cut[1])) > MAX_CUT) throw httpError(400, 'bad_cut', 'That cut is too long.');
+  }
+  if (line.ink.law < 2) throw httpError(400, 'no_depth', 'Ink written before depth (law 1) has no side view or scene.');
+  const open = await openSeed(account.id, line.ink.sheet);
+  if (req.user?.id !== account.id && !open && !config.book.depthForVisitors) throw httpError(403, 'closed_sheet', 'Only the writer sees into a closed sheet.');
+  const view = viewOf(line.ink, line.made, await viewsOf('user', account.id, line.id));
+  const name = `${lookName(line.id, scale, line.ink.law, view)}-${mode}${cut ? `-${cut.join('_')}` : ''}`;
+  res.set('ETag', `"${name}"`);
+  res.set('Cache-Control', 'private, max-age=300');
+  res.set('Vary', 'Cookie');
+  if (req.get('If-None-Match') === `"${name}"`) return res.status(304).end();
+  take('lookMissViewer', req.user?.id ?? ipKey(req));
+  const seedText = open ?? (await seedOf(account.id, line.ink.sheet));
+  if (!seedText) throw httpError(410, 'seed_missing', 'The paper of this sheet is not on the server.');
+  const seed = fromB64url(seedText, 64);
+  if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'The seed of this sheet does not match its record.');
+  const out = await settleOnServer({ law: line.ink.law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, view, mode, cut, key: `depth:${account.id}:${name}` });
+  if (mode === 'scene') return res.type('application/octet-stream').send(Buffer.from(out.scene));
+  res.type('png').send(Buffer.from(out.png));
+}
 
 // The film of one piece of ink (law/v1/film.js): it being written, frame by
 // frame, as anyone who may see its look may see it. Made by the render pool
@@ -107,7 +146,7 @@ booksRouter.get('/:name/film/:inkId', async (req, res) => {
     const shown = skeleton.signature === inkId || Object.values(skeleton.pages).some((p) => p.items.some((it) => it.ink === inkId));
     if (!shown) throw httpError(404, 'no_ink', 'No such ink.');
   }
-  await sendFilm(req, res, filmPath(account.id, inkId), line.ink, async () => (await openSeed(account.id, line.ink.sheet)) ?? (await seedOf(account.id, line.ink.sheet)), `film:${account.id}:${inkId}`);
+  await sendFilm(req, res, filmPath(account.id, inkId, line.ink.law), line.ink, async () => (await openSeed(account.id, line.ink.sheet)) ?? (await seedOf(account.id, line.ink.sheet)), `film:${account.id}:${inkId}`);
 });
 
 export async function sendFilm(req, res, file, body, seedText, key, keep = () => true) {
@@ -120,7 +159,7 @@ export async function sendFilm(req, res, file, body, seedText, key, keep = () =>
     if (!text) throw httpError(410, 'seed_missing', 'The paper of this sheet is not on the server.');
     const seed = fromB64url(text, 64);
     if (b64url(K.commitOf(seed)) !== body.commit) throw httpError(500, 'seed_mismatch', 'The seed of this sheet does not match its record.');
-    const out = await filmOnServer({ acts: fromB64url(body.acts), seed, family: body.paper, box: body.box, key });
+    const out = await filmOnServer({ law: body.law, acts: fromB64url(body.acts), seed, family: body.paper, box: body.box, key });
     film = Buffer.from(out.film);
     if (keep()) await writeAtomic(file, film).catch((err) => console.warn('[film]', err.message));
   }
@@ -128,12 +167,15 @@ export async function sendFilm(req, res, file, body, seedText, key, keep = () =>
 }
 
 export async function sendLook(req, res, account, line, scale, { cacheControl = 'private, max-age=300' } = {}) {
-  const etag = `"L${config.law.current}-r${config.render.rev}-${line.id}-${scale}"`;
+  const law = line.ink.law;
+  const views = law >= 2 ? await countView('user', account.id, line.id, req.user?.id ?? ipKey(req)) : 0;
+  const view = viewOf(line.ink, line.made, views);
+  const etag = `"${lookName(line.id, scale, law, view)}"`;
   res.set('ETag', etag);
   res.set('Cache-Control', cacheControl);
   res.set('Vary', 'Cookie');
   if (req.get('If-None-Match') === etag) return res.status(304).end();
-  const p = lookPath(account.id, line.id, scale);
+  const p = lookPath(account.id, line.id, scale, law, view);
   let png = await readCached(p);
   if (!png) {
     take('lookMissViewer', req.user?.id ?? ipKey(req));
@@ -141,12 +183,15 @@ export async function sendLook(req, res, account, line, scale, { cacheControl = 
     if (!seedText) throw httpError(410, 'seed_missing', 'This sheet\'s paper is not on the server.');
     const seed = fromB64url(seedText, 64);
     if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'This sheet\'s seed does not match its record.');
-    const out = await settleOnServer({ acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, png: true, priority: 'view', key: `look:${account.id}:${line.id}:${scale}` });
+    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, png: true, view, priority: 'view', key: `look:${account.id}:${etag}` });
     png = Buffer.from(out.png);
     await writeCached(p, png).catch((err) => console.warn('[cache]', err.message));
   }
   res.type('png').send(png);
 }
+
+// What a new sheet looks like: just made, not yet seen.
+const FRESH = { ageH: 0, views: 0 };
 
 const editReply = (res, err) => {
   if (err.stale) return res.status(409).json({ error: err.message, code: 'stale', stale: true, version: err.version });
@@ -195,7 +240,7 @@ booksRouter.post('/me/ink', requireAuth, inkJson, async (req, res) => {
   const settled = existing ? null : await confirmFacts(body, seed, { ua: req.get('user-agent') ?? '' });
   try {
     const out = await landInk(account.id, { line: { ink: body, seal: line.seal }, D, seed: b64url(seed), then, base });
-    if (settled?.png) await writeCached(lookPath(account.id, out.ink, 64), Buffer.from(settled.png)).catch(() => {});
+    if (settled?.png) await writeCached(lookPath(account.id, out.ink, 64, body.law, FRESH), Buffer.from(settled.png)).catch(() => {});
     res.status(out.replay ? 200 : 201).json(out);
   } catch (err) {
     editReply(res, err);
@@ -213,7 +258,7 @@ booksRouter.put('/me/signature', requireAuth, inkJson, async (req, res) => {
   if (sheetUsedInLetters(account.id, body.sheet)) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
   const settled = await confirmFacts(body, seed, { ua: req.get('user-agent') ?? '' });
   const out = await landInk(account.id, { line: { ink: body, seal: line.seal, open: line.open }, D, seed: null, then: { op: 'signature' } });
-  await writeCached(lookPath(account.id, out.ink, 64), Buffer.from(settled.png)).catch(() => {});
+  await writeCached(lookPath(account.id, out.ink, 64, body.law, FRESH), Buffer.from(settled.png)).catch(() => {});
   res.status(out.replay ? 200 : 201).json(out);
 });
 

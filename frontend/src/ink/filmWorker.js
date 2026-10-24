@@ -2,12 +2,12 @@
 // frame by frame, laid on its paper colour and encoded to WebM (WebCodecs, the
 // default) or GIF (the fallback, and for anywhere a GIF is wanted).
 //   { film: Uint8Array (PNKF) }                    a film the server made (a closed sheet)
-//   { local: { actsBytes, paperKey, family, box } } or one made here (your own, or an open sheet)
+//   { local: { actsBytes, paperKey, family, box, law } } or one made here (your own, or an open sheet), under its law
 //   + { format: 'webm' | 'gif', background: '#rrggbb' | null (GIF only: transparent) }
 // Replies { progress } as it goes, then { done: Blob, format } or { error }.
 import { GIFEncoder, quantize, applyPalette } from 'gifenc';
-import { readFilm, paintFrame, makeFilm } from 'penpals-law/v1/film';
-import { decodeCanonical } from 'penpals-law/v1/acts';
+import { readFilm, paintFrame } from 'penpals-law/v1/film';
+import { lawOf } from 'penpals-law/laws';
 import { muxWebm } from './webm.js';
 
 const CODECS = [['vp09.00.10.08', 'V_VP9'], ['vp8', 'V_VP8']];
@@ -116,8 +116,9 @@ onmessage = async ({ data: m }) => {
     const progress = (p) => postMessage({ progress: p });
     let bytes = m.film;
     if (m.local) {
-      const { actsBytes, paperKey, family, box } = m.local;
-      bytes = makeFilm({ actsBytes, rec: decodeCanonical(actsBytes), paperKey, family, box });
+      const { actsBytes, paperKey, family, box, law = 1 } = m.local;
+      const L = lawOf(law);
+      bytes = L.makeFilm({ actsBytes, rec: L.decodeCanonical(actsBytes), paperKey, family, box });
     }
     const film = readFilm(bytes);
     if (!film.box[2] || !film.box[3]) throw new Error('There is no ink to film.');

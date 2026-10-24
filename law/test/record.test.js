@@ -46,7 +46,7 @@ test('shape rules: uses, sheets, names, unknown fields', () => {
   assert.throws(() => checkInkBody({ ...sig.line.ink, extra: 1 }), /fields/);
   const book = makeInk({ sk, pk, sheet: newSheetId(), use: 'book', family, acts });
   assert.throws(() => checkInkBody({ ...book.line.ink, sheet: proofOf(new Uint8Array(32), pk).sheet }), /sheet/);
-  assert.throws(() => checkInkBody({ ...book.line.ink, law: 2 }), /law/);
+  assert.throws(() => checkInkBody({ ...book.line.ink, law: 3 }), /law/);
   assert.throws(() => checkInkBody({ ...book.line.ink, acts: b64url(new Uint8Array([1, 2, 3])) }), /acts/);
   // the canonical body is integers and ASCII only
   assert.doesNotThrow(() => jcs(book.line.ink));
@@ -59,7 +59,7 @@ test('a .book verifies offline: sealed lines, an open sheet regrown, and tamperi
   const page = makeInk({ sk, pk, sheet: newSheetId(), use: 'book', family, acts });
   const pageLine = { id: 'k_000002', made: '2026-10-23T00:00:01.000Z', ...page.line };
   const later = { id: 'k_000003', made: '2026-10-23T00:00:02.000Z', open: page.line.ink.sheet, ref: 'k_000002', ...makeOpen(sk, page.D, page.line.ink.sheet, page.seed) };
-  const head = { book: 2, name, key: b64url(pk), law: 1, version: 3, signature: 'k_000001', paperFamily: family, home: 'home', nextItem: 2, pages: { home: { background: '#ffffff', items: [{ id: 'i1', ink: 'k_000002', x: 10, y: 10, scale: 64 }] } } };
+  const head = { book: 2, name, key: b64url(pk), law: 2, version: 3, signature: 'k_000001', paperFamily: family, home: 'home', nextItem: 2, pages: { home: { background: '#ffffff', items: [{ id: 'i1', ink: 'k_000002', x: 10, y: 10, scale: 64 }] } } };
   const text = [head, sigLine, pageLine, later].map((l) => JSON.stringify(l)).join('\n') + '\n';
   const report = verifyBook(text);
   assert.equal(report.ok, true, JSON.stringify(report.problems.concat(report.results.filter((r) => r.error).map((r) => r.error))));

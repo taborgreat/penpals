@@ -3,22 +3,26 @@
 // worker's tiles are painted onto. What it shows is what will be sealed:
 // capture feeds the worker exactly the acts it will encode (capture.test.js).
 //
-//   const ink = createLiveInk({ paperKey, family, size: { width, height }, pen })
+//   const ink = createLiveInk({ paperKey, family, size: { width, height }, pen, law? })   (law: the current one)
 //   ink.capture        hand to Pad / WriteMode: down / move / up / cancel
 //   ink.canvas         the sheet, CELLS cells per page px; ink.onChange(fn) when it changes
 //   ink.setPen(pen)    the law pen for what is written next (ink/pens.js)
 //   ink.undo(), ink.clear(), ink.strokes (count)
-//   ink.settle()       → { acts, facts, box, rgba }: the finished record grown in one go, for sealing
+//   ink.settle()       → { acts, facts, box, rgba, law }: the finished record grown in one go, for sealing
+//   ink.cut(x0, y0, x1, y1) → { width, height, rgba }: a side view through the sheet as it is now (law 2)
+//   ink.scene(on)      tiles carry their height field (the scene); ink.onTiles(fn) gets each batch,
+//                      ink.tiles() all tiles so far: [{ tx, ty, rgba, hf? }]
 //   ink.play(canvas)   → { duration, play(onDone), stop() }: the sheet written out again, physics and all
 //   ink.destroy()
 
 import { createCapture } from './capture.js';
+import { CURRENT } from 'penpals-law/laws';
 
 export const CELLS = 2; // law cells per ink unit (= page px)
 const TILE = 16;
 const ADVANCE_MS = 40; // how often the sheet is dried while the pen is up
 
-export function createLiveInk({ paperKey, family, size, pen }) {
+export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
   const capture = createCapture({ pen, live: true });
   const worker = new Worker(new URL('./inkWorker.js', import.meta.url), { type: 'module' });
   const canvas = document.createElement('canvas');
@@ -26,6 +30,9 @@ export function createLiveInk({ paperKey, family, size, pen }) {
   canvas.height = Math.ceil(size.height * CELLS);
   const ctx = canvas.getContext('2d');
   const listeners = new Set();
+  const tileListeners = new Set();
+  const tileStore = new Map(); // `tx,ty` → the latest { tx, ty, rgba, hf? }
+  let sceneWanted = false;
   const pending = new Map(); // id → { resolve, reject }
   let nextId = 1;
   let raf = 0;
@@ -53,10 +60,15 @@ export function createLiveInk({ paperKey, family, size, pen }) {
       if (m.ack) opsInFlight = false;
       if (m.tiles.length) {
         paint(ctx, m.tiles);
+        for (const t of m.tiles) tileStore.set(`${t.tx},${t.ty}`, t);
+        for (const fn of tileListeners) fn(m.tiles);
         notify();
       }
     } else if (m.type === 'reset') {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cleared = [...tileStore.values()].map((t) => ({ tx: t.tx, ty: t.ty, rgba: new Uint8ClampedArray(1024), hf: new Int16Array(1024) }));
+      tileStore.clear();
+      for (const fn of tileListeners) fn(cleared);
       notify();
     } else if (m.type === 'advanced') {
       advancing = false;
@@ -74,7 +86,7 @@ export function createLiveInk({ paperKey, family, size, pen }) {
       else p.resolve(m);
     }
   };
-  worker.postMessage({ type: 'begin', paperKey, family });
+  worker.postMessage({ type: 'begin', paperKey, family, law });
 
   // Every frame: send what became final; while the pen is up, dry the sheet up
   // to the moment a new stroke could start (capture promises nothing earlier).
@@ -131,8 +143,20 @@ export function createLiveInk({ paperKey, family, size, pen }) {
       const acts = capture.acts();
       if (!acts) return null;
       const out = await ask({ type: 'settle', acts });
-      return { acts, facts: out.facts, box: out.box, rgba: out.rgba };
+      return { acts, facts: out.facts, box: out.box, rgba: out.rgba, law: out.law };
     },
+    law,
+    cut: (x0, y0, x1, y1) => ask({ type: 'cut', x0, y0, x1, y1 }),
+    scene(on) {
+      if (sceneWanted === !!on) return;
+      sceneWanted = !!on;
+      worker.postMessage({ type: 'scene', on: sceneWanted });
+    },
+    onTiles(fn) {
+      tileListeners.add(fn);
+      return () => tileListeners.delete(fn);
+    },
+    tiles: () => [...tileStore.values()],
     // The sheet written out again on `target` (a canvas sized like ink.canvas).
     play(target, { speed = 1 } = {}) {
       const acts = capture.acts();
@@ -153,7 +177,7 @@ export function createLiveInk({ paperKey, family, size, pen }) {
       return {
         stop,
         async play(onDone) {
-          const started = await ask({ type: 'play', acts, paperKey, family });
+          const started = await ask({ type: 'play', acts, paperKey, family, law });
           if (stopped) return;
           id = started.id;
           const end = started.duration + 1500; // a moment for the last of it to dry
@@ -189,6 +213,7 @@ export function createLiveInk({ paperKey, family, size, pen }) {
       for (const p of pending.values()) p.reject(new Error('closed'));
       pending.clear();
       listeners.clear();
+      tileListeners.clear();
     },
   };
 }
