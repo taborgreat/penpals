@@ -10,7 +10,7 @@ const pk = K.publicKeyOf(sk);
 
 test('tags are prefix-free and versioned', () => {
   assert.equal(hex(T('paper')), hex(concat(utf8('penpals/paper/v1'), Uint8Array.of(0))));
-  const tags = ['paper', 'seal', 'open', 'auth', 'ink', 'commit', 'paperkey', 'facts', 'look', 'proof', 'fingerprint', 'unlock', 'keyring', 'calibration', 'key'];
+  const tags = ['paper', 'seal', 'open', 'auth', 'ink', 'commit', 'paperkey', 'facts', 'look', 'proof', 'fingerprint', 'unlock', 'keyring', 'calibration', 'key', 'provisional'];
   for (const a of tags)
     for (const b of tags) {
       if (a === b) continue;

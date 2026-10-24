@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { config } from '../src/config.js';
-import { verify as V, record as R, keys as K, unlock as U, handkey as H, fromB64url, b64url } from 'penpals-law';
+import { verify as V, record as R, keys as K, unlock as U, fromB64url, b64url } from 'penpals-law';
 
 const args = process.argv.slice(2);
 const deep = args.includes('--regrow');
@@ -140,24 +140,17 @@ for (const id of dirs(path.join(root, 'users'))) {
   for (const sheet of seeds.keys()) if (!used.has(sheet)) notes.push(`${a.username}: a seed for ${sheet} whose record never landed (harmless)`);
   sheetsOf.set(id, used);
 
-  // The unlock file: an OPRF key, a keyring, and the sketches.
+  // The password backup, if there is one: an OPRF key, and a keyring or null (turned off).
   const u = readJson(path.join(dir, 'unlock.json'));
-  if (!u) problems.push(`${a.username}: no unlock.json (the account cannot be opened)`);
-  else {
+  if (u) {
     try {
       if (fromB64url(u.oprfKey).length !== 32) throw new Error('bad OPRF key');
-      U.checkKeyring(u.keyring);
-      const sk = u.sketches.map(H.checkSketch);
-      const phrases = sk.filter((s) => s.kind === 'phrase').length;
-      const pages = sk.filter((s) => s.kind === 'page').length;
-      if (phrases < 1 || phrases > config.unlock.phraseCap) throw new Error(`${phrases} phrase sketches`);
-      if (pages < 1 || pages > config.unlock.pageCap) throw new Error(`${pages} page sketches`);
-      if (new Set(sk.map((s) => s.id)).size !== sk.length) throw new Error('two sketches share an id');
+      if (u.keyring !== null) U.checkKeyring(u.keyring);
+      if (Object.keys(u).some((k) => k !== 'oprfKey' && k !== 'keyring')) throw new Error('unexpected fields');
     } catch (err) {
       problems.push(`${a.username}: unlock.json: ${err.message}`);
     }
   }
-  chainLines(path.join(dir, 'logins.chain'));
 
   // Exposure (law 2 fading): view counts of ink in this book, nothing else.
   if (fs.existsSync(path.join(dir, 'exposure.json'))) {

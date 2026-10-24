@@ -1,53 +1,43 @@
 import { useEffect, useMemo, useState } from 'react';
-import { keys as K, v1 } from 'penpals-law';
+import { keys as K, record as R } from 'penpals-law';
 import { api } from '../api.js';
 import { keyFromK, newSheet } from '../keys/session.js';
-import { register, readingOf, enrolCheck } from '../keys/account.js';
+import { register, makeKey, settleOn } from '../keys/account.js';
 import { useLiveInk } from '../ink/useLiveInk.js';
 import Pad from './Pad.jsx';
 import Hand from './Hand.jsx';
 
-const FAMILY = Object.freeze({ grain: 8, weight: 8, tooth: 0 }); // the paper your book starts on (changeable later)
-const PHRASE_PAD = { width: 1000, height: 420 };
-const NAME_PAD = { width: 760, height: 300 };
-const PAGE_PAD = { width: 1400, height: 905 };
-const CALIBRATION = { paperKey: v1.calibrationPaperKey(), family: v1.CALIBRATION_FAMILY, law: 1 }; // the hand is read under law 1
+const FAMILY = R.SIGNING_FAMILY; // the paper you sign on, and your book's first (changeable later)
+const SIGN_PAD = { width: 520, height: 200 }; // small: the pad shows it close, the ink big (a first taste of it)
 
-// Making an account (keys.md, design B). Six steps, all on this device until
-// the last: a name; a password backup, or none; your secret login phrase, written three
-// times; your name, signed (the first sheet of your book, public); and the
-// calibration page (private). Then the device makes your key and locks it with
-// your hand (and the password, if you chose one); the server gets the public key, the locked
-// keyring, and the sketches, never the key, the password or the phrase.
-// (This is long on purpose, for the experiment; keys.md says so.)
+// Making an account (accounts-change.md):
+//   1. sign your name three times, on a paper grown from fresh randomness made
+//      on this device as you begin; the key is made from that randomness and how
+//      the three signatures settled, by the law, on that paper
+//   2. choose your username
+//   3. keep your key: the 24 words and the private key, shown once; a password
+//      backup if you want one (the key locked on the server under it)
+// The last signature, settled again on the key's own paper, is the first sheet
+// of your book (public). The server gets the public key, that sheet, and with a
+// password the locked keyring; never the key, the words, the randomness or the password.
 export default function Register({ onDone }) {
-  const [step, setStep] = useState('name');
+  const [step, setStep] = useState('sign');
+  const [r32] = useState(() => K.newR32()); // made as the signing begins
+  const paper0 = useMemo(() => K.provisionalPaperKey(r32), [r32]);
+  const [signatures, setSignatures] = useState([]); // the acts of each signature, as written
+  const [Kbytes, setKbytes] = useState(null);
   const [username, setUsername] = useState('');
   const [nameState, setNameState] = useState(null); // null | 'checking' | 'free' | 'taken' | 'bad'
+  const [kept, setKept] = useState(false);
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');
-  const [backup, setBackup] = useState(false); // a password as well as the hand (the writer's choice)
-  const [phrases, setPhrases] = useState([]); // readings of the phrase
-  const [signature, setSignature] = useState(null); // { family, seed, settled }
+  const [backup, setBackup] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [n, setN] = useState(0); // bumps for a fresh pad
-  const [loose, setLoose] = useState(null); // three writings further apart than a sketch tolerates
-
-  // The key is made once, here: the name is signed with it before the account exists.
-  const key = useMemo(() => (step === 'sign' || signature ? keyFromK(username, K.newK()) : null), [step === 'sign' || !!signature]); // eslint-disable-line react-hooks/exhaustive-deps
-  const sheet0 = useMemo(() => (key ? newSheet(key, K.SHEET_ZERO) : null), [key]);
-
-  const padSpec =
-    step === 'phrase'
-      ? { ...CALIBRATION, size: PHRASE_PAD }
-      : step === 'sign' && sheet0
-        ? { paperKey: sheet0.paperKey, family: FAMILY, size: NAME_PAD }
-        : step === 'page'
-          ? { ...CALIBRATION, size: PAGE_PAD }
-          : null;
-  const ink = useLiveInk(padSpec, `${step}-${n}`);
   const [strokes, setStrokes] = useState(0);
+
+  const ink = useLiveInk(step === 'sign' ? { paperKey: paper0, family: FAMILY, size: SIGN_PAD } : null, `sign-${signatures.length}-${n}`);
 
   useEffect(() => {
     if (!username) return setNameState(null);
@@ -61,71 +51,58 @@ export default function Register({ onDone }) {
     return () => clearTimeout(t);
   }, [username]);
 
+  const words = useMemo(() => (Kbytes ? K.wordsOf(Kbytes) : ''), [Kbytes]);
+  const privateKey = useMemo(() => (Kbytes ? K.privateKeyText(Kbytes) : ''), [Kbytes]);
   const passwordOk = !backup || (password.length >= 8 && password === password2);
-  const next = (s) => {
-    setError(null);
-    setStrokes(0);
-    setStep(s);
-  };
 
-  async function phraseDone() {
+  async function signed() {
     setBusy(true);
     setError(null);
     try {
-      const reading = await readingOf('phrase', ink.acts());
-      const all = [...phrases, reading];
-      if (all.length < 3) {
-        setPhrases(all);
-        setN((v) => v + 1);
-        setStrokes(0);
-      } else {
-        const check = enrolCheck('phrase', all);
-        if (!check.ok) {
-          setLoose(all);
-          setError(
-            `Those three differ more than a sketch tolerates (${check.spread} bits apart; it opens within ${check.radius}). Write it three more times the way you will each time you sign in, or keep these: signing in may then take a few tries, and the calibration page always works.`,
-          );
-        } else {
-          setPhrases(all);
-          next('sign');
-        }
+      const acts = ink.acts();
+      if (!acts) throw new Error('Sign your name first.');
+      const all = [...signatures, acts];
+      setSignatures(all);
+      setStrokes(0);
+      if (all.length === K.SIGNATURES) {
+        setKbytes(await makeKey(r32, all));
+        setStep('name');
       }
     } catch (err) {
-      setError(err.message);
+      setSignatures([]); // (the key takes all three: they are signed again)
+      setError(/no ink/.test(err.message) ? 'One of the signatures held no ink once it dried. Sign all three again.' : err.message);
+      setN((v) => v + 1);
     } finally {
       setBusy(false);
     }
   }
 
-  async function signDone() {
+  async function finish(e) {
+    e.preventDefault();
+    if (!kept || !passwordOk) return;
     setBusy(true);
     setError(null);
     try {
-      const settled = await ink.settle();
-      if (!settled || !settled.box[2]) throw new Error('Sign your name first.');
-      setSignature({ family: FAMILY, seed: sheet0.seed, settled });
-      next('page');
-    } catch (err) {
-      setError(err.law ? 'That is more ink than a signature can hold. Clear it and sign again.' : err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function pageDone() {
-    setBusy(true);
-    setError(null);
-    try {
-      const pageReading = await readingOf('page', ink.acts());
-      setStep('making');
-      const user = await register({ key, username, password: backup ? password : '', phraseReadings: phrases, pageReading, signature });
+      const key = keyFromK(username, Kbytes);
+      // the last signature again, on the key's own paper: sheet 0
+      const sheet0 = newSheet(key, K.SHEET_ZERO);
+      const settled = await settleOn(signatures[K.SIGNATURES - 1], sheet0.seed, FAMILY);
+      const user = await register({ key, username, password: backup ? password : '', signature: { family: FAMILY, seed: sheet0.seed, settled } });
       onDone?.(user);
     } catch (err) {
-      setStep('page');
       setError(err.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  function download() {
+    const blob = new Blob([`${privateKey}\n`], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `penpals-key-${username || 'account'}.txt`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   return (
@@ -134,21 +111,40 @@ export default function Register({ onDone }) {
         <Hand>Make an account</Hand>
       </h2>
       <ol className="steps" aria-label="Steps">
-        {['name', 'password', 'phrase', 'sign', 'page'].map((s, i) => (
+        {['sign', 'name', 'keep'].map((s, i) => (
           <li key={s} aria-current={step === s ? 'step' : undefined}>
             {i + 1}
           </li>
         ))}
       </ol>
 
+      {step === 'sign' && (
+        <div className="stack">
+          <p>
+            Sign your name, three times. The ink is live: watch it bead, sink and dry. Your key is made from how these three settle on this paper, and the last one becomes the first page of your book,
+            for everyone to see.
+          </p>
+          <p className="meta">
+            Signature {signatures.length + 1} of {K.SIGNATURES}
+          </p>
+          {ink && <Pad key={`s${signatures.length}-${n}`} ink={ink} size={SIGN_PAD} onChange={setStrokes} hint="Sign here." />}
+          <div className="row">
+            <button type="button" className="primary" disabled={!strokes || busy} onClick={signed}>
+              {busy ? (signatures.length === K.SIGNATURES - 1 ? 'Making your key…' : 'Drying…') : 'Done'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {step === 'name' && (
         <form
           className="stack"
           onSubmit={(e) => {
             e.preventDefault();
-            if (nameState === 'free') next('password');
+            if (nameState === 'free') setStep('keep');
           }}
         >
+          <p>Your key is made. Now choose your username.</p>
           <label className="auth-field" htmlFor="reg-name">
             <Hand>username</Hand>
           </label>
@@ -165,25 +161,39 @@ export default function Register({ onDone }) {
         </form>
       )}
 
-      {step === 'password' && (
-        <form
-          className="stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (passwordOk) next('phrase');
-          }}
-        >
-          <p>Your name, your secret phrase and the way you write it open your account. A password is an optional backup on top.</p>
+      {step === 'keep' && (
+        <form className="stack" onSubmit={finish}>
+          <p>
+            <strong>Keep your key.</strong> These 24 words are your key; so is the private key below. Either one signs you in from anywhere, and nobody, not even this site, can give them back if they
+            are lost. Write the words down, or keep the private key somewhere safe. They are shown only now.
+          </p>
+          <ol className="key-words" aria-label="Your 24 words">
+            {words.split(' ').map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ol>
+          <label className="auth-field" htmlFor="reg-private">
+            private key
+          </label>
+          <input id="reg-private" className="private-key" value={privateKey} readOnly onFocus={(e) => e.target.select()} />
+          <div className="row">
+            <button type="button" className="quiet" onClick={() => navigator.clipboard?.writeText(privateKey)}>
+              Copy
+            </button>
+            <button type="button" className="quiet" onClick={download}>
+              Download
+            </button>
+          </div>
           <label className="choice">
-            <input type="radio" name="backup" checked={!backup} onChange={() => setBackup(false)} /> No password: my name and my hand
+            <input type="checkbox" checked={kept} onChange={(e) => setKept(e.target.checked)} /> I have kept my words or my private key
           </label>
           <label className="choice">
-            <input type="radio" name="backup" checked={backup} onChange={() => setBackup(true)} /> Add a password backup
+            <input type="checkbox" checked={backup} onChange={(e) => setBackup(e.target.checked)} /> Also sign in with a password
           </label>
           <p className="muted">
             {backup
-              ? 'Then someone who learned your phrase and how you write it still needs the password, and so does anyone who ever got hold of the files on the server. It never leaves this device.'
-              : 'Every guess at your hand is one the server answers and counts (5 an hour). But someone who learned your phrase and could write it like you would get in, and so could anyone who got hold of the files on the server and tried long enough. You can add a password later in your account.'}
+              ? 'Your key is locked under the password and kept on the server; every guess at it goes through the server, which counts them. The password never leaves this device.'
+              : 'Without one, the server holds only your public key: your words or your private key sign you in. You can add a password later in your account.'}
           </p>
           {backup && (
             <>
@@ -199,98 +209,14 @@ export default function Register({ onDone }) {
             </>
           )}
           <div className="row">
-            <button type="button" className="quiet" onClick={() => next('name')}>
+            <button type="button" className="quiet" onClick={() => setStep('name')}>
               Back
             </button>
-            <button className="primary" disabled={!passwordOk}>
-              Next
+            <button className="primary" disabled={!kept || !passwordOk || busy}>
+              {busy ? 'Making your account…' : 'Make my account'}
             </button>
           </div>
         </form>
-      )}
-
-      {step === 'phrase' && (
-        <div className="stack">
-          <p>
-            Think of a short phrase only you know, four words or so. You will <strong>write</strong> it each time you sign in. Never type it anywhere, and never write it anywhere others can see: how
-            you write it is part of your key, and it stays secret only as long as the phrase does.
-          </p>
-          <p className="meta">Writing {phrases.length + 1} of 3, as you normally would.</p>
-          {loose ? (
-            <div className="row">
-              <button
-                type="button"
-                className="primary"
-                onClick={() => {
-                  setLoose(null);
-                  setPhrases([]);
-                  setN((v) => v + 1);
-                  setStrokes(0);
-                  setError(null);
-                }}
-              >
-                Write it three more times
-              </button>
-              <button
-                type="button"
-                className="quiet"
-                onClick={() => {
-                  setPhrases(loose);
-                  setLoose(null);
-                  next('sign');
-                }}
-              >
-                Keep these
-              </button>
-            </div>
-          ) : (
-            <>
-              {ink && <Pad key={`p${n}`} ink={ink} size={PHRASE_PAD} chase onChange={setStrokes} hint="Write your phrase on a line." />}
-              <div className="row">
-                <button
-                  type="button"
-                  className="quiet"
-                  onClick={() => {
-                    setPhrases([]);
-                    next('password');
-                  }}
-                >
-                  Back
-                </button>
-                <button type="button" className="primary" disabled={!strokes || busy} onClick={phraseDone}>
-                  {busy ? 'Reading…' : 'Done'}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {step === 'sign' && (
-        <div className="stack">
-          <p>
-            Now sign your name, <strong>{username}</strong>. This is the first page of your book: everyone sees it, wherever your name shows.
-          </p>
-          {ink && <Pad key={`s${n}`} ink={ink} size={NAME_PAD} onChange={setStrokes} hint="Sign on a line." />}
-          <div className="row">
-            <button type="button" className="primary" disabled={!strokes || busy} onClick={signDone}>
-              {busy ? 'Drying…' : 'Done'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {(step === 'page' || step === 'making') && (
-        <div className="stack">
-          <p>Last: copy this out in your own hand. It stays on this device; if your phrase ever stops opening your key, writing this page again does.</p>
-          <blockquote className="calibration-text">{v1.CALIBRATION_TEXT}</blockquote>
-          {ink && <Pad key={`g${n}`} ink={ink} size={PAGE_PAD} chase prompt={v1.CALIBRATION_TEXT} onChange={setStrokes} hint="Copy the text above." />}
-          <div className="row">
-            <button type="button" className="primary" disabled={!strokes || busy || step === 'making'} onClick={pageDone}>
-              {step === 'making' ? 'Making your key…' : 'Make my account'}
-            </button>
-          </div>
-        </div>
       )}
       {error && (
         <p className="error" role="alert">

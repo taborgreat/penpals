@@ -6,8 +6,10 @@ import { engineReady } from '../scene/engine.js';
 
 // /pad-check (dev only, and in e2e/perf.mjs's build): a law 2 pad on a paper of
 // its own, signed out, for writing in the scene and timing it. ?hour= sets the
-// clock (night: the candles), ?gpu=webgl2 skips WebGPU.
+// clock (night: the candles), ?gpu=webgl2 skips WebGPU, ?chase a full page with
+// the chase (e2e/lag.mjs).
 const PAD = { width: 1000, height: 470 };
+const PAGE = { width: 1400, height: 905 };
 const PAPER = K.paperKeyOf(new Uint8Array(64).fill(7));
 const FAMILY = { grain: 8, weight: 8, tooth: 0 };
 
@@ -32,14 +34,16 @@ export default function PadCheck() {
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const ink = useLiveInk({ paperKey: PAPER, family: FAMILY, size: PAD }, 'pad-check');
+  const chase = params.has('chase');
+  const size = chase ? PAGE : PAD;
+  const ink = useLiveInk({ paperKey: PAPER, family: FAMILY, size }, 'pad-check');
   return (
     <div className="stack">
       <h1>Pad check</h1>
       <p className="muted" data-gpu={gpu ?? ''}>
         A law 2 pad on its own paper: write, and time it.
       </p>
-      {ink && <Pad ink={ink} size={PAD} hint="Write anything." />}
+      {ink && <Pad ink={ink} size={size} chase={chase} hint="Write anything." />}
     </div>
   );
 }

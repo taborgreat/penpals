@@ -159,7 +159,7 @@ test('a torn last line in a chain is cut off at start, and the next line lands w
   assert.equal(fsck(dir).status, 0);
 });
 
-test('fsck finds damage: a wrong seed, a changed record, a missing unlock file', async () => {
+test('fsck finds damage: a wrong seed, a changed record, a damaged password backup', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penpals-crash-'));
   dirs.push(dir);
   const ana = person(35, 'ana');
@@ -199,7 +199,10 @@ test('fsck finds damage: a wrong seed, a changed record, a missing unlock file',
     damage(path.join('book', 'ink.chain'), (t) => t.replace(/"box":\[(\d+)/, (m, n) => `"box":[${Number(n) + 1}`)),
     /seal/,
   );
-  // the unlock file gone
-  assert.match(damage('unlock.json', null), /unlock/);
+  // the password backup's file damaged
+  assert.match(
+    damage('unlock.json', (t) => t.replace('"password"', '"hand"')),
+    /unlock/,
+  );
   assert.equal(fsck(dir).status, 0, 'and the restored data checks again');
 });

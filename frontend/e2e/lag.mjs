@@ -1,6 +1,6 @@
 // Write-mode lag over one long continuous stroke, in a real browser: the time
 // from the pen reaching fresh paper until its ink is on screen, row after row.
-// Uses registration's calibration step (no account, nothing sent).
+// Uses the dev pad check, a full page with the chase (no account, nothing sent).
 //   node frontend/e2e/lag.mjs [http://localhost:5173]
 import { chromium } from 'playwright';
 
@@ -10,40 +10,8 @@ const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } });
 const p = await ctx.newPage();
 const cdp = await ctx.newCDPSession(p);
 const send = (type, x, y, buttons, t) => cdp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons, clickCount: 1, timestamp: t / 1000 });
-async function scribble(sel) {
-  const c = p.locator(sel).first();
-  await c.scrollIntoViewIfNeeded();
-  const bx = await c.boundingBox();
-  let t = Date.now();
-  await send('mouseMoved', bx.x + 40, bx.y + bx.height * 0.3, 0, t);
-  await send('mousePressed', bx.x + 40, bx.y + bx.height * 0.3, 1, t);
-  for (let i = 1; i < 40; i++) {
-    t += 9;
-    await send('mouseMoved', bx.x + 40 + i * 4, bx.y + bx.height * 0.3 + 6 * Math.sin(i / 3), 1, t);
-  }
-  await send('mouseReleased', bx.x + 200, bx.y + bx.height * 0.3, 0, t + 9);
-  await p.waitForTimeout(100);
-}
-await p.goto(base);
-await p
-  .getByRole('button', { name: /register/i })
-  .first()
-  .click();
-await p.fill('#reg-name', 'lagprobe');
-await p.getByText('free', { exact: true }).waitFor();
-await p.getByRole('button', { name: 'Next' }).click();
-await p.getByRole('button', { name: 'Next' }).click();
-for (let i = 1; i <= 3; i++) {
-  await p.getByText(`Writing ${i} of 3`).waitFor();
-  await scribble('.pad canvas.ink');
-  await p.getByRole('button', { name: 'Done' }).click();
-}
-const keep = p.getByRole('button', { name: 'Keep these' });
-await Promise.race([keep.waitFor({ timeout: 20000 }).then(() => keep.click()), p.getByText('Now sign your name').waitFor({ timeout: 20000 })]).catch(() => {});
-await p.getByText('Now sign your name').waitFor({ timeout: 20000 });
-await scribble('.pad canvas.ink');
-await p.getByRole('button', { name: 'Done' }).click();
-await p.getByText('Last: copy this out').waitFor({ timeout: 30000 });
+await p.goto(`${base}/pad-check?chase`);
+await p.locator('.pad canvas.ink').first().waitFor({ state: 'attached', timeout: 30000 });
 await p.getByRole('button', { name: 'Chase', exact: true }).click();
 await p.waitForTimeout(800);
 

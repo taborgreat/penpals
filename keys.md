@@ -4,6 +4,8 @@ Ink that acts. Paper that reacts. Marks that are facts. The writing everyone see
 
 Pen-pal site, idea doc. Three factors to get right, in order.
 
+> **Accounts changed (accounts-change.md).** The hand no longer opens the key. The key is made once, on the device, from fresh randomness (r32) and three signatures of the name settled by the law on a provisional paper grown from r32: master = sha256(T("key") ‖ r32 ‖ the three PNKA ‖ their three factsDigests), sk = HKDF(master), and the 24 words are BIP39(master). Signing in is the username and the password (the existing OPRF + argon2id keyring, now its only opener), the 24 words, or the private key; no route asks for writing. The sketches, the calibration page, the secret login phrase and login sheets are gone from the auth path. Law v1 and its hand measure (law/v1/hand.js) stay frozen and in place, used by the dev hand lab only. Where the sections below describe the hand opening the key (design B), read them as history.
+
 ---
 
 ## The idea in one pass

@@ -7,7 +7,7 @@
 //
 // The gate, as the plan states it, for the measure the code implements (the
 // facts read on the calibration paper, bins centred on the person, majority of
-// three enrolment writings: handkey.js):
+// three enrolment writings, as the hand opened the key until accounts-change.md):
 //   phrase (arm B): FRR ≤ 5% overall and on each device with its own sketch;
 //                   tracer FAR ≤ 1%; stitcher FAR ≤ 1% (the deciding number)
 //   page:           FRR ≤ 5%; tracer and stitcher FAR ≤ 1%

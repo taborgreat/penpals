@@ -50,7 +50,7 @@ async function recover() {
       unfinished++;
       continue;
     }
-    for (const f of [path.join(userDir(id), 'book', 'ink.chain'), path.join(userDir(id), 'seeds.chain'), path.join(userDir(id), 'logins.chain')]) {
+    for (const f of [path.join(userDir(id), 'book', 'ink.chain'), path.join(userDir(id), 'seeds.chain')]) {
       if (await truncateTornTail(f)) torn++;
     }
   }

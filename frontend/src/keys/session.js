@@ -1,5 +1,6 @@
-// The account key K in this tab (keys.md, design B): opened by writing the
-// login phrase and typing the password, kept in memory and in this tab's
+// The account key K in this tab (accounts-change.md): made from the signatures
+// at registration, or opened by the password, the 24 words or the private key
+// when signing in; kept in memory and in this tab's
 // sessionStorage, gone when the tab closes or you sign out. It never leaves
 // the device: no request carries it, nor anything that would let the server
 // compute it. Everything the account signs is signed here.

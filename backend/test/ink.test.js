@@ -197,9 +197,10 @@ test("the .book is the owner's, verifies offline, and fails on a one-point tampe
 test('the privacy canary: no secret is in any response, request or file', async () => {
   const secrets = [];
   for (const p of [ana, bo, cy]) {
-    secrets.push(['K', Buffer.from(p.K).toString('hex')], ['K', b64url(p.K)], ['password', p.password], ['phrase', p.phrase]);
-    secrets.push(['r', b64url(p.secret.r)], ['r', Buffer.from(p.secret.r).toString('hex')]);
-    for (const w of p.secret.w) secrets.push(['the measure', b64url(w)], ['the measure', Buffer.from(w).toString('hex')]);
+    // the key (it is the master the signatures made), its words and private key, the password, the randomness
+    secrets.push(['the key', Buffer.from(p.K).toString('hex')], ['the key', b64url(p.K)], ['the words', p.words], ['the private key', p.privateKey], ['the password', p.password]);
+    secrets.push(['r32', b64url(p.secret.r32)], ['r32', Buffer.from(p.secret.r32).toString('hex')]);
+    // the first two signatures never leave the device (the third is sheet 0, public)
     for (const a of p.secret.acts) secrets.push(['private strokes', b64url(a)], ['private strokes', Buffer.from(a).toString('latin1')]);
   }
   // closed seeds: every sheet's seed the device made, minus the ones it opened
@@ -239,7 +240,7 @@ test('the privacy canary: no secret is in any response, request or file', async 
   const begin = await client(app.base).post('/api/auth/begin', { username: 'ana' });
   scan('auth/begin', JSON.stringify(begin.data));
   assert.ok(!JSON.stringify(begin.data).includes('oprfKey'));
-  // and every file under data/ (the server's own private files hold no K, password or phrase)
+  // and every file under data/ (the server's own private files hold no key, words or password)
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
   for (const f of walk(app.dir)) {
     if (f.endsWith('.book')) continue;

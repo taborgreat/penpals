@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeInk, makeOpen, checkInkBody, verifySealed, verifySeedFor, regrow, makeLogin, checkLoginBody } from '../record.js';
+import { makeInk, makeOpen, checkInkBody, verifySealed, verifySeedFor, regrow } from '../record.js';
 import { verifyBook, verifyProof } from '../verify.js';
 import { skFromK, publicKeyOf, newSheetId, sheetSeed, proofOf, SHEET_ZERO } from '../keys.js';
 import { b64url, fromB64url, jcs } from '../tags.js';
@@ -99,12 +99,4 @@ test('a proof bundle verifies from the challenge and the key alone', () => {
   const bundle = { proof: 1, id: 'x', of: { name: 'ana', key: b64url(pk) }, challenge: b64url(challenge), line: { ...p.line, open: makeOpen(sk, p.D, sheet, p.seed) } };
   assert.equal(verifyProof(bundle).ok, true);
   assert.equal(verifyProof({ ...bundle, challenge: b64url(new Uint8Array(32).fill(6)) }).ok, false);
-});
-
-test('login records carry the nonce and only a hash of the writing', () => {
-  const { body, seal } = makeLogin({ sk, pk, nonce: new Uint8Array(32).fill(4), sketch: 'AAAAAAAAAAAA', measure: 1, acts });
-  checkLoginBody(body);
-  assert.match(body.acts, /^[0-9a-f]{64}$/);
-  assert.equal(JSON.stringify(body).includes(b64url(acts)), false, 'the acts never leave the device');
-  assert.ok(seal);
 });

@@ -1,7 +1,9 @@
 // The whole flow in a real browser, the way a person goes through it: register
-// by writing (phrase ×3, name, calibration page) and a password; write in the
-// journal; log out; log in by writing the phrase; unlock a new tab; write and
-// save a letter; download the book and check it with the law's verifier.
+// by signing the name three times (the key is made from them), choose the name,
+// keep the 24 words and the private key; write in the journal; log out; log in
+// with the words; unlock a new tab with the private key; write and save a
+// letter; download the book and check it with the law's verifier; add a
+// password backup and log in with it.
 // No shortcuts: every request is the one the site makes.
 //   node frontend/e2e/flow.mjs         the built site, served by the backend (run `npm run build -w frontend` first)
 //   node frontend/e2e/flow.mjs --dev   through a Vite dev server proxying /api, as `npm run dev` runs it
@@ -57,9 +59,9 @@ if (process.argv.includes('--dev')) {
   console.log('(through the Vite dev server)');
 }
 
-// A phrase in a steady hand: a few loops and words, the same every time (with
-// the small wobble of a real hand).
-function phrase(wobble = 0) {
+// A name signed in a steady hand: a few loops, the same every time (with the
+// small wobble of a real hand).
+function signature(wobble = 0) {
   const strokes = [];
   for (let w = 0; w < 4; w++) {
     const pts = [];
@@ -90,12 +92,14 @@ const scribble = (lines, perLine = 5) => {
 };
 
 // Pointer events stamped like a real device's (evenly, by the hardware), not
-// when the test happens to dispatch them: the hand is read from the timing.
+// when the test happens to dispatch them: the timing is part of the record.
 const cdps = new WeakMap();
 async function draw(page, canvas, strokes, ms = 9) {
   await canvas.scrollIntoViewIfNeeded();
   let b = await canvas.boundingBox();
   // a pad shown in 3D: write where the page is in the view (its middle), by ray onto the page
+  // (with WebGL the pad is always shown in 3D: wait for its scene, which a slow GPU draws late)
+  if (webgl) await page.locator('.pad-scene .scene-view[data-gpu]').first().waitFor({ timeout: 60000 });
   const lit = page.locator('.pad-scene canvas.scene-canvas').first();
   if (await lit.isVisible().catch(() => false)) {
     await lit.evaluate((el) => el.scrollIntoView({ block: 'center' })); // all of it on screen: no stroke falls past the window's edge
@@ -122,9 +126,7 @@ async function draw(page, canvas, strokes, ms = 9) {
   }
 }
 const pad = (page) => page.locator('.pad canvas.ink').first();
-const tries = { login: 0, unlock: 0 };
 
-// Write the phrase (and type the password, if the account has one) until it opens (a person tries again too).
 // What an element shows on screen (the scene may draw straight into its own
 // canvas, which has no 2D picture to read): `fn(d, w, h)` over its pixels, here
 // (the page decodes the screenshot; the site's CSP allows no eval in it).
@@ -161,46 +163,23 @@ async function untilOnScreen(page, selector, fn, timeout = 60000) {
   }
 }
 
-async function openByWriting(page, { unlock, done, password = '' }) {
-  const submit = () =>
-    page
-      .getByRole('button', { name: unlock ? 'Unlock' : /Log in/ })
-      .last()
-      .click();
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    if (!unlock) await page.fill('#in-name', 'tabor');
-    await draw(page, pad(page), phrase(0.002));
-    await submit();
-    tries[unlock ? 'unlock' : 'login']++;
-    if (
-      password &&
-      (await page
-        .getByText('This account also asks for its password.')
-        .waitFor({ timeout: 30000 })
-        .then(
-          () => true,
-          () => false,
-        ))
-    ) {
-      await page.fill('#in-pw', password); // the writing is kept: only the password was missing
-      await submit();
-    }
-    if (
-      await done().then(
-        () => true,
-        () => false,
-      )
-    )
-      return;
-    console.log(
-      `  attempt ${attempt}:`,
-      await page
+// Sign in (or unlock a tab) with the name and one of the password, the 24 words or the private key.
+async function openWith(page, { unlock, way, secret, done }) {
+  if (!unlock) await page.fill('#in-name', 'tabor');
+  await page.getByRole('tab', { name: { password: 'Password', words: '24 words', key: 'Private key' }[way] }).click();
+  await page.fill({ password: '#in-pw', words: '#in-words', key: '#in-key' }[way], secret);
+  await page
+    .getByRole('button', { name: unlock ? 'Unlock' : /Log in/ })
+    .last()
+    .click();
+  await done().catch(async (err) => {
+    throw new Error(
+      `${err.message} (${await page
         .locator('.signin .error')
         .textContent()
-        .catch(() => '?'),
+        .catch(() => 'no error shown')})`,
     );
-  }
-  throw new Error(unlock ? 'could not unlock by writing the phrase' : 'could not log in by writing the phrase');
+  });
 }
 
 const webgl = !process.argv.includes('--no-webgl');
@@ -234,43 +213,27 @@ try {
   });
   await page.goto(base);
 
-  step('register: a name, and no password (the hand is enough)');
+  step('register: sign the name three times; the key is made from them');
   await page
     .getByRole('button', { name: /register/i })
     .first()
     .click();
+  for (let i = 1; i <= 3; i++) {
+    await page.getByText(`Signature ${i} of 3`).waitFor({ timeout: 30000 });
+    await draw(page, pad(page), signature(0.002 * i));
+    await page.getByRole('button', { name: 'Done' }).click();
+  }
+  step('register: the name');
+  await page.locator('#reg-name').waitFor({ timeout: 60000 });
   await page.fill('#reg-name', 'tabor');
   await page.getByText('free', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Next' }).click();
-  await page.getByText('No password: my name and my hand').waitFor();
-  await page.getByRole('button', { name: 'Next' }).click();
-
-  step('register: the phrase, three times');
-  for (let i = 1; i <= 3; i++) {
-    await page.getByText(`Writing ${i} of 3`).waitFor();
-    await draw(page, pad(page), phrase(0.002 * i));
-    await page.getByRole('button', { name: 'Done' }).click();
-  }
-  // A scripted hand under a busy browser can wobble past the sketch radius (the pen's stalls become
-  // hold samples): as a person would, keep these three (signing in then retries, as it does).
-  const keep = page.getByRole('button', { name: 'Keep these' });
-  if (await keep.isVisible().catch(() => false)) {
-    console.log('   the three writings wobbled apart: keeping them');
-    await keep.click();
-  }
-  step('register: sign the name');
-  await page
-    .getByText('Now sign your name')
-    .waitFor({ timeout: 30000 })
-    .catch(async (err) => {
-      console.log('  on the page:', await page.locator('.register .error, .register .meta').allTextContents());
-      throw err;
-    });
-  await draw(page, pad(page), scribble(1, 3));
-  await page.getByRole('button', { name: 'Done' }).click();
-  step('register: the calibration page');
-  await page.getByText('Last: copy this out').waitFor({ timeout: 30000 });
-  await draw(page, pad(page), scribble(4, 6), 4);
+  step('register: keep the key (24 words, the private key), no password');
+  const words = (await page.locator('.key-words li').allTextContents()).join(' ');
+  const privateKey = await page.locator('#reg-private').inputValue();
+  if (words.split(' ').length !== 24) throw new Error(`not 24 words: ${words}`);
+  if (!privateKey.startsWith('penpals-key-1:')) throw new Error(`not a private key: ${privateKey}`);
+  await page.getByText('I have kept my words or my private key').click();
   await page.getByRole('button', { name: 'Make my account' }).click();
   await page.locator('button.logout').waitFor({ timeout: 90000 });
   step('registered and signed in');
@@ -294,8 +257,19 @@ try {
   step('journal: write in oak gall, wet part of it with the water brush, and place');
   await page.getByRole('button', { name: /Write/ }).filter({ hasText: '✎' }).click();
   await page.getByRole('button', { name: 'Oak gall' }).click();
+  await page.evaluate(() => {
+    window.__ptr = [];
+    document.addEventListener('pointerdown', (e) => window.__ptr.push([e.target.tagName + '.' + e.target.className, Math.round(e.clientX), Math.round(e.clientY), e.pointerType]), true);
+  });
   await draw(page, pad(page), scribble(1, 2));
-  if (await page.getByRole('button', { name: 'Undo', exact: true }).first().isDisabled()) throw new Error('the oak gall did not land on the pad');
+  if (await page.getByRole('button', { name: 'Undo', exact: true }).first().isDisabled()) {
+    const why = await page.evaluate(() => {
+      const v = document.querySelector('.pad-scene canvas.scene-canvas')?.getBoundingClientRect();
+      const mid = v ? document.elementFromPoint(v.x + v.width / 2, v.y + v.height / 2) : null;
+      return { downs: window.__ptr, scene: v && [v.x, v.y, v.width, v.height].map(Math.round), atMiddle: mid && mid.tagName + '.' + mid.className, scroll: window.scrollY };
+    });
+    throw new Error(`the oak gall did not land on the pad: ${JSON.stringify(why)}`);
+  }
   await page.getByRole('button', { name: 'Water brush' }).click();
   await draw(page, pad(page), scribble(1, 1));
   await page.getByRole('button', { name: 'Into the paper' }).click();
@@ -514,17 +488,17 @@ try {
   if (gif.subarray(0, 6).toString('ascii') !== 'GIF89a') throw new Error('the GIF is not a GIF');
   console.log(`   video ${webm.length} bytes, GIF ${gif.length} bytes`);
 
-  step('log out, then log in by writing the phrase');
+  step('log out, then log in with the 24 words');
   await page.locator('button.logout').click();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
-  await openByWriting(page, { unlock: false, done: () => page.locator('button.logout').waitFor({ timeout: 60000 }) });
+  await openWith(page, { unlock: false, way: 'words', secret: words, done: () => page.locator('button.logout').waitFor({ timeout: 60000 }) });
 
-  step('a new tab is signed in but must unlock to write');
+  step('a new tab is signed in but must unlock to write: the private key');
   const tab = await context.newPage();
   await tab.goto(`${base}/write`);
   await tab.getByText('Unlock to write').waitFor({ timeout: 20000 });
-  await openByWriting(tab, { unlock: true, done: () => tab.getByRole('button', { name: 'Draw on screen' }).waitFor({ timeout: 60000 }) });
+  await openWith(tab, { unlock: true, way: 'key', secret: privateKey, done: () => tab.getByRole('button', { name: 'Draw on screen' }).waitFor({ timeout: 60000 }) });
 
   step('write a letter on the pad and save it');
   await tab.waitForTimeout(500);
@@ -576,35 +550,17 @@ try {
   await page.setInputFiles('.dropzone input[type=file]', file);
   await page.getByText('The book checks.').waitFor({ timeout: 60000 });
   await page.getByText(/And with your key: 1 closed sheet grown again here/).waitFor({ timeout: 60000 });
-  step('add a password backup in the account, then log in: it asks for it');
+  step('add a password backup in the account, then log in with it');
   await page.goto(`${base}/u/tabor`);
   await page.getByRole('button', { name: 'Add one' }).click();
   await page.fill('#pw-next', 'correct horse battery');
   await page.fill('#pw-next2', 'correct horse battery');
-  for (let attempt = 1; ; attempt++) {
-    await draw(page, page.locator('.password-setting .pad canvas.ink').first(), phrase(0.002));
-    await page.getByRole('button', { name: 'Save' }).click();
-    if (
-      await page
-        .locator('.password-setting strong', { hasText: 'on' })
-        .waitFor({ timeout: 60000 })
-        .then(
-          () => true,
-          () => false,
-        )
-    )
-      break;
-    const said = await page
-      .locator('.password-setting .error')
-      .textContent()
-      .catch(() => '?');
-    if (attempt === 5) throw new Error(`could not add the password: ${said}`);
-    console.log(`  attempt ${attempt}:`, said); // (the pad starts again; the passwords stay)
-  }
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.locator('.password-setting strong', { hasText: 'on' }).waitFor({ timeout: 60000 });
   await page.locator('button.logout').click();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
-  await openByWriting(page, { unlock: false, password: 'correct horse battery', done: () => page.locator('button.logout').waitFor({ timeout: 60000 }) });
+  await openWith(page, { unlock: false, way: 'password', secret: 'correct horse battery', done: () => page.locator('button.logout').waitFor({ timeout: 60000 }) });
   console.log('\nthe whole flow works');
 } catch (err) {
   if (err.ok) {

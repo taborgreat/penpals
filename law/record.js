@@ -5,7 +5,6 @@
 //   { v: 2, kind: "ink", law, use, sheet, key, name?, proof?, paper: {grain, weight, tooth},
 //     acts: b64url(PNKA), box: [x0, y0, w, h], commit: b64url(H(seed)), facts: b64url(factsDigest) }
 // photo body  { v: 2, kind: "photo", use: "letter", sheet, key, size: [w, h], png: hex, strokes: hex | null }
-// login body  { v: 2, kind: "login", law, key, nonce, sketch, measure, acts: hex }   (the acts stay on the device)
 //
 // The body is integers and printable ASCII only, so its canonical JSON is the
 // same everywhere. The seal covers the facts digest (what the ink settled to),
@@ -14,9 +13,24 @@
 
 import { sha256 } from '@noble/hashes/sha2.js';
 import { checkFamily } from './v1/paper.js';
-import { LAW as HAND_LAW } from './v1/constants.js';
 import { lawOf, CURRENT, ACCEPTED } from './laws.js';
-import { sheetSeed, commitOf, paperKeyOf, recordDigest, sealOf, verifySeal, verifySeed, openBy, verifyOpen, isSheetId, isGoodPublicKey, KEY_BYTES, SIG_BYTES } from './keys.js';
+import {
+  sheetSeed,
+  commitOf,
+  paperKeyOf,
+  provisionalPaperKey,
+  masterOf,
+  recordDigest,
+  sealOf,
+  verifySeal,
+  verifySeed,
+  openBy,
+  verifyOpen,
+  isSheetId,
+  isGoodPublicKey,
+  KEY_BYTES,
+  SIG_BYTES,
+} from './keys.js';
 import { b64url, fromB64url, hex, equalBytes } from './tags.js';
 
 export const USES = ['book', 'signature', 'letter', 'proof'];
@@ -38,16 +52,32 @@ const bad = (code, msg) => new RecordError(code, msg);
 // --- settling a record on its paper ---
 
 // The facts of acts grown under `law` on the paper of `seed` with `family`, at `scale` (64 = 1×).
-export function settle(actsBytes, seed, family, scale = 64, law = CURRENT) {
+export const settle = (actsBytes, seed, family, scale = 64, law = CURRENT) => settleOn(actsBytes, paperKeyOf(seed), family, scale, law);
+export function settleOn(actsBytes, paperKey, family, scale = 64, law = CURRENT) {
   const L = lawOf(law);
   const rec = L.decodeCanonical(actsBytes);
-  const res = L.grow(rec, { paperKey: paperKeyOf(seed), family, scale });
+  const res = L.grow(rec, { paperKey, family, scale });
   const cells = L.settledCells(res.tiles);
   const box = L.boxOf(cells);
   return { law, cells, box, facts: L.factsDigest({ cells, box, actsBytes, family, scale }), rec, ticks: res.ticks, work: res.work };
 }
 // The look of settled facts at a view ({ ageH, views }; law 1 ignores it).
 export const lookOf = (settled, view = {}) => lawOf(settled.law).lookRGB(settled.cells, settled.box, view);
+
+// --- the account key (keys.js): three signatures settled on the paper of r32 ---
+
+export const SIGNING_FAMILY = Object.freeze({ grain: 8, weight: 8, tooth: 0 });
+// → { K, facts }: the account key from r32 and the signatures' PNKA bytes, each
+// grown by the canonical law (never the live preview) on the provisional paper.
+export function accountKey(r32, signatures, { family = SIGNING_FAMILY, law = CURRENT } = {}) {
+  const paperKey = provisionalPaperKey(r32);
+  const facts = signatures.map((acts) => {
+    const s = settleOn(acts, paperKey, family, 64, law);
+    if (!s.box[2] || !s.box[3]) throw bad('empty_signature', 'a signature with no ink');
+    return s.facts;
+  });
+  return { K: masterOf(r32, signatures, facts), facts };
+}
 
 // --- making (the writer's device) ---
 
@@ -89,12 +119,6 @@ export function makePhoto({ sk, pk, sheet, size, png, strokes }) {
   const body = { v: 2, kind: 'photo', use: 'letter', sheet, key: b64url(pk), size, png: hex(sha256(png)), strokes: strokes ? hex(sha256(strokes)) : null };
   const D = recordDigest(body);
   return { line: { ink: body, seal: b64url(sealOf(sk, D)) }, D };
-}
-
-export function makeLogin({ sk, pk, nonce, sketch, measure, acts }) {
-  const body = { v: 2, kind: 'login', law: HAND_LAW, key: b64url(pk), nonce: b64url(nonce), sketch, measure, acts: hex(sha256(acts)) };
-  const D = recordDigest(body);
-  return { body, seal: b64url(sealOf(sk, D)), D };
 }
 
 // --- checking shape (no keys needed) ---
@@ -157,13 +181,6 @@ export function checkPhotoBody(body) {
   if (!b64Len(body.key, KEY_BYTES) || !isGoodPublicKey(fromB64url(body.key))) throw bad('bad_key', 'bad key');
   if (!Array.isArray(body.size) || body.size.length !== 2 || !body.size.every((v) => isInt(v) && v > 0 && v < 20000)) throw bad('bad_record', 'bad size');
   if (!HEX64.test(body.png) || !(body.strokes === null || HEX64.test(body.strokes))) throw bad('bad_record', 'bad hashes');
-}
-
-export function checkLoginBody(body) {
-  if (!keysExactly(body, ['v', 'kind', 'law', 'key', 'nonce', 'sketch', 'measure', 'acts'])) throw bad('bad_record', 'unexpected or missing fields');
-  if (body.v !== 2 || body.kind !== 'login' || !LAWS_ACCEPTED.includes(body.law)) throw bad('bad_record', 'not a login record');
-  if (!b64Len(body.key, KEY_BYTES) || !b64Len(body.nonce, 32) || typeof body.sketch !== 'string' || !/^[A-Za-z0-9_-]{12}$/.test(body.sketch)) throw bad('bad_record', 'bad login record');
-  if (!isInt(body.measure) || !HEX64.test(body.acts)) throw bad('bad_record', 'bad login record');
 }
 
 // --- verifying (keys, no secrets) ---

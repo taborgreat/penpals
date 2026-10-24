@@ -1,5 +1,5 @@
 // Test helpers: an app on a temporary data directory, and a client that does
-// what a writer's device does (make a key, write with a hand, seal, unlock),
+// what a writer's device does (make a key from signatures, seal, sign in),
 // using the law exactly as the frontend will.
 import fs from 'node:fs';
 import os from 'node:os';

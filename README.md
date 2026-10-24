@@ -8,8 +8,10 @@ sampled point of the pen is an act that releases ink onto a sheet of paper grown
 from your key, and what settles is the mark. The look is public; the paper is
 yours. Every record is sealed by your key, the same strokes on the same paper
 grow the same ink byte for byte on any machine, and anyone can check an open
-sheet offline. Your account is that key, opened by your name and the way you
-write your secret phrase, with a typed password as an optional backup.
+sheet offline. Your account is that key, made on your device from fresh
+randomness and how three signatures of your name settled on a paper grown from
+it. You keep it as 24 words or a private key, and may also lock it on the
+server under a password; signing in is your name and one of the three.
 
 Writing puts the letter on your own profile, or saves and sends it in one go. A
 letter goes to one scripter, once. The server is a postman, not an archive: a sent
@@ -71,7 +73,7 @@ law/                 the law (workspace package penpals-law): pure ESM, integers
   v2/                depth, water and oak gall: dents, ink depth, soak, tears, cockle, gall, fading, splatter (keys.md)
   laws.js            the laws by number: a record grows, looks and verifies under the law it carries
   keys.js            the key, sheet seeds, seals, opens, auth messages, proofs, fingerprints
-  fuzzy.js unlock.js handkey.js   BCH fuzzy commitment, OPRF + argon2id + keyring, sketches
+  unlock.js          the password backup: OPRF + argon2id + keyring (fuzzy.js: the hand lab's BCH codes)
   record.js verify.js bin/verify.js   records, and checking a .book or proof anywhere
   lab/ tools/ test/ browser/          the hand lab, tables, goldens, suites, browser checks
 backend/src
@@ -82,7 +84,7 @@ backend/src
   limits.js auth.js  token buckets; cookie sessions and the Origin check
 backend/scripts/fsck.js
 frontend/src
-  keys/              the key in this tab; register, sign in, sketches (key worker)
+  keys/              the key in this tab; register (the key from the signatures), sign in (key worker)
   ink/               capture, live sheet (ink worker), films, plus the photo pipeline
   scene/             the scene: one three.js renderer (WebGPU, else WebGL2), 2D/3D cameras, the light, writing by ray
   book/              the journal: chain, looks, edits, walk back
@@ -98,8 +100,7 @@ from them on start ([books.md](books.md), Part A).
 backend/data/
   FORMAT                          {"penpals":2}
   users/<id>/account.json         private: name, public key, friends, requests, blocks (no password)
-  users/<id>/unlock.json          private: the OPRF key (never served), the keyring, the sketches
-  users/<id>/logins.chain         private: digests of sealed login sheets
+  users/<id>/unlock.json          private, only with a password backup: the OPRF key (never served) and the keyring
   users/<id>/seeds.chain          private: seeds of closed sheets (never served)
   users/<id>/book/skeleton.json   pages, items (integer scales), links, paper family, signature ref
   users/<id>/book/ink.chain       append-only: sealed records, and opens
@@ -161,12 +162,11 @@ C = cookie session, K = signed by the account key in the body (on top of the coo
 
 | Method | Path | What |
 | --- | --- | --- |
-| GET | `/api/law` | law versions, caps, hand and unlock parameters |
-| GET | `/api/auth/me`, `/name/:name` | current user (and whether a password backs their hand); is a name free |
-| POST | `/api/auth/register/begin` → `/register/finish` | hold the name, answer the first OPRF guess → key, keyring, sketches, sealed signature (K) |
-| POST | `/api/auth/begin` → `/unlock` → `/login` | challenge + keyring + sketches → counted OPRF answers (5/h) → signed challenge + sealed login sheet (K) |
-| POST/PUT | `/api/auth/challenge`, `/sketches` | refresh or add a rhythm (C+K) |
-| PUT | `/api/auth/keyring` | the key locked again: the password backup on, off or changed (C+K) |
+| GET | `/api/law` | law versions, caps, the password backup's stretch |
+| GET | `/api/auth/me`, `/name/:name` | current user (and whether they have a password backup); is a name free |
+| POST | `/api/auth/register/begin` → `/register/finish` | hold the name (and answer the password, if one) → public key, sealed signature on sheet 0, keyring if a password (K) |
+| POST | `/api/auth/begin` → `/unlock` → `/login` | challenge + public key + keyring (or null) → one counted OPRF answer to a password (5/h) → the signed challenge, nothing else (K) |
+| POST/PUT | `/api/auth/challenge`, `/keyring/oprf`, `/keyring` | the password backup set, changed or turned off (null) from a tab holding the key (C+K) |
 | POST | `/api/auth/logout`, `/logout-all` | end this session; end every session (C+K) |
 | GET | `/api/users`, `/api/users/:username` | scripters; a profile (with key and fingerprint) and its kept letters |
 | GET | `/api/books/:name`, `/ink`, `/download` | skeleton (+ key, fingerprint); the chain; the `.book` (owner) |

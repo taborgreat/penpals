@@ -985,6 +985,27 @@ canvas.letter {
   font-size: 1.1em;
   line-height: 1.5;
 }
+/* the key, kept: its 24 words in reading order, and the private key on one line */
+.key-words {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5em, 1fr));
+  gap: 4px 12px;
+  margin: 0;
+  padding: 10px 14px 10px 2.4em;
+  border-left: 3px solid var(--muted);
+  font-family: var(--mono, ui-monospace, monospace);
+}
+.key-words li::marker {
+  color: var(--muted);
+}
+.private-key {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.85em;
+}
+.sign-in-ways {
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .proof-phrase strong {
   font-size: 1.3em;
   letter-spacing: 0.02em;

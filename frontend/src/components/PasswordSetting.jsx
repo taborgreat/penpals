@@ -1,19 +1,13 @@
 import { useState } from 'react';
-import { v1 } from 'penpals-law';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { setPassword } from '../keys/account.js';
-import { useLiveInk } from '../ink/useLiveInk.js';
 import KeyGate from './KeyGate.jsx';
-import Pad from './Pad.jsx';
 
-const PHRASE_PAD = { width: 1000, height: 420 };
-const CALIBRATION = { paperKey: v1.calibrationPaperKey(), family: v1.CALIBRATION_FAMILY, law: 1 }; // the hand is read under law 1
-
-// Your password backup, on or off (keys.md): your name, your phrase and your
-// hand open your account; a password, if you add one, is needed as well.
-// Changing it locks your key again, so it asks you to write your phrase first
-// (and your current password, if there is one).
+// Your password backup, on or off (accounts-change.md): your 24 words or your
+// private key always sign you in; with a password, your key is also kept on the
+// server locked under it, so the password alone signs you in. Setting, changing
+// or turning it off is signed by the key in this tab (no writing, no old password).
 export default function PasswordSetting() {
   const { user, signedIn } = useAuth();
   const [open, setOpen] = useState(false);
@@ -31,8 +25,8 @@ export default function PasswordSetting() {
       </p>
       <p className="muted">
         {on
-          ? 'Signing in takes your phrase, your hand and this password.'
-          : "Signing in takes your phrase and your hand. Someone who learned your phrase and could write it like you would get in; a password stops them, and anyone who ever got hold of the server's files."}
+          ? 'You sign in with this password, or your 24 words, or your private key. Your key is kept on the server locked under the password; every guess at it is counted.'
+          : 'You sign in with your 24 words or your private key. A password would let you sign in with it alone: your key, locked under it, kept on the server.'}
       </p>
       {open && (
         <KeyGate>
@@ -54,31 +48,22 @@ export default function PasswordSetting() {
 }
 
 function Change({ writer, on, onDone, onCancel }) {
-  const [n, setN] = useState(0);
-  const ink = useLiveInk({ ...CALIBRATION, size: PHRASE_PAD }, `pw-${n}`);
-  const [strokes, setStrokes] = useState(0);
-  const [current, setCurrent] = useState('');
   const [turnOff, setTurnOff] = useState(false);
   const [next, setNext] = useState('');
   const [next2, setNext2] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const wantsNew = !turnOff;
-  const ready = strokes > 0 && (!on || current) && (!wantsNew || (next.length >= 8 && next === next2));
+  const ready = turnOff || (next.length >= 8 && next === next2);
 
   async function save(e) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await setPassword(writer, { phraseActs: ink.acts(), current, next: wantsNew ? next : '' });
+      await setPassword(writer, turnOff ? '' : next);
       onDone();
     } catch (err) {
       setError(err.message);
-      if (err.code === 'not_opened') {
-        setN((v) => v + 1);
-        setStrokes(0);
-      }
     } finally {
       setBusy(false);
     }
@@ -86,18 +71,12 @@ function Change({ writer, on, onDone, onCancel }) {
 
   return (
     <form className="stack card" onSubmit={save}>
-      <p>Write your phrase, as when you sign in:</p>
-      {ink && <Pad key={n} ink={ink} size={PHRASE_PAD} onChange={setStrokes} hint="Your phrase, as you always write it." />}
       {on && (
-        <>
-          <label htmlFor="pw-current">Current password</label>
-          <input id="pw-current" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
-          <label className="choice">
-            <input type="checkbox" checked={turnOff} onChange={(e) => setTurnOff(e.target.checked)} /> Turn the password off
-          </label>
-        </>
+        <label className="choice">
+          <input type="checkbox" checked={turnOff} onChange={(e) => setTurnOff(e.target.checked)} /> Turn the password off
+        </label>
       )}
-      {wantsNew && (
+      {!turnOff && (
         <>
           <label htmlFor="pw-next">{on ? 'New password' : 'Password'}</label>
           <input id="pw-next" type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} />
@@ -111,7 +90,7 @@ function Change({ writer, on, onDone, onCancel }) {
           Cancel
         </button>
         <button className="primary" disabled={!ready || busy}>
-          {busy ? 'Locking your key again…' : turnOff ? 'Turn it off' : 'Save'}
+          {busy ? 'Locking your key…' : turnOff ? 'Turn it off' : 'Save'}
         </button>
       </div>
       {error && <p className="error">{error}</p>}

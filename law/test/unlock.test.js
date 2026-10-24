@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import { ristretto255_oprf } from '@noble/curves/ed25519.js';
 import { code, commit, recover, rBits, packBits, unpackBits } from '../fuzzy.js';
 import * as U from '../unlock.js';
-import * as H from '../handkey.js';
 import { newK } from '../keys.js';
 import { hex, fromHex } from '../tags.js';
-import * as S from '../lab/synth.js';
 
 test('RFC 9497 A.1.1 (ristretto255-SHA512, OPRF mode): key and outputs', () => {
   const o = ristretto255_oprf.oprf;
@@ -18,12 +16,13 @@ test('RFC 9497 A.1.1 (ristretto255-SHA512, OPRF mode): key and outputs', () => {
     'f4a74c9c592497375e796aa837e907b1a045d34306a749db9f34221f7e750cb4f2a6413a6bf6fa5e19ba6348eb673934a722a7ede2e7621306d18951e7cf2c73',
   );
   // and the blinded round trip gives the same as evaluating directly
-  const input = U.unlockInput('ana', new Uint8Array(rBits()).fill(1), 'correct horse');
+  const input = U.unlockInput('ana', 'correct horse');
   const { blind, blinded } = U.blindInput(input);
   const y = U.finalizeOutput(input, blind, U.evaluateBlinded(kp.secretKey, blinded));
   assert.equal(hex(y), hex(o.evaluate(kp.secretKey, input)));
 });
 
+// (the hand is no longer a key opener; its fuzzy commitments stay for the lab: /hand-lab, law/lab)
 test('BCH codes correct exactly up to their radius', () => {
   for (const kind of ['phrase', 'page']) {
     const c = code(kind);
@@ -52,69 +51,32 @@ test('BCH codes correct exactly up to their radius', () => {
   assert.deepEqual([...unpackBits(packBits(Uint8Array.of(1, 0, 1, 1, 0, 0, 0, 1, 1)), 9)], [1, 0, 1, 1, 0, 0, 0, 1, 1]);
 });
 
-test('the hand opens the key: same hand → r → OPRF → argon2id → K; wrong hand or password → nothing', () => {
-  const w = S.makeWriter(5);
-  const phrase = 'amber river quiet lamp';
-  const readings = [1, 2, 3].map((s) => H.readingOf('phrase', S.write(w, phrase, s)));
-  const enrolled = H.enroll('phrase', readings);
-  assert.ok(enrolled.spread <= enrolled.radius, `enrolment spread ${enrolled.spread}`);
-  const r = H.newR();
-  const sketch = H.checkSketch(H.makeSketch('phrase', r, readings));
-
-  // server side: an OPRF key; client side: K in a keyring
-  const serverKey = U.newServerKey();
+test('the password backup: the name and the password open the keyring through the OPRF; nothing else does', () => {
+  const server = U.newServerKey();
   const K = newK();
-  const kdf = U.newKdf();
-  const open = (rBitsIn, password) => {
-    const input = U.unlockInput('ana', rBitsIn, password);
-    const { blind, blinded } = U.blindInput(input);
-    return U.unlockKey(U.finalizeOutput(input, blind, U.evaluateBlinded(serverKey, blinded)), kdf);
-  };
-  const keyring = U.checkKeyring(U.newKeyring('ana', K, open(r, 'pass word 1'), kdf));
-
-  // a later session of the same hand
-  const later = H.readingOf('phrase', S.write(w, phrase, 7));
-  const cands = H.candidates([sketch], { phrase: later });
-  assert.equal(cands.length, 1);
-  assert.equal(hex(U.openKeyring(keyring, 'ana', open(cands[0].r, 'pass word 1'))), hex(K));
-  // password alone (r unknown): nothing
-  assert.equal(U.openKeyring(keyring, 'ana', open(H.newR(), 'pass word 1')), null);
-  // hand alone (wrong password): nothing
-  assert.equal(U.openKeyring(keyring, 'ana', open(cands[0].r, 'pass word 2')), null);
-  // Someone else writing the phrase may land inside the (loose, unfrozen) radius:
-  // that is the hand's false-accept rate, which the Phase 0 report measures. What
-  // the design guarantees is that whatever their reading recovers, the keyring
-  // stays shut without the password.
-  for (const seed of [77, 78, 79]) {
-    const theirs = H.candidates([sketch], { phrase: H.readingOf('phrase', S.write(S.makeWriter(seed), phrase, 1)) });
-    for (const c of theirs) assert.equal(U.openKeyring(keyring, 'ana', open(c.r, 'a guessed password')), null);
-  }
-  // re-sketching from today's reading keeps r
-  const refreshed = H.refreshSketch(sketch, cands[0].r, later);
-  assert.equal(refreshed.id, sketch.id);
-  assert.equal(H.recoverR(refreshed, later).join(''), r.join(''));
-});
-
-test('a keyring may open without a password: the flag travels with it, older keyrings ask for one', async () => {
-  const U = await import('../unlock.js');
-  const K = new Uint8Array(32).fill(3);
-  const r = new Uint8Array(48).map((_, i) => i & 1);
   const kdf = { ...U.newKdf(), m: 64, t: 1 }; // small, for the test only
-  const open = (password) => {
-    const input = U.unlockInput('ana', r, password);
+  const open = (username, password) => {
+    const input = U.unlockInput(username, password);
     const { blind, blinded } = U.blindInput(input);
     return U.unlockKey(U.finalizeOutput(input, blind, U.evaluateBlinded(server, blinded)), kdf);
   };
-  const server = U.newServerKey();
-  const free = U.newKeyring('ana', K, open(''), kdf, { password: false });
-  assert.equal(U.usesPassword(free), false);
-  assert.deepEqual(U.openKeyring(free, 'ana', open('')), K);
-  assert.equal(U.openKeyring(free, 'ana', open('guess')), null, 'a password typed anyway does not open it');
-  const locked = U.newKeyring('ana', K, open('pw'), kdf);
-  assert.equal(U.usesPassword(locked), true);
-  assert.equal(U.openKeyring(locked, 'ana', open('')), null, 'with the backup on, the hand alone opens nothing');
-  // the flag survives the server's shape check; a keyring from before it counts as passworded
-  const legacy = { ...locked, openers: locked.openers.map(({ password: _password, ...o }) => o) };
-  assert.equal(U.usesPassword(legacy), true);
-  assert.equal(U.checkKeyring(U.newKeyring('ana', K, new Uint8Array(32), U.newKdf(), { password: false })).openers[0].password, false);
+  const keyring = U.newKeyring('ana', K, open('ana', 'pass word 1'), kdf);
+  assert.deepEqual(U.openKeyring(keyring, 'ana', open('ana', 'pass word 1')), K);
+  assert.equal(U.openKeyring(keyring, 'ana', open('ana', 'pass word 2')), null, 'a wrong password');
+  assert.equal(U.openKeyring(keyring, 'bo', open('bo', 'pass word 1')), null, 'another name');
+  // another server's OPRF key: the same password opens nothing
+  const elsewhere = U.newServerKey();
+  const input = U.unlockInput('ana', 'pass word 1');
+  const { blind, blinded } = U.blindInput(input);
+  assert.equal(U.openKeyring(keyring, 'ana', U.unlockKey(U.finalizeOutput(input, blind, U.evaluateBlinded(elsewhere, blinded)), kdf)), null);
+  // the server's shape check: only password openers; no empty password
+  assert.deepEqual(
+    U.checkKeyring(U.newKeyring('ana', K, new Uint8Array(32), U.newKdf())).openers.map((o) => o.kind),
+    ['password'],
+  );
+  assert.throws(
+    () => U.checkKeyring({ ...U.newKeyring('ana', K, new Uint8Array(32), U.newKdf()), openers: [{ kind: 'hand', nonce: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', ct: 'A'.repeat(64) }] }),
+    /bad keyring/,
+  );
+  assert.throws(() => U.unlockInput('ana', ''), /password/);
 });

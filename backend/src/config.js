@@ -45,11 +45,6 @@ export const config = {
     reserved: ['me', 'api', 'admin', 'book', 'u', 'write', 'inbox', 'hand', 'hand-lab', 'law-check', 'proofs', 'register', 'signin', 'login', 'logout'],
   },
 
-  unlock: {
-    phraseCap: 5, // rhythms: one per way of writing (a phone and a desktop at least)
-    pageCap: 2,
-  },
-
   render: {
     workers: env.RENDER_WORKERS !== undefined ? Number(env.RENDER_WORKERS) : Math.max(1, Math.min(4, (os.availableParallelism?.() ?? 2) - 1)),
     queue: { upload: 16, view: 64, warm: 256 },
