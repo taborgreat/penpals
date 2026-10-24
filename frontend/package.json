@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "room": "node scripts/room.mjs",
+    "prebuild": "node scripts/room.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"src/**/*.test.js\""
