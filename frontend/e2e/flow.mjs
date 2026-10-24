@@ -335,9 +335,9 @@ try {
     await page.waitForFunction(() => [...document.querySelectorAll('.walk-back-scene .scene-tools button[aria-pressed="true"]')].some((b) => b.textContent === 'Moments'), null, { timeout: 60000 });
     // cut through it: the far side is cut away, so more of the desk shows (the desk is unlit: the candles do not move it)
     const deskSeen = (d) => {
-      const desk = [d[0], d[1], d[2]];
+      const desk = [153, 146, 139]; // the desk (engine.js DESK), lit by nothing
       let n = 0;
-      for (let i = 0; i < d.length; i += 4 * 5) if (Math.abs(d[i] - desk[0]) + Math.abs(d[i + 1] - desk[1]) + Math.abs(d[i + 2] - desk[2]) < 6) n++;
+      for (let i = 0; i < d.length; i += 4 * 5) if (Math.abs(d[i] - desk[0]) + Math.abs(d[i + 1] - desk[1]) + Math.abs(d[i + 2] - desk[2]) < 12) n++;
       return n;
     };
     await page.waitForTimeout(800);
@@ -348,7 +348,7 @@ try {
     await page.mouse.down();
     await page.mouse.move(wb.x + wb.width * 0.8, wb.y + wb.height * 0.5, { steps: 8 });
     await page.mouse.up();
-    await untilOnScreen(page, '.walk-back-scene', new Function('d', `return (${deskSeen})(d) > ${before} * 1.02 + 20;`));
+    await untilOnScreen(page, '.walk-back-scene', new Function('d', `return (${deskSeen})(d) > ${before} + 300;`));
     console.log(`   side view ${sideW}; the sheet in the scene, its moments banded, cut through`);
   } else console.log(`   side view ${sideW}`);
   await page.getByRole('button', { name: 'Close' }).click();

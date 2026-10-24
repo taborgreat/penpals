@@ -4,15 +4,16 @@
 // when the two disagree, this one says what the law is.
 //
 // Per tick: the deposits that fall in it (dent, wear and tear under the nib),
-// flow (peak, gall carried), then on dry ticks mix → settle (depth) → revive
-// → dry (soak; cockle when a cell dries).
+// flow (peak, gall carried; standing water counted before the front starts;
+// pore water lifting the receiver's front), then on dry ticks mix → settle →
+// revive → dry (the wet front advances; soak; cockle when a cell dries).
 
 import {
   TILE, TICK_MS, DRY_EVERY, HT_PER_CELL, P_NONE, NIB_FLEX, NIB_BROAD, STEP_HT, BROAD_T_HT, CARRY_MS,
-  CAP_REF, W_SAT, W_WET, W_EPS, C_SAT, G_LEVEL, G_RUN, G_PORE, G_WICK, G_MAX, DIAG_Q, G_MIX, SETTLE, ABSORB,
+  CAP_REF, W_SAT, W_WET, W_EPS, C_SAT, G_LEVEL, G_RUN, G_PORE, G_WICK, G_MAX, DIAG_Q, G_MIX, SETTLE, ENTER, FRONT,
   EVAP_BASE, EVAP_EDGE, E_MIN, DRAIN_MAX_TICKS, SCALE_ONE,
   DENT_SHIFT, DENT_MAX, DENT_CAP, DENT_Z, DENT_THIRST, THICK, DEPTH_SHIFT, PEAK_SHIFT, REDISSOLVE,
-  FILM_SHIFT, POROSITY, POROSITY_THIRST, SUPPLY_V, WIPE_MAX16, FEED_Q, DWELL_MS, RAIL_WIDE, RAIL_MIN, RAIL_MID, RAIL_TINE,
+  FILM_SHIFT, SUPPLY_V, WIPE_MAX16, FEED_Q, DWELL_MS, RAIL_WIDE, RAIL_MIN, RAIL_MID, RAIL_TINE,
   SOAK_Q, SOAK_THIRST, SOAK_LINK, SOAK_PORE, SOAK_WICK, SOAK_FULL, WEAR_SHIFT, WEAR_STILL, STRENGTH_BASE, WET_K, SOAK_K, RIM_Z,
   COCKLE_MIN, COCKLE_MAX, TORN, DROP_REACH, DROP_R_MAX,
 } from './constants.js';
@@ -73,7 +74,7 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
   const W = new Int32Array(N), P = new Int32Array(N * 3), F = new Int32Array(N * 3), G = new Int32Array(N), FG = new Int32Array(N);
   const dentA = new Int32Array(N), depthA = new Int32Array(N), peak = new Int32Array(N), soakA = new Int32Array(N);
   const wearA = new Int32Array(N), flags = new Int32Array(N), rim = new Int32Array(N), cockle = new Int32Array(N);
-  const drainA = new Int32Array(N), filmA = new Int32Array(N);
+  const drainA = new Int32Array(N), filmA = new Int32Array(N), enter = new Int32Array(N);
   const lost = { W: 0, P: 0, F: 0, G: 0 };
   const at = (cx, cy) => (cy - Y0) * GW + (cx - X0);
   const nbOf = (c, n) => {
@@ -88,22 +89,13 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
   };
   const dentL = (c) => dentA[c] >> DENT_SHIFT;
   const soakL = (c) => Math.min(255, soakA[c] >> 8);
-  const capE = (c) => cap[c] + dentL(c) * DENT_CAP;
+  const TOP = THICK << DEPTH_SHIFT;
+  const heldE = (c) => floorDiv(cap[c] * depthA[c], TOP) + dentL(c) * DENT_CAP; // the paper's capacity within the front, and a dent's
+  const frontFor = (c, w) => (w - dentL(c) * DENT_CAP <= 0 ? 0 : Math.min(TOP, ceilDiv((w - dentL(c) * DENT_CAP) * TOP, cap[c])));
   const zE = (c) => z[c] - dentL(c) * DENT_Z + cockle[c] - rim[c] * RIM_Z;
   const washed = (c) => Math.min(SOAK_FULL, soakA[c] >> 8);
   const thirstE = (c) => clamp(siz[c] + floorDiv(washed(c) * SOAK_THIRST - dentL(c) * DENT_THIRST, 256), 0, 15);
   const SINK_W = [2, 1, 2, 1, 2, 1, 2, 1];
-  const liquidIn = (c) => Math.min(W[c], capE(c)) + drainA[c];
-  const sink = (c) => {
-    let vol = 4 * liquidIn(c);
-    let th = 4 * thirstE(c);
-    for (let n = 0; n < 8; n++) {
-      const j = nbOf(c, n);
-      vol += SINK_W[n] * liquidIn(j);
-      th += SINK_W[n] * thirstE(j);
-    }
-    depthA[c] = Math.max(depthA[c], Math.min(THICK << DEPTH_SHIFT, floorDiv(vol * 1024 * POROSITY_THIRST, POROSITY * (16 * POROSITY_THIRST - th))));
-  };
   const snap = (c) => {
     for (let ch = 0; ch < 3; ch++) {
       F[3 * c + ch] = Math.min(65535, F[3 * c + ch] + P[3 * c + ch]);
@@ -292,18 +284,20 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
 
   // --- the rules ---
   function flow() {
-    const dW = new Int32Array(N), dP = new Int32Array(N * 3), dG = new Int32Array(N);
+    const dW = new Int32Array(N), dP = new Int32Array(N * 3), dG = new Int32Array(N), dWp = new Int32Array(N);
     for (let c = 0; c < N; c++) {
       const Wi = W[c];
       if (Wi <= 0) continue;
-      const s = Wi - capE(c);
+      const s = Wi - heldE(c);
       const sPos = Math.max(s, 0);
+      const inP = Math.min(Wi, floorDiv(cap[c] * depthA[c], TOP));
       peak[c] = Math.max(peak[c], Math.min(255, sPos >> PEAK_SHIFT));
+      if (sPos > 0 && depthA[c] === 0 && enter[c] < 255) enter[c]++;
       const sl = soakL(c);
       for (let n = 0; n < 8; n++) {
         const j = nbOf(c, n);
         if (flags[j] & TORN) continue;
-        const d = s + zE(c) - (W[j] - capE(j) + zE(j));
+        const d = s + zE(c) - (W[j] - heldE(j) + zE(j));
         if (d <= 0) continue;
         const dryJ = W[j] < W_WET;
         let gs = s > 0 && (!dryJ || s > hold[c]) ? (dryJ ? G_RUN : G_LEVEL) : 0;
@@ -316,10 +310,12 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
         if (lk && sl) lk += floorDiv(lk * sl * SOAK_LINK, 256);
         gp += lk;
         if (gs + gp > G_MAX) gp = G_MAX - gs;
-        const q = floorDiv(Math.min(d, sPos) * gs + Math.min(d, Wi) * gp, 4096);
+        const qp = floorDiv(Math.min(d, inP) * gp, 4096);
+        const q = floorDiv(Math.min(d, sPos) * gs, 4096) + qp;
         if (q <= 0) continue;
         dW[c] -= q;
         dW[j] += q;
+        dWp[j] += qp;
         for (let ch = 0; ch < 3; ch++) {
           const m = floorDiv(P[3 * c + ch] * q, Wi);
           dP[3 * c + ch] -= m;
@@ -333,8 +329,9 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
       }
     }
     for (let c = 0; c < N; c++) {
-      if (dW[c] === 0 && dP[3 * c] === 0 && dP[3 * c + 1] === 0 && dP[3 * c + 2] === 0 && dG[c] === 0) continue;
+      if (dW[c] === 0 && dP[3 * c] === 0 && dP[3 * c + 1] === 0 && dP[3 * c + 2] === 0 && dG[c] === 0 && dWp[c] === 0) continue;
       const was = W[c];
+      if (dWp[c]) depthA[c] = Math.max(depthA[c], Math.min(TOP, ceilDiv(Math.min(was + dW[c], Math.min(was, floorDiv(cap[c] * depthA[c], TOP)) + dWp[c]) * TOP, cap[c])));
       W[c] += dW[c];
       for (let ch = 0; ch < 3; ch++) P[3 * c + ch] += dP[3 * c + ch];
       G[c] += dG[c];
@@ -375,7 +372,7 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
       const Wi = W[c];
       if (Wi <= 0) continue;
       const th = thirstE(c);
-      const inPaper = Math.min(Wi, capE(c));
+      const inPaper = Math.min(Wi, heldE(c));
       for (let ch = 0; ch < 3; ch++) {
         const p = P[3 * c + ch];
         if (p <= 0) continue;
@@ -412,16 +409,28 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
   }
   function dry() {
     const loss = new Int32Array(N);
-    const wasWet = [];
+    const adv = new Int32Array(N).fill(-1);
     for (let c = 0; c < N; c++) {
       if (W[c] <= 0) continue;
-      wasWet.push(c);
+      if (depthA[c] < TOP && W[c] > heldE(c)) {
+        let th = 4 * thirstE(c);
+        let wa = 4 * W[c];
+        let side = 0;
+        for (let n = 0; n < 8; n++) {
+          th += SINK_W[n] * thirstE(nbOf(c, n));
+          wa += SINK_W[n] * W[nbOf(c, n)];
+          if (!(n & 1)) side = Math.max(side, depthA[nbOf(c, n)]);
+        }
+        th >>= 4;
+        if (depthA[c] > 0 || enter[c] >= ENTER[th]) adv[c] = Math.max(depthA[c], Math.min(depthA[c] + Math.max(1, floorDiv(FRONT[th] * (TOP - depthA[c]), TOP)), frontFor(c, wa >> 4), side + (2 << DEPTH_SHIFT)));
+      }
       let nd = 0;
       for (let n = 0; n < 8; n++) if (W[nbOf(c, n)] < W_WET) nd++;
-      loss[c] = Math.max(E_MIN, ceilDiv((EVAP_BASE + EVAP_EDGE * nd) * CAP_REF + ABSORB[thirstE(c)] * Math.min(W[c], capE(c)), 65536));
+      loss[c] = Math.max(E_MIN, ceilDiv((EVAP_BASE + EVAP_EDGE * nd) * CAP_REF, 65536));
     }
     for (let c = 0; c < N; c++) {
       if (W[c] <= 0) continue;
+      if (adv[c] > depthA[c]) depthA[c] = adv[c];
       soakA[c] = Math.min(255 << 8, soakA[c] + floorDiv(W[c] * SOAK_Q, W_SAT));
       let w = W[c] - Math.min(loss[c], W[c]);
       if (w < W_EPS) w = 0;
@@ -445,7 +454,6 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
         G[c] = capP;
       }
     }
-    for (const c of wasWet) sink(c);
   }
 
   let now = 0;
@@ -532,16 +540,13 @@ export function growReference(rec, { paperKey, family, scale = SCALE_ONE, margin
     step(now);
     now++;
   }
-  const lastWet = [];
   for (let c = 0; c < N; c++) {
     if (W[c] > 0) {
       drainA[c] += W[c];
       W[c] = 0;
-      lastWet.push(c);
       snap(c);
     }
   }
-  for (const c of lastWet) sink(c);
 
   // Cells with any fact, sorted (y, x): the same shape as look.settledCells.
   const cells = [];

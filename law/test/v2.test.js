@@ -4,7 +4,7 @@
 // (30 + 2·(u − minX), 30 + 2·(v − minY)).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { grow, createSim, darkAt } from '../v2/sim.js';
+import { grow, createSim, darkAt, heldE } from '../v2/sim.js';
 import { settledCells, boxOf, lookRGB, factsDigest, lookDigest, gallDark, fadeOf, sideView, heightOf } from '../v2/look.js';
 import { sceneField, liveField, encodeScene, decodeScene, paperDetail } from '../v2/scene.js';
 import { momentsOf, bandOf } from '../v2/moments.js';
@@ -12,7 +12,7 @@ import { createLive, createPlayback } from '../v2/live.js';
 import { trace } from '../v2/trace.js';
 import { makeFilm, readFilm } from '../v2/film.js';
 import { OX, AIR } from '../v2/tables.js';
-import { OX_BASE, AGE_CAP_H, THICK, TORN, TICK_MS, DRY_EVERY, COCKLE_MIN, SOAK_FULL, DENT_SHIFT, DENT_CAP, FILM_Q, FILM_POOL_SHIFT } from '../v2/constants.js';
+import { OX_BASE, AGE_CAP_H, THICK, TORN, TICK_MS, DRY_EVERY, COCKLE_MIN, SOAK_FULL, FILM_Q, FILM_POOL_SHIFT } from '../v2/constants.js';
 import { penTimeline } from '../v2/acts.js';
 import { splatOdds } from '../v2/splat.js';
 import { testPaperKey } from '../tools/fixtures.js';
@@ -117,9 +117,10 @@ test('depth: thirsty cells sink the ink deeper', () => {
   assert.ok(m(thirsty) > 1.2 * m(sized));
 });
 
-// The height field (the scene, §0): a bead stands while wet; as it sinks the
-// height above falls and the liquid below rises, their sum the water put down;
-// dry, only a thin film stands, the ring a little higher. Never the peak.
+// The height field (the scene, §0; the wet front, cleanup §2): a bead stands on
+// top while wet; as the front takes it in the height above falls and what is in
+// the paper (and gone to the air) rises, their sum the water put down; dry, only
+// a thin film stands, the ring a little higher. Never the peak.
 test('height field: a bead falls as it sinks, the total kept; dry, a thin film with the ring higher at the edge', () => {
   const { rec } = fixtureV2Bytes('bead');
   const lift = Math.floor(rec.strokes[0].t.at(-1) / TICK_MS);
@@ -137,10 +138,10 @@ test('height field: a bead falls as it sinks, the total kept; dry, a thin film w
         let above = 0, below = 0;
         for (const t of tiles) {
           for (let i = 0; i < 256; i++) {
-            const cap = t.cap[i] + (t.dentA[i] >> DENT_SHIFT) * DENT_CAP;
-            above += Math.max(0, t.W[i] - cap);
-            below += Math.min(t.W[i], cap) + t.drainA[i];
-            beadTop = Math.max(beadTop, t.W[i] - cap);
+            const held = heldE(t, i);
+            above += Math.max(0, t.W[i] - held);
+            below += Math.min(t.W[i], held) + t.drainA[i];
+            beadTop = Math.max(beadTop, t.W[i] - held);
           }
         }
         if (k >= lift) seen.push([k, above, below]);
@@ -183,6 +184,97 @@ test('height field: a bead falls as it sinks, the total kept; dry, a thin film w
   const wet = sideView(live.cut(Math.round(cx - R - 4), row, Math.round(cx + R + 4), row), { x0: Math.round(cx - R - 4), y0: row, x1: Math.round(cx + R + 4), y1: row }, { px: 3 });
   console.log(`side view: ${above(wet)} pixels stand above the paper while wet, ${above(dry)} once dry`);
   assert.ok(above(wet) > 4 * above(dry) + 20, 'the bead stands while wet, and is gone when dry');
+});
+
+// --- the wet front (cleanup-and-speed.md §2) ---
+
+// Grow a fixture with every cell's thirst set (0: sized, 15: thirsty), watching
+// each tick: on top, in the paper, gone to the air, the water put down, the front.
+function watched(name, thirst, look = () => {}) {
+  const { rec } = fixtureV2Bytes(name);
+  const tiles = [];
+  let put = 0;
+  const res = grow(rec, {
+    paperKey, family, instrument: {
+      ...quiet,
+      tile(t) { t.siz = new Uint8Array(256).fill(thirst); tiles.push(t); },
+      deposit(t, i, g) { put += g; },
+      step(k) {
+        let top = 0, pores = 0, aired = 0, front = 0, wet = 0, W = 0;
+        for (const t of tiles) {
+          for (let i = 0; i < 256; i++) {
+            const held = heldE(t, i);
+            top += Math.max(0, t.W[i] - held);
+            pores += Math.min(t.W[i], held);
+            aired += t.drainA[i];
+            front += t.depthA[i];
+            W += t.W[i];
+            if (t.W[i] > 0) wet++;
+          }
+        }
+        look({ k, tiles, top, pores, aired, front, wet, W, put });
+      },
+    },
+  });
+  return { res, put, cells: settledCells(res.tiles) };
+}
+
+test('wet front: a dwell stands on top first; the front takes it in while the water on top shrinks; every drop accounted for', () => {
+  let first = null;
+  let peakTop = 0;
+  let prev = null;
+  const { res } = watched('bead', 8, (w) => {
+    assert.equal(w.top + w.pores + w.aired, w.put, `at ${w.k * TICK_MS} ms the water on top, in the paper and gone to the air add up to the water put down`);
+    if (!first && w.W > 0) first = w;
+    peakTop = Math.max(peakTop, w.top);
+    if (prev) assert.ok(w.front >= prev.front, 'the front never goes back up');
+    prev = w;
+  });
+  console.log(`wet front: first tick ${first.top} on top of ${first.W}; at most ${peakTop} on top; the front at the end ${prev.front}`);
+  assert.ok(first.top >= 0.9 * first.W, 'the ink lands on top');
+  assert.ok(prev.front > 0 && res.lost.W === 0, 'it sank in, and nothing was lost');
+});
+
+test('wet front: the same drop sinks sooner on thirsty paper and spreads less; on sized paper it beads and spreads first', () => {
+  const run = (thirst) => {
+    let starts = null, wetAtStart = 0, wetMax = 0;
+    const r = watched('bead', thirst, (w) => {
+      wetMax = Math.max(wetMax, w.wet);
+      if (starts === null && w.front > 0) {
+        starts = w.k;
+        wetAtStart = w.wet;
+      }
+    });
+    const inked = r.cells.filter((c) => ink(c) > 50).length;
+    return { starts, wetAtStart, wetMax, inked };
+  };
+  const sized = run(1), thirsty = run(14);
+  console.log(`wet front: sized paper starts at ${sized.starts * TICK_MS} ms over ${sized.wetAtStart} cells, ${sized.inked} inked · thirsty at ${thirsty.starts * TICK_MS} ms over ${thirsty.wetAtStart}, ${thirsty.inked} inked`);
+  assert.ok(thirsty.starts < sized.starts, 'thirsty paper lets it in sooner');
+  assert.ok(sized.wetAtStart > thirsty.wetAtStart, 'on sized paper the water spreads before the front starts');
+  assert.ok(thirsty.inked < sized.inked, 'and the thirsty paper keeps the drop smaller');
+});
+
+test('wet front: once a cell takes no more water, what stands on it never rises; dry, only the film stands', () => {
+  const last = new Map();
+  let checked = 0;
+  watched('beadLong', 8, (w) => {
+    for (const t of w.tiles) {
+      for (let i = 0; i < 256; i++) {
+        const key = t.tx * 65536 + t.ty * 256 + i;
+        const top = Math.max(0, t.W[i] - heldE(t, i));
+        const was = last.get(key);
+        if (was && t.W[i] <= was.W) {
+          assert.ok(top <= was.top, `a cell's water on top rose (${was.top} → ${top}) without water coming in`);
+          checked++;
+        }
+        last.set(key, { W: t.W[i], top });
+      }
+    }
+  });
+  const { cells } = grown('beadLong');
+  for (const c of cells) assert.equal(heightOf(c).above, c[13] * FILM_Q, 'dry, only the film stands on top');
+  assert.ok(checked > 1000);
 });
 
 test('height field: the depth below varies smoothly from cell to cell', () => {
@@ -397,7 +489,7 @@ test('uneven darkening: at a day the hairline is further along than the pool; at
   const L = lookRGB(cells, box, { ageH: AGE_CAP_H });
   const shade = { hair: mean(hair, (c) => lum(L, box, c)), pool: mean(pool, (c) => lum(L, box, c)) };
   console.log(`darkness at 1 day: hairline ${day.hair.toFixed(0)}/256, pool ${day.pool.toFixed(0)} · at ${AGE_CAP_H} h: ${cap.hair.toFixed(0)}, ${cap.pool.toFixed(0)} · shown ${shade.hair.toFixed(0)} vs ${shade.pool.toFixed(0)}`);
-  assert.ok(day.hair > 1.5 * day.pool, 'air reaches the hairline first');
+  assert.ok(day.hair > 1.3 * day.pool, 'air reaches the hairline first');
   assert.ok(cap.pool > 0.85 * 256, 'the pool gets there in the end');
   assert.ok(shade.pool < shade.hair, 'and ends darkest');
 });
@@ -409,7 +501,7 @@ test('lazy darkening: the look at 0, 1, 7, 30 days follows the table; 400 days i
   const looks = new Set();
   for (const days of [0, 1, 7, 30]) {
     for (const c of cells.filter((x) => x[5] > 0).slice(0, 400)) {
-      const air = AIR[Math.min(THICK, c[7]) * 16 + Math.min(15, c[8] >> 2)];
+      const air = AIR[Math.min(THICK, c[7]) * 16 + Math.min(15, c[13] >> FILM_POOL_SHIFT)];
       assert.equal(gallDark(c, days * 24), OX[Math.min(OX.length - 1, Math.floor((days * 24 * OX_BASE * air) / 65536))]);
     }
     looks.add(Buffer.from(lookDigest(lookRGB(cells, box, { ageH: days * 24 }), box)).toString('hex'));

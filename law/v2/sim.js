@@ -2,7 +2,7 @@
 // order with the same integer arithmetic, and six changes:
 //
 //   1. dents: the nib presses the paper down (pressure × time under it); a dent
-//      is a groove: lower (zE), holding more (capE), drinking slower (thirst)
+//      is a groove: lower (zE), holding more (heldE), drinking slower (thirst)
 //   2. ink in depth: settled ink sinks into the fibers (depth); the highest a
 //      bead stood over a cell is kept (peak)
 //   3. the water brush (a pen whose colour is WATER): water with no pigment;
@@ -17,6 +17,15 @@
 //      a soaked cell dries buckled along the paper's ridges (cockle, in height)
 //   7. splatter: an act may throw drops of the pen's ink (splat.js decides,
 //      from the moment and the paper's hash); a drop is an ordinary deposit
+//   8. the wet front (cleanup-and-speed.md §2): one water amount; the paper
+//      holds what is within the layers its front has reached (heldE), the rest
+//      stands on top. Ink lands on top; after ENTER ticks of standing water (none
+//      on thirsty paper) the front advances each dry step (FRONT, slowing with
+//      depth) until it holds the water or reaches the bottom; it never goes back
+//      up (depthA is the front). Surface flow moves only what is on top, pore
+//      flow only what is in the pores (and pore water arriving lifts the
+//      receiver's front to hold it); evaporation takes from the top first. No
+//      water is drunk: soaking in is the front advancing.
 //
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry) or under the nib (stamp).
@@ -29,10 +38,10 @@
 
 import {
   TILE, TICK_MS, DRY_EVERY, HT_PER_CELL, P_NONE, NIB_FLEX, NIB_BROAD, STEP_HT, BROAD_T_HT, CARRY_MS,
-  CAP_REF, W_SAT, W_WET, W_EPS, C_SAT, G_LEVEL, G_RUN, G_PORE, G_WICK, G_MAX, DIAG_Q, G_MIX, SETTLE, ABSORB,
+  CAP_REF, W_SAT, W_WET, W_EPS, C_SAT, G_LEVEL, G_RUN, G_PORE, G_WICK, G_MAX, DIAG_Q, G_MIX, SETTLE, ENTER, FRONT,
   EVAP_BASE, EVAP_EDGE, E_MIN, MAX_WET_CELLS, MAX_WORK, DRAIN_MAX_TICKS, SCALE_ONE, SCALE_MIN, SCALE_MAX,
   OAK_GALL, DENT_SHIFT, DENT_MAX, DENT_CAP, DENT_Z, DENT_THIRST, THICK, DEPTH_SHIFT, PEAK_SHIFT, FILM_SHIFT,
-  FILM_POOL_SHIFT, POROSITY, POROSITY_THIRST, SUPPLY_V, WIPE_MAX16, FEED_Q, DWELL_MS, RAIL_WIDE, RAIL_MIN, RAIL_MID, RAIL_TINE,
+  FILM_POOL_SHIFT, SUPPLY_V, WIPE_MAX16, FEED_Q, DWELL_MS, RAIL_WIDE, RAIL_MIN, RAIL_MID, RAIL_TINE,
   REDISSOLVE, SOAK_Q, SOAK_THIRST, SOAK_LINK, SOAK_PORE, SOAK_WICK, SOAK_FULL, WEAR_SHIFT, STRENGTH_BASE, WET_K, SOAK_K, RIM_Z,
   COCKLE_MIN, COCKLE_MAX, TORN, WEAR_STILL, OX_BASE, AGE_CAP_H,
 } from './constants.js';
@@ -59,6 +68,8 @@ const GS_WET = NB_DX.map((_, n) => diag(G_LEVEL, n));
 const GS_DRY = NB_DX.map((_, n) => diag(G_RUN, n));
 const DENT_TOP = DENT_MAX << DENT_SHIFT;
 const DEPTH_TOP = THICK << DEPTH_SHIFT;
+const SINK_W = [2, 1, 2, 1, 2, 1, 2, 1]; // the front's pace: 4 the cell, 2 each side, 1 each corner (16 in all)
+const FRONT_STEP = 2 << DEPTH_SHIFT; // the furthest a front runs ahead of its deepest side neighbour
 
 export function fineLength(dx, dy) {
   const d2 = dx * dx + dy * dy;
@@ -104,7 +115,10 @@ class Tile {
     this.flags = new Uint8Array(TT);
     this.rim = new Uint8Array(TT);
     this.cockle = new Uint8Array(TT);
-    this.drainA = new Int32Array(TT); // water the paper drank (and breathed out) here: the height field below the surface
+    this.drainA = new Int32Array(TT); // water that left here into the air (the books: every drop counted)
+    this.enter = new Uint8Array(TT); // ticks of standing water before the front started
+    this.dWp = new Int32Array(TT); // water arriving through the pores this tick (it lifts the front)
+    this.adv = new Int32Array(TT); // the front a dry step moves to (scratch)
     this.filmA = new Int32Array(TT); // ink that dried on top (the ring and the last of a bead): the film above it
     this.G = null; // oak gall, wet (allocated when gall first reaches this tile)
     this.FG = null; // oak gall, fixed
@@ -128,7 +142,14 @@ function gallOn(t) {
 // Per-cell derived values (levels from accumulators; the effective paper).
 const dentL = (t, i) => t.dentA[i] >> DENT_SHIFT;
 const soakL = (t, i) => Math.min(255, t.soakA[i] >> 8);
-const capE = (t, i) => t.cap[i] + dentL(t, i) * DENT_CAP;
+// what the paper holds here: its capacity within the front, and a dent's (the
+// rest of the cell's water stands on top: views read the bead from it)
+export const heldE = (t, i) => floorDiv(t.cap[i] * t.depthA[i], DEPTH_TOP) + dentL(t, i) * DENT_CAP;
+// the front that would hold w drops here (never past the bottom)
+function frontFor(t, i, w) {
+  const d = w - dentL(t, i) * DENT_CAP;
+  return d <= 0 ? 0 : Math.min(DEPTH_TOP, ceilDiv(d * DEPTH_TOP, t.cap[i]));
+}
 const zE = (t, i) => t.z[i] - dentL(t, i) * DENT_Z + t.cockle[i] - t.rim[i] * RIM_Z;
 const washed = (t, i) => Math.min(SOAK_FULL, t.soakA[i] >> 8);
 const thirstE = (t, i) => clamp(t.siz[i] + floorDiv(washed(t, i) * SOAK_THIRST - dentL(t, i) * DENT_THIRST, 256), 0, 15);
@@ -171,7 +192,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   const journals = [];
   const saveState = (t) => [t, t.W.slice(), t.P.slice(), t.F.slice(), t.everWet.slice(), t.wet, t.dentA.slice(), t.depthA.slice(),
     t.peak.slice(), t.soakA.slice(), t.wearA.slice(), t.flags.slice(), t.rim.slice(), t.cockle.slice(),
-    t.G ? t.G.slice() : null, t.FG ? t.FG.slice() : null, t.drainA.slice(), t.filmA.slice()];
+    t.G ? t.G.slice() : null, t.FG ? t.FG.slice() : null, t.drainA.slice(), t.filmA.slice(), t.enter.slice()];
   function cow(t) {
     const j = journals.length ? journals[journals.length - 1] : null;
     if (!j || t.journal === j) return;
@@ -241,26 +262,6 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     }
   }
 
-  // How far the liquid has sunk: what the cells hold within their capacity and
-  // what the paper has drunk, over the paper's porosity, taken over the cell and
-  // its neighbours (the liquid wicks sideways in the fibers: no spikes). It never
-  // comes back up. Run after a dry step, for the cells that were wet in it.
-  const SINK_W = [2, 1, 2, 1, 2, 1, 2, 1]; // 4 the cell, 2 each side, 1 each corner: 16 in all
-  function liquidIn(t, i) {
-    return Math.min(t.W[i], capE(t, i)) + t.drainA[i];
-  }
-  function sink(t, i) {
-    let vol = 4 * liquidIn(t, i);
-    let th = 4 * thirstE(t, i);
-    for (let n = 0; n < 8; n++) {
-      neighbour(t, i, n);
-      vol += SINK_W[n] * liquidIn(res[0], res[1]);
-      th += SINK_W[n] * thirstE(res[0], res[1]);
-    }
-    const d = Math.min(DEPTH_TOP, floorDiv(vol * 1024 * POROSITY_THIRST, POROSITY * (16 * POROSITY_THIRST - th)));
-    if (d > t.depthA[i]) t.depthA[i] = d;
-  }
-  const sinking = []; // [tile, cell] wet in this dry step
 
   // Whatever is still wet in a cell settles where it is, on top (the film), and
   // a soaked cell drying buckles along the paper's ridges.
@@ -563,10 +564,12 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       for (let i = 0; i < TT; i++) {
         const Wi = W[i];
         if (Wi <= 0) continue;
-        const s = Wi - capE(t, i);
+        const s = Wi - heldE(t, i); // standing on top (below the surface when negative)
         const sPos = s > 0 ? s : 0;
+        const inP = Math.min(Wi, floorDiv(t.cap[i] * t.depthA[i], DEPTH_TOP)); // in the pores (below the front; a groove's water stays in the groove)
         const pk = Math.min(255, sPos >> PEAK_SHIFT);
         if (pk > t.peak[i]) t.peak[i] = pk;
+        if (sPos > 0 && t.depthA[i] === 0 && t.enter[i] < 255) t.enter[i]++; // the top still resisting
         const phi = s + zE(t, i);
         const holdI = hold[i];
         const sl = soakL(t, i);
@@ -584,7 +587,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           }
           if (tn.flags[j] & TORN) continue;
           const Wj = tn.W[j];
-          const d = phi - (Wj - capE(tn, j) + zE(tn, j));
+          const d = phi - (Wj - heldE(tn, j) + zE(tn, j));
           if (d <= 0) continue;
           const dryJ = Wj < W_WET;
           const gs = s > 0 && (!dryJ || s > holdI) ? (dryJ ? GS_DRY[n] : GS_WET[n]) : 0;
@@ -592,7 +595,8 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           if (lk && sl) lk += floorDiv(lk * sl * SOAK_LINK, 256); // soaked fibers loosen
           let gp = diag(dryJ ? G_WICK + SOAK_WICK * washed(tn, j) : G_PORE + SOAK_PORE * sl, n) + lk;
           if (gs + gp > G_MAX) gp = G_MAX - gs;
-          const q = floorDiv(Math.min(d, sPos) * gs + Math.min(d, Wi) * gp, 4096);
+          const qp = floorDiv(Math.min(d, inP) * gp, 4096); // through the pores
+          const q = floorDiv(Math.min(d, sPos) * gs, 4096) + qp; // and over the top
           if (q <= 0) continue;
           const m0 = floorDiv(P0 * q, Wi);
           const m1 = floorDiv(P1 * q, Wi);
@@ -605,6 +609,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           outG += mg;
           if (journals.length && tn !== t) cow(tn);
           tn.dW[j] += q;
+          if (qp) tn.dWp[j] += qp;
           tn.dP[3 * j] += m0;
           tn.dP[3 * j + 1] += m1;
           tn.dP[3 * j + 2] += m2;
@@ -613,7 +618,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
             tn.dG[j] += mg;
           }
           if (tn !== t) touch(tn);
-          if (instrument && link[i * 8 + n]) instrument.fiber(t, i, n, floorDiv(Math.min(d, Wi) * lk, 4096));
+          if (instrument && link[i * 8 + n]) instrument.fiber(t, i, n, floorDiv(Math.min(d, inP) * lk, 4096));
         }
         if (outW) {
           dW[i] -= outW;
@@ -633,16 +638,24 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     for (const t of touched) {
       if (journals.length) cow(t);
       if (dirty) dirty.add(t);
-      const { W, P, dW, dP } = t;
+      const { W, P, dW, dP, dWp } = t;
       const G = t.G;
       const dG = t.dG;
       for (let i = 0; i < TT; i++) {
         const dw = dW[i];
         const dp0 = dP[3 * i], dp1 = dP[3 * i + 1], dp2 = dP[3 * i + 2];
         const dg = dG ? dG[i] : 0;
-        if (dw === 0 && dp0 === 0 && dp1 === 0 && dp2 === 0 && dg === 0) continue;
+        const dwp = dWp[i];
+        if (dw === 0 && dp0 === 0 && dp1 === 0 && dp2 === 0 && dg === 0 && dwp === 0) continue;
         const was = W[i];
         const w = was + dw;
+        if (dwp) {
+          // what came through the pores is in the pores: the front reaches it
+          const pores = floorDiv(t.cap[i] * t.depthA[i], DEPTH_TOP);
+          const fr = Math.min(DEPTH_TOP, ceilDiv(Math.min(w, Math.min(was, pores) + dwp) * DEPTH_TOP, t.cap[i]));
+          if (fr > t.depthA[i]) t.depthA[i] = fr;
+          dWp[i] = 0;
+        }
         W[i] = w;
         P[3 * i] += dp0;
         P[3 * i + 1] += dp1;
@@ -731,7 +744,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         if (Wi <= 0) continue;
         const th = thirstE(t, i);
         const rate = SETTLE[th];
-        const inPaper = Math.min(Wi, capE(t, i));
+        const inPaper = Math.min(Wi, heldE(t, i)); // pigment binds where the water is in the paper
         const den = Wi * 65536;
         for (let ch = 0; ch < 3; ch++) {
           const k = 3 * i + ch;
@@ -784,17 +797,37 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     }
   }
 
-  // Water leaves (edges first), soaking the paper as it goes; what the water
-  // can no longer carry is left behind (the ring).
+  // The front advances where water stands over it; water leaves into the air
+  // (edges first, from the top first), soaking the paper as it goes; what the
+  // water can no longer carry is left behind (the ring).
   function dry() {
     const list = [...wetTiles];
-    sinking.length = 0;
     for (const t of list) {
-      const { W, dW } = t;
+      const { W, dW, adv } = t;
       for (let i = 0; i < TT; i++) {
         const Wi = W[i];
         if (Wi <= 0) continue;
-        sinking.push(t, i);
+        // the front: once the top has let the water in, it sinks, slower deeper, never past the
+        // water around it (the fibers carry it sideways: a cell and its neighbours, as SINK_W),
+        // nor more than FRONT_STEP ahead of its deepest side neighbour (one wet front, no spikes)
+        adv[i] = -1;
+        const fr = t.depthA[i];
+        if (fr < DEPTH_TOP && Wi > heldE(t, i)) {
+          let th = 4 * thirstE(t, i);
+          let wa = 4 * Wi;
+          let side = 0;
+          for (let n = 0; n < 8; n++) {
+            neighbour(t, i, n);
+            th += SINK_W[n] * thirstE(res[0], res[1]);
+            wa += SINK_W[n] * res[0].W[res[1]];
+            if (!(n & 1) && res[0].depthA[res[1]] > side) side = res[0].depthA[res[1]];
+          }
+          th >>= 4;
+          if (fr > 0 || t.enter[i] >= ENTER[th]) {
+            const to = Math.min(fr + Math.max(1, floorDiv(FRONT[th] * (DEPTH_TOP - fr), DEPTH_TOP)), frontFor(t, i, wa >> 4), side + FRONT_STEP);
+            adv[i] = Math.max(fr, to);
+          }
+        }
         let nd = 0;
         if (INNER[i] === 1) {
           for (let n = 0; n < 8; n++) if (W[i + NB_OFF[n]] < W_WET) nd++;
@@ -804,8 +837,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
             if (res[0].W[res[1]] < W_WET) nd++;
           }
         }
-        const e = (EVAP_BASE + EVAP_EDGE * nd) * CAP_REF + ABSORB[thirstE(t, i)] * Math.min(Wi, capE(t, i));
-        dW[i] = Math.max(E_MIN, ceilDiv(e, 65536));
+        dW[i] = Math.max(E_MIN, ceilDiv((EVAP_BASE + EVAP_EDGE * nd) * CAP_REF, 65536));
       }
     }
     for (const t of list) {
@@ -814,6 +846,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       for (let i = 0; i < TT; i++) {
         const Wi = W[i];
         if (Wi <= 0) continue;
+        if (t.adv[i] > t.depthA[i]) t.depthA[i] = t.adv[i];
         t.soakA[i] = Math.min(255 << 8, t.soakA[i] + floorDiv(Wi * SOAK_Q, W_SAT));
         const e = dW[i];
         dW[i] = 0;
@@ -843,7 +876,6 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         }
       }
     }
-    for (let k = 0; k < sinking.length; k += 2) sink(sinking[k], sinking[k + 1]);
   }
 
   function step(k) {
@@ -944,19 +976,16 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       step(now);
       now++;
     }
-    sinking.length = 0;
     for (const t of [...wetTiles]) {
       for (let i = 0; i < TT; i++) {
         if (t.W[i] > 0) {
           t.drainA[i] += t.W[i];
           t.W[i] = 0;
-          sinking.push(t, i);
           becameDry(t);
           snapCell(t, i);
         }
       }
     }
-    for (let k = 0; k < sinking.length; k += 2) sink(sinking[k], sinking[k + 1]);
     if (instrument) instrument.finish(now);
     return { tiles: [...tiles.values()].filter(hasFacts), ticks: now, work, lost: { ...lost }, splat: { ...splat }, put: { ...put } };
   }
@@ -985,7 +1014,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     if (journals[journals.length - 1] !== snap) throw new Error('restore the newest snapshot first');
     journals.pop();
     for (let k = snap.saved.length - 1; k >= 0; k--) {
-      const [t, W, P, F, ev, wet, dentA, depthA, peak, soakA, wearA, flags, rim, cockle, G, FG, drainA, filmA] = snap.saved[k];
+      const [t, W, P, F, ev, wet, dentA, depthA, peak, soakA, wearA, flags, rim, cockle, G, FG, drainA, filmA, enter] = snap.saved[k];
       t.W.set(W);
       t.P.set(P);
       t.F.set(F);
@@ -1001,6 +1030,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       t.cockle.set(cockle);
       t.drainA.set(drainA);
       t.filmA.set(filmA);
+      t.enter.set(enter);
       if (G) {
         gallOn(t);
         t.G.set(G);

@@ -33,15 +33,26 @@ export const THICK = 24; // paper thickness in depth levels (Tabor's to set)
 export const DEPTH_SHIFT = 10; // depthA units per depth level
 export const PEAK_SHIFT = 3; // peak level = drops standing over capacity >> 3 (kept for walk back and the moments, not for height)
 
-// --- the height field (the scene, §0): above the surface a standing bead while
-// it is wet, and once dry only the film the ink left on top (the ring higher),
-// never the peak; below it, how far the liquid sank. Bead + liquid in the paper
-// + what the paper drank = the water that came to the cell. ---
+// --- the height field (the scene, §0): above the surface the water standing on
+// top while it is wet, and once dry only the film the ink left on top (the ring
+// higher), never the peak; below it, the wet front. On top + in the pores + what
+// went into the air = the water that came to the cell. ---
 export const FILM_SHIFT = 9; // filmA (absorbance ×1024, summed over the colours) per film level
 export const FILM_Q = 1; // drops of height one film level stands (a view constant)
 export const FILM_POOL_SHIFT = 2; // film level >> this = how thick the ink lies, for the air it lets in (AIR)
-export const POROSITY = 48; // drops of liquid one depth level of fully sized paper takes in
-export const POROSITY_THIRST = 24; // thirst t takes POROSITY·(24 − t)/24 a level: thirsty paper lets it sink deeper
+export const POROSITY = 48; // (law v2 before the wet front: kept for the record of what changed)
+export const POROSITY_THIRST = 24;
+
+// --- the wet front (cleanup-and-speed.md §2): one water amount, a front that
+// grows only downward, and the paper's surface tension. The water within the
+// layers the front has reached is in the pores (held: the cell's capacity ×
+// front ÷ THICK, plus a dent's); the rest stands on top. Ink lands on top;
+// the paper's top resists wetting for ENTER ticks of standing water (none on
+// thirsty paper: there it sinks at once; on sized paper it beads and spreads
+// first); then the front advances each dry step by FRONT, slowing with depth,
+// until it holds the water or reaches the bottom. depthA is the front. ---
+export const ENTER = Object.freeze([80, 75, 69, 64, 59, 53, 48, 43, 37, 32, 27, 21, 16, 11, 5, 0]); // ticks of standing water before the front starts, by thirst
+export const FRONT = Object.freeze([256, 316, 391, 483, 597, 738, 913, 1128, 1394, 1723, 2130, 2633, 3254, 4022, 4971, 6144]); // depthA a dry step at the top, by thirst (256 · 24^(thirst/15))
 
 // --- the nib's supply (§8): wiped off as it moves (per distance) and fed while
 // it sits (per time, less as the paper under it fills). The tip holds a little:

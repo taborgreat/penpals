@@ -6,13 +6,13 @@
 //   trace(rec, { paperKey, family, scale }, [cx, cy]) → v1's fields, and
 //     paper.ridge                       the fibers' ridge height (cockling follows it)
 //     settled.gall                      fixed oak gall (absorbance ×1024 at its strongest channel)
-//     depth: { dent, depth, peak, soak, wear, torn, cockle, film, drank }   the cell's v2 facts (levels; drank: the
-//                                       water the paper took in here, in drops)
+//     depth: { dent, depth, peak, soak, wear, torn, cockle, film, aired }   the cell's v2 facts (levels; aired: the
+//                                       water that went into the air here, in drops)
 
-import { grow, filmLevel } from './sim.js';
+import { grow, filmLevel, heldE } from './sim.js';
 import { NB_DX, NB_DY } from './paper.js';
 import {
-  TILE, TICK_MS, DENT_SHIFT, DENT_CAP, DEPTH_SHIFT, THICK, WEAR_SHIFT, TORN,
+  TILE, TICK_MS, DENT_SHIFT, DEPTH_SHIFT, THICK, WEAR_SHIFT, TORN,
 } from './constants.js';
 import { EXP8 } from '../v1/tables.js';
 
@@ -56,7 +56,7 @@ export function trace(rec, { paperKey, family, scale = 64 }, [cx, cy]) {
       if (w > peak) {
         peak = w;
         peakAt = k;
-        peakCap = tile.cap[idx] + (tile.dentA[idx] >> DENT_SHIFT) * DENT_CAP; // capacity then (a dent holds more)
+        peakCap = heldE(tile, idx); // what the paper held then (its front; a dent holds more)
       }
     },
     strokeStart() {},
@@ -103,7 +103,7 @@ export function trace(rec, { paperKey, family, scale = 64 }, [cx, cy]) {
         torn: !!(tile.flags[idx] & TORN),
         cockle: tile.cockle[idx],
         film: filmLevel(tile.filmA[idx]),
-        drank: tile.drainA[idx],
+        aired: tile.drainA[idx],
       }
       : null,
     water: {

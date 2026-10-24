@@ -14,10 +14,10 @@
 //                        plus [14]: the bead standing on a wet cell now, in drops)
 //   finish(actsBytes)    settle everything: { cells, box, facts } exactly as grow()
 
-import { createSim, filmLevel } from './sim.js';
+import { createSim, filmLevel, heldE } from './sim.js';
 import { settledCells, boxOf, factsDigest, GN } from './look.js';
 import {
-  TILE, TICK_MS, P_NONE, SCALE_ONE, W_SAT, W_WET, GALL_FRESH, TORN, DENT_SHIFT, DENT_CAP, DEPTH_SHIFT, THICK,
+  TILE, TICK_MS, P_NONE, SCALE_ONE, W_SAT, W_WET, GALL_FRESH, TORN, DENT_SHIFT, DEPTH_SHIFT, THICK,
   WEAR_SHIFT, DENT_Z, FILM_Q,
 } from './constants.js';
 import { EXP8 } from '../v1/tables.js';
@@ -44,7 +44,7 @@ export function heightTile(t) {
   const hf = new Int16Array(TT * 4);
   for (let i = 0; i < TT; i++) {
     const dent = t.dentA[i] >> DENT_SHIFT;
-    const bead = t.W[i] > 0 ? Math.max(0, t.W[i] - (t.cap[i] + dent * DENT_CAP)) : 0;
+    const bead = t.W[i] > 0 ? Math.max(0, t.W[i] - heldE(t, i)) : 0; // what stands on top
     const above = Math.min(32767, bead + filmLevel(t.filmA[i]) * FILM_Q);
     const surface = t.cockle[i] - dent * DENT_Z;
     hf[4 * i] = Math.max(-32768, Math.min(32767, surface + above));
@@ -192,7 +192,7 @@ export function createLive({ paperKey, family, keep = 24 }) {
           const y = t.ty * TILE + Math.floor(i / TILE);
           if (x < lx || x > hx || y < ly || y > hy) continue;
           const dent = t.dentA[i] >> DENT_SHIFT;
-          const standing = Math.max(0, t.W[i] - (t.cap[i] + dent * DENT_CAP)); // the bead, in drops
+          const standing = Math.max(0, t.W[i] - heldE(t, i)); // on top, in drops
           rows.push([
             y, x,
             Math.min(65535, t.F[3 * i] + t.P[3 * i]), Math.min(65535, t.F[3 * i + 1] + t.P[3 * i + 1]), Math.min(65535, t.F[3 * i + 2] + t.P[3 * i + 2]),
