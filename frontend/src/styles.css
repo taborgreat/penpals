@@ -632,6 +632,7 @@ a:hover .username.signed, button:hover .username.signed, a:focus-visible .userna
 .theme-toggle { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .signature-card { text-align: left; }
 .signature-show { font-size: 22px; padding: 6px 0 2px; text-align: center; }
+.signature-scene { width: min(100%, 560px); max-height: 260px; align-self: center; border-radius: 4px; overflow: hidden; }
 .signature-card .field { align-self: center; }
 .signature-card .pad { width: 100%; }
 
@@ -702,9 +703,12 @@ button.danger:hover:not(:disabled) { color: var(--wax); }
 .journal-page.scene-shown .ink-item { opacity: 0; z-index: 1; }
 .journal-page.scene-3d .journal-scene { z-index: 5; }
 .journal-page.scene-3d { overflow: visible; }
+/* a pad letter: its ink and its scene lie over it, so it takes its size from the column (at most 80vh tall, like a photo) */
+.pad-letter { width: 100%; }
+.letter-section .pad-letter { width: min(100%, calc(80vh / var(--ui-zoom) * var(--ratio, 0.75))); }
 .letter-scene { position: absolute; inset: 0; }
 .monk-scene { position: absolute; inset: 0; z-index: 2; }
-.walk-back-scene { height: min(60vh, 460px); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.walk-back-scene { width: 100%; height: min(60vh, 460px); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
 .walk-back-scene .scene-view { width: 100%; height: 100%; }
 .monk-3d canvas.monk-paper, .monk-3d canvas.monk-ink { visibility: hidden; }
 .monk-3d .monk-scene .scene-tools { bottom: 64px; }
@@ -1049,7 +1053,7 @@ canvas.corner-picker {
 .scene-on.scene-2d .pad-page canvas.ink { z-index: 4; opacity: 0; }
 .scene-on.scene-3d .pad-scene { z-index: 5; pointer-events: auto; }
 .scene-on.scene-3d .pad-view { visibility: hidden; }
-.scene-view { position: relative; }
+:where(.scene-view) { position: relative; } /* (no weight: a view's own placement wins) */
 .scene-canvas { width: 100%; height: 100%; display: block; outline: none; }
 .scene-tools { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 4px; pointer-events: auto; z-index: 6; }
 .scene-tools button { font-size: 12px; padding: 3px 8px; background: color-mix(in srgb, var(--surface) 88%, transparent); }

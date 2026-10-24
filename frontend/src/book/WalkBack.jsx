@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import InkItem from './InkItem.jsx';
 import { traceHere, depthHere, viewAt, momentsHere } from '../ink/grown.js';
 import SceneView from '../scene/SceneView.jsx';
-import { sceneSupported } from '../scene/support.js';
+import { sceneSupported, useLowPower } from '../scene/support.js';
 import { sceneOf } from '../scene/sources.js';
 import { CELLS } from './ink.js';
 
@@ -25,6 +25,7 @@ export default function WalkBack({ line, seed, src, onClose }) {
   const body = line.ink;
   const [, , w, h] = body.box;
   const deep = body.law >= 2;
+  const lowPower = useLowPower(); // (the scene stands down on low power)
 
   async function pick(e) {
     const r = e.currentTarget.getBoundingClientRect();
@@ -91,7 +92,7 @@ export default function WalkBack({ line, seed, src, onClose }) {
           <figcaption className="meta">the paper in layers; the liquid sunk into it, the ink darker near the top; the film it dried to above; a break where it tore</figcaption>
         </figure>
       )}
-      {scene && (
+      {scene && !lowPower && (
         <div className="walk-back-scene">
           <SceneView
             page={[(scene.field.box[0] + scene.field.box[2]) / CELLS, (scene.field.box[1] + scene.field.box[3]) / CELLS]}

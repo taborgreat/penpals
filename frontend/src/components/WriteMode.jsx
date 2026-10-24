@@ -4,7 +4,7 @@ import { PX_PER_MM, renderStroke, drawGuides } from '../ink/nibs.js';
 import { createPlayer } from '../ink/render.js';
 import { CHASE, isPhone, zoneStart, clampLinePx, zoomFor, toPage, penDown, penAt, chase, lineStart, endGlow, inEndZone } from './chase.js';
 import SceneView from '../scene/SceneView.jsx';
-import { sceneOn } from '../scene/support.js';
+import { sceneOn, useLowPower } from '../scene/support.js';
 
 // Playback shows the page cropped to the lines written on (a line's room either side), so it reads at phone size.
 function inkRows(data) {
@@ -82,6 +82,8 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
   const [playing, setPlaying] = useState(null); // the whole letter, while it is written out
   // The chase in 3D (the scene): the camera's target slides along the line with the chase.
   const [view3d, setView3d] = useState(false);
+  const lowPower = useLowPower();
+  useEffect(() => { if (lowPower) setView3d(false); }, [lowPower]);
   const view3dRef = useRef(false);
   view3dRef.current = view3d;
   const sceneRef = useRef(null);
@@ -571,6 +573,8 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
           sheets={sheets3d}
           follow={followRef.current}
           writer={writer3d}
+          moments={live.law >= 2 ? () => live.moments() : null}
+          momentsKey={count}
         />
       )}
       {prompt && <div className="monk-prompt" aria-label="Copy this">{prompt}</div>}

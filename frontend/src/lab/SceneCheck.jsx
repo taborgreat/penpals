@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import SceneView from '../scene/SceneView.jsx';
 import { sceneSupported } from '../scene/support.js';
+import { engineReady } from '../scene/engine.js';
 
 // /scene-check (dev only): law 2 fixtures in the scene, lit by the clock (or
-// ?hour=), straight down or in 3D (?mode=3d), for looking at the renderer.
+// ?hour=), straight down or in 3D (?mode=3d), for looking at the renderer
+// (WebGPU where there is one; ?gpu=webgl2 for WebGL2).
 const NAMES = ['gallHairPool', 'flicks', 'tearThenInk', 'flexSquare', 'cockle'];
 const CELLS = 2;
 
@@ -11,6 +13,10 @@ export default function SceneCheck() {
   const params = new URLSearchParams(window.location.search);
   const [mode, setMode] = useState(params.get('mode') === '3d' ? '3d' : '2d');
   const [loaded, setLoaded] = useState([]);
+  // chosen while rendering, before the scene's own effects ask
+  const chosen = useMemo(() => engineReady(params.get('gpu')), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [gpu, setGpu] = useState(null);
+  useEffect(() => { chosen.then(setGpu); }, [chosen]);
   const sceneRef = useRef(null);
   const worker = useRef(null);
   const waiting = useRef(new Map());
@@ -50,12 +56,12 @@ export default function SceneCheck() {
         x += field.box[2] / CELLS + 30;
         setLoaded([...out]);
       }
-      // ?look=name&dist=&el=&az=: a close look at one sheet (3D)
+      // ?look=name&dist=&el=&az=&dx=&dy=: a close look at one sheet (3D), dx, dy from its middle
       const look = params.get('look');
       if (look && params.get('mode') === '3d') {
         const l = out.find((o) => o.name === look);
         const cx = l.origin[0] + l.field.box[2] / CELLS / 2, cy = l.origin[1] + l.field.box[3] / CELLS / 2;
-        setTimeout(() => sceneRef.current?.setCamera({ mode: '3d', target: [cx, cy], dist: Number(params.get('dist') ?? 120), az: Number(params.get('az') ?? 0), el: Number(params.get('el') ?? 40), fov: 40, view: 200 }), 50);
+        setTimeout(() => sceneRef.current?.setCamera({ mode: '3d', target: [cx + Number(params.get('dx') ?? 0), cy + Number(params.get('dy') ?? 0)], dist: Number(params.get('dist') ?? 120), az: Number(params.get('az') ?? 0), el: Number(params.get('el') ?? 40), fov: 40, view: 200 }), 50);
       }
     })();
     return () => worker.current.terminate();
@@ -76,10 +82,10 @@ export default function SceneCheck() {
   return (
     <div className="stack">
       <h1>Scene check</h1>
-      <p className="muted" data-ready={loaded.length === NAMES.length ? 'yes' : 'no'} data-webgl={sceneSupported() ? 'yes' : 'no'}>
+      <p className="muted" data-ready={loaded.length === NAMES.length ? 'yes' : 'no'} data-webgl={sceneSupported() ? 'yes' : 'no'} data-gpu={gpu ?? ''}>
         {loaded.length}/{NAMES.length} sheets · {mode} · drag with the right button to turn, wheel to come closer, Light to move the sun.
       </p>
-      <div style={{ height: 520, border: '1px solid var(--rule)' }}>
+      <div style={{ width: '100%', height: 520, border: '1px solid var(--rule)' }}>
         {sceneSupported() ? (
           <SceneView
             ref={sceneRef}

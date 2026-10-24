@@ -6,6 +6,7 @@
 //   node frontend/e2e/flow.mjs         the built site, served by the backend (run `npm run build -w frontend` first)
 //   node frontend/e2e/flow.mjs --dev   through a Vite dev server proxying /api, as `npm run dev` runs it
 //   --no-webgl                          with WebGL off: every view shows the flat look, writing works in 2D
+//   --webgpu                            in the full Chromium on this machine's GPU, where the scene draws with WebGPU
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -121,11 +122,23 @@ async function openByWriting(page, { unlock, done, password = '' }) {
 }
 
 const webgl = !process.argv.includes('--no-webgl');
-const browser = await chromium.launch({ args: webgl ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--disable-webgl', '--disable-webgl2', '--disable-3d-apis'] });
+const webgpu = webgl && process.argv.includes('--webgpu');
+const browser = await chromium.launch(webgpu
+  ? { channel: 'chromium', args: ['--enable-unsafe-webgpu'] }
+  : { args: webgl ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--disable-webgl', '--disable-webgl2', '--disable-3d-apis'] });
 if (!webgl) console.log('(WebGL off: the flat look everywhere)');
+if (webgpu) console.log('(the full Chromium, on the GPU: the scene with WebGPU)');
 let failed = null;
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, acceptDownloads: true });
+  // a battery the flow can drain (the Battery Status API): low power puts the scene away
+  await context.addInitScript(() => {
+    const battery = new EventTarget();
+    battery.charging = true;
+    battery.level = 1;
+    window.e2eBattery = battery;
+    Object.defineProperty(navigator, 'getBattery', { value: async () => battery });
+  });
   const page = await context.newPage();
   globalThis.e2ePage = page;
   // --slow: registration on a slow device (the CPU throttled), where each step's new sheet arrives late
@@ -180,6 +193,11 @@ try {
   const sig = page.locator('img.signature-look').first();
   await sig.waitFor({ timeout: 30000 });
   await page.waitForFunction(() => [...document.querySelectorAll('img.signature-look')].some((i) => i.complete && i.naturalWidth > 0), null, { timeout: 30000 });
+  if (webgl) {
+    // your own signature, in the scene (an open sheet: grown here)
+    await page.locator('.signature-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
+    console.log('   and your signature in the scene, with its 2D/3D toggle');
+  }
 
   step('journal: write in oak gall, wet part of it with the water brush, and place');
   await page.getByRole('button', { name: /Write/ }).filter({ hasText: '✎' }).click();
@@ -188,7 +206,7 @@ try {
   await page.getByRole('button', { name: 'Water brush' }).click();
   await draw(page, pad(page), scribble(1, 1));
   await page.getByRole('button', { name: 'Into the paper' }).click();
-  await page.locator('.depth-view.live figcaption', { hasText: 'Through the paper' }).waitFor({ timeout: 30000 });
+  await page.locator('.depth-view.live figcaption', { hasText: /^Through the paper along/ }).waitFor({ timeout: 30000 });
   console.log(`   live cut through the paper: ${await page.locator('.depth-view.live canvas').evaluate((c) => `${c.width}×${c.height}`)}`);
   await page.getByRole('button', { name: 'Into the paper' }).click();
   if (webgl) {
@@ -196,6 +214,9 @@ try {
     const lit = page.locator('.pad-scene canvas.scene-canvas');
     await lit.waitFor({ timeout: 30000 });
     await page.waitForFunction(() => { const c = document.querySelector('.pad-scene canvas.scene-canvas'); return c && c.width > 10; }, null, { timeout: 30000 });
+    const drawnBy = await page.locator('.pad-scene .scene-view').getAttribute('data-gpu');
+    if (drawnBy !== (webgpu ? 'webgpu' : 'webgl2')) throw new Error(`the scene is drawn with ${drawnBy}`);
+    console.log(`   the lit pad, drawn with ${drawnBy === 'webgpu' ? 'WebGPU' : 'WebGL2'}`);
     await page.locator('.scene-tools-host').getByRole('button', { name: '3D' }).click();
     await page.waitForTimeout(900); // the camera's move from straight down
     const sb = await lit.boundingBox();
@@ -206,6 +227,19 @@ try {
     await page.waitForTimeout(300);
     await page.locator('.scene-tools-host').getByRole('button', { name: '2D' }).click();
     console.log('   wrote a stroke in 3D, then back to 2D');
+    // show the moments of your own sheet as it is written: its ink banded by when it went down
+    // (counted by the view: the candles flicker, so the pixels are no measure)
+    await page.locator('.scene-tools-host').getByRole('button', { name: 'Moments' }).click();
+    await page.waitForFunction(() => Number(document.querySelector('.pad-scene .scene-view')?.dataset.banded) > 0, null, { timeout: 60000 });
+    const padBands = await page.locator('.pad-scene .scene-view').getAttribute('data-banded');
+    await page.locator('.scene-tools-host').getByRole('button', { name: 'Moments' }).click();
+    console.log(`   the pad shows the moments of what is written so far (${padBands} cells in dark bands)`);
+    // low power: the scene stands down to the flat look, and comes back on the charger
+    await page.evaluate(() => { e2eBattery.charging = false; e2eBattery.level = 0.1; e2eBattery.dispatchEvent(new Event('chargingchange')); });
+    await page.locator('.pad-scene').waitFor({ state: 'detached', timeout: 30000 });
+    await page.evaluate(() => { e2eBattery.charging = true; e2eBattery.dispatchEvent(new Event('chargingchange')); });
+    await page.locator('.pad-scene canvas.scene-canvas').waitFor({ timeout: 30000 });
+    console.log('   on low battery the pad goes flat; charging, the scene is back');
   } else {
     if (await page.locator('.pad-scene').count()) throw new Error('with WebGL off there should be no scene');
     console.log('   no WebGL: the flat pad, as ever');
@@ -235,6 +269,21 @@ try {
       return ink > 20;
     }, null, { timeout: 60000 });
     console.log('   the journal page shows it in the scene');
+    // its page lies under its sheets, not the desk: the corners are the page's paper, lit like the sheet
+    const sides = await page.evaluate(() => {
+      const c = document.querySelector('.journal-scene canvas');
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const at = (x, y) => { const k = 4 * (Math.floor(y) * c.width + Math.floor(x)); return [d[k], d[k + 1], d[k + 2]]; };
+      return { corner: at(4, 4), far: at(c.width - 5, c.height - 5) };
+    });
+    if (sides.corner.join() !== sides.far.join() && Math.abs(sides.corner[0] - sides.far[0]) > 30) throw new Error(`the page's corners differ: ${sides.corner} vs ${sides.far}`);
+    const deskish = (p) => Math.abs(p[0] - p[1]) < 8 && Math.abs(p[1] - p[2]) < 8 && p[0] < 200;
+    if (deskish(sides.corner)) throw new Error(`the journal page shows the desk, not its page: ${sides.corner}`);
+    await page.locator('.journal-page').screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-journal.png') });
+    // your own sheet on the page: its moments too
+    await page.locator('.journal-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
+    await page.waitForFunction(() => Number(document.querySelector('.journal-scene')?.dataset.banded) > 0, null, { timeout: 60000 });
+    console.log(`   and its moments, banded (${await page.locator('.journal-scene').getAttribute('data-banded')} cells)`);
     await page.getByRole('button', { name: 'Back to editing' }).click();
     await page.locator('.journal-page .ink-item').first().click(); // selected again, for walking back
   } else if (await page.locator('.journal-scene').count()) throw new Error('with WebGL off the journal shows the flat look');
@@ -256,7 +305,25 @@ try {
     await page.locator('.walk-back-scene canvas').waitFor({ timeout: 60000 });
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.walk-back-scene .scene-tools button[aria-pressed="true"]')].some((b) => b.textContent === 'Moments'), null, { timeout: 60000 });
-    console.log(`   side view ${sideW}; the sheet in the scene, its moments banded`);
+    // cut through it: the far side is cut away, so more of the desk shows (the desk is unlit: the candles do not move it)
+    const deskSeen = () => {
+      const c = document.querySelector('.walk-back-scene canvas');
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const desk = [d[0], d[1], d[2]];
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4 * 5) if (Math.abs(d[i] - desk[0]) + Math.abs(d[i + 1] - desk[1]) + Math.abs(d[i + 2] - desk[2]) < 6) n++;
+      return n;
+    };
+    await page.waitForTimeout(800);
+    const before = await page.evaluate(deskSeen);
+    await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Cut' }).click();
+    const wb = await page.locator('.walk-back-scene canvas').boundingBox();
+    await page.mouse.move(wb.x + wb.width * 0.2, wb.y + wb.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(wb.x + wb.width * 0.8, wb.y + wb.height * 0.5, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForFunction(`(${deskSeen})() > ${before} * 1.02 + 20`, null, { timeout: 60000 });
+    console.log(`   side view ${sideW}; the sheet in the scene, its moments banded, cut through`);
   } else console.log(`   side view ${sideW}`);
   await page.getByRole('button', { name: 'Close' }).click();
 
@@ -291,12 +358,22 @@ try {
   await tab.getByRole('button', { name: 'Save to my profile' }).click();
   await tab.getByText('On your profile').waitFor({ timeout: 60000 });
   await tab.waitForResponse((r) => r.url().includes('/look') && r.status() === 200, { timeout: 60000 }).catch(() => null);
+  if (webgl) {
+    await tab.locator('.letter-scene canvas').waitFor({ timeout: 60000 }).catch(() => null);
+    await tab.waitForTimeout(1500);
+    const lb = await tab.locator('.pad-letter').first().boundingBox().catch(() => null);
+    console.log(`   the letter in the scene: ${lb ? `${Math.round(lb.width)}×${Math.round(lb.height)}` : 'not shown'}${await tab.locator('.letter-scene').count() ? ', lit' : ''}`);
+    if (!lb || lb.width < 50) throw new Error('the letter has no size');
+    await tab.locator('.pad-letter').first().scrollIntoViewIfNeeded();
+    await tab.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-letter.png') });
+  }
   step('the letter being written, as a video the server films');
   const [ld] = await Promise.all([tab.waitForEvent('download', { timeout: 120000 }), tab.getByRole('button', { name: 'Video', exact: true }).click()]);
   const lf = path.join(dataDir, ld.suggestedFilename());
   await ld.saveAs(lf);
   const lv = fs.readFileSync(lf);
   if (!(lv[0] === 0x1a && lv[1] === 0x45)) throw new Error(`the letter video is not a WebM file (${ld.suggestedFilename()})`);
+  await tab.close(); // done with the second tab (a background tab would stop drawing; headless ones do not)
 
   step('download the book and check it offline');
   await page.goto(`${base}/u/tabor`);
@@ -315,11 +392,16 @@ try {
   step('add a password backup in the account, then log in: it asks for it');
   await page.goto(`${base}/u/tabor`);
   await page.getByRole('button', { name: 'Add one' }).click();
-  await draw(page, page.locator('.password-setting .pad canvas.ink').first(), phrase(0.002));
   await page.fill('#pw-next', 'correct horse battery');
   await page.fill('#pw-next2', 'correct horse battery');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await page.locator('.password-setting strong', { hasText: 'on' }).waitFor({ timeout: 60000 });
+  for (let attempt = 1; ; attempt++) {
+    await draw(page, page.locator('.password-setting .pad canvas.ink').first(), phrase(0.002));
+    await page.getByRole('button', { name: 'Save' }).click();
+    if (await page.locator('.password-setting strong', { hasText: 'on' }).waitFor({ timeout: 60000 }).then(() => true, () => false)) break;
+    const said = await page.locator('.password-setting .error').textContent().catch(() => '?');
+    if (attempt === 5) throw new Error(`could not add the password: ${said}`);
+    console.log(`  attempt ${attempt}:`, said); // (the pad starts again; the passwords stay)
+  }
   await page.locator('button.logout').click();
   await page.goto(base);
   await page.locator('#in-name').waitFor();

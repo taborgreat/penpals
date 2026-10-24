@@ -18,6 +18,11 @@ import Username from '../components/Username.jsx';
 import Hand from '../components/Hand.jsx';
 import HandNumber from '../components/HandNumber.jsx';
 import ThemeToggle from '../components/ThemeToggle.jsx';
+import SceneView from '../scene/SceneView.jsx';
+import { sceneOn, sceneSupported, setViewChoice, useLowPower } from '../scene/support.js';
+import { sceneOf } from '../scene/sources.js';
+import { useBook } from '../book/useBook.js';
+import { CELLS } from '../book/ink.js';
 
 // A profile (books.md B1): your own shows your signature setting, Download my
 // book, and your journal to edit; someone else's shows their journal at once,
@@ -160,6 +165,9 @@ const SIGN_FAMILY = Object.freeze({ grain: 8, weight: 8, tooth: 0 });
 function SignatureCard({ name }) {
   const signature = useSignature(name);
   const [signing, setSigning] = useState(false);
+  const [scene, setScene] = useState(() => sceneOn());
+  const lowPower = useLowPower();
+  useEffect(() => { setScene(sceneOn()); }, [lowPower]);
   if (signature === undefined) return null;
   return (
     <div className="stack card signature-card">
@@ -170,12 +178,47 @@ function SignatureCard({ name }) {
         </KeyGate>
       ) : (
         <>
-          <p className="signature-show"><Username name={name} height={3} /></p>
+          {scene && signature ? (
+            <SignatureScene name={name} signature={signature} onFlat={() => { setViewChoice('flat'); setScene(false); }} />
+          ) : (
+            <p className="signature-show"><Username name={name} height={3} /></p>
+          )}
           <div className="row">
             <button type="button" onClick={() => setSigning(true)}><Hand>Sign again</Hand></button>
+            {!scene && signature && sceneSupported() && (
+              <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="Your signature lit, in 2D or 3D">Scene</button>
+            )}
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// Your signature in the scene: an open sheet, so grown here, its own paper and
+// all (law 1, written where the hand is read: its look, lit).
+function SignatureScene({ name, signature, onFlat }) {
+  const { book } = useBook(name);
+  const [data, setData] = useState(null);
+  const [mode, setMode] = useState('2d');
+  const line = book.inks?.get(signature.ink);
+  const seed = line ? (book.seeds?.get(line.ink.sheet) ?? line.open?.seed ?? null) : null;
+  useEffect(() => {
+    if (!line) return undefined;
+    let alive = true;
+    sceneOf({ line, seed, lookUrl: signature.look }).then((d) => { if (alive) setData(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [line, seed, signature.look]);
+  const sheets = useMemo(() => {
+    if (!data) return [];
+    const box = data.field?.box ?? data.look.box;
+    return [{ id: 'signature', box, origin: [0, 0], cellPx: 1 / CELLS, field: data.field, detail: data.detail, look: data.look }];
+  }, [data]);
+  if (!data) return <p className="signature-show"><Username name={name} height={3} /></p>;
+  const box = data.field?.box ?? data.look.box;
+  return (
+    <div className="signature-scene" style={{ aspectRatio: `${box[2]} / ${box[3]}` }}>
+      <SceneView page={[box[2] / CELLS, box[3] / CELLS]} mode={mode} onMode={setMode} sheets={sheets} onFlat={onFlat} style={{ width: '100%', height: '100%' }} />
     </div>
   );
 }

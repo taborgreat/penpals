@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CELLS } from '../ink/live.js';
 
 const REACH = 160; // cells either side of the last point
@@ -35,7 +35,8 @@ export default function DepthStrip({ ink }) {
       clearTimeout(timer);
     };
   }, [ink]);
-  useEffect(() => {
+  // drawn before the frame is painted: the canvas never shows blank at its default size
+  useLayoutEffect(() => {
     const c = ref.current;
     if (!c || !pic) return;
     c.width = pic.width;

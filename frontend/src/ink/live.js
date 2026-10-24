@@ -10,6 +10,7 @@
 //   ink.undo(), ink.clear(), ink.strokes (count)
 //   ink.settle()       → { acts, facts, box, rgba, law }: the finished record grown in one go, for sealing
 //   ink.cut(x0, y0, x1, y1) → { width, height, rgba }: a side view through the sheet as it is now (law 2)
+//   ink.moments()      → { box, at } | null: when each cell's ink went down, as written so far (law 2)
 //   ink.scene(on)      tiles carry their height field (the scene); ink.onTiles(fn) gets each batch,
 //                      ink.tiles() all tiles so far: [{ tx, ty, rgba, hf? }]
 //   ink.play(canvas)   → { duration, play(onDone), stop() }: the sheet written out again, physics and all
@@ -147,6 +148,10 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
     },
     law,
     cut: (x0, y0, x1, y1) => ask({ type: 'cut', x0, y0, x1, y1 }),
+    moments() {
+      const acts = capture.acts();
+      return acts ? ask({ type: 'liveMoments', acts }) : Promise.resolve(null);
+    },
     scene(on) {
       if (sceneWanted === !!on) return;
       sceneWanted = !!on;

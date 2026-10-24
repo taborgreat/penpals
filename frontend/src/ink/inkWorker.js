@@ -15,6 +15,7 @@
 //   { type: 'depth', id, body, seed, mode, cut?, view? }  side ('side', cut [x0,y0,x1,y1]): RGBA; or 'scene': the
 //                                                 scene's field (law/v2/scene.js) and the paper's own detail
 //   { type: 'scene', on }                         the sheet being written: tiles carry heights from now on
+//   { type: 'liveMoments', id, acts }             the sheet being written, its moments (law 2): when each cell's ink went down
 // Out: { type: 'tiles', tiles: [{ tx, ty, rgba }] } (and 'reset'), replies by id.
 import { lawOf, CURRENT } from 'penpals-law/laws';
 import { paperDetail } from 'penpals-law/v2/scene';
@@ -118,6 +119,14 @@ onmessage = ({ data: m }) => {
       if (!L.momentsOf) throw new Error('ink written before depth (law 1) has no moments to show');
       const rec = L.decodeCanonical(fromB64url(m.body.acts));
       const mo = L.momentsOf(rec, { paperKey: K.paperKeyOf(fromB64url(m.seed, 64)), family: m.body.paper }, m.body.box);
+      postMessage({ type: 'moments', id: m.id, box: mo.box, at: mo.at }, [mo.at.buffer]);
+    } else if (m.type === 'liveMoments') {
+      // show the moments of the sheet being written (yours, on its own paper), as written so far
+      const L = lawOf(sheet.law);
+      if (!L.momentsOf) throw new Error('ink written before depth (law 1) has no moments to show');
+      const rec = L.decodeCanonical(m.acts);
+      const on = { paperKey: sheet.paperKey, family: sheet.family };
+      const mo = L.momentsOf(rec, on, L.boxOf(L.settledCells(L.grow(rec, on).tiles)));
       postMessage({ type: 'moments', id: m.id, box: mo.box, at: mo.at }, [mo.at.buffer]);
     } else if (m.type === 'regrow') {
       // A closed sheet grown again by its writer (the seed made with their key, here).

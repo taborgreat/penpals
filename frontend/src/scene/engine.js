@@ -1,7 +1,8 @@
-// The scene's renderer (the scene spec, §1–3): three.js, WebGL2. One renderer
-// for the whole page (one WebGL context): each view (a pad, a journal page, a
-// letter) renders into it and copies its frame to its own canvas. The page is
-// always a 3D scene; 2D is that scene seen straight down, lit.
+// The scene's renderer (the scene spec, §1–3): three.js, WebGPU where the
+// device has it (./nodes.js: the same shading in TSL), else WebGL2. One
+// renderer for the whole page (one context): each view (a pad, a journal page,
+// a letter) renders into it and copies its frame to its own canvas. The page
+// is always a 3D scene; 2D is that scene seen straight down, lit.
 //
 // A sheet is cut into chunks of CHUNK × CHUNK cells, each a displaced grid with
 // its own small textures (heights, colour, the paper's detail, the moments'
@@ -24,15 +25,45 @@ const SLAB_PX = 3; // the paper's thickness
 const PAPER = new THREE.Color(0.965, 0.945, 0.905);
 const DESK = new THREE.Color(0.32, 0.29, 0.26);
 
-let shared = null;
+let shared = null; // { renderer, views, gpu: ./nodes.js where WebGPU draws, else null }
 function sharedRenderer() {
   if (shared) return shared;
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true, powerPreference: 'low-power', preserveDrawingBuffer: false });
   renderer.localClippingEnabled = true;
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  shared = { renderer, views: 0 };
+  shared = { renderer, views: 0, gpu: null };
   return shared;
+}
+
+// The renderer, chosen once: WebGPU where the device has it (prefer 'webgl2'
+// to skip it), else WebGL2. Views are made once this has settled.
+// → 'webgpu' | 'webgl2'
+let choosing = null;
+export function engineReady(prefer = null) {
+  choosing ??= (async () => {
+    if (prefer !== 'webgl2' && typeof navigator !== 'undefined' && navigator.gpu) {
+      try {
+        if (await navigator.gpu.requestAdapter({ powerPreference: 'low-power' })) {
+          const gpu = await import('./nodes.js');
+          const renderer = new gpu.WebGPURenderer({ antialias: true, alpha: true, stencil: true, powerPreference: 'low-power' });
+          await renderer.init();
+          if (renderer.backend.isWebGPUBackend) {
+            renderer.setPixelRatio(1);
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            shared = { renderer, views: 0, gpu };
+            return 'webgpu';
+          }
+          renderer.dispose();
+        }
+      } catch (err) {
+        console.warn('the scene: no WebGPU here, drawing with WebGL2', err);
+      }
+    }
+    sharedRenderer();
+    return 'webgl2';
+  })();
+  return choosing;
 }
 
 // A generic paper grain (non-canonical): the fine detail for sheets whose own
@@ -71,16 +102,20 @@ uniform sampler2D heightTex;
 uniform float dropPx;
 varying vec2 vUv;
 varying vec3 vWorld;
+#include <clipping_planes_pars_vertex>
 void main() {
   vUv = uv;
   vec2 tuv = (vec2(APRON) + vec2(uv.x, 1.0 - uv.y) * CHUNKF) / TEXN;
   float h = texture2D(heightTex, tuv).r * dropPx;
   vec4 w = modelMatrix * vec4(position.xy, h, 1.0);
   vWorld = w.xyz;
-  gl_Position = projectionMatrix * viewMatrix * w;
+  vec4 mvPosition = viewMatrix * w;
+  #include <clipping_planes_vertex>
+  gl_Position = projectionMatrix * mvPosition;
 }`;
 
 const FRAG = /* glsl */ `
+#include <clipping_planes_pars_fragment>
 uniform sampler2D heightTex;
 uniform sampler2D colorTex;
 uniform sampler2D detailTex;
@@ -97,7 +132,7 @@ uniform vec3 sunColor;
 uniform float sunInt;
 uniform vec3 candlePos[2];
 uniform vec3 candleColor;
-uniform float candleInt[2];
+uniform vec2 candleInt;
 uniform float ambient;
 uniform vec4 valid; // the part of this chunk that is the sheet (texture uv)
 varying vec2 vUv;
@@ -126,6 +161,7 @@ float shadowTo(vec2 uv, float h0, vec3 L) {
 }
 
 void main() {
+  #include <clipping_planes_fragment>
   vec2 core = vec2(vUv.x, 1.0 - vUv.y);
   if (core.x < valid.x || core.y < valid.y || core.x > valid.z || core.y > valid.w) discard; // past the sheet's edge
   vec2 uv = (vec2(APRON) + core * CHUNKF) / TEXN;
@@ -176,22 +212,27 @@ void main() {
 }`;
 
 const SIDE_FRAG = /* glsl */ `
+#include <clipping_planes_pars_fragment>
 uniform vec3 paper;
 uniform float ambient;
 uniform float sunInt;
 uniform vec3 sunColor;
 varying vec3 vWorld;
 void main() {
+  #include <clipping_planes_fragment>
   float layer = 0.94 + 0.06 * step(0.5, fract(vWorld.z * 1.4));
   gl_FragColor = vec4(paper * layer * (ambient + (1.0 - ambient) * 0.55 * sunInt * sunColor), 1.0);
   #include <colorspace_fragment>
 }`;
 const SIDE_VERT = /* glsl */ `
 varying vec3 vWorld;
+#include <clipping_planes_pars_vertex>
 void main() {
   vec4 w = modelMatrix * vec4(position, 1.0);
   vWorld = w.xyz;
-  gl_Position = projectionMatrix * viewMatrix * w;
+  vec4 mvPosition = viewMatrix * w;
+  #include <clipping_planes_vertex>
+  gl_Position = projectionMatrix * mvPosition;
 }`;
 
 const toHalf = THREE.DataUtils.toHalfFloat;
@@ -214,35 +255,71 @@ function zeroTex() {
 // Geometry for each level of detail, shared by every chunk.
 const LODS = [64, 24, 6];
 const lodGeo = LODS.map((n) => new THREE.PlaneGeometry(1, 1, n, n).translate(0.5, -0.5, 0));
+// A chunk's grid: vertices at k/n, where the next chunk's edge has its own (so the
+// two edges are the same heights at the same points: no step, no crack), and one
+// more row and column a sliver past the right and bottom edges, over the next
+// chunk, uv and all (the apron's cells): no hairline gap between them either.
+const SLIVER = 0.3 / CHUNK;
+function chunkGrid(n) {
+  const ts = [...Array.from({ length: n + 1 }, (_, k) => k / n), 1 + SLIVER];
+  const m = ts.length;
+  const pos = new Float32Array(m * m * 3), uv = new Float32Array(m * m * 2), index = [];
+  for (let j = 0; j < m; j++) {
+    for (let i = 0; i < m; i++) {
+      const k = j * m + i;
+      pos[3 * k] = ts[i];
+      pos[3 * k + 1] = -ts[j];
+      uv[2 * k] = ts[i];
+      uv[2 * k + 1] = 1 - ts[j];
+    }
+  }
+  for (let j = 0; j < m - 1; j++) {
+    for (let i = 0; i < m - 1; i++) {
+      const a = j * m + i;
+      index.push(a, a + m, a + 1, a + 1, a + m, a + m + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(index);
+  return g;
+}
+const chunkGeo = LODS.map(chunkGrid);
 
 export function createView(target) {
-  const { renderer } = sharedRenderer();
+  const { gpu } = sharedRenderer();
   shared.views++;
   const ctx = target.getContext('2d');
   const scene = new THREE.Scene();
   const persp = new THREE.PerspectiveCamera(40, 1, 0.5, 60000);
   const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -60000, 60000);
-  const lights = {
+  const lights = gpu ? gpu.lightUniforms(PAPER) : {
     sunDir: { value: new THREE.Vector3(0, 0, 1) },
     sunColor: { value: new THREE.Color(1, 1, 1) },
     sunInt: { value: 1 },
     candlePos: { value: [new THREE.Vector3(), new THREE.Vector3()] },
     candleColor: { value: new THREE.Color(1, 0.5, 0.15) },
-    candleInt: { value: [0, 0] },
+    candleInt: { value: new THREE.Vector2() },
     ambient: { value: 0.35 },
     bandOn: { value: 0 },
     paper: { value: PAPER.clone() },
   };
   const clip = new THREE.Plane(new THREE.Vector3(1, 0, 0), 1e9);
   let clipOn = false;
+  // the sheets (WebGPU cuts a group of them, WebGL2 each material)
+  const held = gpu ? new gpu.ClippingGroup() : scene;
+  if (gpu) scene.add(held);
   const desk = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: DESK }));
   desk.position.z = -SLAB_PX - 40;
   scene.add(desk);
   const sheets = new Map();
   let section = null;
   let cam3 = persp;
+  let ground = null;
 
   function chunkMaterial(c, sheet) {
+    if (gpu) return gpu.chunkMaterial(c, sheet.cellPx, lights, { APRON, CHUNK, TEXN, DROP_PX, generic: generic(), zero: zeroTex() });
     return new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -254,12 +331,13 @@ export function createView(target) {
         detailTex: { value: c.detailTex ?? generic() },
         realDetail: { value: c.detailTex ? 1 : 0 },
         detailScale: { value: new THREE.Vector2(CHUNK / 256, CHUNK / 256) },
-        bandTex: { value: c.bandTex ?? c.colorTex },
+        bandTex: { value: c.bandTex ?? zeroTex() },
         texel: { value: new THREE.Vector2(1 / TEXN, 1 / TEXN) },
         cellPx: { value: sheet.cellPx },
         dropPx: { value: DROP_PX },
         valid: { value: c.valid ?? new THREE.Vector4(0, 0, 1, 1) },
       },
+      clipping: true,
       clippingPlanes: clipOn ? [clip] : [],
     });
   }
@@ -282,19 +360,30 @@ export function createView(target) {
     c.colorTex.magFilter = THREE.LinearFilter;
     c.colorTex.minFilter = THREE.LinearFilter;
     c.heightTex.needsUpdate = c.colorTex.needsUpdate = true;
-    // the part of the chunk inside the sheet's box
-    const u0 = Math.max(0, (sheet.x0 - cx * CHUNK) / CHUNK), u1 = Math.min(1, (sheet.x0 + sheet.w - cx * CHUNK) / CHUNK);
-    const v0 = Math.max(0, (sheet.y0 - cy * CHUNK) / CHUNK), v1 = Math.min(1, (sheet.y0 + sheet.h - cy * CHUNK) / CHUNK);
-    c.valid = new THREE.Vector4(u0, v0, u1, v1);
-    c.mesh = new THREE.Mesh(lodGeo[0], chunkMaterial(c, sheet));
+    if (gpu) {
+      addDetail(c);
+      addBands(c);
+    }
+    // the part of the chunk inside the sheet's box (with the sliver where the sheet goes on)
+    const s0 = (sheet.x0 - cx * CHUNK) / CHUNK, s1 = (sheet.x0 + sheet.w - cx * CHUNK) / CHUNK;
+    const t0 = (sheet.y0 - cy * CHUNK) / CHUNK, t1 = (sheet.y0 + sheet.h - cy * CHUNK) / CHUNK;
+    const u0 = Math.max(0, s0), u1 = Math.min(1 + SLIVER, s1);
+    const v0 = Math.max(0, t0), v1 = Math.min(1 + SLIVER, t1);
+    // cut only at the sheet's own edges: with multisampling a pixel on a chunk's
+    // edge is shaded at its centre, maybe just outside, and a cut there would
+    // drop the samples inside too (hairline holes between chunks)
+    c.valid = new THREE.Vector4(s0 > 0 ? s0 : -1, t0 > 0 ? t0 : -1, s1 < 1 + SLIVER ? s1 : 2, t1 < 1 + SLIVER ? t1 : 2);
+    c.mesh = new THREE.Mesh(chunkGeo[0], chunkMaterial(c, sheet));
+    c.mesh.visible = u1 > u0 && v1 > v0; // (a chunk held only for its apron)
     const size = CHUNK * sheet.cellPx;
-    c.mesh.scale.set(size * (1 + 0.3 / CHUNK), size * (1 + 0.3 / CHUNK), 1); // a sliver over the next chunk: no hairline gaps
+    c.mesh.scale.set(size, size, 1);
     const left = sheet.origin[0] + (cx * CHUNK - sheet.x0) * sheet.cellPx, top = sheet.origin[1] + (cy * CHUNK - sheet.y0) * sheet.cellPx;
     c.mesh.position.set(left, -top, 0);
     c.mesh.renderOrder = 1; // over the sheet's base
     sheet.group.add(c.mesh);
     // its footprint in the stencil: the base sheet stays out of it, so a tear is a hole to the desk
     c.mask = new THREE.Mesh(lodGeo[2], MASK);
+    c.mask.visible = c.mesh.visible;
     c.mask.scale.set((u1 - u0) * size, (v1 - v0) * size, 1);
     c.mask.position.set(left + u0 * size, -(top + v0 * size), 0);
     c.mask.renderOrder = -1;
@@ -315,6 +404,18 @@ export function createView(target) {
         c.height[(y * TEXN + x) * 4] = toHalf(sum / n);
       }
     }
+  }
+  // a chunk's own paper detail and moments' bands (WebGL2: made when first needed, then bound)
+  function addDetail(c) {
+    c.detail = new Uint8Array(TEXN * TEXN);
+    c.detailTex = new THREE.DataTexture(c.detail, TEXN, TEXN, THREE.RedFormat, THREE.UnsignedByteType);
+    c.detailTex.magFilter = c.detailTex.minFilter = THREE.LinearFilter;
+    if (c.mesh && !gpu) c.mesh.material.uniforms.detailTex.value = c.detailTex;
+  }
+  function addBands(c) {
+    c.band = new Uint8Array(TEXN * TEXN);
+    c.bandTex = new THREE.DataTexture(c.band, TEXN, TEXN, THREE.RedFormat, THREE.UnsignedByteType);
+    if (c.mesh && !gpu) c.mesh.material.uniforms.bandTex.value = c.bandTex;
   }
   const chunkAt = (sheet, cx, cy) => sheet.chunks.get(`${cx},${cy}`) ?? makeChunk(sheet, cx, cy);
 
@@ -357,7 +458,7 @@ export function createView(target) {
     const pos = [];
     for (const [ax, ay, bx, by] of quads) pos.push(ax, ay, z0, bx, by, z0, bx, by, z1, ax, ay, z0, bx, by, z1, ax, ay, z1);
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    const mat = new THREE.ShaderMaterial({ vertexShader: SIDE_VERT, fragmentShader: SIDE_FRAG, uniforms: { ...lights }, side: THREE.DoubleSide });
+    const mat = gpu ? gpu.slabMaterial(lights) : new THREE.ShaderMaterial({ vertexShader: SIDE_VERT, fragmentShader: SIDE_FRAG, uniforms: { ...lights }, side: THREE.DoubleSide, clipping: true, clippingPlanes: clipOn ? [clip] : [] });
     return new THREE.Mesh(geo, mat);
   }
 
@@ -367,7 +468,8 @@ export function createView(target) {
     setSheet(id, { x0, y0, w, h, origin, cellPx }) {
       view.removeSheet(id);
       const sheet = { id, x0, y0, w, h, origin, cellPx, chunks: new Map(), group: new THREE.Group() };
-      sheet.group.add(slab(sheet));
+      sheet.slab = slab(sheet);
+      sheet.group.add(sheet.slab);
       // the paper itself, lit, where no chunk holds anything: one flat sheet under
       // the chunks (drawn first, writing no depth, so a chunk always shows over it)
       sheet.base = new THREE.Mesh(lodGeo[2], chunkMaterial({ heightTex: zeroTex(), colorTex: zeroTex() }, { cellPx: cellPx * Math.max(w, h) / CHUNK }));
@@ -378,7 +480,7 @@ export function createView(target) {
       sheet.base.position.set(origin[0], -origin[1], 0);
       sheet.base.material.uniforms.detailScale.value.set((w / 256) * 1, (h / 256) * 1);
       sheet.group.add(sheet.base);
-      scene.add(sheet.group);
+      held.add(sheet.group);
       sheets.set(id, sheet);
       return sheet;
     },
@@ -393,7 +495,7 @@ export function createView(target) {
         c.bandTex?.dispose();
         c.mesh.material.dispose();
       }
-      scene.remove(s.group);
+      held.remove(s.group);
       sheets.delete(id);
     },
     // A whole field (law/v2/scene.js: surface, above, depth, rgba, flags over the box).
@@ -436,11 +538,9 @@ export function createView(target) {
       const [bx, by, w, h] = box;
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         holders(s, bx + x, by + y, (c, i) => {
-          if (!c.detail) {
-            c.detail = new Uint8Array(TEXN * TEXN);
-            c.detailTex = new THREE.DataTexture(c.detail, TEXN, TEXN, THREE.RedFormat, THREE.UnsignedByteType);
-            c.detailTex.magFilter = c.detailTex.minFilter = THREE.LinearFilter;
-            c.mesh.material.uniforms.detailTex.value = c.detailTex;
+          if (!c.detail) addDetail(c);
+          if (!c.realDetail) {
+            c.realDetail = true;
             c.mesh.material.uniforms.realDetail.value = 1;
           }
           c.detail[i] = detail[y * w + x];
@@ -451,16 +551,19 @@ export function createView(target) {
     // Show the moments: 1 where a cell's band is odd (law/v2/moments.js bandOf), over the box; null hides them.
     setBands(id, bands, box) {
       const s = sheets.get(id);
-      lights.bandOn.value = bands ? 1 : 0;
+      if (!s) return;
+      for (const c of s.chunks.values()) {
+        if (!c.band) continue;
+        c.band.fill(0);
+        c.bandDirty = true;
+      }
+      s.banded = !!bands;
+      lights.bandOn.value = [...sheets.values()].some((o) => o.banded) ? 1 : 0;
       if (!bands) return;
       const [bx, by, w, h] = box;
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         holders(s, bx + x, by + y, (c, i) => {
-          if (!c.band) {
-            c.band = new Uint8Array(TEXN * TEXN);
-            c.bandTex = new THREE.DataTexture(c.band, TEXN, TEXN, THREE.RedFormat, THREE.UnsignedByteType);
-            c.mesh.material.uniforms.bandTex.value = c.bandTex;
-          }
+          if (!c.band) addBands(c);
           c.band[i] = bands[y * w + x] === 1 ? 255 : 0;
           c.bandDirty = true;
         });
@@ -477,7 +580,7 @@ export function createView(target) {
       lights.sunInt.value = l.sun.intensity;
       l.candles.forEach((c, i) => {
         lights.candlePos.value[i].set(c.pos[0], -c.pos[1], c.pos[2]);
-        lights.candleInt.value[i] = c.intensity * 1.4;
+        lights.candleInt.value.setComponent(i, c.intensity * 1.4);
       });
       lights.candleColor.value.setRGB(...l.candles[0].color);
       lights.ambient.value = l.ambient;
@@ -493,9 +596,13 @@ export function createView(target) {
         section = null;
       }
       clipOn = !!cut;
-      for (const s of sheets.values()) {
-        s.base.material.clippingPlanes = clipOn ? [clip] : [];
-        for (const c of s.chunks.values()) c.mesh.material.clippingPlanes = clipOn ? [clip] : [];
+      if (gpu) held.clippingPlanes = clipOn ? [clip] : [];
+      else {
+        for (const s of sheets.values()) {
+          s.base.material.clippingPlanes = clipOn ? [clip] : [];
+          s.slab.material.clippingPlanes = clipOn ? [clip] : [];
+          for (const c of s.chunks.values()) c.mesh.material.clippingPlanes = clipOn ? [clip] : [];
+        }
       }
       if (!cut) return;
       const [a, b] = cut.line;
@@ -505,8 +612,11 @@ export function createView(target) {
       const normal = new THREE.Vector3(dy / len, dx / len, 0);
       clip.setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(a[0], -a[1], 0));
       if (cut.image) {
-        const tex = new THREE.DataTexture(cut.image.rgba, cut.image.width, cut.image.height, THREE.RGBAFormat);
-        tex.flipY = true;
+        // rows bottom up, as a texture has them (WebGPU does not flip data textures)
+        const { width: iw, height: ih, rgba } = cut.image;
+        const rows = new Uint8Array(rgba.length);
+        for (let y = 0; y < ih; y++) rows.set(rgba.subarray(y * iw * 4, (y + 1) * iw * 4), (ih - 1 - y) * iw * 4);
+        const tex = new THREE.DataTexture(rows, iw, ih, THREE.RGBAFormat);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.needsUpdate = true;
         const hPx = (cut.image.height / cut.image.width) * len;
@@ -574,7 +684,7 @@ export function createView(target) {
             c.bandTex.needsUpdate = true;
             c.bandDirty = false;
           }
-          if (c.mesh.geometry !== lodGeo[lod]) c.mesh.geometry = lodGeo[lod];
+          if (c.mesh.geometry !== chunkGeo[lod]) c.mesh.geometry = chunkGeo[lod];
         }
       }
       renderer.setClearColor(DESK, 0);
@@ -582,8 +692,26 @@ export function createView(target) {
       ctx.clearRect(0, 0, w, h);
       ctx.drawImage(renderer.domElement, 0, 0, w, h);
     },
+    // The page the sheets lie on (a journal page): paper, lit, a sheet's thickness
+    // below them, so a tear in one shows the page behind. null: the desk.
+    setGround(size) {
+      if (ground) {
+        scene.remove(ground);
+        ground.material.dispose();
+        ground = null;
+      }
+      if (!size) return;
+      const [w, h] = size;
+      ground = new THREE.Mesh(lodGeo[2], chunkMaterial({ heightTex: zeroTex(), colorTex: zeroTex() }, { cellPx: Math.max(w, h) / CHUNK }));
+      ground.material.uniforms.detailScale.value.set(w / 128, h / 128);
+      ground.scale.set(w, h, 1);
+      ground.position.z = -SLAB_PX;
+      ground.renderOrder = -2; // drawn first: the sheets' own paper shows over it
+      scene.add(ground);
+    },
     dispose() {
       for (const id of [...sheets.keys()]) view.removeSheet(id);
+      view.setGround(null);
       view.setCut(null);
       shared.views--;
     },

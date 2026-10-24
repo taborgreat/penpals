@@ -9,7 +9,7 @@ import { CHASE, setChase } from './chase.js';
 import ChaseSettings from './ChaseSettings.jsx';
 import DepthStrip from './DepthStrip.jsx';
 import SceneView from '../scene/SceneView.jsx';
-import { sceneOn, setViewChoice } from '../scene/support.js';
+import { sceneOn, sceneSupported, setViewChoice, useLowPower } from '../scene/support.js';
 import { createCameraStack } from '../scene/stack.js';
 
 const PAGE_WIDTH = 1400; // same page width as a photographed letter
@@ -73,6 +73,8 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   // The scene (lit 2D by default, 3D to choose; the flat look where the device can't, or by choice).
   // (not on the pads that read the hand: law 1 sheets stay as they are)
   const [scene, setScene] = useState(() => ink.law >= 2 && sceneOn());
+  const lowPower = useLowPower();
+  useEffect(() => { setScene(ink.law >= 2 && sceneOn()); }, [lowPower]); // eslint-disable-line react-hooks/exhaustive-deps
   const [toolsHost, setToolsHost] = useState(null);
   const [sceneMode, setSceneMode] = useState('2d');
   const sceneRef = useRef(null);
@@ -588,6 +590,9 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
           <div className="cluster">
             <button type="button" onClick={undo} disabled={!strokeCount} title="Undo (Ctrl+Z)">Undo</button>
             {scene && <span ref={setToolsHost} className="scene-tools-host" />}
+            {!scene && ink.law >= 2 && sceneSupported() && (
+              <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The page lit, in 2D or 3D">Scene</button>
+            )}
             <button type="button" className="quiet" onClick={clear} disabled={!strokeCount}>Clear</button>
           </div>
           <span className="pad-hint">{error ?? hint}</span>
@@ -642,6 +647,8 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
                 cutSide={ink.law >= 2 ? (a, b) => ink.cut(Math.round(a[0] * CELLS), Math.round(a[1] * CELLS), Math.round(b[0] * CELLS), Math.round(b[1] * CELLS)) : null}
                 onFlat={() => { setViewChoice('flat'); setScene(false); }}
                 toolsHost={toolsHost}
+                moments={() => ink.moments()}
+                momentsKey={strokeCount}
               />
             </div>
           )}

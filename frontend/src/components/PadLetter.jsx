@@ -4,7 +4,7 @@ import FilmDownload from './FilmDownload.jsx';
 import InkItem from '../book/InkItem.jsx';
 import { CELLS } from '../book/ink.js';
 import SceneView from '../scene/SceneView.jsx';
-import { sceneOn, setViewChoice } from '../scene/support.js';
+import { sceneOn, sceneSupported, setViewChoice, useLowPower } from '../scene/support.js';
 import { sceneOf, hexRgb } from '../scene/sources.js';
 
 // A letter written on the pad (Living Ink): its sealed record's look, grown by
@@ -18,6 +18,8 @@ export default function PadLetter({ letter }) {
   const [error, setError] = useState(null);
   const [round, setRound] = useState(0); // Watch again: a new reveal
   const [scene, setScene] = useState(() => sceneOn());
+  const lowPower = useLowPower();
+  useEffect(() => { setScene(sceneOn()); }, [lowPower]);
   const [sceneMode, setSceneMode] = useState('2d');
   const [data, setData] = useState(null);
   useEffect(() => {
@@ -28,11 +30,12 @@ export default function PadLetter({ letter }) {
       .catch(() => { if (alive) setScene(false); });
     return () => { alive = false; };
   }, [scene, line, letter.id, letter.lookUrl]);
+  const page = letter.page ?? { width: letter.width, height: letter.height };
+  // the whole page is the sheet (it was written on it); the ink falls in its box
   const sheets = useMemo(() => {
     if (!data) return [];
-    const b = data.field?.box ?? data.look.box;
-    return [{ id: 'letter', box: b, origin: [b[0] / CELLS, b[1] / CELLS], cellPx: 1 / CELLS, field: data.field, look: data.look }];
-  }, [data]);
+    return [{ id: 'letter', box: [0, 0, Math.ceil(page.width * CELLS), Math.ceil(page.height * CELLS)], origin: [0, 0], cellPx: 1 / CELLS, field: data.field, look: data.look }];
+  }, [data, page.width, page.height]);
 
   useEffect(() => {
     let alive = true;
@@ -44,12 +47,11 @@ export default function PadLetter({ letter }) {
   }, [letter.lineUrl]);
 
   if (error) return <p className="error">Could not load the letter: {error}</p>;
-  const page = letter.page ?? { width: letter.width, height: letter.height };
   const box = line?.ink.box ?? letter.box;
   const pct = (v, of) => `${(v / CELLS / of) * 100}%`;
   return (
     <div className="letter-box">
-      <div className="letter pad-letter" style={{ background: paperCss(letter.background ?? letter.paper ?? 'plain'), aspectRatio: `${page.width} / ${page.height}`, position: 'relative' }}>
+      <div className="letter pad-letter" style={{ background: paperCss(letter.background ?? letter.paper ?? 'plain'), aspectRatio: `${page.width} / ${page.height}`, position: 'relative', '--ratio': page.width / page.height }}>
         {line && box && !(scene && data) && (
           <span className="ink-item" style={{ position: 'absolute', left: pct(box[0], page.width), top: pct(box[1], page.height), width: pct(box[2], page.width), height: pct(box[3], page.height) }}>
             <InkItem key={round} src={letter.lookUrl} body={line.ink} />
@@ -72,6 +74,9 @@ export default function PadLetter({ letter }) {
           <button type="button" className="watch" onClick={() => setRound((r) => r + 1)}>▶ Watch</button>
           <span className="meta" title="Sealed by the writer's key: the server grew this from the sheet, and it must match the seal">sealed</span>
           <span className="spacer" />
+          {!scene && sceneSupported() && (
+            <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The letter lit, in 2D or 3D">Scene</button>
+          )}
           {letter.id && <FilmDownload source={{ url: `/api/letters/${letter.id}/film` }} background={(PAPERS[letter.background] ?? PAPERS.plain).color} name={`penpals-${letter.from ?? ''}-${letter.id}`} />}
         </div>
       )}

@@ -13,6 +13,7 @@ import { pageIdFrom } from './ops.js';
 import JournalPage from './JournalPage.jsx';
 import WalkBack from './WalkBack.jsx';
 import { sceneOf } from '../scene/sources.js';
+import { momentsHere } from '../ink/grown.js';
 import InkWell from '../ink/InkWell.jsx';
 import FilmDownload from '../components/FilmDownload.jsx';
 import { fromB64url } from 'penpals-law';
@@ -72,7 +73,12 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     seed: seedOf(item),
     lookUrl: `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?s=64`,
     sceneUrl: `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?mode=scene&s=64`,
-  }), [bookName, book.seeds, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [bookName, book.inks, book.seeds, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Show the moments of a sheet this device can grow (yours, or open; law 2).
+  const momentsSrc = useCallback((item, line) => {
+    const seed = seedOf(item);
+    return seed && line.ink.law >= 2 ? () => momentsHere(line.ink, seed) : null;
+  }, [book.inks, book.seeds, key]); // eslint-disable-line react-hooks/exhaustive-deps
   // A sheet's film: grown here when this device can (yours, or open), else the server's.
   const filmOf = (it) => {
     const line = book.inks.get(it.ink);
@@ -208,6 +214,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         onFollow={(id) => onPage(id === skeleton.home ? null : id)}
         lookSrc={lookSrc ?? looks}
         sceneSrc={sceneSrc ?? (fromFile ? null : scenes)}
+        momentsSrc={momentsSrc}
       />
       {editing && !page.items.length && <p className="hint journal-empty">An empty page. Press ✎ Write to put something on it.</p>}
     </section>

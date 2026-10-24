@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createView } from './engine.js';
+import { createView, engineReady } from './engine.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, MIN_WRITE_EL } from './camera.js';
 import { lightAt, returnTo, sunAt } from './light.js';
 import { isPhone } from './support.js';
@@ -17,20 +17,25 @@ import { isPhone } from './support.js';
 //   writer      { down(p, ev, type), move(p, ev), up(p, ev), cancel(), penDown?(cam) }: writing in 3D
 //   follow      { base: [x, y], offset: [dx, dy] }: the chase, in 3D
 //   cutSide     (a, b) => Promise<{ width, height, rgba }>: the cross-section picture for the cut plane
-//   moments     () => Promise<{ box, at }>: show the moments (own and open sheets)
+//   moments     () => Promise<{ box, at } | [{ id, box, at }]>: show the moments (own and open sheets)
+//   momentsKey  changes when the writing does: shown moments are banded again
+//   ground      the sheets lie on the page (a journal page), not on the desk
 //   onFlat      the viewer chose the flat look
 //   toolsHost   an element to put the tools in (a pad's own bar, off the page), else over the view
 // ref: { camera(), setCamera(cam), invalidate() }
 const BAND_MS = 40;
 const LIVE_MS = 50; // a sheet being written is drawn again at most this often
+const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
-const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, frame2d, writer, follow, cutSide, moments, onFlat, paper = null, tools = true, toolsHost = null, className = '', style }, ref) {
+const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, frame2d, writer, follow, cutSide, moments, momentsKey, ground = false, onFlat, paper = null, tools = true, toolsHost = null, className = '', style }, ref) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const st = useRef(null);
   const [tool, setTool] = useState(null); // 'light' | 'cut' | null
   const [steep, setSteep] = useState(false); // too low to write
   const [bandsOn, setBandsOn] = useState(false);
+  const [banded, setBanded] = useState(0); // cells in a dark band (shown on the element: data-banded)
+  const [ready, setReady] = useState(null); // the renderer, once chosen: 'webgpu' | 'webgl2'
   const phone = useRef(isPhone()).current;
 
   if (!st.current) {
@@ -63,7 +68,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
 
   function draw(now) {
     S.raf = 0;
-    if (!S.view) return;
+    if (!S.view || S.hidden) return; // out of sight: drawn again when it comes back
     if (phone && now - S.last < 32 && S.anim === null) { // a frame cap on phones
       schedule();
       return;
@@ -86,11 +91,29 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     S.shown = cam;
     const low = cam.mode === '3d' && !!writer && !canWrite(cam);
     setSteep((was) => (was === low ? was : low));
-    if (S.anim || S.override || S.back || light.night > 0.01) schedule(); // moving, or candles flickering
+    if (S.anim || S.override || S.back) schedule(); // moving
+    else if (light.night > 0.01 && !S.flicker) {
+      // only the candles flickering
+      S.flicker = setTimeout(() => {
+        S.flicker = 0;
+        schedule();
+      }, FLICKER_MS);
+    }
   }
 
-  // the view and its canvas
+  // the view and its canvas, once the renderer is chosen (WebGPU starts asynchronously)
   useEffect(() => {
+    let alive = true;
+    let stop = null;
+    engineReady().then((gpu) => {
+      if (alive) stop = start(gpu);
+    });
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  function start(gpu) {
     const view = createView(canvasRef.current);
     S.view = view;
     if (paper) view.setPaper(paper);
@@ -102,11 +125,19 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       schedule();
     });
     ro.observe(wrapRef.current);
+    const io = new IntersectionObserver(([e]) => {
+      S.hidden = !e.isIntersecting;
+      if (!S.hidden) schedule();
+    });
+    io.observe(wrapRef.current);
     const tick = setInterval(schedule, 60000); // the clock moves the sun
+    setReady(gpu);
     return () => {
       ro.disconnect();
+      io.disconnect();
       clearInterval(tick);
       clearTimeout(S.liveTimer);
+      clearTimeout(S.flicker);
       cancelAnimationFrame(S.raf);
       S.raf = 0;
       for (const a of S.applied.values()) a.unsub?.();
@@ -114,7 +145,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       view.dispose();
       S.view = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   // the sheets
   useEffect(() => {
@@ -152,7 +183,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       S.applied.set(s.id, { spec: s, unsub });
     }
     schedule();
-  }, [sheets]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sheets, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the 2D/3D switch: the camera moves, the page under it does not
   useEffect(() => {
@@ -166,11 +197,16 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
 
   useEffect(schedule, [frame2d, follow?.offset?.[0], follow?.offset?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
+    if (!S.view) return;
+    S.view.setGround(ground ? page : null);
+    schedule();
+  }, [ground, page[0], page[1], ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
     if (paper && S.view) {
       S.view.setPaper(paper);
       schedule();
     }
-  }, [paper?.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [paper?.join(), ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
     camera: () => S.shown ?? S.cam,
@@ -340,6 +376,22 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     return () => c.removeEventListener('wheel', onWheel);
   });
 
+  // the moments, banded: one sheet's ({ box, at }) or several ([{ id, box, at }])
+  async function showBands() {
+    const got = await moments();
+    for (const s of sheets) S.view?.setBands(s.id, null);
+    let dark = 0;
+    for (const m of got == null ? [] : Array.isArray(got) ? got : [{ id: sheets[0].id, ...got }]) {
+      const bands = new Uint8Array(m.at.length);
+      for (let i = 0; i < bands.length; i++) {
+        bands[i] = m.at[i] < 0 ? 0 : Math.floor(m.at[i] / BAND_MS) % 2;
+        dark += bands[i];
+      }
+      S.view?.setBands(m.id, bands, m.box);
+    }
+    setBanded(dark);
+    schedule();
+  }
   async function toggleBands() {
     if (bandsOn) {
       for (const s of sheets) S.view?.setBands(s.id, null);
@@ -347,18 +399,17 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       schedule();
       return;
     }
-    const m = await moments();
-    const bands = new Uint8Array(m.at.length);
-    for (let i = 0; i < bands.length; i++) bands[i] = m.at[i] < 0 ? 0 : (Math.floor(m.at[i] / BAND_MS) % 2) + 0;
-    S.view?.setBands(sheets[0].id, bands, m.box);
+    await showBands();
     setBandsOn(true);
-    schedule();
   }
+  useEffect(() => {
+    if (bandsOn) showBands();
+  }, [momentsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const interactive = mode === '3d' || tool === 'light';
   const wrapTools = (el) => (toolsHost ? createPortal(el, toolsHost) : el);
   return (
-    <div ref={wrapRef} className={`scene-view ${mode} ${className}`} style={style}>
+    <div ref={wrapRef} className={`scene-view ${mode} ${className}`} style={style} data-banded={bandsOn ? banded : undefined} data-gpu={ready ?? undefined}>
       <canvas
         ref={canvasRef}
         className="scene-canvas"

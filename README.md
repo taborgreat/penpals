@@ -57,6 +57,7 @@ to start clean.
 npm test                                  # law, backend, frontend suites
 npm run check:browsers -w law             # the law byte-identical in Chromium, Firefox, WebKit
 node frontend/e2e/flow.mjs --dev --no-webgl   # the same flow with WebGL off: the flat look, writing in 2D
+node frontend/e2e/flow.mjs --dev --webgpu     # the full Chromium on this machine's GPU: the scene drawn with WebGPU
 npm run build -w frontend && node frontend/e2e/flow.mjs   # the whole site in Chromium, by hand-like input
 node backend/scripts/fsck.js [--regrow]   # the data directory, read-only
 node law/bin/verify.js <file.book | proof.json> [--json]
@@ -83,7 +84,7 @@ backend/scripts/fsck.js
 frontend/src
   keys/              the key in this tab; register, sign in, sketches (key worker)
   ink/               capture, live sheet (ink worker), films, plus the photo pipeline
-  scene/             the scene: one three.js renderer, 2D/3D cameras, the light, writing by ray
+  scene/             the scene: one three.js renderer (WebGPU, else WebGL2), 2D/3D cameras, the light, writing by ray
   book/              the journal: chain, looks, edits, walk back
   components/ pages/ Pad, WriteMode, Register, SignIn, Proofs, BookViewer, ...
 ```

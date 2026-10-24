@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { camera2d, camera3d, pageAt, project, canWrite, elevationOf, orbit, lerpCam, chaseFollow, MIN_WRITE_EL } from './camera.js';
 import { sunAt, lightAt, candleMix, returnTo, kelvin } from './light.js';
 import { createCameraStack } from './stack.js';
+import { watchBattery, isLowPower, LOW_BATTERY } from './support.js';
 import { createCapture, strokesToActs } from '../ink/capture.js';
 import { settle } from 'penpals-law/record';
 import { sceneField } from 'penpals-law/v2/scene';
@@ -134,4 +135,19 @@ test('the light is a beauty layer: by the clock, candles at night, dragged and r
   }
   assert.equal(digest(), d0);
   assert.equal(b64url(settled.facts), d0);
+});
+
+test('low power: on battery and nearly out, the scene stands down; charging brings it back', async () => {
+  const battery = new EventTarget();
+  battery.charging = false;
+  battery.level = 0.6;
+  assert.equal(await watchBattery({ getBattery: async () => battery }), true);
+  assert.equal(isLowPower(), false);
+  battery.level = LOW_BATTERY - 0.05;
+  battery.dispatchEvent(new Event('levelchange'));
+  assert.equal(isLowPower(), true);
+  battery.charging = true;
+  battery.dispatchEvent(new Event('chargingchange'));
+  assert.equal(isLowPower(), false);
+  assert.equal(await watchBattery({}), false); // no Battery Status API: the scene as chosen
 });

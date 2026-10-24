@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import InkItem from './InkItem.jsx';
 import { itemSize, clampScale, CELLS, SCALE_ONE } from './ink.js';
 import SceneView from '../scene/SceneView.jsx';
-import { sceneOn, setViewChoice } from '../scene/support.js';
+import { sceneOn, sceneSupported, setViewChoice, useLowPower } from '../scene/support.js';
 import { hexRgb } from '../scene/sources.js';
 
 // One page of a journal: its background, and its writing in list order (later
@@ -17,10 +17,14 @@ import { hexRgb } from '../scene/sources.js';
 // The scene (`sceneSrc(item, line)` → its field or look): every item a sheet in
 // one scene over the page, lit by the time of day; 2D (the page as ever, lit) or
 // 3D. In 2D the page's own items stay above it, unseen, for links and editing.
-export default function JournalPage({ pageId, page, size, inks, editable, selected, onSelect, onOp, onFollow, lookSrc, sceneSrc = null }) {
+// `momentsSrc(item, line)` → (() => Promise<{ box, at }>) | null: show the moments
+// of the sheets this device can grow (yours, or open).
+export default function JournalPage({ pageId, page, size, inks, editable, selected, onSelect, onOp, onFollow, lookSrc, sceneSrc = null, momentsSrc = null }) {
   const ref = useRef(null);
   const [k, setK] = useState(0); // CSS px per page unit
   const [scene, setScene] = useState(() => !!sceneSrc && sceneOn());
+  const lowPower = useLowPower();
+  useEffect(() => { setScene(!!sceneSrc && sceneOn()); }, [lowPower]); // eslint-disable-line react-hooks/exhaustive-deps
   const [sceneMode, setSceneMode] = useState('2d');
   const [shown, setShown] = useState(() => new Map()); // item key → { field, detail } | { look }
   const keyOf = (item) => `${item.id}:${item.ink}`;
@@ -45,6 +49,14 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
     return [{ id: keyOf(item), box, origin: [item.x + (box[0] - line.ink.box[0]) * cellPx, item.y + (box[1] - line.ink.box[1]) * cellPx], cellPx, field: d.field, detail: d.detail, look: d.look }];
   }), [page.items, shown, inks]); // eslint-disable-line react-hooks/exhaustive-deps
   const paper = useMemo(() => hexRgb(page.background), [page.background]);
+  const moments = useMemo(() => {
+    const parts = momentsSrc ? page.items.flatMap((item) => {
+      const line = inks.get(item.ink);
+      const get = line?.ink && shown.has(keyOf(item)) ? momentsSrc(item, line) : null;
+      return get ? [{ id: keyOf(item), get }] : [];
+    }) : [];
+    return parts.length ? () => Promise.all(parts.map((p) => p.get().then((m) => ({ id: p.id, ...m })))) : null;
+  }, [momentsSrc, page.items, inks, shown]); // eslint-disable-line react-hooks/exhaustive-deps
   const sceneShows = scene && !editable;
 
   useLayoutEffect(() => {
@@ -91,8 +103,15 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           onMode={setSceneMode}
           sheets={sheets}
           paper={paper}
+          moments={moments}
+          ground
           onFlat={() => { setViewChoice('flat'); setScene(false); }}
         />
+      )}
+      {!scene && sceneSrc && !editable && sceneSupported() && (
+        <div className="scene-tools">
+          <button type="button" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The page lit, in 2D or 3D">Scene</button>
+        </div>
       )}
     </div>
   );
