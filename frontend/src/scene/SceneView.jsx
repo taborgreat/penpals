@@ -55,6 +55,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const hand = handChoice ?? !writer;
   const penMode = !!writer && !hand;
   const [relief, setRelief] = useState(storedRelief);
+  const [crisp, setCrisp] = useState(false); // the page close up: smooth between its cells, or each cell crisp
   const [steep, setSteep] = useState(false); // too low to write
   const [bandsOn, setBandsOn] = useState(false);
   const [banded, setBanded] = useState(0); // cells in a dark band (shown on the element: data-banded)
@@ -497,6 +498,11 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     S.view.setRelief(relief);
     schedule();
   }, [relief, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!S.view) return;
+    S.view.setCrisp(crisp);
+    schedule();
+  }, [crisp, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const interactive = mode === '3d' || tool === 'light';
   const wrapTools = (el) => (toolsHost ? createPortal(el, toolsHost) : el);
@@ -530,6 +536,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
             Relief
             <input type="range" min={0} max={100} value={posFrom(relief)} onChange={(e) => setRelief(reliefFrom(Number(e.target.value)))} aria-label={`Relief ${relief}×`} />
           </label>
+          <button type="button" aria-pressed={crisp} onClick={() => setCrisp(!crisp)} title="Close up: each cell crisp, or smooth between them">Crisp</button>
           <button type="button" aria-pressed={tool === 'light'} onClick={() => setTool(tool === 'light' ? null : 'light')} title="Drag to move the light; let go and it returns to the time of day">Light</button>
           {mode === '3d' && cutSide && (
             <button type="button" aria-pressed={tool === 'cut'} onClick={() => { setTool(tool === 'cut' ? null : 'cut'); if (tool === 'cut') { S.view?.setCut(null); schedule(); } }} title="Drag a line across the writing to cut through the paper">Cut</button>

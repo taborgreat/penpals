@@ -11,7 +11,10 @@
 //
 // With one view on screen (write mode, a letter, a pad) the renderer draws
 // straight into it; with several, each view's frame is copied to its own canvas.
-// Torn cells are holes onto what is behind. Nothing here touches the record.
+// The paper rests on a table (a journal's sheets on its page, the page on the
+// table), each casting a soft shadow; two candles stand on it, their flames
+// flickering with their light. Torn cells are holes onto what is behind.
+// Nothing here touches the record.
 //
 // Units: page px (x right, y down the page); three's world is (x, −y, z), z up.
 
@@ -25,7 +28,9 @@ const TEXN = CHUNK + 2 * APRON; // texels a side
 export const DROP_PX = 0.004; // a drop of height at true scale, page px
 const SLAB_PX = 3; // the paper's thickness
 const PAPER = new THREE.Color(0.965, 0.945, 0.905);
-const DESK = new THREE.Color(0.32, 0.29, 0.26);
+const DESK = new THREE.Color(0.32, 0.29, 0.26); // the table (plain for now; light-waves grows its wood)
+const WAX = new THREE.Color(0.86, 0.8, 0.66);
+const WICK = new THREE.Color(0.05, 0.04, 0.035);
 const STAGE = 16; // a live upload's largest rectangle: one tile
 
 // What the scene costs, for the benches (e2e/perf.mjs): frames drawn, the time
@@ -214,7 +219,7 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
     surface: gpu.surfaceBake(lights, K),
     shade: gpu.shadeBake(lights, K),
     base: gpu.flatMaterial(lights, K),
-    ground: gpu.flatMaterial(lights, K),
+    ground: gpu.flatMaterial(lights, K, null, true),
     slab: gpu.slabMaterial(lights),
   };
   // a sheet's base: drawn first, writing no depth, kept out of the chunks' footprints
@@ -237,10 +242,23 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   const clip = new THREE.Plane(new THREE.Vector3(1, 0, 0), 1e9);
   const held = new gpu.ClippingGroup(); // the sheets: the cut cuts all of them
   scene.add(held);
-  const desk = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: DESK }));
-  desk.position.z = -SLAB_PX - 40;
+  lights.thick.value = SLAB_PX;
+  // the table the paper rests on: lit, the sheets' shadows on it
+  const desk = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), gpu.tableMaterial(lights, DESK));
+  desk.position.z = -SLAB_PX;
   desk.renderOrder = -3; // first of all: the sheets' paper (which writes no depth) goes over it
   scene.add(desk);
+  // two candles standing on it, either side of the page: wax, a wick, a flame
+  const cylinder = new THREE.CylinderGeometry(1, 1, 1, 28).rotateX(Math.PI / 2).translate(0, 0, 0.5);
+  const candles = [0, 1].map((i) => {
+    const wax = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, WAX, i === 0 ? lights.candleInt.x : lights.candleInt.y));
+    const wick = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, WICK, i === 0 ? lights.candleInt.x : lights.candleInt.y));
+    const flame = new THREE.Sprite(gpu.flameMaterial());
+    flame.center.set(0.5, 0.18); // its foot on the wick
+    flame.renderOrder = 10;
+    for (const o of [wax, wick, flame]) scene.add(o);
+    return { wax, wick, flame };
+  });
   // the bakes: a quad over a chunk's own target
   const bakeScene = new THREE.Scene();
   const bakeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
@@ -251,6 +269,7 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   let section = null;
   let cam3 = persp;
   let ground = null;
+  let groundSize = null; // [w, h] page px while a page lies under the sheets
   let lightKey = '';
   let visible = true;
   let wasDirect = false;
@@ -531,6 +550,25 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       });
       lights.candleColor.value.setRGB(...l.candles[0].color);
       lights.ambient.value = l.ambient;
+      // the candles stand on the table where their light is; a flame's size and brightness are its light's
+      const tableZ = desk.position.z;
+      l.candles.forEach((c, i) => {
+        const { wax, wick, flame } = candles[i];
+        const Z = c.pos[2];
+        const flick = l.night > 0.01 ? c.intensity / l.night : 0;
+        const fh = 0.2 * Z * (0.8 + 0.2 * flick);
+        const wickTop = Z - 0.3 * 0.2 * Z;
+        const wickH = 0.05 * Z;
+        const r = 0.11 * Z;
+        wax.position.set(c.pos[0], -c.pos[1], tableZ);
+        wax.scale.set(r, r, Math.max(1, wickTop - wickH - tableZ));
+        wick.position.set(c.pos[0], -c.pos[1], wickTop - wickH);
+        wick.scale.set(r * 0.05, r * 0.05, wickH);
+        flame.visible = l.night > 0.01;
+        flame.position.set(c.pos[0], -c.pos[1], wickTop);
+        flame.scale.set(fh * 0.42, fh, 1);
+        flame.material.brightness.value = Math.min(1, l.night) * flick;
+      });
       // the shade is baked again when the light has really moved (not for the flicker)
       const d = lights.sunDir.value, p = lights.candlePos.value;
       lightKey = [d.x, d.y, d.z, p[0].x, p[0].y, p[0].z, p[1].x, p[1].y, p[1].z].map((v) => Math.round(v * 400)).join();
@@ -639,6 +677,17 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
         renderer.setRenderTarget(null);
         scene.add(warm);
       }
+      const rests = lights.rests.array, onPage = lights.onPage.array;
+      for (const v of rests) v.set(0, 0, 0, 0);
+      for (const v of onPage) v.set(0, 0, 0, 0);
+      let k = 0;
+      for (const sh of sheets.values()) {
+        if (k >= rests.length) break;
+        const x0 = sh.origin[0], y1 = -sh.origin[1];
+        (groundSize ? onPage : rests)[k++].set(x0, y1 - sh.h * sh.cellPx, x0 + sh.w * sh.cellPx, y1);
+      }
+      if (groundSize) rests[0].set(0, -groundSize[1], groundSize[0], 0);
+      desk.position.z = groundSize ? -2 * SLAB_PX : -SLAB_PX;
       const t1 = performance.now();
       prepare();
       const t2 = performance.now();
@@ -669,15 +718,21 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
         if (own) ground.material.dispose();
         ground = null;
       }
+      groundSize = null;
       if (!size) return;
       const [w, h] = size;
       const grain = { detailScale: new THREE.Vector2(w / 128, h / 128), cellPx: 0.5 };
-      ground = new THREE.Mesh(lodGeo[2], own ? gpu.flatMaterial(lights, K, grain) : mats.ground);
+      ground = new THREE.Mesh(lodGeo[2], own ? gpu.flatMaterial(lights, K, grain, true) : mats.ground);
       ground.userData.c = grain;
       ground.scale.set(w, h, 1);
       ground.position.z = -SLAB_PX;
       ground.renderOrder = -2; // drawn first: the sheets' own paper shows over it
       scene.add(ground);
+      groundSize = [w, h];
+    },
+    // The page close up: crisp cells, or smooth between them.
+    setCrisp(on) {
+      lights.crisp.value = on ? 1 : 0;
     },
     dispose() {
       for (const id of [...sheets.keys()]) view.removeSheet(id);
@@ -687,6 +742,9 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       settleDirect();
       bakeQuad.geometry.dispose();
       for (const m of Object.values(mats)) m.dispose();
+      desk.material.dispose();
+      for (const c of candles) for (const o of [c.wax, c.wick, c.flame]) o.material.dispose();
+      cylinder.dispose();
       baked.surface.dispose();
       baked.shade.dispose();
       if (own) for (const m of Object.values(stand.mats)) m.dispose();

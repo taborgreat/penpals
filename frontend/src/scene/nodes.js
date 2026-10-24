@@ -20,12 +20,60 @@
 // march samples inside loops and branches), and these have no mipmaps.
 
 import * as THREE from 'three';
-import { MeshBasicNodeMaterial, NodeMaterial } from 'three/webgpu';
-import { Fn, If, Loop, Discard, select, uniform, texture, uv, positionLocal, positionWorld, cameraPosition, vec2, vec3, vec4, float, mix, clamp, normalize, dot, max, pow, length, mod, floor, fract, step, sqrt } from 'three/tsl';
+import { MeshBasicNodeMaterial, NodeMaterial, SpriteNodeMaterial } from 'three/webgpu';
+import { Fn, If, Loop, Discard, select, uniform, uniformArray, texture, uv, positionLocal, positionWorld, normalWorld, cameraPosition, vec2, vec3, vec4, float, mix, clamp, normalize, dot, max, min, abs, pow, length, mod, floor, fract, step, sqrt, smoothstep } from 'three/tsl';
 
 export { WebGPURenderer, ClippingGroup } from 'three/webgpu';
 
 const at = (t, q) => t.sample(q).level(0);
+export const RESTS = 16; // sheets whose shadows fall on the table (or on the page they lie on)
+
+// A texture smoothly between its cells (a cubic B-spline, from four bilinear
+// samples), or crisp (each cell its own), by L.crisp.
+function between(T, q, n, L) {
+  const st = q.mul(n).sub(0.5);
+  const i = floor(st);
+  const f = fract(st);
+  const f2 = f.mul(f), f3 = f2.mul(f);
+  const w0 = f3.negate().add(f2.mul(3)).sub(f.mul(3)).add(1).div(6);
+  const w1 = f3.mul(3).sub(f2.mul(6)).add(4).div(6);
+  const w2 = f3.mul(-3).add(f2.mul(3)).add(f.mul(3)).add(1).div(6);
+  const w3 = f3.div(6);
+  const g0 = w0.add(w1), g1 = w2.add(w3);
+  const h0 = w1.div(g0).sub(0.5).add(i).div(n), h1 = w3.div(g1).add(1.5).add(i).div(n);
+  const smooth = at(T, vec2(h0.x, h0.y)).mul(g0.x).add(at(T, vec2(h1.x, h0.y)).mul(g1.x)).mul(g0.y)
+    .add(at(T, vec2(h0.x, h1.y)).mul(g0.x).add(at(T, vec2(h1.x, h1.y)).mul(g1.x)).mul(g1.y));
+  const crisp = at(T, floor(q.mul(n)).add(0.5).div(n));
+  return mix(smooth, crisp, L.crisp);
+}
+
+// How lit a point p of a surface is toward the light Ld (unit), with the sheets
+// lying on it (L.rests, `thick` high) in the way: each casts a soft shadow,
+// reaching farther the lower the light. (Under a sheet nothing shows anyway.)
+function underRests(p, Ld, L, rests) {
+  const lit = float(1).toVar();
+  const across = length(Ld.xy);
+  If(Ld.z.greaterThan(0.002).and(across.greaterThan(1e-4)), () => {
+    const reach = min(L.thick.mul(across).div(Ld.z), L.thick.mul(40));
+    const mid = p.xy.add(Ld.xy.div(across).mul(reach.mul(0.5)));
+    const soft = reach.mul(0.35).add(0.75);
+    Loop(RESTS, ({ i }) => {
+      const r = rests.element(i);
+      If(r.z.greaterThan(r.x), () => {
+        const half = r.zw.sub(r.xy).mul(0.5).add(reach.mul(0.5));
+        const d = abs(mid.sub(r.xy.add(r.zw).mul(0.5))).sub(half);
+        const sd = length(max(d, vec2(0))).add(min(max(d.x, d.y), 0));
+        lit.mulAssign(mix(float(0.45), float(1), smoothstep(soft.negate(), soft, sd)));
+      });
+    });
+  });
+  return lit;
+}
+// The shadows toward the sun and each candle, as a shade (sun, candle 1, candle 2).
+function restShade(L, rests) {
+  const p = positionWorld;
+  return vec3(underRests(p, normalize(L.sunDir), L, rests), underRests(p, normalize(L.candleAt[0].sub(p)), L, rests), underRests(p, normalize(L.candleAt[1].sub(p)), L, rests));
+}
 const DETAIL_PX = 0.35; // the fibers' relief, page px
 
 // The lights as uniforms (light.js lightAt, page frame → world), and the height scale.
@@ -41,6 +89,11 @@ export function lightUniforms(paper, dropPx) {
     bandOn: uniform(0),
     paper: uniform(paper.clone()),
     dropPx: uniform(dropPx), // page px a drop of height (the relief's exaggeration in it)
+    crisp: uniform(0), // the page close up: 1 crisp cells, 0 smooth (bicubic)
+    // sheets of paper lying on the table, and on the page (world x0, y0, x1, y1): their shadows
+    rests: uniformArray(Array.from({ length: RESTS }, () => new THREE.Vector4(0, 0, 0, 0)), 'vec4'),
+    onPage: uniformArray(Array.from({ length: RESTS }, () => new THREE.Vector4(0, 0, 0, 0)), 'vec4'),
+    thick: uniform(3), // a sheet's thickness, page px
   };
   L.candleAt = L.candlePos.value.map((v) => uniform(v));
   return L;
@@ -178,7 +231,7 @@ export function chunkMaterial(L, K, c = null) {
     const sf = at(u.SF, q).toVar();
     const n = vec3(sf.g, sf.b, sqrt(max(float(1).sub(sf.g.mul(sf.g)).sub(sf.b.mul(sf.b)), 0))).toVar();
     const shade = at(u.SH, q).toVar();
-    const ink = at(u.C, q).toVar();
+    const ink = between(u.C, q, K.TEXN, L).toVar();
     const base = mix(L.paper, ink.rgb, ink.a).toVar();
     const V = normalize(cameraPosition.sub(positionWorld)).toVar();
     // ink sunk into the fibers shows deeper at grazing angles
@@ -192,7 +245,7 @@ export function chunkMaterial(L, K, c = null) {
 // The flat paper (a sheet's base where no chunk is, the page under the sheets):
 // its grain's normal, nothing in the way. Per object: { detailScale: Vector2
 // (the grain's repeats across it), cellPx (page px a grain cell) }.
-export function flatMaterial(L, K, c = null) {
+export function flatMaterial(L, K, c = null, shadowed = false) {
   const each = valueOf(c);
   const m = new MeshBasicNodeMaterial();
   const G = texture(K.generic);
@@ -206,8 +259,51 @@ export function flatMaterial(L, K, c = null) {
     const gy = g(q.add(vec2(0, d))).sub(g(q.sub(vec2(0, d))));
     const n = normalize(vec3(gx.negate().div(cellPx.mul(6)), gy.negate().div(cellPx.mul(6)), 1)).toVar();
     const V = normalize(cameraPosition.sub(positionWorld));
-    return lit(L.paper, n, float(1), vec3(1), float(0), V, L, null);
+    return lit(L.paper, n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), float(0), V, L, null);
   })();
+  return m;
+}
+
+// The table: lit, flat, the sheets' (or the page's) shadows on it. Its wood is
+// grown later (light-waves); for now it is plain.
+export function tableMaterial(L, color) {
+  const m = new MeshBasicNodeMaterial();
+  const base = uniform(color.clone());
+  m.colorNode = Fn(() => {
+    const V = normalize(cameraPosition.sub(positionWorld));
+    return lit(base, vec3(0, 0, 1), float(1), restShade(L, L.rests), float(0), V, L, null);
+  })();
+  return m;
+}
+
+// A candle's wax and wick: lit by the sun and the sky, and warm near the flame.
+export function waxMaterial(L, color, glow) {
+  const m = new MeshBasicNodeMaterial();
+  const base = uniform(color.clone());
+  m.colorNode = Fn(() => {
+    const n = normalize(normalWorld);
+    const sun = max(dot(n, normalize(L.sunDir)), 0).mul(L.sunInt);
+    return base.mul(L.ambient.add(L.ambient.oneMinus().mul(sun).mul(L.sunColor))).add(L.candleColor.mul(glow).mul(0.25));
+  })();
+  return m;
+}
+
+// A candle's flame: a teardrop facing the eye, white-yellow at the core into
+// orange, with a soft glow; added to what is behind it. `brightness` is the
+// candle's light (its flicker), set each frame with the flame's size.
+export function flameMaterial() {
+  const m = new SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const brightness = uniform(1);
+  m.colorNode = Fn(() => {
+    const p = uv().sub(vec2(0.5, 0.32)).mul(vec2(2.2, 1.3)).toVar(); // the drop's round foot low, its tip up
+    const r = length(vec2(p.x.mul(float(1).add(max(p.y, 0).mul(1.6))), p.y));
+    const body = smoothstep(0.62, 0.18, r);
+    const core = smoothstep(0.3, 0.02, r);
+    const glow = smoothstep(1.1, 0.2, length(uv().sub(vec2(0.5, 0.4)).mul(vec2(1.6, 1.1)))).mul(0.25);
+    const col = mix(vec3(1, 0.42, 0.08), vec3(1, 0.93, 0.7), core).mul(body).add(vec3(1, 0.55, 0.2).mul(glow));
+    return vec4(col.mul(brightness), body.add(glow).clamp(0, 1).mul(brightness));
+  })();
+  m.brightness = brightness;
   return m;
 }
 

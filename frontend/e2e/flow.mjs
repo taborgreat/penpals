@@ -333,22 +333,23 @@ try {
     await page.locator('.walk-back-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.walk-back-scene .scene-tools button[aria-pressed="true"]')].some((b) => b.textContent === 'Moments'), null, { timeout: 60000 });
-    // cut through it: the far side is cut away, so more of the desk shows (the desk is unlit: the candles do not move it)
-    const deskSeen = (d) => {
-      const desk = [153, 146, 139]; // the desk (engine.js DESK), lit by nothing
-      let n = 0;
-      for (let i = 0; i < d.length; i += 4 * 5) if (Math.abs(d[i] - desk[0]) + Math.abs(d[i + 1] - desk[1]) + Math.abs(d[i + 2] - desk[2]) < 12) n++;
-      return n;
+    // cut through it: the far side is cut away, so less paper shows (paper is far brighter than the
+    // table under any light: the pixels well above the view's middle brightness are the paper)
+    const paperSeen = (d) => {
+      const lum = [];
+      for (let i = 0; i < d.length; i += 4 * 5) lum.push(d[i] + d[i + 1] + d[i + 2]);
+      const mid = [...lum].sort((a, b) => a - b)[lum.length >> 1];
+      return lum.filter((v) => v > 1.6 * mid).length;
     };
     await page.waitForTimeout(800);
-    const before = await onScreen(page, '.walk-back-scene', deskSeen);
+    const before = await onScreen(page, '.walk-back-scene', paperSeen);
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Cut' }).click();
     const wb = await page.locator('.walk-back-scene canvas.scene-canvas').boundingBox();
     await page.mouse.move(wb.x + wb.width * 0.2, wb.y + wb.height * 0.5);
     await page.mouse.down();
     await page.mouse.move(wb.x + wb.width * 0.8, wb.y + wb.height * 0.5, { steps: 8 });
     await page.mouse.up();
-    await untilOnScreen(page, '.walk-back-scene', new Function('d', `return (${deskSeen})(d) > ${before} + 300;`));
+    await untilOnScreen(page, '.walk-back-scene', new Function('d', `return (${paperSeen})(d) < ${before} * 0.85 - 20;`));
     console.log(`   side view ${sideW}; the sheet in the scene, its moments banded, cut through`);
   } else console.log(`   side view ${sideW}`);
   await page.getByRole('button', { name: 'Close' }).click();
