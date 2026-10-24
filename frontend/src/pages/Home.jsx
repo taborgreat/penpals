@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import AuthForm from '../components/AuthForm.jsx';
+import AuthPanel from '../components/AuthPanel.jsx';
 import LetterView from '../components/LetterView.jsx';
 import Hand from '../components/Hand.jsx';
 import HandNumber from '../components/HandNumber.jsx';
@@ -25,7 +25,7 @@ export default function Home() {
         <h1><Hand>Letters,</Hand> <em><Hand>by hand.</Hand></em></h1>
         <p className="lede"><Hand>Every letter is handwritten.</Hand> <Hand>Only the ink travels.</Hand></p>
       </div>
-      {!loading && !user && <AuthForm />}
+      {!loading && !user && <AuthPanel />}
 
       <h2><Hand>Scripters</Hand></h2>
       {error && <p className="error">{error}</p>}

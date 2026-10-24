@@ -1,6 +1,9 @@
 import { config } from './config.js';
 import { allLetters, at, deleteLetter } from './store/letters.js';
 import { deleteExpiredSessions } from './store/sessions.js';
+import { sweepNonces } from './store/nonces.js';
+import { sweepHeld } from './store/unlock.js';
+import { sweepProofs } from './store/proofs.js';
 
 // The server is a postman, not an archive: once nobody keeps a letter and it is
 // no longer in the mail (expired, or never sent), the letter and its ink go.
@@ -16,10 +19,15 @@ export function startCleanup() {
       const n = await deleteExpiredLetters();
       if (n) console.log(`[cleanup] deleted ${n} expired letter(s)`);
       await deleteExpiredSessions();
+      sweepNonces();
+      sweepHeld();
+      await sweepProofs();
     } catch (err) {
       console.error('[cleanup]', err);
     }
   };
   run();
-  setInterval(run, config.cleanupIntervalMs).unref();
+  const timer = setInterval(run, config.cleanupIntervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
 }

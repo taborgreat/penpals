@@ -29,7 +29,7 @@ The **look** is the ink facts rendered. Everyone sees the look. The records behi
 **What we did:** handwriting verified digitally. One mark now carries two proofs at once.
 
 - **The strokes verify the hand.** That is what a bank does when it compares your signature to the card on file: the person's own motion.
-- **The ink verifies the key.** That is what a bank does when you log in: a secret only you hold.
+- **The key is bound into the look.** The signatures over the sheet and the strokes are what prove the key (what a bank does when you log in). The ink carries that binding into the picture itself, so it can't be stripped off like metadata.
 
 Those two have always been separate. A wet-ink signature was proof of the person but forgeable; a key was unforgeable but had nothing to do with the person. Here the look is the writer's own motion, and the way the ink settled into the paper can only come from their key. The same mark is both.
 
@@ -48,6 +48,11 @@ Those two have always been separate. A wet-ink signature was proof of the person
 | **paper** | grown from the seed: feed the seed and each spot's coordinates into a hash, out comes that spot's fibers, thirst, roughness. One seed grows the whole sheet. Nothing is saved. |
 | **look** | the settled ink, rendered. Public. |
 | **open sheet** | a sheet whose seed the writer has chosen to publish, so anyone can verify it offline. |
+| **calibration paper** | one public sheet, same for everyone, that the hand is read on. |
+| **hand measure** | the settled facts of your writing on the calibration paper, quantized to bits. |
+| **helper / sketch** | per-person public data that turns a close-enough hand measure into the same exact hand bits. |
+| **login phrase** | a few words only you know, written (never typed) each time you sign in. Never published, never in the book. |
+| **keyring** | the key, encrypted under hand bits + password (through the server's counted OPRF answer and argon2id), held by the server, opened only on the device. |
 
 ---
 
@@ -232,17 +237,31 @@ Revealing one sheet's seed exposes only that sheet. Every other sheet, past and 
 
 ### Live proof
 
-"Are you really them?" Give the writer a phrase and a fresh `sheet_id`. They write it. Later, they reveal that sheet's seed. The strokes show the hand; the ink shows the key. Nobody who merely studied their writing can pass, because the paper is not theirs to grow.
+"Are you really them?" Ask: the site makes a fresh random challenge. With the writer's public key it fixes the sheet and the words: `X = H("proof" ‖ challenge ‖ public_key)` names a sheet `p…` and a four-word phrase nobody could know before the ask. They write the phrase on that sheet, seal it, and open it from birth. You get a file anyone can check offline (`node law/bin/verify.js proof.json`): sealed by their key, on the sheet the challenge names, and the ink regrows exactly as sealed. Whether the strokes say the phrase is for your eyes. Nobody who merely studied their writing can pass, because the paper is not theirs to grow.
 
-### Register: write your name
+### Register and sign in: the hand opens the key
 
-There is no account. There is a key, and your signature is what the key looks like.
+There is no password hash and no login secret on the server. There is a key, and it opens to **who you are** (your name), **what you write** (your login phrase) and **how you write it** (your hand, read through the ink). The way you sign is the first password. A typed password is an optional backup on top, your choice at registration, and you can turn it on or off in your account. The signature is what the key looks like.
 
-1. Write your name. The device makes the keypair from those marks mixed with the device's own randomness: `key = hash(marks ‖ random_bytes)`. The act is in the key; the random bytes make it unguessable even for a single dot. (Marks alone are never enough: one dot is almost no information, and even a full name is tens of bits, not 256.)
-2. The key grows sheet 0, and the name just written is laid on it. That is the signature: the marks made the key, and the key made the paper the marks sit on.
-3. 24 words are shown once. They are the private key in a form a human can write down, and the only way in. No reset.
+**The key is a random number, made once.** `K` is 32 random bytes from the device; the signing key is `HKDF(K)`. It is never derived from the hand, so the hand can change for life and the key never does. Nothing you wrote on your paper ever becomes unreadable.
 
-Sign in: type the words; the key sits in memory for the session and is gone on sign-out. Nothing stored on the device, nothing on the server but the public key. (A password-on-the-server custody option can be added later for those who want it; it is not the default.)
+**The login phrase is yours and secret.** You choose a few words only you know, and you **write** them each time you sign in. You never type them, never publish them, and they are never in the book. They are written only at sign-in, and the strokes never leave the device: the sealed login sheet carries only their digest and the server's challenge.
+
+**The hand is read through the ink.** The phrase is grown on a public *calibration paper* (one fixed sheet, the same for everyone), and the hand is read off the settled facts, not the raw strokes. The physics is the instrument: dwell shows as beads and rings, speed as starved hairlines, pressure as width, rhythm as dry boundaries. Those are exactly the traits a tracing of your lines does not have. The facts are quantized into the hand's measure.
+
+**Fuzzy to exact, and every guess counted.** A fuzzy commitment (BCH) with per-person helper data (the sketches) turns the measure into the same exact hand bits `r` every time it is close enough, and into garbage otherwise. The device blinds `(name, r, password)` (the password empty when there is no backup); the server answers with its per-account OPRF key, and counts the answer (5 an hour, per account and per address); argon2id stretches the result into the key that opens the keyring. There is no check value anywhere for an offline guesser: the only test of a guess is a round trip the server counts, then the keyring opening on the device.
+
+**Register:** a name; a password backup, or none; your phrase, written three times (they should agree; you can keep them if they don't); your name, signed (sheet 0, public, open from birth); and the calibration page (private, never sent). The device makes the key, the sketches and the keyring, and sends the public key, the keyring, the sketches and the sealed signature. *This is long on purpose for the experiment; it is revisited once real hands have been measured.*
+
+**Sign in:** write your phrase (and type the password, if you kept a backup). The device recovers `r` from the sketches, asks the server's counted OPRF, opens the keyring, signs the server's fresh challenge, and seals a login sheet that names that challenge (so it can never be replayed). In, or not, and a wrong password and a wrong phrase fail alike. Changing the backup locks the key again: write the phrase (and the old password) and the device re-wraps the key under the new opener.
+
+**Rhythms and drift (continuity, through sign-ins only).** Each successful sign-in refreshes the sketch that opened it from that writing, so the hand that opens the account is the hand as it is now. Up to 5 phrase sketches per person, one per way of writing (at least a phone and a desktop); when full, a sketch that has never opened the account goes before one that has. Sketches come only from login writings; published writing never touches them.
+
+**Backstop.** If the phrase fails (bad day, injury, new device): write the full calibration page (plus the password, if there is one); its wide sketch opens the same key, and the phrase as you wrote it just before becomes a new rhythm. Beyond that: NEEDS RULING (a recovery sheet; the keyring already holds typed openers, so one can be added without a format change).
+
+**Limit, stated plainly.** A hand is tens of bits. Every guess at it is an OPRF round trip the server answers and counts (5 an hour), behind argon2id, so nobody can grind it from outside. **Without a password backup**, two things remain: someone who learns your phrase and can write it the way you do gets in (they sign as you, under your name), and whoever holds the server's files (its OPRF key and your sketches) can grind your hand offline. **The password backup closes both.** Password-class strength with it, hand-class without; your choice. Per-account limits mean someone can burn your attempts for an hour (a lockout, not a way in).
+
+**The hand is secret only because the login phrase is never published.** Public writing is public, including its dynamics: anyone can grow your public sheets on the calibration paper. What they cannot do is grow your *phrase*, because they have never seen it written.
 
 Sheet 0 is open by default: public key, signature strokes, and sheet 0's seed are published together, so anyone with the `.book` can verify the signature offline. The profile shows the signature where other sites show a username.
 
@@ -251,17 +270,17 @@ Sheet 0 is open by default: public key, signature strokes, and sheet 0's seed ar
 Credential-wise this is a key, same as crypto. The advantage is what a key becomes with a hand attached:
 
 - **The public key has a face.** A key string is unreadable; a signature is recognized at a glance, and here the face is also the proof.
-- **Two factors in one mark.** A stolen key cannot write in your hand (friends see it, live proof catches it); traced strokes cannot make the ink. Key and hand are both needed, with no sensor and no vendor.
-- **Recovery rides on the hand.** Lost words: write your name on a new key; the old signature strokes are public, so friends compare the hand and countersign the new key. Social recovery, no custodian.
+- **Sign the form, you're in.** You are recognized by your hand; the number is reached through the hand instead of typed. The physical knowing comes back: the mark forms under that hand.
+- **Two factors in one act.** Someone who learns your hand still needs the password; someone with the password cannot write in your hand; traced strokes do not carry the dynamics the ink reads.
 - **Physical bridge.** Sign real paper, photograph it; the photo mode turns it into strokes. Same hand, same key, both worlds.
 
 ### Where the work happens, and what crosses the wire
 
 The computing is local. The writer's device has everything the ink needs (the strokes it just captured and the sheet seed), so the live preview, the beading, and the final marks are all computed on the phone or in the browser. Nothing is sent in order to compute the ink.
 
-The private key never has to leave the device either. The box under the password is opened client-side: the server stores only the encrypted blob; at login the device derives the unlock key from the password, decrypts locally, signs sheet seeds locally, and forgets the key at logout. The server never sees the private key. (Login itself uses a separate password hash, as today.)
+The private key never has to leave the device either. The keyring is opened client-side: the server stores only the encrypted keyring and the sketches; at sign-in the device recovers the hand bits, gets the server's counted OPRF answer, stretches it, opens the keyring, signs locally, and keeps the key only in memory and this tab's session storage (gone when the tab closes or you sign out). The server never sees the key, the password, the hand bits, or the phrase.
 
-What crosses the wire is one of two things. Tabor's ruling:
+What crosses the wire is one of two things. Tabor's ruling: **option 1**.
 
 | | Sent | Server holds | Visitors get | Verifiable |
 |---|---|---|---|---|
@@ -279,7 +298,7 @@ Someone holding their own exported key is in option 1 or 2 by their own choice. 
 - **Every letter is on the writer's own paper.** Their ink behaves like theirs, letter after letter. Nothing to click.
 - **Zoom.** Anyone can lean into any writing and see the fibers, the bleed, the beads where the pen dwelt. That is how the proof is displayed: you look at it. Nothing to enter.
 - **The signature section** on the profile becomes a real seal: their strokes on their paper, and the site can confirm it is theirs on demand.
-- **Copied strokes show.** If someone lifts strokes from another person's `.book` and sends them as their own letter, the ink renders on the copier's paper and looks wrong. The original writer can open the sheet and prove it.
+- **Copied strokes show.** If someone lifts strokes from another person's `.book` and sends them as their own letter, the ink renders on the copier's paper and comes out different. It doesn't look wrong to the eye; a check against the original sheet shows it. The original writer can open the sheet and prove it.
 - **Live proof for friends.** "Is it really you?" The site gives a phrase and a fresh sheet; they write it; the site checks. A handwritten CAPTCHA that is theirs alone.
 - **Open sheets.** The writer marks a letter or page as open, which publishes that sheet's seed. Anyone holding the `.book` can then verify it offline, without the server.
 - **Letters.** A received letter is on the sender's paper. The recipient can be shown that it checks, and the sender can open it later if it is ever questioned.
@@ -300,7 +319,7 @@ The randomness could instead be seeded into the flow itself (jitter per deposit 
 - **One paper per person** (`sign(private_key, "paper")`): their ink behaves the same on every letter, which is beautiful, but revealing it once reveals it forever.
 - **Both**: a public paper family the writer chooses (tint, grain style, weight: public parameters anyone can see), with the per-sheet secret fibers underneath.
 
-Tabor's ruling.
+Tabor's ruling: **both**. The family is part of the sheet: sealed in the record, shipped in the `.book`, hashed by verifiers; changing it changes only what comes next.
 
 ### Limits, stated plainly
 
@@ -333,25 +352,63 @@ ink facts     (react -> fact)        what settled, and why
 
 ---
 
-## Needs Tabor's ruling
+## Rulings taken in this build
 
-- Per-sheet paper, one paper per person, or both (public family + secret fibers).
-- Confirm the register model: key from marks ‖ device randomness, 24 words only, no device password, sheet 0 open by default.
-- Wire model: option 1 (send the sheet seed, server renders, nothing unrebuildable stored) or option 2 (send the picture, seed stays on the device).
-- Which sheets are open by default: none, the profile signature only, or all profile pages.
-- Whether the live preview while writing shows the real ink (slower, exact) or a fast approximation that snaps to the exact ink on Play/done.
-- Cell size relative to the page unit (sets how fine the grain is and how much it costs).
-- Whether playback replays the ink physics live (watch it bleed) or only the strokes over the finished marks.
-- Whether a pressure-less stroke uses dwell (speed) as pressure, or a flat default.
-- On resize: does the nib and flow scale with the writing, or stay fixed.
-- Droplet shading (height render, ring on dry) in the first build, or hold rule only.
-- Which pen settings are the writer's to change per piece, and which are fixed per person (part of their hand).
-- Mid-stroke controls on phone: the scroll wheel sets flow on desktop; what does it on a thumb (an edge slider, a second finger, pressure).
-- How fast wet ink mixes relative to how fast it dries (short = colors stay mostly where laid; long = big gradients).
-- The dry quantum (recorded milliseconds per dry step) and the time to full dry.
+Tabor's rulings, and the defaults taken where none was given. Each is one constant or flag in the code.
+
+| Question | Ruling |
+|---|---|
+| Per-sheet paper, one per person, or both | **Both**: a public family (grain, weight) per person, sealed into every sheet, with secret per-sheet fibers |
+| Wire model | **Option 1**: the device sends strokes and the sheet's seed; the server keeps closed seeds privately (never served), grows looks, and its PNG cache is disposable |
+| Accounts | **From scratch**: no migration, no password hash, no Mongo |
+| Where the key lives | in memory and this tab's session storage; gone on tab close or sign-out |
+| The hand design | **Design B**: a secret, user-chosen login phrase; OPRF-hardened unlock; sketches only from login writings |
+| Password | **Optional** (Tabor): name + phrase + hand open the key; a typed password is a backup the writer adds at registration or later, and can turn off |
+| Recolor | **Removed**: colour is pigment in the sealed acts, chosen on the pen, changeable mid-stroke |
+| Item scale | an integer in 64ths (4..640, 64 = as written); every size is its own look, grown from the scaled acts |
+| Open by default | sheet 0 (the registration signature), every signature, and proofs; everything else closed until the writer opens it |
+| Live preview | the real integer law, live, in a Web Worker; no GPU path (one implementation, nothing to drift) |
+| Cell size | 2 cells per page unit; the phone density check (emulated Pixel 7 and iPhone 13, law/lab/density.md) reads as ink, not blur, from the journal to the chase. Last look on a real phone pending |
+| Playback | own and open sheets: the physics played again (watch it bleed); closed sheets for visitors: the look revealed along the public strokes; video/GIF of either |
+| Pressure-less strokes | ink is time-based (rate × dt), so a slow pen pools; a flat middling pressure for mouse and finger |
+| On resize | nib and flow scale with the writing |
+| Droplet | the hold rule and the dry ring (physics); no height shading in published looks |
+| Pen | nib, size, flex, flow, ink: all the writer's, per piece, settable mid-stroke (desktop: Alt + wheel = flow) |
+| Phone mid-stroke control | none in this build |
+| Mix vs dry, dry quantum | 10 ms ticks, a dry step every 50 ms of recorded time |
+| Sketch cap | 5 phrase sketches (room for at least two devices), 2 page sketches |
+| Determinism | tested on Node, Chromium, Firefox and WebKit, byte for byte |
+| Registration length | name, password backup (optional), phrase ×3, signature, calibration page: **accepted for the experiment**, revisited after real hands are measured |
+
+### Where this build departs from the text above, and why
+
+- **A seal on every record.** Each sheet's record (strokes, box, family, a commitment to the seed, the facts digest, its use, and for signatures the name) is signed by the key. Under option 1 the server holds seeds; without the seal it (or anyone after an open) could attach other strokes to a sheet. The seal proves it; the paper shows it.
+- **Domain tags** (`"penpals/<purpose>/v1\0"`) on everything signed or hashed, so no signature can be reused for another purpose.
+- **Seven integers per cell**, not six: water, three wet pigments, three fixed. Washes, mixing and bead height need an amount of water.
+- **A recorded-time tick clock** (10 ms ticks), not K steps per act: the same motion sampled at 60 or 240 Hz lays the same ink.
+- **Fibers are short drawn segments**, not one direction per cell, so ink feathers along real fibers.
+- **The login phrase is fixed and secret, not fresh.** A fresh public phrase plus a reading of the hand that does not depend on the text would make hand bits computable by anyone from public writing.
+- **Login strokes never leave the device.** The sealed login sheet carries their digest and the challenge; the server keeps only the digest. (Stronger than "never published": never sent.)
+- **"A reading that matches none but passes the password adds a sketch"** can only happen after the key opened another way (there is no password-only check: that would let a password alone enroll a new hand). Built as: a phrase that failed, followed in the same attempt by the calibration page opening the key, becomes a new rhythm.
+- **OPRF unlock.** Without it, one fetch of the keyring and sketches allows offline guessing; with it, every guess is a round trip the server counts.
+
+### Stated plainly
+
+- **The hand is secret only because the login phrase is never published.** Public writing is public, including its dynamics.
+- **The seal proves it; the paper shows it.** The look is public; making another one that grows the same way needs the key.
+- **Closed seeds are on the server** under option 1, kept privately and never served. A sheet you open publishes its seed for good.
+- The hand factor is password-class strength, not key-class. Without the password backup, learning your phrase and your hand (or holding the server's files) is enough; the backup is what keeps a known hand out of reach.
+
+## Still needs Tabor's ruling
+
+- Recovery beyond the page backstop (the keyring holds typed openers: a recovery sheet can be added without a format change).
+- Whether visitors' profiles mention the hand at all (default: no).
+- The hand's code radii and quantizer: frozen only after real hands are measured (three people, ten sessions, phone and desktop). Until then `LAW_HAND_UNFROZEN` is on and the radii are the synthetic run's, loose enough for one person on a phone and a desktop.
+- The sketch cap, confirmed by that device report.
 
 ## Build order
 
+0. **The experiment, before anything.** Calibration paper + hand measure only. Three people, ten sessions each of one phrase, plus a tracing of each by someone else. Does the facts-based measure separate same-hand from tracing better than raw-stroke features? If the phrase sketch cannot reach a usable false-reject rate with a low false-accept against tracings, stop here and report.
 1. Integer paper function and the four rules on a CPU, one stroke, PNG out. Make it look right before anything else. The test strokes: a fast hairline, a slow curve, and a dwell that must bead and then run.
 2. Determinism test: same inputs on two machines, byte-identical output.
 3. Paper from `sign(key, "paper" || sheet_id)`. Reveal-and-verify path.

@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { NIBS, PEN_SIZES, BROAD_SIZES, FLEX_PRESETS, GUIDES, PX_PER_MM, renderStroke, timedStrokes, drawGuides, guideRows } from '../ink/nibs.js';
-import { encodeInkPng } from '../ink/encode.js';
+import { NIBS, PEN_SIZES, BROAD_SIZES, FLEX_PRESETS, GUIDES, PX_PER_MM, drawGuides, guideRows } from '../ink/nibs.js';
 import { PAPERS } from '../ink/paper.js';
-import { encodeStrokes } from '../ink/strokes.js';
+import { lawPen, FLOW_DEFAULT } from '../ink/pens.js';
+import { CELLS } from '../ink/live.js';
 import WriteMode from './WriteMode.jsx';
 import { CHASE, setChase } from './chase.js';
 import ChaseSettings from './ChaseSettings.jsx';
 
 const PAGE_WIDTH = 1400; // same page width as a photographed letter
-const PAGES = { half: 905, full: 1811 };
+export const PAGES = { half: 905, full: 1811 };
 const FLEX_FIELDS = ['hairline', 'maxWidth', 'swell', 'slant'];
 const ZOOMS = [0.5, 0.75, 1, 1.5, 2, 3, 4, 6]; // × the width that fits; zooming in = smaller writing on the page
 const MAX_SCREEN_PX = 10e6; // cap per on-screen canvas, so a zoomed full page stays within memory
@@ -35,52 +35,32 @@ const NIB_CHOICES = {
   },
 };
 
-// All strokes onto a canvas whose pixels are `k` × page pixels.
-function paintAll(canvas, strokes, k) {
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.setTransform(k, 0, 0, k, 0, 0);
-  for (const s of strokes) renderStroke(ctx, s);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-}
-
-function paintOne(canvas, stroke, k) {
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(k, 0, 0, k, 0, 0);
-  renderStroke(ctx, stroke);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-}
-
-// Write on screen. Emits the same result as the photo path:
-// { png, strokesBlob, strokesData, fidelity, strokeCount, display, detectedColor,
-//   width, height, ms, source: 'pad' } or null while dirty; onResult(null, true)
-// means the page is empty.
+// Write on screen, on a sheet of the law's paper (Living Ink). `ink` is the
+// live sheet (ink/live.js) the parent made for this writing: the pad captures
+// into it and shows what its worker grows, which is exactly what will be
+// sealed. `onChange(strokes)` reports how many strokes there are; the parent
+// settles and seals when the writer is done (ink.settle()).
 // `size` ({ width, height } in page px) makes it a compact pad on a page of
-// that size, for short things like a signature or a label: same nibs, lines,
-// undo and zoom, but no page sizes or write mode.
-// The page is always PAGE_WIDTH px wide (or size.width); zoom only changes how big it is on
-// screen, so zooming in lets you write smaller and fit more on the page.
-// Like a document editor, the page sits in the flow of the page and the window
-// scrolls it; only sideways overflow (when zoomed in) scrolls inside the pad.
+// that size, for short things like a signature: same nibs, lines, undo and
+// zoom, but no page sizes or write mode.
+// The page is always PAGE_WIDTH px wide (or size.width); zoom only changes how
+// big it is on screen, so zooming in lets you write smaller and fit more.
 // One finger writes, two fingers scroll; once a stylus is used, fingers only scroll.
-// Write mode (WriteMode.jsx) is where letters are written: full screen, with
-// the chase (chase.js) sliding the page along the line under the pen. What is
-// written there is a draft until its Play; then it joins these strokes, the
-// letter is emitted at once and `onWritten` moves on to saving and sending.
-// Strokes are kept twice: in page pixels (what gets sent) and at screen
-// resolution (what you see), so the pad stays sharp at every zoom.
-export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint: hintText = null, paper = 'plain', onPaperChange = null, onWritten = null }) {
+// Write mode (WriteMode.jsx) writes into the same sheet with the chase; its
+// strokes are a draft until its Play, and one undo walks back through both.
+// The ink's colour, nib and flow are on the pen, recorded with the strokes;
+// Alt + wheel changes the flow, even mid-stroke.
+export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size = null, hint: hintText = null, paper = 'plain', onPaperChange = null, onWritten = null, chase: allowChase = null, prompt = null }) {
   const [nib, setNib] = useState('flex');
   const [penSize, setPenSize] = useState('medium');
   const [flex, setFlex] = useState({ ...FLEX_PRESETS.copperplate });
   const [broadSize, setBroadSize] = useState('2.4 mm');
   const [angle, setAngle] = useState(35);
+  const [flow, setFlow] = useState(FLOW_DEFAULT);
   const [guide, setGuide] = useState('plain');
   const [spacing, setSpacing] = useState(() => Math.round(FLEX_PRESETS.copperplate.lineMm * PX_PER_MM));
   const [page, setPage] = useState('half');
-  const [strokeCount, setStrokeCount] = useState(0);
-  const [steps, setSteps] = useState({ undo: 0, redo: 0 });
+  const [strokeCount, setStrokeCount] = useState(ink.strokes);
   const [zoom, setZoom] = useState(1);
   const [cssWidth, setCssWidth] = useState(0); // on-screen width of the page
   const [hand, setHand] = useState(false); // the move tool
@@ -91,27 +71,22 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
   const [chase, setChaseSettings] = useState(() => ({ ...CHASE })); // the chase's knobs, as the settings panel shows them
   const [chaseOpen, setChaseOpen] = useState(false); // the chase settings panel
   const [adjustOpen, setAdjustOpen] = useState(false); // the nib's sliders, in a dropdown
+  const [error, setError] = useState(null);
   const adjustRef = useRef(null);
   const guideRef = useRef(null);
   const inkRef = useRef(null);
   const viewRef = useRef(null);
   const pageRef = useRef(null);
-  const layerRef = useRef(null); // committed strokes, page pixels
-  const screenRef = useRef(null); // committed strokes, screen pixels
-  const strokesRef = useRef([]);
-  const historyRef = useRef([]); // { add: stroke } | { cleared: strokes }, newest last
-  const futureRef = useRef([]); // what undo took back, for redo
   const draftRef = useRef({ strokes: [], camera: null }); // write mode's draft, kept while you're out of it
   const writingRef = useRef(false);
-  const currentRef = useRef(null);
+  const downRef = useRef(false); // the pen is down on the pad
   const panRef = useRef(null);
   const touchesRef = useRef(new Map()); // fingers down on the pad
   const hoverRef = useRef(false);
   const zoomRef = useRef(zoom);
-  const inkColorRef = useRef(inkColor);
-  const emitTimer = useRef(0);
-  const jobRef = useRef(0);
+  const frameRef = useRef(0);
   const compact = !!size;
+  const showChase = allowChase ?? !compact; // a compact pad can still offer write mode (a long text on a phone)
   const pageW = size?.width ?? PAGE_WIDTH;
   const height = size?.height ?? PAGES[page];
   const slant = nib === 'flex' ? flex.slant : 0;
@@ -123,113 +98,50 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
   const scale = Math.round(Math.min(fit, Math.sqrt(MAX_SCREEN_PX / (pageW * height))) * 1000) / 1000;
   const screenW = Math.round(pageW * scale);
   const screenH = Math.round(height * scale);
-  const scaleRef = useRef(scale);
-  scaleRef.current = scale;
+  const sizeRef = useRef({ pageW, height });
+  sizeRef.current = { pageW, height };
   zoomRef.current = zoom;
 
+  // The sheet as the worker grows it, scaled to the screen.
   const present = useCallback(() => {
-    const ink = inkRef.current;
-    const screen = screenRef.current;
-    if (!ink || !screen) return;
-    const ctx = ink.getContext('2d');
+    frameRef.current = 0;
+    const c = inkRef.current;
+    if (!c) return;
+    const ctx = c.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.clearRect(0, 0, ink.width, ink.height);
-    ctx.drawImage(screen, 0, 0);
-    const k = scaleRef.current;
-    if (draftRef.current.strokes.length) { // waiting in write mode: shown faint
-      ctx.globalAlpha = 0.35;
-      ctx.setTransform(k, 0, 0, k, 0, 0);
-      for (const d of draftRef.current.strokes) renderStroke(ctx, d.stroke);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalAlpha = 1;
-    }
-    if (currentRef.current) {
-      ctx.setTransform(k, 0, 0, k, 0, 0);
-      renderStroke(ctx, currentRef.current, true);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-    }
-    ctx.globalCompositeOperation = 'source-in'; // show the ink in the letter's colour
-    ctx.fillStyle = inkColorRef.current;
-    ctx.fillRect(0, 0, ink.width, ink.height);
-    ctx.globalCompositeOperation = 'source-over';
-  }, []);
-
-  const redraw = useCallback(() => {
-    if (layerRef.current) paintAll(layerRef.current, strokesRef.current, 1);
-    if (screenRef.current) paintAll(screenRef.current, strokesRef.current, scaleRef.current);
-    present();
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.imageSmoothingEnabled = true;
+    const { pageW: w, height: h } = sizeRef.current;
+    ctx.drawImage(ink.canvas, 0, 0, w * CELLS, h * CELLS, 0, 0, c.width, c.height);
+  }, [ink]);
+  const schedule = useCallback(() => {
+    if (!frameRef.current) frameRef.current = requestAnimationFrame(present);
   }, [present]);
+  useEffect(() => () => cancelAnimationFrame(frameRef.current), []);
 
-  // Encode the drawing a moment after the last change (or after `wait` ms).
-  const scheduleEmit = useCallback((wait = 500) => {
-    clearTimeout(emitTimer.current);
-    const empty = !strokesRef.current.length;
-    onResult(null, empty);
-    if (empty) return;
-    emitTimer.current = setTimeout(async () => {
-      const job = ++jobRef.current;
-      const layer = layerRef.current;
-      const t0 = performance.now();
-      const { data } = layer.getContext('2d').getImageData(0, 0, layer.width, layer.height);
-      const alpha = new Uint8ClampedArray(layer.width * layer.height);
-      for (let i = 0, p = 3; i < alpha.length; i++, p += 4) alpha[i] = data[p];
-      const png = await encodeInkPng({ width: layer.width, height: layer.height, alpha });
-      const strokesData = {
-        width: layer.width,
-        height: layer.height,
-        tilt: 0,
-        rows: guideRows(guide, spacing, layer.height), // the baselines the writer used
-        strokes: timedStrokes(strokesRef.current),
-      };
-      const strokesBlob = await encodeStrokes(strokesData);
-      if (job !== jobRef.current) return;
-      onResult({
-        png,
-        strokesBlob,
-        strokesData,
-        fidelity: 1,
-        strokeCount: strokesData.strokes.length,
-        display: 'strokes',
-        detectedColor: null,
-        width: layer.width,
-        height: layer.height,
-        ms: Math.round(performance.now() - t0),
-        source: 'pad',
-      });
-    }, wait);
-  }, [onResult, guide, spacing]);
+  useEffect(() => ink.onChange(() => {
+    schedule();
+    setStrokeCount(ink.strokes);
+    setError(ink.error ? 'This writing has more ink than one sheet can hold. Undo a little.' : null);
+  }), [ink, schedule]);
+  useEffect(() => { onChange?.(strokeCount); }, [strokeCount, onChange]);
 
-  // A new page size means a new page layer; strokes are redrawn onto it.
-  useEffect(() => {
-    const layer = document.createElement('canvas');
-    layer.width = pageW;
-    layer.height = height;
-    layer.getContext('2d', { willReadFrequently: true });
-    layerRef.current = layer;
-    paintAll(layer, strokesRef.current, 1);
-    scheduleEmit();
-  }, [height, scheduleEmit]);
+  const nibSettings = useCallback(() => {
+    if (nib === 'pen') return { nib, size: PEN_SIZES[penSize] };
+    if (nib === 'broad') return { nib, size: BROAD_SIZES[broadSize], angle };
+    return { nib, hairline: flex.hairline, maxWidth: flex.maxWidth, swell: flex.swell, slant: flex.slant };
+  }, [nib, penSize, broadSize, angle, flex]);
 
-  // A new on-screen size (zoom, window, page) means a new screen layer. Layout
-  // effects, so the resized canvases are repainted before the screen updates.
-  useLayoutEffect(() => {
-    const screen = document.createElement('canvas');
-    screen.width = screenW;
-    screen.height = screenH;
-    screenRef.current = screen;
-    paintAll(screen, strokesRef.current, scaleRef.current);
-    present();
-  }, [screenW, screenH, present]);
+  // The pen the next ink is written with (mid-stroke too: the flow wheel). A flex
+  // nib under a mouse or finger gets its thick and thin from the slant (capture.js).
+  useEffect(() => { ink.setPen(lawPen(nibSettings(), inkColor, flow)); }, [ink, nibSettings, inkColor, flow]);
+  useEffect(() => { ink.capture.setFlex(nib === 'flex' ? { slant: flex.slant, swell: flex.swell } : null); }, [ink, nib, flex.slant, flex.swell]);
+
+  useLayoutEffect(() => { present(); }, [screenW, screenH, present]);
 
   useLayoutEffect(() => {
     drawGuides(guideRef.current.getContext('2d'), pageW, height, { guide, spacing, slant, scale, lineWidth: dpr, paper });
   }, [guide, spacing, height, slant, scale, screenW, screenH, dpr, paper, pageW]);
-
-  useEffect(() => {
-    inkColorRef.current = inkColor;
-    present();
-  }, [inkColor, present]);
 
   useLayoutEffect(() => {
     const el = pageRef.current;
@@ -238,8 +150,6 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     setCssWidth(el.getBoundingClientRect().width);
     return () => ro.disconnect();
   }, []);
-
-  useEffect(() => () => clearTimeout(emitTimer.current), []);
 
   // Zoom, keeping the point under (ax, ay) in viewport px — the middle of the
   // visible part of the page by default — where it is.
@@ -268,11 +178,20 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     zoomTo(next, ax, ay);
   }, [zoomTo]);
 
-  // Ctrl/⌘ + wheel (and trackpad pinch) zooms around the pointer.
+  // Ctrl/⌘ + wheel (and trackpad pinch) zooms around the pointer; Alt + wheel sets the flow.
   useEffect(() => {
     const v = viewRef.current;
     let acc = 0;
+    let flowAcc = 0;
     const onWheel = (e) => {
+      if (e.altKey) {
+        e.preventDefault();
+        flowAcc += e.deltaY;
+        if (Math.abs(flowAcc) < 40) return;
+        setFlow((f) => Math.min(15, Math.max(0, f + (flowAcc < 0 ? 1 : -1))));
+        flowAcc = 0;
+        return;
+      }
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       acc += e.deltaY;
@@ -320,21 +239,9 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     };
   }, []);
 
-  const nibSettings = () => {
-    if (nib === 'pen') return { nib, size: PEN_SIZES[penSize] };
-    if (nib === 'broad') return { nib, size: BROAD_SIZES[broadSize], angle };
-    return { nib, hairline: flex.hairline, maxWidth: flex.maxWidth, swell: flex.swell, slant: flex.slant };
-  };
-
   const toPage = (e) => {
     const r = inkRef.current.getBoundingClientRect();
-    return {
-      x: ((e.clientX - r.left) / r.width) * pageW,
-      y: ((e.clientY - r.top) / r.height) * height,
-      t: performance.now(),
-      p: e.pressure || 0.5,
-      pen: e.pointerType === 'pen',
-    };
+    return { x: ((e.clientX - r.left) / r.width) * pageW, y: ((e.clientY - r.top) / r.height) * height };
   };
 
   // Panning scrolls the pad sideways and the window up and down.
@@ -359,8 +266,8 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     if (e.pointerType === 'touch') {
       touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touchesRef.current.size === 2) {
-        currentRef.current = null; // the first finger was the start of a scroll, not a stroke
-        present();
+        if (downRef.current) ink.capture.cancel(); // the first finger was the start of a scroll, not a stroke
+        downRef.current = false;
         const mid = fingersMid();
         startPan(mid.x, mid.y, true);
         return;
@@ -372,9 +279,8 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       return;
     }
     if (e.button !== 0 || panRef.current) return;
-    currentRef.current = { ...nibSettings(), points: [toPage(e)] };
-    onResult(null);
-    present();
+    downRef.current = true;
+    ink.capture.down(toPage(e), e.nativeEvent, e.pointerType);
   };
 
   const onPointerMove = (e) => {
@@ -388,12 +294,10 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       }
       return;
     }
-    const cur = currentRef.current;
-    if (!cur) return;
+    if (!downRef.current) return;
     const coalesced = e.nativeEvent.getCoalescedEvents?.();
-    const events = coalesced?.length ? coalesced : [e];
-    for (const ev of events) cur.points.push(toPage(ev));
-    present();
+    const events = coalesced?.length ? coalesced : [e.nativeEvent];
+    for (const ev of events) ink.capture.move(toPage(ev), ev);
   };
 
   const onPointerUp = (e) => {
@@ -402,24 +306,10 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       if (!panRef.current.fingers || touchesRef.current.size === 0) panRef.current = null;
       return;
     }
-    const cur = currentRef.current;
-    if (!cur) return;
-    currentRef.current = null;
-    strokesRef.current.push(cur);
-    historyRef.current.push({ add: cur });
-    futureRef.current = [];
-    paintOne(layerRef.current, cur, 1);
-    paintOne(screenRef.current, cur, scaleRef.current);
-    present();
-    changed(false);
-  };
-
-  // After any change to the strokes: counts, picture, and a new letter.
-  const changed = (repaint = true, wait = undefined) => {
-    setStrokeCount(strokesRef.current.length);
-    setSteps({ undo: historyRef.current.length, redo: futureRef.current.length });
-    if (repaint) redraw();
-    scheduleEmit(wait);
+    if (!downRef.current) return;
+    downRef.current = false;
+    if (e.type === 'pointercancel') ink.capture.cancel();
+    else ink.capture.up(toPage(e), e.nativeEvent);
   };
 
   const enterWriting = () => {
@@ -430,64 +320,57 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
     writingRef.current = false;
     setWriting(false);
     setDraftCount(draftRef.current.strokes.length);
-    present();
+    schedule();
   };
 
-  // Write mode's Play: its draft joins the letter (each stroke undoable here
-  // as usual), the letter is emitted now, and the whole of it comes back to be played.
+  // Write mode's Play: its draft joins the writing (it is in the sheet already;
+  // only the draft's camera bookkeeping ends), and the sheet is written out again.
   const commitDraft = () => {
-    const draft = draftRef.current.strokes;
     draftRef.current.strokes = [];
-    for (const { stroke } of draft) {
-      strokesRef.current.push(stroke);
-      historyRef.current.push({ add: stroke });
-    }
-    if (draft.length) futureRef.current = [];
     setDraftCount(0);
-    changed(true, 0);
-    return { width: pageW, height, strokes: timedStrokes(strokesRef.current) };
+    return {
+      width: pageW,
+      height,
+      strokes: ink.capture.strokes,
+      makePlayer: (canvas) => {
+        canvas.width = ink.canvas.width;
+        canvas.height = Math.round(height * CELLS);
+        return ink.play(canvas);
+      },
+    };
   };
   const writtenOut = () => {
     leaveWriting();
     onWritten?.();
   };
 
+  // One undo for everything on the sheet, newest first: a stroke from write
+  // mode's draft leaves the draft too.
   const undo = () => {
-    const h = historyRef.current.pop();
-    if (!h) return;
-    if (h.add) strokesRef.current.pop();
-    else strokesRef.current = h.cleared;
-    futureRef.current.push(h);
-    changed();
-  };
-
-  const redo = () => {
-    const h = futureRef.current.pop();
-    if (!h) return;
-    if (h.add) strokesRef.current.push(h.add);
-    else strokesRef.current = [];
-    historyRef.current.push(h);
-    changed();
+    if (downRef.current) return;
+    const s = ink.undo();
+    const draft = draftRef.current.strokes;
+    if (s && draft.length && draft.at(-1).captured === s) {
+      draft.pop();
+      setDraftCount(draft.length);
+    }
   };
 
   const clear = () => {
-    if (!strokesRef.current.length) return;
-    historyRef.current.push({ cleared: strokesRef.current });
-    futureRef.current = [];
-    strokesRef.current = [];
-    changed();
+    if (!ink.strokes || downRef.current) return;
+    ink.clear();
+    draftRef.current = { strokes: [], camera: null };
+    setDraftCount(0);
   };
 
-  // Ctrl/⌘+Z undoes, Ctrl/⌘+Shift+Z or Ctrl+Y redoes (not while typing in a field).
-  const keysRef = useRef({ undo, redo });
-  keysRef.current = { undo, redo };
+  // Ctrl/⌘+Z undoes (not while typing in a field, nor in write mode, which has its own).
+  const keysRef = useRef({ undo });
+  keysRef.current = { undo };
   useEffect(() => {
     const onKey = (e) => {
       if (writingRef.current || !(e.ctrlKey || e.metaKey) || e.altKey || e.target.closest?.('input, textarea, [contenteditable]')) return;
-      const key = e.key.toLowerCase();
-      if (key === 'z' && !e.shiftKey) keysRef.current.undo();
-      else if ((key === 'z' && e.shiftKey) || key === 'y') keysRef.current.redo();
-      else return;
+      if (e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+      keysRef.current.undo();
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
@@ -503,10 +386,10 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
   const num = (e) => Number(e.target.value);
   const panning = hand || spaceHeld;
   const hint = hintText ? hintText
-    : draftCount ? `${draftCount} stroke${draftCount === 1 ? '' : 's'} waiting in the chase: they join the letter when you press Play there.`
-    : !compact && !strokeCount ? 'Choose your pen, then Chase: zoomed in on your line, and the page follows you along it.'
+    : draftCount ? `${draftCount} stroke${draftCount === 1 ? '' : 's'} waiting in the chase: press Play there when you're done.`
+    : showChase && !strokeCount ? 'Choose your pen, then Chase: zoomed in on your line, and the page follows you along it.'
     : penSeen ? 'The pen writes; fingers scroll.'
-      : zoom > 1 ? 'Hold Space and drag, use Move, or two fingers, to get around.' : 'Zoom in to write smaller and fit more on the page.';
+      : zoom > 1 ? 'Hold Space and drag, use Move, or two fingers, to get around.' : 'Zoom in to write smaller. Alt + wheel: more or less ink.';
 
   return (
     <div className={compact ? 'pad compact' : 'pad'}>
@@ -547,6 +430,10 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
             </select>
           </label>
         )}
+        <label className="field">
+          <span>Flow</span>
+          <input type="range" min="0" max="15" step="1" value={flow} onChange={(e) => setFlow(num(e))} title="How freely the nib gives ink (Alt + wheel)" />
+        </label>
         {nib !== 'pen' && (
           <div className="popover-wrap" ref={adjustRef}>
             <button type="button" className="adjust" aria-expanded={adjustOpen} onClick={() => setAdjustOpen((o) => !o)}>
@@ -564,10 +451,6 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
                     <input id="maxWidth" type="range" min="2" max="30" step="1" value={flex.maxWidth} onChange={setFlexField('maxWidth')} />
                     <span>{flex.maxWidth} px</span>
 
-                    <label htmlFor="swell">Swell over</label>
-                    <input id="swell" type="range" min="5" max="80" step="1" value={flex.swell} onChange={setFlexField('swell')} />
-                    <span>{flex.swell} px</span>
-
                     <label htmlFor="slant">Slant</label>
                     <input id="slant" type="range" min="40" max="90" step="1" value={flex.slant} onChange={setFlexField('slant')} />
                     <span>{flex.slant}°</span>
@@ -576,12 +459,12 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
                 {nib === 'broad' && (
                   <div className="controls">
                     <label htmlFor="angle">Nib angle</label>
-                    <input id="angle" type="range" min="0" max="180" step="5" value={angle} onChange={(e) => setAngle(num(e))} />
+                    <input id="angle" type="range" min="0" max="175" step="5" value={angle} onChange={(e) => setAngle(num(e))} />
                     <span>{angle}°</span>
                   </div>
                 )}
                 <p className="hint">
-                  {nib === 'flex' && `Downstrokes along the slant swell over ${flex.swell} px and thin again before release; upstrokes stay hairline. A pressure pen drives the width instead.`}
+                  {nib === 'flex' && 'A hairline when light; pressed, it spreads to the max width. A pressure pen drives it; a mouse or finger writes at middling pressure.'}
                   {nib === 'broad' && 'Thick and thin come from the direction you move against the fixed nib angle, like a real broad nib.'}
                 </p>
               </div>
@@ -621,13 +504,12 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       <div className="pad-desk">
         <div className="pad-bar">
           <div className="cluster">
-            <button type="button" onClick={undo} disabled={!steps.undo} title="Undo (Ctrl+Z)">Undo</button>
-            <button type="button" onClick={redo} disabled={!steps.redo} title="Redo (Ctrl+Shift+Z)">Redo</button>
+            <button type="button" onClick={undo} disabled={!strokeCount} title="Undo (Ctrl+Z)">Undo</button>
             <button type="button" className="quiet" onClick={clear} disabled={!strokeCount}>Clear</button>
           </div>
-          <span className="pad-hint">{hint}</span>
+          <span className="pad-hint">{error ?? hint}</span>
           <div className="cluster">
-            {!compact && <>
+            {showChase && <>
             <div className="split">
               <button
                 type="button"
@@ -655,7 +537,7 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
               <button type="button" onClick={() => stepZoom(1)} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} aria-label="Zoom in">+</button>
             </div>
           </div>
-          {chaseOpen && !compact && <ChaseSettings settings={chase} onChange={(patch) => setChaseSettings(setChase(patch))} />}
+          {chaseOpen && showChase && <ChaseSettings settings={chase} onChange={(patch) => setChaseSettings(setChase(patch))} />}
         </div>
         <div className="pad-view-wrap">
           <div
@@ -682,7 +564,7 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
       </div>
       {writing && (
         <WriteMode
-          getStrokes={() => strokesRef.current}
+          getStrokes={() => ink.capture.strokes}
           draftRef={draftRef}
           nib={nibSettings}
           pageW={pageW}
@@ -696,6 +578,9 @@ export default function Pad({ onResult, inkColor = '#1a1a1a', size = null, hint:
           onLeave={leaveWriting}
           onPlay={commitDraft}
           onDone={writtenOut}
+          capture={ink.capture}
+          live={ink}
+          prompt={prompt}
         />
       )}
     </div>

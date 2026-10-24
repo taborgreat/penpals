@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import Pad from '../components/Pad.jsx';
+import Pad from '../components/VectorPad.jsx';
 import { HandDrawn } from '../components/Hand.jsx';
 import { HAND } from '../hand/registry.js';
 import { HAND_LABELS } from '../hand/labels.js';

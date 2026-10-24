@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { loadInk, loadStrokes, paintLetter, paintStrokes, createPlayer } from '../ink/render.js';
 import { letterPng, letterGif, download } from '../ink/export.js';
 import Hand from './Hand.jsx';
+import PadLetter from './PadLetter.jsx';
 
 // A letter "reborn", painted in its colour on paper: drawn letters from their
 // strokes, photographed letters from their ink PNG. Letters with strokes can be
@@ -12,6 +13,12 @@ import Hand from './Hand.jsx';
 // and `guides` ({ rows, tilt }) draws the playback lines over the letter.
 // Any letter can be downloaded as a PNG, or as a GIF of it being written.
 export default function LetterView({ letter }) {
+  if (letter.kind === 'pad') return <PadLetter letter={letter} />;
+  return <PhotoLetter letter={letter} />;
+}
+
+// A photographed letter: the scan as ink, uncovered along its traced strokes.
+function PhotoLetter({ letter }) {
   const canvasRef = useRef(null);
   const playerRef = useRef(null);
   const speedRef = useRef(1);
@@ -19,7 +26,8 @@ export default function LetterView({ letter }) {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [error, setError] = useState(null);
-  const { inkColor = '#1a1a1a', paper = 'plain', guides = null } = letter;
+  const { inkColor = '#1a1a1a', guides = null } = letter;
+  const paper = letter.background ?? letter.paper ?? 'plain';
   const playable = letter.playable !== false;
   const strokesSrc = letter.strokesData ?? letter.strokesUrl ?? null;
   const showMask = letter.source === 'photo' || letter.display !== 'strokes' || !strokesSrc;
@@ -95,7 +103,7 @@ function Download({ asset, letter, animated }) {
   const [crop, setCrop] = useState(false);
   const [progress, setProgress] = useState(null); // 0..1 while a GIF is being made
   const [error, setError] = useState(null);
-  const opts = { inkColor: letter.inkColor ?? '#1a1a1a', paper: clear ? null : letter.paper ?? 'plain', crop };
+  const opts = { inkColor: letter.inkColor ?? '#1a1a1a', paper: clear ? null : letter.background ?? letter.paper ?? 'plain', crop };
   const name = `penpals-${letter.from ? `${letter.from}-` : ''}${letter.id ?? 'letter'}${clear ? '-transparent' : ''}`;
 
   async function png() {

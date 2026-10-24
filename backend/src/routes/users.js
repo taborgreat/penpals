@@ -4,6 +4,9 @@ import { allAccounts, findByName, getAccount, updateTwo, without, withId } from 
 import { allLetters, at } from '../store/letters.js';
 import { letterJson } from './letters.js';
 import { blockedEitherWay, blockedIds, canSeeProfile, hasBlocked, relation } from '../social.js';
+import { keys as K, fromB64url } from 'penpals-law';
+
+const keyOf = (a) => ({ publicKey: a.publicKey, fingerprint: K.fingerprint(fromB64url(a.publicKey, 32)) });
 
 export const usersRouter = Router();
 
@@ -39,12 +42,12 @@ usersRouter.get('/:username', (req, res) => {
   }
   const rel = relation(me, user.id);
   if (!canSeeProfile(me, user)) {
-    return res.json({ user: { username: user.username, private: true, hidden: true }, relation: rel, saved: [] });
+    return res.json({ user: { username: user.username, private: true, hidden: true, ...keyOf(user) }, relation: rel, saved: [] });
   }
   const savedAt = (l) => at(l.savedBy.find((s) => s.userId === user.id)?.at ?? l.createdAt);
   const saved = keptBy(user.id).sort((a, b) => savedAt(b) - savedAt(a));
   res.json({
-    user: { username: user.username, createdAt: user.createdAt, lettersSent: user.lettersSent ?? 0, private: !!user.private },
+    user: { username: user.username, createdAt: user.createdAt, lettersSent: user.lettersSent ?? 0, private: !!user.private, ...keyOf(user) },
     relation: rel,
     saved: saved.map((l) => letterJson(l, req.user)),
   });

@@ -1,0 +1,27 @@
+{
+  "name": "penpals-law",
+  "private": true,
+  "type": "module",
+  "description": "Living Ink: the deterministic integer law of flow and the hand measure (v1/, tags.js: pure ESM, no DOM, no node:* imports), plus Node-side tools, the Phase 0 lab and browser checks.",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./*": "./*.js"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "check:browsers": "node browser/run.js",
+    "check:lab": "node browser/lab-smoke.js",
+    "render": "node tools/render.js",
+    "analyze": "node lab/analyze.js --out lab/report.md"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@scure/bip39": "2.4.0"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}

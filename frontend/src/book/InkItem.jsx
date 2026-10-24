@@ -1,22 +1,26 @@
 import { useEffect, useRef } from 'react';
-import { renderStrokes } from '../ink/strokes.js';
-import { play, isPlaying, playMs, onFirstView, onResize, reducedMotion } from '../hand/player.js';
-import { inkData } from './ink.js';
+import { onFirstView, onResize, reducedMotion } from '../hand/player.js';
+import { pathsOf } from './ink.js';
 
-const MIN_STROKE_PX = 1.2; // no line thinner than this on screen, so hairlines stay visible
-const BLEED_PX = 4; // the canvas reaches past the item's box so thick edges aren't cut
+const REVEAL_MS = { min: 600, max: 4000 };
 
-// One piece of writing on a journal page, drawn in its colour to fill its box,
-// writing itself in the first time it's seen.
-export default function InkItem({ ink, color }) {
+// One piece of writing: its look (the settled ink, `src`), filling its box,
+// revealed along its strokes the first time it is seen (the strokes are public;
+// the paper they were grown on is not). `src` may be a promise of a URL (a
+// look grown on this device); `null` draws the strokes alone.
+export default function InkItem({ src, body }) {
   const boxRef = useRef(null);
   const canvasRef = useRef(null);
+  const imgRef = useRef(null); // the last look that loaded (kept while the next loads: no blink on resize)
 
   useEffect(() => {
     const box = boxRef.current;
     const canvas = canvasRef.current;
-    const data = inkData(ink);
+    const paths = pathsOf(body);
     let shown = 0;
+    let raf = 0;
+    let alive = true;
+
     const draw = (k) => {
       shown = k;
       const r = canvas.getBoundingClientRect();
@@ -29,39 +33,91 @@ export default function InkItem({ ink, color }) {
       }
       const ctx = canvas.getContext('2d');
       ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, W, H);
-      if (k <= 0) return;
-      const bleed = BLEED_PX * dpr;
-      const sx = (W - 2 * bleed) / data.width;
-      const sy = (H - 2 * bleed) / data.height;
-      ctx.setTransform(sx, 0, 0, sy, bleed, bleed);
-      renderStrokes(ctx, data, { until: k >= 1 ? Infinity : k * data.duration, minWidth: (MIN_STROKE_PX * dpr) / sx });
+      const img = imgRef.current;
+      const sx = W / body.box[2];
+      const sy = H / body.box[3];
+      if (img) ctx.drawImage(img, 0, 0, W, H);
+      if (k >= 1 && img) return;
+      // The part written by now: the strokes up to that moment, as wide as the nib could spread.
+      const until = k * paths.duration;
+      ctx.globalCompositeOperation = img ? 'destination-in' : 'source-over';
+      ctx.setTransform(sx, 0, 0, sy, 0, 0);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = img ? '#000' : 'rgba(40, 40, 60, 0.55)';
+      ctx.lineWidth = img ? paths.width : Math.max(1.5, paths.width / 4);
+      ctx.beginPath();
+      for (const s of paths.strokes) {
+        if (!s.length || s[0][2] > until) continue;
+        ctx.moveTo(s[0][0], s[0][1]);
+        if (s.length === 1) ctx.lineTo(s[0][0] + 0.01, s[0][1]);
+        for (const [x, y, t] of s) {
+          if (t > until) break;
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalCompositeOperation = 'source-in';
-      ctx.fillStyle = color;
-      ctx.fillRect(0, 0, W, H);
       ctx.globalCompositeOperation = 'source-over';
     };
-    const player = { draw };
+
+    const reveal = () => {
+      const ms = Math.min(REVEAL_MS.max, Math.max(REVEAL_MS.min, paths.duration));
+      const t0 = performance.now();
+      const step = (now) => {
+        if (!alive) return;
+        const k = Math.min(1, (now - t0) / ms);
+        draw(k);
+        if (k < 1) raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+    };
+
     let unview = () => {};
-    if (reducedMotion() || !data.duration) draw(1);
-    else {
-      draw(0);
-      unview = onFirstView(box, () => play(player, playMs(data.duration)));
-    }
-    const unsize = onResize(box, () => { if (!isPlaying(player)) draw(shown); });
-    const fallback = setTimeout(() => { if (shown === 0 && !isPlaying(player)) { unview(); draw(1); } }, 4000);
+    const start = () => {
+      if (reducedMotion() || imgRef.current?.dataset.revealed) draw(1);
+      else {
+        draw(0);
+        unview = onFirstView(box, () => {
+          if (imgRef.current) imgRef.current.dataset.revealed = '1';
+          reveal();
+        });
+      }
+    };
+
+    Promise.resolve(src).then((url) => {
+      if (!alive) return;
+      if (!url) {
+        imgRef.current = null;
+        draw(1);
+        return;
+      }
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        if (!alive) return;
+        if (imgRef.current?.dataset.revealed) img.dataset.revealed = '1';
+        imgRef.current = img;
+        start();
+      };
+      img.onerror = () => { if (alive && !imgRef.current) draw(1); };
+      img.src = url;
+    });
+    if (imgRef.current) draw(shown || 1);
+    const unsize = onResize(box, () => draw(shown || 1));
     return () => {
-      clearTimeout(fallback);
+      alive = false;
+      cancelAnimationFrame(raf);
       unview();
       unsize();
-      player.draw = () => {};
     };
-  }, [ink, color]);
+  }, [src, body]);
 
   return (
     <span ref={boxRef} className="ink-item-art">
-      <canvas ref={canvasRef} style={{ left: -BLEED_PX, top: -BLEED_PX, width: `calc(100% + ${2 * BLEED_PX}px)`, height: `calc(100% + ${2 * BLEED_PX}px)` }} />
+      <canvas ref={canvasRef} style={{ left: 0, top: 0, width: '100%', height: '100%' }} />
     </span>
   );
 }

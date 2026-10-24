@@ -1,28 +1,31 @@
 import { config } from '../config.js';
 
-// The edit ops (books.md B5). Each changes the skeleton only; writing new ink
-// is the one thing that touches the chain. `applyOp` changes `s` in place and
-// returns anything the client should hear back (e.g. a new item's id).
+// The edit ops (books.md B5, as Living Ink changed them). Each changes the
+// skeleton only; layout is not a mark, so it is not sealed. Writing is the one
+// thing that touches the chain. `applyOp` changes `s` in place and returns
+// anything the client should hear back (e.g. a new item's id).
 //
-//   add          page, ink, x, y, scale, color   place writing (returns item)
+//   add          page, ink, x, y, scale         place book ink (returns item)
 //   move         page, item, x, y
-//   resize       page, item, scale
-//   recolor      page, item, color
-//   link         page, item, target_page         make it a button
+//   resize       page, item, scale              scale: integer, 1/64 units (64 = 1×)
+//   link         page, item, target_page        make it a button
 //   unlink       page, item
 //   remove       page, item
-//   reorder      page, item, index               bring forward / send back
+//   reorder      page, item, index              bring forward / send back
 //   add_page     page_id, background
-//   rename_page  page_id, new_id                 buttons pointing at it follow
-//   remove_page  page_id                         buttons pointing at it unlink
+//   rename_page  page_id, new_id                buttons pointing at it follow
+//   remove_page  page_id                        buttons pointing at it unlink
 //   background   page, color
-//   signature    ink (or null to remove)         the signature is an ink ref
-//   signature_color  color
+//   family       grain, weight                  the paper family new sheets are written on
+//   signature    ink                            (internal: set when a signature lands)
+//
+// There is no recolor: colour is pigment in the sealed acts, chosen on the pen.
 
-const bad = (message) => Object.assign(new Error(message), { status: 400 });
+const bad = (message) => Object.assign(new Error(message), { status: 400, code: 'bad_edit' });
 const PAGE_ID = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 const COLOR = /^#[0-9a-f]{6}$/i;
 const { pageWidth: W, pageHeight: H } = config.book;
+export const SCALE = { min: 4, max: 640, one: 64 };
 
 const num = (v, lo, hi, what) => {
   if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) throw bad(`Bad ${what}.`);
@@ -47,20 +50,29 @@ function itemOf(page, id) {
   return { item: page.items[index], index };
 }
 
-export async function applyOp(s, op, { hasInk }) {
+// An integer scale whose re-derived look stays within the render cap.
+export function scaleFor(body, v) {
+  if (!Number.isInteger(v) || v < SCALE.min || v > SCALE.max) throw bad(`A size is a whole number from ${SCALE.min} to ${SCALE.max} (64 is as written).`);
+  const [, , w, h] = body.box;
+  const cells = Math.ceil((w * v) / SCALE.one) * Math.ceil((h * v) / SCALE.one);
+  if (cells > config.render.maxCells) throw bad('That writing cannot be shown that large.');
+  return v;
+}
+
+export async function applyOp(s, op, { inkBody }) {
   if (!op || typeof op !== 'object') throw bad('An edit needs an op.');
   switch (op.op) {
     case 'add': {
       const page = pageOf(s, op.page);
       if (page.items.length >= config.book.maxItemsPerPage) throw bad('This page is full.');
-      if (typeof op.ink !== 'string' || !(await hasInk(op.ink))) throw bad('That ink is not in this book.');
+      const body = typeof op.ink === 'string' ? await inkBody(op.ink) : null;
+      if (!body || body.use !== 'book') throw bad('That is not writing from this book.');
       const item = {
         id: `i${s.nextItem++}`,
         ink: op.ink,
         x: num(op.x, -W, 2 * W, 'x'),
         y: num(op.y, -H, 2 * H, 'y'),
-        scale: num(op.scale ?? 1, 0.05, 10, 'size'),
-        color: color(op.color ?? '#1d2a44'),
+        scale: scaleFor(body, op.scale ?? SCALE.one),
       };
       page.items.push(item);
       return { item: item.id };
@@ -72,11 +84,8 @@ export async function applyOp(s, op, { hasInk }) {
       return null;
     }
     case 'resize': {
-      itemOf(pageOf(s, op.page), op.item).item.scale = num(op.scale, 0.05, 10, 'size');
-      return null;
-    }
-    case 'recolor': {
-      itemOf(pageOf(s, op.page), op.item).item.color = color(op.color);
+      const { item } = itemOf(pageOf(s, op.page), op.item);
+      item.scale = scaleFor(await inkBody(item.ink), op.scale);
       return null;
     }
     case 'link': {
@@ -116,7 +125,6 @@ export async function applyOp(s, op, { hasInk }) {
       pageOf(s, from);
       if (from === to) return { page: to };
       if (s.pages[to]) throw bad(`There is already a page "${to}".`);
-      // Rebuild in the same order, under the new name.
       s.pages = Object.fromEntries(Object.entries(s.pages).map(([k, v]) => [k === from ? to : k, v]));
       if (s.home === from) s.home = to;
       for (const page of Object.values(s.pages)) {
@@ -138,19 +146,16 @@ export async function applyOp(s, op, { hasInk }) {
       pageOf(s, op.page).background = color(op.color);
       return null;
     }
-    case 'signature': {
-      if (op.ink === null) {
-        s.signature = null;
-        return null;
-      }
-      if (typeof op.ink !== 'string' || !(await hasInk(op.ink))) throw bad('That ink is not in this book.');
-      s.signature = op.ink;
-      if (op.color !== undefined) s.signatureColor = signatureColor(op.color);
+    case 'family': {
+      const g = op.grain, w = op.weight;
+      if (!Number.isInteger(g) || g < 0 || g > 15 || !Number.isInteger(w) || w < 0 || w > 15) throw bad('A paper family is grain and weight, 0 to 15 each.');
+      s.paperFamily = { grain: g, weight: w, tooth: 0 };
       return null;
     }
-    case 'signature_color': {
-      if (!s.signature) throw bad('Sign your name first.');
-      s.signatureColor = signatureColor(op.color);
+    case 'signature': {
+      const body = await inkBody(op.ink);
+      if (!body || body.use !== 'signature') throw bad('That is not a signature.');
+      s.signature = op.ink;
       return null;
     }
     default:
@@ -158,7 +163,5 @@ export async function applyOp(s, op, { hasInk }) {
   }
 }
 
-function signatureColor(c) {
-  if (!config.signatureColors.includes(c)) throw bad('Pick one of the signature colours.');
-  return c;
-}
+// Ops a client may send as micro edits (the rest are internal).
+export const CLIENT_OPS = new Set(['add', 'move', 'resize', 'link', 'unlink', 'remove', 'reorder', 'add_page', 'rename_page', 'remove_page', 'background', 'family']);

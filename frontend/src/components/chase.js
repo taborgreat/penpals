@@ -3,7 +3,10 @@
 // The writer's thumb (or mouse) only does the circle of the letters; the chase
 // supplies the line. The page moves only when the writer acts: every bit of
 // rightward movement inside the chase zone slides the page by the same amount
-// (times RATE). Pausing, moving left, or lifting the pen moves nothing. There
+// (times RATE), but only on connecting strokes: when the pen is heading more
+// sideways than up (flatter than CONNECT_DEG). The steep strokes of a letter,
+// like going up the side of an a or o, hold the page still and land at the
+// writer's own angle. Pausing, moving left, or lifting the pen moves nothing. There
 // is no time in it at all: no timers, no smoothing, no easing. Its only input
 // is the writer's own movement, event by event, so it always matches their rate.
 //
@@ -23,6 +26,8 @@
 export const CHASE_DEFAULTS = {
   RATE: 1.0, // 1 = the line matches the thumb exactly; lower = tighter, more overlapping loops
   FLIP: false, // false = moving right moves the page (the spec); true = moving left does, to try (downstrokes then land upright)
+  CONNECT_DEG: 45, // the page moves only while the pen heads flatter than this (0 = flat, 90 = straight up; 90 = any rightward move)
+  HEADING_PX: 8, // the pen's heading is read over its last this many screen px (a distance, not a time), so jitter doesn't flick it
   PHONE_MAX_WIDTH: 700, // a view narrower than this (CSS px) is a phone
   ZONE_PHONE: 0.25, // where the chase zone starts on a phone, as a share of the view width
   ZONE_DESKTOP: 0.72, // and on a full screen
@@ -73,23 +78,46 @@ export const zoomFor = (linePx, spacing) => clampLinePx(linePx) / spacing;
 
 export const toPage = (cam, x, y) => ({ x: x / cam.zoom + cam.cam, y: y / cam.zoom + cam.camY });
 
-// Pen down at screen x: sets the starting point. Never moves the camera.
-export function penDown(cam, x) {
+// Pen down at screen (x, y): sets the starting point. Never moves the camera.
+export function penDown(cam, x, y) {
   cam.prevX = x;
+  cam.trail = [{ x, y }];
   return { cam: cam.cam, camY: cam.camY, line: cam.line }; // the stroke's cam_before, for undo
 }
 
-// One pointer movement to screen x: the whole chase. In the movement handler,
-// per coalesced event and in this order: 1. chase() moves the camera,
-// 2. convert the point with the new camera, 3. store the ink, 4. prevX = x.
-// Only the part of the movement that is rightward (leftward with FLIP) and
-// inside the zone (right of `start`) counts. `camMax` is where the page's end
-// meets the view's right edge: the chase stops there and the line reset takes
-// over. The page always moves the same way; it never moves back.
-export function chase(cam, x, start, camMax) {
+// Step 4 of the movement handler: remember where the pen is (screen px).
+export function penAt(cam, x, y) {
+  cam.prevX = x;
+  cam.trail ??= [];
+  cam.trail.push({ x, y });
+  if (cam.trail.length > 256) cam.trail.splice(0, 128);
+}
+
+// Whether the pen, now at screen (x, y), is on a connecting stroke: heading
+// flatter than CONNECT_DEG, read from the trail HEADING_PX back. Too little
+// trail to tell (just after the pen lands) counts as not connecting.
+function connecting(cam, x, y) {
+  if (CHASE.CONNECT_DEG >= 90) return true;
+  const trail = cam.trail ?? [];
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const vx = x - trail[i].x;
+    const vy = y - trail[i].y;
+    if (Math.hypot(vx, vy) >= CHASE.HEADING_PX) return (Math.atan2(Math.abs(vy), Math.abs(vx)) * 180) / Math.PI <= CHASE.CONNECT_DEG;
+  }
+  return false;
+}
+
+// One pointer movement to screen (x, y): the whole chase. In the movement
+// handler, per coalesced event and in this order: 1. chase() moves the camera,
+// 2. convert the point with the new camera, 3. store the ink, 4. penAt().
+// Only the part of the movement that is rightward (leftward with FLIP), inside
+// the zone (right of `start`) and on a connecting stroke counts. `camMax` is
+// where the page's end meets the view's right edge: the chase stops there and
+// the line reset takes over. The page always moves the same way; never back.
+export function chase(cam, x, y, start, camMax) {
   const dx = Math.max(x, start) - Math.max(cam.prevX ?? x, start); // the movement inside the zone
   const push = CHASE.FLIP ? -dx : dx;
-  if (push > 0) cam.cam = Math.max(cam.cam, Math.min(cam.cam + (push / cam.zoom) * CHASE.RATE, camMax));
+  if (push > 0 && connecting(cam, x, y)) cam.cam = Math.max(cam.cam, Math.min(cam.cam + (push / cam.zoom) * CHASE.RATE, camMax));
 }
 
 // The camera at the start of line `line`, in a view `viewH` tall.

@@ -1,33 +1,20 @@
-import crypto from 'node:crypto';
 import { config } from './config.js';
 import { getAccount } from './store/accounts.js';
 import { sessionUserId } from './store/sessions.js';
+import { httpError } from './files.js';
 
-export { createSession, deleteSession } from './store/sessions.js';
+export { createSession, deleteSession, deleteUserSessions } from './store/sessions.js';
 
-const SCRYPT = { N: 16384, r: 8, p: 1 };
-const KEY_LENGTH = 64;
+// Sessions are a 30-day httpOnly cookie for browsing and layout; every mark
+// (ink, letters, opens) also needs the key (a seal), which no cookie carries.
 export const COOKIE = 'penpals_session';
 
-export function hashPassword(password) {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, KEY_LENGTH, SCRYPT);
-  return `${salt.toString('hex')}:${hash.toString('hex')}`;
-}
-
-export function verifyPassword(password, stored) {
-  const [saltHex, hashHex] = stored.split(':');
-  const expected = Buffer.from(hashHex, 'hex');
-  const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length, SCRYPT);
-  return crypto.timingSafeEqual(actual, expected);
-}
-
 export function setSessionCookie(res, token) {
-  res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', maxAge: config.sessionTtlMs, path: '/' });
+  res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: config.auth.cookieSecure, maxAge: config.sessionTtlMs, path: '/' });
 }
 
 export function clearSessionCookie(res) {
-  res.clearCookie(COOKIE, { path: '/' });
+  res.clearCookie(COOKIE, { path: '/', secure: config.auth.cookieSecure, sameSite: 'lax' });
 }
 
 function readCookie(req, name) {
@@ -35,19 +22,25 @@ function readCookie(req, name) {
   if (!header) return null;
   for (const part of header.split(';')) {
     const [key, ...rest] = part.trim().split('=');
-    if (key === name) return decodeURIComponent(rest.join('='));
+    if (key === name) {
+      try {
+        return decodeURIComponent(rest.join('='));
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
 }
 
-// Attaches req.user = { id, username } (or null) to every request.
+// Attaches req.user = { id, username, publicKey } (or null) to every request.
 export async function sessionMiddleware(req, res, next) {
   req.user = null;
   const token = readCookie(req, COOKIE);
   if (token) {
     const account = getAccount(await sessionUserId(token));
     if (account) {
-      req.user = { id: account.id, username: account.username };
+      req.user = { id: account.id, username: account.username, publicKey: account.publicKey };
       req.sessionToken = token;
     }
   }
@@ -55,6 +48,26 @@ export async function sessionMiddleware(req, res, next) {
 }
 
 export function requireAuth(req, res, next) {
-  if (!req.user) return res.status(401).json({ error: 'Please log in.' });
+  if (!req.user) return next(httpError(401, 'signed_out', 'Please sign in.'));
+  next();
+}
+
+// The page's origin, as the browser stated it. Writes must come from this site
+// (CSRF), and signed auth messages name it, so a signature made for one site
+// is no use to another.
+export function originOk(req) {
+  const origin = req.get('origin');
+  if (!origin) return false;
+  if (config.auth.origins) return config.auth.origins.includes(origin);
+  try {
+    return new URL(origin).host === req.get('host');
+  } catch {
+    return false;
+  }
+}
+
+export function requireOrigin(req, res, next) {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (!originOk(req)) return next(httpError(403, 'bad_origin', 'This request did not come from this site.'));
   next();
 }

@@ -37,6 +37,10 @@ export default function ChaseSettings({ settings, onChange }) {
         <input id="chase-rate" type="range" min="0.3" max="1.5" step="0.05" value={settings.RATE} onChange={num('RATE')} />
         <span>{settings.RATE.toFixed(2)}×</span>
 
+        <label htmlFor="chase-connect" title="The page only moves while your pen heads flatter than this: connecting strokes move it, the steep strokes of a letter (up the side of an a or o) don't">Moves on strokes flatter than</label>
+        <input id="chase-connect" type="range" min="10" max="90" step="1" value={settings.CONNECT_DEG} onChange={num('CONNECT_DEG')} />
+        <span>{settings.CONNECT_DEG >= 90 ? 'any (no limit)' : `${settings.CONNECT_DEG}° from flat`}</span>
+
         <label htmlFor="chase-zone-phone">Chase zone, phone</label>
         <input id="chase-zone-phone" type="range" min="0" max="80" step="1" value={Math.round(settings.ZONE_PHONE * 100)} onChange={num('ZONE_PHONE', 100)} />
         <span>from {Math.round(settings.ZONE_PHONE * 100)}% across</span>

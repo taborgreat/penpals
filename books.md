@@ -224,3 +224,28 @@ POST /api/books/me/ink { ink, place, base }, appended and placed under the same 
 client shows an edit at once, sends edits one at a time, and on a stale reply reloads and retries once.
 • Viewing a .book: /book in the site opens a downloaded file locally (nothing is uploaded) and shows it
 as on the site, with buttons and playback.
+
+
+V2: Living Ink (keys.md)
+
+What changed in the book with Living Ink. Everything above still holds unless it is said here.
+
+• Ink chain lines are sealed records. A line is {"id":"k_000007","made","ink":{record},"seal","open"?}: the
+record names its use (book, signature, letter, proof), its sheet, the key, the paper family, the acts (PNKA
+bytes, base64url), the box of the settled ink, a commitment to the sheet's seed, and the facts digest; the seal
+is the key's signature over it. A later line {"id","made","open":"s…","ref","seed","by"} opens a sheet.
+Seeds of closed sheets are never in the chain (the server keeps them privately).
+• The .book is version 2: line 1 is {"book":2,"name","key","fingerprint","law",...skeleton}, then the chain as
+is. node law/bin/verify.js <file.book> checks every seal against the key, ids, one record per sheet, the
+opens, the layout, and regrows every open sheet; /book does the same in the browser (and, with your key in
+the tab, regrows your closed sheets too).
+• No recolour: colour is pigment in the acts, chosen on the pen. Items have no color field; the recolor op,
+the signature colour and signature removal are gone.
+• Scale is an integer in 64ths (4..640, 64 = as written). Each size is its own look, grown again from the
+scaled acts, not a stretched picture; a look is served only at a size the item is shown at.
+• The skeleton has paperFamily ({grain, weight, tooth}); the family op changes it for new sheets. Every
+record carries the family it was grown on.
+• The signature is a record of use signature, open from birth. Sheet 0 is the one written at registration;
+signing again adds a new sheet and points the skeleton at it.
+• New ink: POST /api/books/me/ink { line, seed, place?, base? }. The server checks the seal and the seed,
+grows the record and must get the same facts, then writes seed, line and edit in that order.

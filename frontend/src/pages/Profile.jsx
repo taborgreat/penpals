@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -6,11 +6,14 @@ import { kb } from '../format.js';
 import LetterView from '../components/LetterView.jsx';
 import SendControl from '../components/SendControl.jsx';
 import Pad from '../components/Pad.jsx';
-import { inkFromStrokes } from '../book/ink.js';
+import KeyGate from '../components/KeyGate.jsx';
 import Journal from '../book/Journal.jsx';
-import { HandDrawn } from '../components/Hand.jsx';
-import { useSignature, setSignature } from '../hand/signatures.js';
-import { SIGNATURE_COLORS, colorVars } from '../hand/colors.js';
+import { useSignature, refreshSignature } from '../hand/signatures.js';
+import { SIGNATURE_COLORS } from '../hand/colors.js';
+import { useKey, newSheet, sealInk, openBy } from '../keys/session.js';
+import { signOutEverywhere } from '../keys/account.js';
+import { useLiveInk } from '../ink/useLiveInk.js';
+import PasswordSetting from '../components/PasswordSetting.jsx';
 import Username from '../components/Username.jsx';
 import Hand from '../components/Hand.jsx';
 import HandNumber from '../components/HandNumber.jsx';
@@ -22,7 +25,8 @@ import ThemeToggle from '../components/ThemeToggle.jsx';
 export default function Profile() {
   const { username, page } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const key = useKey(user);
   const [data, setData] = useState(null);
   const [social, setSocial] = useState(null); // only for my own profile
   const [error, setError] = useState(null);
@@ -73,6 +77,7 @@ export default function Profile() {
   return (
     <>
       <h1><Username name={name} height={1.4} /> {u.private && <small className="badge quiet-badge">private</small>}</h1>
+      {u.fingerprint && <p className="meta fingerprint" title={`Their key: ${u.publicKey}. Everything in this book is sealed by it.`}>key · {u.fingerprint}</p>}
 
       {u.hidden ? (
         u.blockedByMe
@@ -94,6 +99,7 @@ export default function Profile() {
             </>
           )}
           {relation === 'friends' && <button type="button" onClick={act(() => api.del(`/api/users/${name}/friend`))}><Hand>Unfriend</Hand></button>}
+          <Link to={`/proofs?to=${encodeURIComponent(name)}`} className="button quiet" title="Ask them to prove, by hand and right now, that they hold their key">Ask for a live proof</Link>
           <button type="button" onClick={act(() => api.post(`/api/users/${name}/block`))}><Hand>Block</Hand></button>
         </div>
       )}
@@ -117,7 +123,7 @@ export default function Profile() {
         />
       )}
 
-      {isMe && social && <OwnControls social={social} act={act} />}
+      {isMe && social && <OwnControls social={social} act={act} writer={key} onSignedOut={logout} />}
 
       {!u.hidden && (
         <>
@@ -146,114 +152,94 @@ export default function Profile() {
 }
 
 const SIGN_PAGE = { width: 760, height: 470 }; // five ruled lines: sign on a middle one, with room above and below
+const SIGN_FAMILY = Object.freeze({ grain: 8, weight: 8, tooth: 0 });
 
-// Your signed name, which stands in for @name around the site. Signed on a
-// compact version of the letter pad, so every nib and setting is there.
+// Your signed name, which stands in for @name around the site. It is a sheet
+// of your book, sealed by your key and open from birth: anyone can regrow it.
+// Signing again makes a new one (the old stays in your book).
 function SignatureCard({ name }) {
   const signature = useSignature(name);
   const [signing, setSigning] = useState(false);
-  const [result, setResult] = useState(null);
-  const [color, setColor] = useState(null); // null = the signature's own
+  if (signature === undefined) return null;
+  return (
+    <div className="stack card signature-card">
+      <h2><Hand>Your signature</Hand></h2>
+      {signing ? (
+        <KeyGate>
+          {(writer) => <SignSheet writer={writer} name={name} onDone={() => { refreshSignature(name); setSigning(false); }} onCancel={() => setSigning(false)} />}
+        </KeyGate>
+      ) : (
+        <>
+          <p className="signature-show"><Username name={name} height={3} /></p>
+          <div className="row">
+            <button type="button" onClick={() => setSigning(true)}><Hand>Sign again</Hand></button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SignSheet({ writer, name, onDone, onCancel }) {
+  const sheet = useMemo(() => newSheet(writer), [writer]);
+  const ink = useLiveInk({ paperKey: sheet.paperKey, family: SIGN_FAMILY, size: SIGN_PAGE }, sheet.sheet);
+  const [color, setColor] = useState(SIGNATURE_COLORS[0].light);
+  const [strokes, setStrokes] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const onResult = useCallback((r) => setResult(r), []);
-  const shown = color ?? signature?.color ?? SIGNATURE_COLORS[0].id;
 
   async function save() {
-    const ink = result && inkFromStrokes(result.strokesData.strokes);
-    if (!ink) return;
     setBusy(true);
     setError(null);
     try {
-      // The signature is ink in your book; the skeleton points at it.
-      const d = await api.put('/api/signatures/me', { ink, color: shown });
-      setSignature(name, d.signature);
-      setSigning(false);
+      const settled = await ink.settle();
+      if (!settled?.box[2]) throw new Error('Sign first.');
+      const { line, D } = sealInk(writer, { sheet: sheet.sheet, seed: sheet.seed, use: 'signature', family: SIGN_FAMILY, settled, name });
+      await api.put('/api/books/me/signature', { line: { ...line, open: openBy(writer, D, sheet.sheet, sheet.seed) } });
+      onDone();
     } catch (err) {
-      setError(err.message);
+      setError(err.law ? 'That is more ink than a signature can hold.' : err.message);
     } finally {
       setBusy(false);
     }
   }
 
-  // Signed already: the colour changes at once, no signing again.
-  async function pick(id) {
-    setColor(id);
-    if (!signature || signing) return;
-    setError(null);
-    try {
-      await api.put('/api/signatures/me/color', { color: id });
-      setSignature(name, { ...signature, color: id });
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function remove() {
-    if (!window.confirm('Remove your signature? Your name will show as @' + name + ' again.')) return;
-    setError(null);
-    try {
-      await api.del('/api/signatures/me');
-      setSignature(name, null);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  if (signature === undefined) return null;
-  const editing = signing || !signature;
-  const swatches = (
-    <div className="field">
-      <span>Colour</span>
-      <div className="swatches" role="group" aria-label="Signature colour">
-        {SIGNATURE_COLORS.map((c) => (
-          <button key={c.id} type="button" title={c.name} aria-label={c.name} aria-pressed={shown === c.id} style={colorVars(c.id)} onClick={() => pick(c.id)} />
-        ))}
-      </div>
-    </div>
-  );
   return (
-    <div className="stack card signature-card">
-      <h2><Hand>Your signature</Hand></h2>
-      {editing ? (
-        <>
-          <p className="muted">Sign your name on a line. It stands in for @{name} everywhere your name shows up.</p>
-          {swatches}
-          <Pad
-            size={SIGN_PAGE}
-            onResult={onResult}
-            inkColor={SIGNATURE_COLORS.find((c) => c.id === shown).light}
-            hint="Sign on one of the lines. Zoom in for a finer hand."
-          />
-          <div className="row">
-            {signature && <button type="button" className="quiet" onClick={() => setSigning(false)}><Hand>Cancel</Hand></button>}
-            <button type="button" className="primary" onClick={save} disabled={!result || busy}>{busy ? 'Saving…' : <Hand>Save signature</Hand>}</button>
-          </div>
-        </>
-      ) : (
-        <>
-          <p className="signature-show">
-            <span className="username signed" style={colorVars(shown)}>
-              <HandDrawn asset={signature} label={`@${name}`} fit={3} />
-            </span>
-          </p>
-          {swatches}
-          <div className="row">
-            <button type="button" onClick={() => setSigning(true)}><Hand>Sign again</Hand></button>
-            <button type="button" className="quiet" onClick={remove}><Hand>Remove</Hand></button>
-          </div>
-        </>
-      )}
+    <>
+      <p className="muted">Sign your name, {name}, on a line. It stands in for @{name} everywhere your name shows up.</p>
+      <div className="field">
+        <span>Ink</span>
+        <div className="swatches" role="group" aria-label="Ink">
+          {SIGNATURE_COLORS.map((c) => (
+            <button key={c.id} type="button" title={c.name} aria-label={c.name} aria-pressed={color === c.light} style={{ '--sig-l': c.light, '--sig-d': c.light }} onClick={() => setColor(c.light)} />
+          ))}
+        </div>
+      </div>
+      {ink && <Pad ink={ink} size={SIGN_PAGE} inkColor={color} onChange={setStrokes} hint="Sign on one of the lines. Zoom in for a finer hand." />}
+      <div className="row">
+        <button type="button" className="quiet" onClick={onCancel}><Hand>Cancel</Hand></button>
+        <button type="button" className="primary" onClick={save} disabled={!strokes || busy}>{busy ? 'Sealing…' : <Hand>Save signature</Hand>}</button>
+      </div>
       {error && <p className="error">{error}</p>}
-    </div>
+    </>
   );
 }
 
 // Privacy switch and friend lists, shown only to the profile's owner.
-function OwnControls({ social, act }) {
+function OwnControls({ social, act, writer, onSignedOut }) {
   const friendLink = (n) => <Link key={n} to={`/u/${n}`}>@{n}</Link>;
+  const everywhere = async () => {
+    if (!window.confirm('Sign out on every device, this one too?')) return;
+    await act(() => signOutEverywhere(writer))();
+    onSignedOut();
+  };
   return (
     <div className="stack card">
+      <PasswordSetting />
+      <p><Link to="/proofs">Live proofs</Link>: asks waiting for you, and the ones you made.</p>
+      <p>
+        <button type="button" className="quiet" onClick={everywhere} disabled={!writer} title={writer ? 'Ends every session of this account' : 'Unlock first'}>Sign out everywhere</button>
+      </p>
       <p><Link to="/write" className="write-cta" title="Write a letter"><Hand>Write</Hand></Link></p>
       <p>
         <Hand>Colours</Hand>: <ThemeToggle />

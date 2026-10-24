@@ -1,6 +1,7 @@
 // The edit ops (books.md B5), applied on the client so the owner sees an edit
 // at once; the server applies the same op to the real skeleton and has the
-// last word (backend/src/store/ops.js). Returns a new skeleton.
+// last word (backend/src/store/ops.js). Returns a new skeleton. There is no
+// recolour: colour is pigment in the sealed strokes.
 
 export function applyLocal(skeleton, op) {
   const s = structuredClone(skeleton);
@@ -8,16 +9,13 @@ export function applyLocal(skeleton, op) {
   const item = page?.items.find((it) => it.id === op.item);
   switch (op.op) {
     case 'add':
-      page.items.push({ id: op.id, ink: op.ink, x: op.x, y: op.y, scale: op.scale, color: op.color });
+      page.items.push({ id: op.id, ink: op.ink, x: op.x, y: op.y, scale: op.scale });
       break;
     case 'move':
       Object.assign(item, { x: op.x, y: op.y });
       break;
     case 'resize':
       item.scale = op.scale;
-      break;
-    case 'recolor':
-      item.color = op.color;
       break;
     case 'link':
       item.link = { page: op.target_page };
@@ -48,6 +46,12 @@ export function applyLocal(skeleton, op) {
       break;
     case 'background':
       page.background = op.color;
+      break;
+    case 'family':
+      s.paperFamily = { grain: op.grain, weight: op.weight, tooth: 0 };
+      break;
+    case 'signature':
+      s.signature = op.ink;
       break;
     default:
       break;

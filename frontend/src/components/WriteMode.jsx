@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import { PX_PER_MM, renderStroke, drawGuides } from '../ink/nibs.js';
 import { createPlayer } from '../ink/render.js';
-import { CHASE, isPhone, zoneStart, clampLinePx, zoomFor, toPage, penDown, chase, lineStart, endGlow, inEndZone } from './chase.js';
+import { CHASE, isPhone, zoneStart, clampLinePx, zoomFor, toPage, penDown, penAt, chase, lineStart, endGlow, inEndZone } from './chase.js';
 
 // Playback shows the page cropped to the lines written on (a line's room either side), so it reads at phone size.
 function inkRows(data) {
@@ -52,7 +52,13 @@ function boxOf(stroke) {
 // draft to the pad (`onPlay`, which returns the whole letter), plays the
 // letter written out, then `onDone` moves on to saving and sending.
 // `getStrokes()` is the pad's finished strokes; `rows` the baselines (page px).
-export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, rows, spacing, guide, slant, paper, inkColor, onLeave, onPlay, onDone }) {
+// `capture` (optional, ink/capture.js) also records every stroke as acts, in
+// page coordinates after the chase: the raw motion Living Ink reads.
+// `live` (optional, ink/live.js): the sheet those acts grow on; drawn instead
+// of the vector strokes, and Play writes it out again with its physics
+// (`onPlay` then returns `makePlayer(canvas)`).
+// `prompt` (optional): text to copy, kept in view at the top while writing.
+export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, rows, spacing, guide, slant, paper, inkColor, onLeave, onPlay, onDone, capture = null, live = null, prompt = null }) {
   const rootRef = useRef(null);
   const paperRef = useRef(null);
   const inkRef = useRef(null);
@@ -68,11 +74,18 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
   const pointerXRef = useRef(null); // the pointer's last screen x
   const resetRef = useRef(0); // the pending line reset
   const frameRef = useRef(0);
+  const paperKeyRef = useRef(''); // what the paper canvas shows (redrawn only when it changes)
   const playerRef = useRef(null);
   const [count, setCount] = useState(draftRef.current.strokes.length);
   const [playing, setPlaying] = useState(null); // the whole letter, while it is written out
 
   const camMax = () => pageW - sizeRef.current.w / camRef.current.zoom;
+  // A page narrower than the view (a wide screen) sits in its middle, not against
+  // the left edge; the chase then has nothing to slide (camMax is behind it).
+  const centre = (c) => {
+    const spare = sizeRef.current.w / c.zoom - pageW;
+    if (spare > 0) c.cam = -spare / 2;
+  };
   const dims = () => ({ pageW, viewW: sizeRef.current.w, pxPerMm: PX_PER_MM });
 
   const render = useCallback(() => {
@@ -84,13 +97,19 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     const { w, h, dpr } = sizeRef.current;
     const k = c.zoom * dpr;
 
-    const pctx = paperCanvas.getContext('2d');
-    pctx.setTransform(1, 0, 0, 1, 0, 0);
-    pctx.clearRect(0, 0, paperCanvas.width, paperCanvas.height);
-    drawGuides(pctx, pageW, height, { guide, spacing, slant, paper, scale: k, lineWidth: dpr, view: { ox: c.cam, oy: c.camY } });
-    if (CHASE.SHOW_ZONE) {
-      pctx.fillStyle = 'rgba(214, 170, 60, 0.16)';
-      pctx.fillRect(zoneStart(w) * dpr, 0, paperCanvas.width, paperCanvas.height);
+    // The paper and its guides only change with the camera: while the ink grows
+    // under a still camera, only the ink is drawn again.
+    const paperKey = [c.cam, c.camY, k, w, h, guide, spacing, slant, paper, pageW, height, CHASE.SHOW_ZONE].join();
+    if (paperKey !== paperKeyRef.current) {
+      paperKeyRef.current = paperKey;
+      const pctx = paperCanvas.getContext('2d');
+      pctx.setTransform(1, 0, 0, 1, 0, 0);
+      pctx.clearRect(0, 0, paperCanvas.width, paperCanvas.height);
+      drawGuides(pctx, pageW, height, { guide, spacing, slant, paper, scale: k, lineWidth: dpr, view: { ox: c.cam, oy: c.camY } });
+      if (CHASE.SHOW_ZONE) {
+        pctx.fillStyle = 'rgba(214, 170, 60, 0.16)';
+        pctx.fillRect(zoneStart(w) * dpr, 0, paperCanvas.width, paperCanvas.height);
+      }
     }
 
     const ictx = inkCanvas.getContext('2d');
@@ -102,6 +121,16 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     const y0 = c.camY;
     const x1 = c.cam + w / c.zoom;
     const y1 = c.camY + h / c.zoom;
+    if (live) { // the sheet as the law grows it, cells scaled to page px: only the part in view
+      ictx.imageSmoothingEnabled = true;
+      const cells = live.canvas.width / pageW;
+      const sx = Math.max(0, Math.floor(x0 * cells) - 1);
+      const sy = Math.max(0, Math.floor(y0 * cells) - 1);
+      const sw = Math.min(live.canvas.width, Math.ceil(x1 * cells) + 1) - sx;
+      const sh = Math.min(live.canvas.height, Math.ceil(y1 * cells) + 1) - sy;
+      if (sw > 0 && sh > 0) ictx.drawImage(live.canvas, sx, sy, sw, sh, sx / cells, sy / cells, sw / cells, sh / cells);
+      ictx.setTransform(1, 0, 0, 1, 0, 0);
+    } else {
     const draw = (s) => {
       const b = boxOf(s);
       if (b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) renderStroke(ictx, s);
@@ -114,6 +143,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     ictx.fillStyle = inkColor;
     ictx.fillRect(0, 0, inkCanvas.width, inkCanvas.height);
     ictx.globalCompositeOperation = 'source-over';
+    }
 
     const end = endRef.current;
     if (end && CHASE.RESET_EDGE !== 'view') {
@@ -123,7 +153,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
       end.style.top = `${-c.camY * c.zoom}px`;
       end.style.height = `${height * c.zoom}px`;
     }
-  }, [getStrokes, draftRef, pageW, height, guide, spacing, slant, paper, inkColor]);
+  }, [getStrokes, draftRef, pageW, height, guide, spacing, slant, paper, inkColor, live]);
 
   const renderRef = useRef(render);
   renderRef.current = render;
@@ -164,6 +194,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
       el?.classList.remove('pending');
       glow(0, 300);
       lineStart(c, c.line + 1, rows, sizeRef.current.h, PX_PER_MM);
+      centre(c);
       c.prevX = pointerXRef.current; // so the jump itself never counts as moving right
       schedule();
     }, CHASE.LINE_RESET_PAUSE);
@@ -181,6 +212,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
         cv.width = Math.round(r.width * dpr);
         cv.height = Math.round(r.height * dpr);
       }
+      paperKeyRef.current = ''; // a sized canvas is a blank one
       if (!camRef.current) {
         const saved = draftRef.current.camera;
         const linePx = saved?.linePx ?? (isPhone(r.width) ? CHASE.ZOOM_PHONE : CHASE.ZOOM_DESKTOP);
@@ -193,6 +225,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
           const line = last ? rows.findIndex((b) => b >= last.y - spacing * 0.15) : 0;
           lineStart(c, line < 0 ? rows.length - 1 : line, rows, r.height, PX_PER_MM);
           if (last) c.cam = Math.max(c.cam, Math.min(last.x - zoneStart(r.width) / c.zoom, camMax()));
+          centre(c);
         }
       }
       renderRef.current();
@@ -204,6 +237,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { schedule(); }, [render, schedule]); // new colour, paper or lines
+  useEffect(() => live?.onChange(schedule), [live, schedule]); // the sheet grew
 
   // Monk mode: the page behind doesn't scroll, and can't be reached, while you write.
   useEffect(() => {
@@ -266,6 +300,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
         if (cur) { // the first finger was the start of a pinch, not a stroke
           Object.assign(c, cur.before);
           curRef.current = null;
+          capture?.cancel();
         }
         panRef.current = null;
         const f = fingers();
@@ -280,8 +315,9 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     } else if (e.button !== 0) return;
     if (pinchRef.current || panRef.current) return;
     cancelReset();
-    const before = penDown(c, pt.x); // never moves the camera
+    const before = penDown(c, pt.x, pt.y); // never moves the camera
     curRef.current = { stroke: { ...nib(), points: [pagePoint(c, pt.x, pt.y, e, e.pointerType)] }, before };
+    capture?.down(curRef.current.stroke.points[0], e.nativeEvent, e.pointerType);
     schedule();
   };
 
@@ -324,10 +360,11 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     for (const ev of events) {
       const x = ev.clientX - sizeRef.current.left; // screen x, raw from the event
       const y = ev.clientY - sizeRef.current.top;
-      chase(c, x, start, max); // 1. move the camera first
+      chase(c, x, y, start, max); // 1. move the camera first
       const p = pagePoint(c, x, y, ev, e.pointerType); // 2. then convert with the new camera
       cur.stroke.points.push(p); // 3. then store the ink
-      c.prevX = x; // 4. last
+      capture?.move(p, ev);
+      penAt(c, x, y); // 4. last
     }
     const last = cur.stroke.points[cur.stroke.points.length - 1];
     glowAt(last.x, (last.x - c.cam) * c.zoom);
@@ -346,7 +383,8 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     const cur = curRef.current;
     if (!cur) return;
     curRef.current = null; // the camera does not move
-    draftRef.current.strokes.push(cur);
+    const captured = capture?.up(null, e.nativeEvent);
+    draftRef.current.strokes.push(captured ? { ...cur, captured } : cur); // captured: so the pad's undo can find it
     setCount(draftRef.current.strokes.length);
     const c = camRef.current;
     const last = cur.stroke.points[cur.stroke.points.length - 1];
@@ -360,6 +398,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
     if (curRef.current || playing) return;
     const d = draftRef.current.strokes.pop();
     if (!d) return;
+    capture?.undo(); // one undo: the camera below and the recorded acts go back together
     cancelReset();
     glow(0);
     const c = camRef.current;
@@ -397,7 +436,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
 
   useEffect(() => {
     if (!playing) return;
-    const player = createPlayer(playRef.current, { data: playing }, { inkColor, paper });
+    const player = playing.makePlayer ? playing.makePlayer(playRef.current) : createPlayer(playRef.current, { data: playing }, { inkColor, paper });
     playerRef.current = player;
     player.play(onDone);
   }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -460,6 +499,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
         onPointerLeave={(e) => { if (e.buttons === 0 && !resetRef.current) glow(0, 300); }}
         onContextMenu={(e) => e.preventDefault()}
       />
+      {prompt && <div className="monk-prompt" aria-label="Copy this">{prompt}</div>}
       <div className="monk-bar">
         <button type="button" onClick={leave} disabled={!!playing} title="Leave write mode (Esc)">Escape</button>
         <button type="button" onClick={undo} disabled={!!playing || !count} title="Take back the last stroke (Ctrl+Z)">Undo</button>

@@ -1,83 +1,47 @@
-// Ink for books (books.md A4): a stroke collection in its own units, top-left 0,0:
-//   { id, made, strokes: [{ pts: [[x, y, w, t], ...], a? }], bounds: [w, h] }
-// w is the ink's width at that point, t its time in ms, a the nib angle of a
-// broad-nib stroke. This file turns pad strokes into that, and that back into
-// what the renderer draws.
+// Book ink (keys.md): every piece of writing is a sealed record in the book's
+// chain, { id, made, ink: { acts, box, paper, sheet, … }, seal, open? }. What
+// shows on a page is its look: the settled ink the law grows on the sheet's
+// paper, a PNG one pixel per cell, from the server (or grown here for open
+// sheets). These helpers size it and read its strokes for the reveal.
+import { decodeActs } from 'penpals-law/v1/acts';
+import { fromB64url } from 'penpals-law';
 
-const PAD = 3; // units of margin around the ink
-const MAX_GAP = 400; // ms kept between strokes; longer pauses are shortened on playback
-const MIN_STEP = 1.2; // units between kept points
-const MIN_WIDTH_STEP = 0.3;
-const r1 = (v) => Math.round(v * 10) / 10;
+export const CELLS = 2; // law cells per page unit
+export const SCALE_ONE = 64; // item scales are integers, 64 = as written
+export const SCALE_MIN = 4;
+export const SCALE_MAX = 640;
 
-// From the pad's strokes (the shared format, in page px) to a stroke collection,
-// cropped to the ink. Returns null if there is no ink.
-export function inkFromStrokes(strokes) {
-  const list = strokes.filter((s) => s.points.length);
-  if (!list.length) return null;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const s of list) {
-    for (const p of s.points) {
-      const r = p.w / 2;
-      minX = Math.min(minX, p.x - r);
-      minY = Math.min(minY, p.y - r);
-      maxX = Math.max(maxX, p.x + r);
-      maxY = Math.max(maxY, p.y + r);
-    }
-  }
-  const x0 = minX - PAD;
-  const y0 = minY - PAD;
-  let clock = 0;
-  let prevEnd = null;
-  const out = list.map((s) => {
-    const pts = s.points;
-    const start = pts[0].t ?? 0;
-    if (prevEnd !== null) clock += Math.min(MAX_GAP, Math.max(0, start - prevEnd));
-    const kept = [pts[0]];
-    for (let i = 1; i < pts.length; i++) {
-      const a = kept[kept.length - 1];
-      const p = pts[i];
-      if (i === pts.length - 1 || Math.hypot(p.x - a.x, p.y - a.y) >= MIN_STEP || Math.abs(p.w - a.w) >= MIN_WIDTH_STEP) kept.push(p);
-    }
-    const stroke = { pts: kept.map((p) => [r1(p.x - x0), r1(p.y - y0), r1(p.w), Math.round(clock + (p.t ?? 0) - start)]) };
-    if (s.angle != null) stroke.a = Math.round(s.angle);
-    clock += (pts[pts.length - 1].t ?? 0) - start;
-    prevEnd = pts[pts.length - 1].t ?? 0;
-    return stroke;
-  });
-  return { strokes: out, bounds: [r1(maxX - x0 + PAD), r1(maxY - y0 + PAD)] };
+// An item's size on its page, in page units, at `scale` (64 = as written).
+export function itemSize(body, scale = SCALE_ONE) {
+  const [, , w, h] = body.box;
+  return [(w * scale) / SCALE_ONE / CELLS, (h * scale) / SCALE_ONE / CELLS];
 }
 
-const decoded = new WeakMap();
+export const clampScale = (v) => Math.max(SCALE_MIN, Math.min(SCALE_MAX, Math.round(v)));
 
-// A stroke collection as the shared format the renderer draws. Cached.
-export function inkData(ink) {
-  let data = decoded.get(ink);
-  if (data) return data;
+const paths = new WeakMap();
+
+// The record's strokes as polylines in its box (cells, as written), with their
+// times and nib widths: what the reveal draws along. Cached per record.
+export function pathsOf(body) {
+  let out = paths.get(body);
+  if (out) return out;
+  const rec = decodeActs(fromB64url(body.acts));
+  const [bx, by] = body.box;
   let duration = 0;
-  data = {
-    width: ink.bounds[0],
-    height: ink.bounds[1],
-    strokes: ink.strokes.map((s) => ({
-      angle: s.a ?? null,
-      points: s.pts.map(([x, y, w, t]) => {
-        if (t > duration) duration = t;
-        return { x, y, w, t };
-      }),
-    })),
-  };
-  data.duration = duration;
-  decoded.set(ink, data);
-  return data;
-}
-
-// A stroke collection in the shape the handwriting components draw (fit mode).
-export function inkAsset(ink, extra = {}) {
-  const data = inkData(ink);
-  return { w: ink.bounds[0], h: ink.bounds[1], line: ink.bounds[1], base: ink.bounds[1], dur: data.duration, data, ...extra };
+  let size = 20;
+  const strokes = rec.strokes.map((s) => {
+    for (const p of s.pens) if (p.size) size = Math.max(size, p.size + (p.flex ?? 0));
+    const pts = Array.from(s.x, (x, i) => {
+      const t = s.t[i];
+      if (t > duration) duration = t;
+      return [2 * rec.orgX + x / 5 - bx, 2 * rec.orgY + s.y[i] / 5 - by, t];
+    });
+    return pts;
+  });
+  out = { strokes, duration, width: (size / 10) * CELLS + 6 }; // the nib's widest, in cells, and room for the spread
+  paths.set(body, out);
+  return out;
 }
 
 // Parse JSON lines (a chain, or a .book after its first line), skipping an
@@ -93,4 +57,24 @@ export function parseLines(text) {
     } catch { /* a damaged line is skipped */ }
   }
   return out;
+}
+
+// A chain as { inks: Map(id → line), opened: Set(sheet), seeds: Map(sheet → published seed) }.
+export function readChain(lines) {
+  const inks = new Map();
+  const opened = new Set();
+  const seeds = new Map();
+  for (const l of lines) {
+    if (l.ink) {
+      inks.set(l.id, l);
+      if (l.open) {
+        opened.add(l.ink.sheet);
+        seeds.set(l.ink.sheet, l.open.seed);
+      }
+    } else if (typeof l.open === 'string') {
+      opened.add(l.open);
+      seeds.set(l.open, l.seed);
+    }
+  }
+  return { inks, opened, seeds };
 }

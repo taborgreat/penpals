@@ -1,13 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import { api } from '../api.js';
-import { inkAsset } from '../book/ink.js';
 
 // Scripters' signed names, fetched as they're needed. Every name asked for in
 // the same moment goes in one request, and each is fetched once a session.
-// A signature is ink in its owner's book ({ ink, color }); it's kept here as
-// something the handwriting components draw (with its colour).
-
-const asAsset = (sig) => (sig?.ink ? inkAsset(sig.ink, { color: sig.color }) : sig ?? null);
+// A signature is a sheet in its owner's book, sealed and open from birth; what
+// shows is its look ({ look: url, box: [x, y, w, h] in cells }).
 
 const cache = new Map(); // lowercased name → signature | null (null = not signed)
 const listeners = new Set();
@@ -15,6 +12,7 @@ let queue = new Set();
 let timer = 0;
 
 const emit = () => listeners.forEach((fn) => fn());
+const asShown = (sig) => (sig?.look ? { look: sig.look, box: sig.box, ink: sig.ink } : null);
 
 function flush() {
   timer = 0;
@@ -24,7 +22,7 @@ function flush() {
     const batch = names.slice(i, i + 100);
     api.get(`/api/signatures?names=${batch.map(encodeURIComponent).join(',')}`)
       .then(({ signatures }) => {
-        for (const n of batch) cache.set(n, asAsset(signatures[n]));
+        for (const n of batch) cache.set(n, asShown(signatures[n]));
         emit();
       })
       .catch(() => {
@@ -53,8 +51,8 @@ export function useSignature(name) {
   );
 }
 
-// After signing (or removing a signature), so every place showing the name updates.
-export function setSignature(name, signature) {
-  cache.set(String(name).toLowerCase(), asAsset(signature));
-  emit();
+// After signing again, so every place showing the name updates.
+export function refreshSignature(name) {
+  cache.delete(String(name).toLowerCase());
+  request(String(name).toLowerCase());
 }

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
-import { parseLines } from './ink.js';
+import { parseLines, readChain } from './ink.js';
 import { applyLocal } from './ops.js';
 
 // A person's book (books.md): the skeleton first, then the ink it points at.
-// For the owner, `send(op)` and `addInk(ink, place)` are micro edits: shown at
-// once, sent one at a time, each against the version the client has. A stale
+// For the owner, `send(op)` and `addInk(line, seed, place)` are micro edits:
+// shown at once, sent one at a time, each against the version the client has.
+// New ink is a record sealed on the device; the server grows it again before
+// it accepts it. `openSheet(sheet, by)` publishes a sheet's seed. A stale
 // edit (someone else's tab got there first) reloads the book and tries again.
 //
-// `fromFile` ({ name, skeleton, inks }) shows a downloaded .book instead (read-only).
+// `fromFile` ({ name, skeleton, inks, opened }) shows a downloaded .book instead (read-only).
 export function useBook(name, fromFile = null) {
   const [book, setBook] = useState(() => (fromFile ? { status: 'ready', ...fromFile } : { status: 'loading' }));
   const [error, setError] = useState(null);
@@ -22,9 +24,9 @@ export function useBook(name, fromFile = null) {
     try {
       const head = await api.get(`/api/books/${encodeURIComponent(name)}`);
       const res = await fetch(`/api/books/${encodeURIComponent(name)}/ink`);
-      const inks = new Map(parseLines(await res.text()).map((r) => [r.id, r]));
+      const { inks, opened, seeds } = readChain(parseLines(await res.text()));
       versionRef.current = head.skeleton.version;
-      setBook({ status: 'ready', name: head.name, page: head.page, skeleton: head.skeleton, inks });
+      setBook({ status: 'ready', name: head.name, key: head.key, fingerprint: head.fingerprint, page: head.page, skeleton: head.skeleton, inks, opened, seeds });
     } catch (err) {
       setBook({ status: err.status === 403 ? 'private' : 'error', error: err.message });
     }
@@ -69,14 +71,14 @@ export function useBook(name, fromFile = null) {
     });
   }, [load]);
 
-  // New writing: the ink is appended to the chain, then placed (one request).
-  const addInk = useCallback((ink, place) => enqueue(async () => {
+  // New writing: the sealed record lands in the chain, then is placed (one request).
+  const addInk = useCallback((line, seed, place) => enqueue(async () => {
     try {
-      const res = await api.post('/api/books/me/ink', { ink, place, base: versionRef.current });
+      const res = await api.post('/api/books/me/ink', { line, seed, place, base: versionRef.current });
       versionRef.current = res.version;
       setBook((b) => {
         const inks = new Map(b.inks);
-        inks.set(res.ink, { id: res.ink, ...ink });
+        inks.set(res.ink, { id: res.ink, ...line });
         return { ...b, inks, skeleton: applyLocal(b.skeleton, { ...place, op: 'add', id: res.item, ink: res.ink }) };
       });
       return res.item;
@@ -87,5 +89,14 @@ export function useBook(name, fromFile = null) {
     }
   }), [load]);
 
-  return { book, send, addInk, reload: load, error, clearError: () => setError(null) };
+  const openSheet = useCallback(async (sheet, by) => {
+    try {
+      await api.post('/api/books/me/open', { sheet, by });
+      setBook((b) => ({ ...b, opened: new Set([...b.opened, sheet]) }));
+    } catch (err) {
+      setError(err.message);
+    }
+  }, []);
+
+  return { book, send, addInk, openSheet, reload: load, error, clearError: () => setError(null) };
 }

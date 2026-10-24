@@ -45,3 +45,23 @@ export async function deleteExpiredSessions() {
   }
   return n;
 }
+
+// Sign out everywhere: every session of this account goes.
+export async function deleteUserSessions(userId) {
+  let names;
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return 0;
+  }
+  let n = 0;
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    const s = await readJson(path.join(dir, name), null);
+    if (s?.userId === userId) {
+      await fs.rm(path.join(dir, name), { force: true });
+      n++;
+    }
+  }
+  return n;
+}

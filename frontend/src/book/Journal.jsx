@@ -1,26 +1,39 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { keys as K, b64url } from 'penpals-law';
 import Pad from '../components/Pad.jsx';
 import Hand from '../components/Hand.jsx';
+import KeyGate from '../components/KeyGate.jsx';
 import { SIGNATURE_COLORS } from '../hand/colors.js';
+import { useAuth } from '../auth.jsx';
+import { useKey, newSheet, sealInk, openBy } from '../keys/session.js';
+import { useLiveInk } from '../ink/useLiveInk.js';
 import { useBook } from './useBook.js';
-import { inkFromStrokes } from './ink.js';
+import { itemSize, SCALE_ONE } from './ink.js';
 import { pageIdFrom } from './ops.js';
 import JournalPage from './JournalPage.jsx';
+import WalkBack from './WalkBack.jsx';
+import FilmDownload from '../components/FilmDownload.jsx';
+import { fromB64url } from 'penpals-law';
 
-// The living journal (books.md, Part B): a book of handwritten pages. The owner
-// writes anything anywhere, then moves, resizes, recolours and links it; every
-// change is one micro edit. Visitors see the same pages, and writing that's a
-// button takes them to its page. Every page has its own link (onPage).
+// The living journal (books.md, Part B; keys.md): a book of handwritten pages.
+// The owner writes anything anywhere (each piece a sheet of the law's paper,
+// sealed by their key), then moves, resizes and links it; every layout change
+// is one micro edit. Visitors see the same pages, each piece as its settled
+// look, and writing that's a button takes them to its page. Every page has its
+// own link (onPage). A sheet's paper is the writer's secret until they open it.
 const WRITE_PAD = { width: 1000, height: 470 }; // writing is placed at the size it was written on a page-wide pad
 const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c.light }));
 const BACKGROUNDS = ['#f6f1e7', '#ffffff', '#f2e8d0', '#e8eef6', '#f6e6e6', '#e7f1e6', '#2b2a33', '#1f2a40'];
 const DEFAULT_PAGE = { width: 1000, height: 1400 };
 
-export default function Journal({ name, pageId, editable = false, onPage, fromFile = null }) {
-  const { book, send, addInk, error, clearError } = useBook(name, fromFile);
+export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null }) {
+  const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
+  const { user } = useAuth();
+  const key = useKey(user);
   const [selected, setSelected] = useState(null);
   const [writing, setWriting] = useState(false);
   const [preview, setPreview] = useState(false);
+  const [walking, setWalking] = useState(null); // the item being walked back
   const editing = editable && !preview;
 
   const skeleton = book.skeleton;
@@ -30,6 +43,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const pageIds = skeleton ? Object.keys(skeleton.pages) : [];
 
   useEffect(() => setSelected(null), [current]);
+  useEffect(() => setWalking(null), [selected, current]);
 
   // Delete removes the selected writing; Escape lets go of it.
   useEffect(() => {
@@ -48,6 +62,22 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   }, [editing, selected, current, send]);
 
   const op = useCallback((o) => send(o), [send]);
+  const bookName = book.name ?? name;
+  const looks = useCallback((item) => `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?s=${item.scale}`, [bookName]);
+  // A sheet's film: grown here when this device can (yours, or open), else the server's.
+  const filmOf = (it) => {
+    const line = book.inks.get(it.ink);
+    const seed = seedOf(it);
+    if (seed) return { local: { actsBytes: fromB64url(line.ink.acts), paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: line.ink.paper, box: line.ink.box } };
+    return { url: `/api/books/${encodeURIComponent(bookName)}/film/${it.ink}` };
+  };
+  // A sheet's seed, to grow it here: published (open), or made with your key (yours).
+  const seedOf = (it) => {
+    const sheet = book.inks?.get(it.ink)?.ink.sheet;
+    if (!sheet) return null;
+    if (book.seeds?.get(sheet)) return book.seeds.get(sheet);
+    return key && key.publicKey === book.key ? b64url(K.sheetSeed(key.sk, sheet)) : null;
+  };
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
   if (book.status === 'private') return <p className="muted">This journal is private. Only their friends can see it.</p>;
@@ -117,24 +147,18 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
               <input type="color" value={page.background} onChange={(e) => send({ op: 'background', page: current, color: e.target.value })} title="Any colour" />
             </span>
           </span>
+          <FamilyPicker family={skeleton.paperFamily} onChange={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />
           <button type="button" className="quiet" onClick={renamePage}>Rename page</button>
           {current !== skeleton.home && <button type="button" className="quiet" onClick={removePage}>Remove page</button>}
         </div>
       )}
 
-      {editing && writing && <WritePanel onPlace={(ink, color) => place(ink, color)} />}
+      {editing && writing && <WritePanel family={skeleton.paperFamily} onPlace={place} />}
 
       {editing && item && (
         <div className="journal-tools selected-tools" role="toolbar" aria-label="Selected writing">
-          <span className="field">
-            <span>Colour</span>
-            <span className="swatches small" role="group" aria-label="Ink colour">
-              {INK_COLORS.map((c) => (
-                <button key={c.id} type="button" title={c.name} aria-pressed={item.color === c.hex} style={{ '--sig-l': c.hex, '--sig-d': c.hex }} onClick={() => send({ op: 'recolor', page: current, item: item.id, color: c.hex })} />
-              ))}
-              <input type="color" value={item.color} onChange={(e) => send({ op: 'recolor', page: current, item: item.id, color: e.target.value })} title="Any colour" />
-            </span>
-          </span>
+          <span className="meta">size {Math.round((item.scale / SCALE_ONE) * 100)}%</span>
+          {item.scale !== SCALE_ONE && <button type="button" className="quiet" onClick={() => send({ op: 'resize', page: current, item: item.id, scale: SCALE_ONE })}>As written</button>}
           <label className="field">
             <span>Button to</span>
             <select
@@ -150,10 +174,16 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           {item.link && <button type="button" onClick={() => onPage(item.link.page === skeleton.home ? null : item.link.page)}>Follow →</button>}
           <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: page.items.length - 1 })} title="Bring to front">Forward</button>
           <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: 0 })} title="Send to back">Back</button>
+          <OpenSheet line={book.inks.get(item.ink)} opened={book.opened} keyOf={key} onOpen={openSheet} />
+          <FilmDownload source={() => filmOf(item)} background={page.background} name={`${bookName}-${item.ink}`} />
+          <button type="button" className="quiet" disabled={!seedOf(item)} onClick={() => setWalking(item)} title={seedOf(item) ? 'Why each spot looks the way it does' : 'Unlock to walk back your own sheets'}>Walk back</button>
           <button type="button" className="quiet danger" onClick={() => { send({ op: 'remove', page: current, item: item.id }); setSelected(null); }}>Delete</button>
         </div>
       )}
 
+      {walking && seedOf(walking) && (
+        <WalkBack line={book.inks.get(walking.ink)} seed={seedOf(walking)} src={looks({ ink: walking.ink, scale: SCALE_ONE })} onClose={() => setWalking(null)} />
+      )}
       {error && <p className="error" role="alert">{error} <button type="button" className="quiet" onClick={clearError}>ok</button></p>}
       {missing && <p className="muted">There is no page "{pageId}" in this book, so here is the first page.</p>}
 
@@ -167,22 +197,24 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         onSelect={setSelected}
         onOp={op}
         onFollow={(id) => onPage(id === skeleton.home ? null : id)}
+        lookSrc={lookSrc ?? looks}
       />
       {editing && !page.items.length && <p className="hint journal-empty">An empty page. Press ✎ Write to put something on it.</p>}
     </section>
   );
 
-  // New writing goes in the middle of what's on screen of this page.
-  async function place(ink, color) {
+  // New writing goes in the middle of what's on screen of this page, as written.
+  async function place(sealed) {
     const el = document.querySelector('.journal-page');
     const r = el.getBoundingClientRect();
     const k = r.width / size.width;
     const top = Math.max(r.top, 0);
     const bottom = Math.min(r.bottom, window.innerHeight);
     const midY = bottom > top ? (top + bottom) / 2 : r.top + r.height / 2; // the page's middle if none of it is in view
-    const x = Math.round(size.width / 2 - ink.bounds[0] / 2);
-    const y = Math.round(Math.max(0, Math.min(size.height - ink.bounds[1], (midY - r.top) / k - ink.bounds[1] / 2)));
-    const id = await addInk(ink, { page: current, x, y, scale: 1, color });
+    const [w, h] = itemSize(sealed.line.ink, SCALE_ONE);
+    const x = Math.round(Math.max(0, size.width / 2 - w / 2));
+    const y = Math.round(Math.max(0, Math.min(size.height - h, (midY - r.top) / k - h / 2)));
+    const id = await addInk(sealed.line, sealed.seed, { page: current, x, y, scale: SCALE_ONE });
     if (id) {
       setSelected(id);
       setWriting(false);
@@ -190,13 +222,40 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   }
 }
 
-// Write something on a page-wide pad, then put it on the page.
-function WritePanel({ onPlace }) {
-  const [result, setResult] = useState(null);
+// Write something on a page-wide pad (a fresh sheet of your paper, growing
+// live), then seal it and put it on the page.
+function WritePanel({ family, onPlace }) {
+  return (
+    <KeyGate signedOut={<p className="muted">Sign in to write.</p>}>
+      {(key) => <WriteSheet key={key.publicKey} writer={key} family={family} onPlace={onPlace} />}
+    </KeyGate>
+  );
+}
+
+function WriteSheet({ writer, family, onPlace }) {
+  const [n, setN] = useState(0);
+  const sheet = useMemo(() => newSheet(writer), [writer, n]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ink = useLiveInk({ paperKey: sheet.paperKey, family, size: WRITE_PAD }, sheet.sheet);
   const [color, setColor] = useState(INK_COLORS[0].hex);
+  const [strokes, setStrokes] = useState(0);
   const [busy, setBusy] = useState(false);
-  const onResult = useCallback((r) => setResult(r), []);
-  const ink = result ? inkFromStrokes(result.strokesData.strokes) : null;
+  const [error, setError] = useState(null);
+
+  async function put() {
+    setBusy(true);
+    setError(null);
+    try {
+      const settled = await ink.settle();
+      if (!settled?.box[2]) throw new Error('Nothing to place yet.');
+      const { line } = sealInk(writer, { sheet: sheet.sheet, seed: sheet.seed, use: 'book', family, settled });
+      await onPlace({ line, seed: b64url(sheet.seed) });
+      setN((v) => v + 1); // the next writing is a new sheet
+    } catch (err) {
+      setError(err.law ? 'That is more ink than one sheet can hold. Undo some, or place it in parts.' : err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="write-panel">
@@ -207,23 +266,49 @@ function WritePanel({ onPlace }) {
             {INK_COLORS.map((c) => (
               <button key={c.id} type="button" title={c.name} aria-pressed={color === c.hex} style={{ '--sig-l': c.hex, '--sig-d': c.hex }} onClick={() => setColor(c.hex)} />
             ))}
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} title="Any colour" />
           </span>
         </span>
         <span className="spacer" />
-        <button
-          type="button"
-          className="primary"
-          disabled={!ink || busy}
-          onClick={async () => {
-            setBusy(true);
-            await onPlace(ink, color);
-            setBusy(false);
-          }}
-        >
-          {busy ? 'Placing…' : 'Place on page'}
+        <button type="button" className="primary" disabled={!strokes || busy} onClick={put}>
+          {busy ? 'Sealing…' : 'Place on page'}
         </button>
       </div>
-      <Pad size={WRITE_PAD} onResult={onResult} inkColor={color} hint="Write anything: a word, a sentence, a drawing. Then place it on the page." />
+      {ink && <Pad key={sheet.sheet} ink={ink} size={WRITE_PAD} inkColor={color} onChange={setStrokes} hint="Write anything: a word, a sentence, a drawing. Colours mix while wet. Then place it on the page." />}
+      {error && <p className="error">{error}</p>}
     </div>
+  );
+}
+
+// The paper new sheets are written on: grain and weight (0 to 15). Each sheet
+// keeps the family it was written on; this only changes what comes next.
+function FamilyPicker({ family, onChange }) {
+  const f = family ?? { grain: 8, weight: 8, tooth: 0 };
+  const opt = (v) => <option key={v} value={v}>{v}</option>;
+  const range = [...Array(16).keys()];
+  return (
+    <span className="field" title="The paper your next writing is grown on">
+      <span>Paper</span>
+      <label className="meta">grain <select value={f.grain} onChange={(e) => onChange({ ...f, grain: Number(e.target.value) })}>{range.map(opt)}</select></label>
+      <label className="meta">weight <select value={f.weight} onChange={(e) => onChange({ ...f, weight: Number(e.target.value) })}>{range.map(opt)}</select></label>
+    </span>
+  );
+}
+
+// Open a sheet: publish its seed, signed open by your key, so anyone can grow
+// its paper and check the ink settles exactly as sealed. It cannot be closed again.
+function OpenSheet({ line, opened, keyOf, onOpen }) {
+  if (!line?.ink || line.ink.use !== 'book') return null;
+  if (opened?.has(line.ink.sheet)) return <span className="meta" title="Its paper is public: anyone can regrow it">open sheet</span>;
+  const open = () => {
+    if (!window.confirm('Open this sheet? Its paper becomes public, so anyone can check the ink grows exactly as you sealed it. This cannot be undone.')) return;
+    const seed = K.sheetSeed(keyOf.sk, line.ink.sheet);
+    const { by } = openBy(keyOf, K.recordDigest(line.ink), line.ink.sheet, seed);
+    onOpen(line.ink.sheet, by);
+  };
+  return (
+    <button type="button" className="quiet" disabled={!keyOf} onClick={open} title={keyOf ? 'Publish the paper of this sheet' : 'Unlock to open sheets'}>
+      Open sheet
+    </button>
   );
 }

@@ -1,0 +1,277 @@
+{
+ "law": 1,
+ "tables": "ca4b904fe9fc7450ef6ca4f2988bff64a79c01f0537797463875838921506a8e",
+ "paper": "0ffe3f99068700eccf53bec2926ace500c378037a91ff919f7ddd937c57d3109",
+ "fixtures": {
+  "hairline@64": {
+   "facts": "dfefb0766c043f940a322f9290354deaa05aa18c04726b620dda866f7538afd0",
+   "look": "bb79219ff285c89d79049c003bed5a5c9c04b7a7ea1b18f738248c7f9f01f862",
+   "box": [
+    27,
+    27,
+    606,
+    46
+   ]
+  },
+  "hairline@40": {
+   "facts": "73e69a0526f39159999283d8bbc975ed959acbb7f633d81290e1e4d9450b234e",
+   "look": "a17322f1848564c93210eaddf24477988a77be8e6e604cd29137bb8bbf6d500f",
+   "box": [
+    24,
+    23,
+    380,
+    32
+   ]
+  },
+  "hairline@100": {
+   "facts": "4886fb031d7a58cb3e8a57804f63aa9815381be3c3d3477e274a0400eefb7573",
+   "look": "8608f33c202bcbdc49b02876ba793173cede6791bda805f27613bfa378e2beea",
+   "box": [
+    32,
+    31,
+    945,
+    71
+   ]
+  },
+  "slowCurve@64": {
+   "facts": "9b182843b923955170d403ef45371f58681bbb55c66e0ec77d983302bdf91398",
+   "look": "f1c685689853e8029ec06011a084d300dc5c03524c1e10b8d9267526d03a25f9",
+   "box": [
+    22,
+    22,
+    215,
+    216
+   ]
+  },
+  "slowCurve@40": {
+   "facts": "bfe01a565193e85119eb686c73cef263f9d0dc02f4c1fa99b16f266dc1081af2",
+   "look": "70f4fd23e099bb728a3b62b549de5f7be57df69d66349b068d60f9a50e4a025d",
+   "box": [
+    20,
+    20,
+    137,
+    138
+   ]
+  },
+  "slowCurve@100": {
+   "facts": "ca4cba7b82e4fc606f08dc69694036aff30a03961433355e0bbcf4066677679a",
+   "look": "dd46f135d449e589c89afde7f718747479f5f222791b7381020621c9ea6c6a91",
+   "box": [
+    26,
+    26,
+    332,
+    332
+   ]
+  },
+  "dwell@64": {
+   "facts": "c54e2e8f73c90375bc9409ca4646001d22b5c59e318335079c302f0ea222adcb",
+   "look": "a9b338912e99a4f05823cc955bca6e7f156d927f2d70ffd9261a7b2c6bad2dbe",
+   "box": [
+    23,
+    22,
+    334,
+    97
+   ]
+  },
+  "dwell@40": {
+   "facts": "5802772803accce75b3321047a2cf89db63fe2f669b2c226a05208d5b5ca3309",
+   "look": "4e30d50e1a82f90abc585435adf0c5e67b69b08550bd93fe71ae5f399cd158d2",
+   "box": [
+    21,
+    21,
+    211,
+    62
+   ]
+  },
+  "dwell@100": {
+   "facts": "7920bb3a76377fea0c8a8e63a34ec22cc1b5d485de514d425010aae85e8d0409",
+   "look": "fb1e8317bb92d38c7cc0a3e36a88d5971d5dd8742ae18639baab67e147cfe7bb",
+   "box": [
+    26,
+    26,
+    519,
+    145
+   ]
+  },
+  "dwellLight@64": {
+   "facts": "21887c70d018ffe1dc0c7929471a05e39d6dda5011742a455e9166a834acb312",
+   "look": "1f6a3f4396a1c98fd82191716d5e1fb321dad3f1950db54a14fa2294e5e27e4e",
+   "box": [
+    23,
+    22,
+    334,
+    97
+   ]
+  },
+  "dwellLight@40": {
+   "facts": "883f504ee9ed5dae19e0d476b96a96a451627799ffab0c0e8327a05ebc631af0",
+   "look": "b65a8c0426aa110ead7797affefa13f34fc8611e55cdef9424e8eec65739ec29",
+   "box": [
+    21,
+    21,
+    211,
+    62
+   ]
+  },
+  "dwellLight@100": {
+   "facts": "75b3d5489985b536e203783c962e9c60ae7aa1fb3a213556fc85450d26e67219",
+   "look": "c559f95ebbe4d8e19c75c796bb2b5dd32fb2496435eed18352f2c140919827ef",
+   "box": [
+    26,
+    26,
+    519,
+    145
+   ]
+  },
+  "mixWet@64": {
+   "facts": "ab61be8cf094e4b2c1eb0da7162b6e28bc6a421d90135a50687a052f4bf35a6f",
+   "look": "3d8d91eb9ff9fcbf5a846bfe76752fd5cfb6f23a1e36deab23f203374e4a3376",
+   "box": [
+    23,
+    21,
+    134,
+    29
+   ]
+  },
+  "mixWet@40": {
+   "facts": "a9885c9334de283c2848457d7bcd1919f6cc626d24ca5ecba46b7cd1d7a307fe",
+   "look": "894c0a65e359da0821c8421048fee692c6a5f74ca14566fcc69159327348b7fc",
+   "box": [
+    21,
+    18,
+    85,
+    22
+   ]
+  },
+  "mixWet@100": {
+   "facts": "b0387ad870e891436e793a7e46abecafe394a51f8bf7048af41a57c22c84e86b",
+   "look": "a6e954a33f06813bf7ccdfb30d1daa15bf1cbd95495731930a0a6a0c853e663f",
+   "box": [
+    26,
+    24,
+    207,
+    38
+   ]
+  },
+  "mixDry@64": {
+   "facts": "7e5cb542c14a86211ec54e6222509838d0f808601726578eee80f5f395c654fd",
+   "look": "172051dbc75b635b334397dec627f3c4d68d63fbab181a6a22716e3f3a0b5a01",
+   "box": [
+    23,
+    21,
+    134,
+    29
+   ]
+  },
+  "mixDry@40": {
+   "facts": "b7dfe91fc2d56c3a1359ec1b36150ee104fffd2820c736ac82138fb3cab92053",
+   "look": "89f8e1c98fcc046ba6a910eda988c2e33c66144d7157abdaac05ff22110e6e67",
+   "box": [
+    21,
+    18,
+    85,
+    22
+   ]
+  },
+  "mixDry@100": {
+   "facts": "86b98b0d433de5a55a1947142372f0f3650fea2aa218e39e970b23e822525326",
+   "look": "12812be5db9c9bd7c9e9434208c5131232af20295cbd423ae85a28c2bae1d4ec",
+   "box": [
+    26,
+    24,
+    207,
+    38
+   ]
+  },
+  "broad@64": {
+   "facts": "3d7a92d81343aabe7fd116f2e40e8cff45622de31c886bfaddba4500300586d2",
+   "look": "6021746acb61380e9585bf4017aef069ac7f0648135f1e796b539cd83aee8e02",
+   "box": [
+    15,
+    18,
+    511,
+    107
+   ]
+  },
+  "broad@40": {
+   "facts": "5e87b41aa047b73e2c6772b43e6163267ddc545a8f65be444360e14fa5fe19cf",
+   "look": "96d7f1ae69dc3a01e5bfecbb1ed54770173491947de508b472e6caa72d5863a9",
+   "box": [
+    16,
+    18,
+    322,
+    68
+   ]
+  },
+  "broad@100": {
+   "facts": "6ba9f7d4c6aa9d75990b3db9e8b6a38e36c411fe8500538229a028f311b0bc9f",
+   "look": "23d22de15ce88ebd39d1d2037660ace198b5afd12abf75fb28a8c121057d6757",
+   "box": [
+    13,
+    18,
+    797,
+    163
+   ]
+  },
+  "flexPressure@64": {
+   "facts": "52efa266d0295a2ac56be410be85f3d142d657e1672d1a3256f0e034f6914d9d",
+   "look": "0f38a4806214a0c33b2b7aef90ef53a465f78e5495018cc865c7b0ccb911b9ee",
+   "box": [
+    27,
+    16,
+    527,
+    158
+   ]
+  },
+  "flexPressure@40": {
+   "facts": "e4de29f1bd825030927d7360317c1cc0e46feaa7ed1fe886ef5dcf935c5e0e24",
+   "look": "ff8088015b4f6673f9ddd4331125e28e21bbf54f444f20d891daa1c5edd46732",
+   "box": [
+    24,
+    17,
+    330,
+    101
+   ]
+  },
+  "flexPressure@100": {
+   "facts": "f58378e5f71384afd12a0b8e8117b9ef016179c1bb35d240834ed3105a659cac",
+   "look": "764641618edd0d1aabbd54922ea21403e35449818247a5b5decb1428c0203d33",
+   "box": [
+    31,
+    15,
+    822,
+    244
+   ]
+  },
+  "cursive@64": {
+   "facts": "0e5cf80b9efb4f7339afab3c12ffd71abd6f8db46c8f790ea386f184566f2d64",
+   "look": "86d36de600fbbd1bedc1d9d1cfc1d698249ab37ab0982e561b6a3da1d7e84659",
+   "box": [
+    23,
+    22,
+    794,
+    95
+   ]
+  },
+  "cursive@40": {
+   "facts": "2d43f74408f3c9bdecf7d43e49ba00e3ae4153c7debf378dcd0d95ae399c1374",
+   "look": "d4ff69bca7a95eaee4b76700d048bbdecf1ec23f2d54d187e7bb630a71271e99",
+   "box": [
+    22,
+    20,
+    497,
+    62
+   ]
+  },
+  "cursive@100": {
+   "facts": "7056f19225b4b5504064f2eb1334e8ac406f25ff7b6c8ee0f0a13efc18408454",
+   "look": "4789d58a5cb12131c6cff410ec6cc1c08911e3e80aaf3c147b3f1f9107b233d5",
+   "box": [
+    26,
+    26,
+    1238,
+    145
+   ]
+  }
+ }
+}

@@ -5,13 +5,12 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "migrate-from-mongo": "node scripts/migrate-from-mongo.js"
+    "test": "node --test \"test/**/*.test.js\"",
+    "fsck": "node scripts/fsck.js"
   },
   "dependencies": {
     "express": "^5.2.1",
-    "multer": "^2.4.0"
-  },
-  "devDependencies": {
-    "mongodb": "^7.7.0"
+    "multer": "^2.4.0",
+    "penpals-law": "*"
   }
 }

@@ -4,3 +4,5 @@ frontend/dist/
 .env
 *.log
 .DS_Store
+law/lab/samples/
+law/lab/density/

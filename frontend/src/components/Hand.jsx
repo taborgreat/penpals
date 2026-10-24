@@ -70,6 +70,7 @@ export function HandDrawn({ asset, label, size = LINE_EM, fit = null, writeIn = 
       if (k <= 0) return;
       color ||= getComputedStyle(box).color;
       const bleed = BLEED_PX * dpr;
+      if (W <= 2 * bleed || H <= 2 * bleed) return; // hidden or collapsed: nothing to draw into (and the scale would go negative)
       const scale = (W - 2 * bleed) / asset.w; // device px per drawing px
       const scaleY = (H - 2 * bleed) / asset.h;
       const opts = { until: k >= 1 ? Infinity : k * asset.dur, minWidth: (MIN_STROKE_PX * dpr) / scale };
