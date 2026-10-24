@@ -52,7 +52,7 @@ export const config = {
     heapMb: 512,
     maxCells: 4_000_000, // a look at any scale: cells of its box
     cacheMaxBytes: 1 << 30,
-    rev: 1, // bump to throw away every cached look
+    rev: 2, // bump to throw away every cached look (2: fading by absorbed light, light-waves §8)
   },
 
   limits: {

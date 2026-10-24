@@ -18,6 +18,13 @@
 //
 // Textures are sampled at level 0 throughout: WGSL allows that anywhere (the
 // march samples inside loops and branches), and these have no mipmaps.
+//
+// Light is a range of waves (light-waves.md, scene/light/): each pixel works
+// bin by bin over the 16 visible bins (as four vec4s; the heat bin is unseen).
+// What a point refuses (its reflectance: the paper's curve, through the ink's
+// absorbance) times the light reaching it (the room's settled light, the sun
+// through the window, each flame; each through its own shade) is its radiance;
+// the eye's weights (light.js, eye.js screenWeights) take that to the screen.
 
 import * as THREE from 'three';
 import { MeshBasicNodeMaterial, NodeMaterial, SpriteNodeMaterial } from 'three/webgpu';
@@ -54,7 +61,18 @@ import {
   step,
   sqrt,
   smoothstep,
+  exp,
+  log,
+  asin,
+  tanh,
+  atan,
+  attribute,
+  code,
+  glslFn,
+  wgslFn,
+  int,
 } from 'three/tsl';
+import { curves, SUN_RADIUS, surface as grown } from './light/index.js';
 
 export { WebGPURenderer, ClippingGroup } from 'three/webgpu';
 
@@ -120,18 +138,33 @@ function restShade(L, rests) {
 }
 const DETAIL_PX = 0.35; // the fibers' relief, page px
 
-// The lights as uniforms (light.js lightAt, page frame → world), and the height scale.
+// A spectrum's 16 visible bins as four vec4s.
+const spectrumUniform = () =>
+  uniformArray(
+    Array.from({ length: 4 }, () => new THREE.Vector4()),
+    'vec4',
+  );
+export const BIN_GROUPS = 4;
+// Set a spectrum uniform from N values (the visible 16).
+export function setSpectrum(u, values, k = 1) {
+  for (let g = 0; g < BIN_GROUPS; g++) u.array[g].set(values[4 * g] * k, values[4 * g + 1] * k, values[4 * g + 2] * k, values[4 * g + 3] * k);
+}
+const binsOf = (curve) => [0, 1, 2, 3].map((g) => vec4(curve[4 * g], curve[4 * g + 1], curve[4 * g + 2], curve[4 * g + 3]));
+const INK = curves.INK.map(binsOf); // what each of the law's three channels drinks, per bin
+
+// The light as uniforms (light.js, in the world: page px with the room's axes),
+// and the height scale.
 export function lightUniforms(paper, dropPx) {
   const L = {
     sunDir: uniform(new THREE.Vector3(0, 0, 1)),
-    sunColor: uniform(new THREE.Color(1, 1, 1)),
-    sunInt: uniform(1),
-    candlePos: { value: [new THREE.Vector3(), new THREE.Vector3()] },
-    candleColor: uniform(new THREE.Color(1, 0.5, 0.15)),
-    candleInt: uniform(new THREE.Vector2()),
-    ambient: uniform(0.35),
+    sunE: spectrumUniform(), // W / m² per bin, normal to the beam, through the glass
+    window: uniform(new THREE.Vector4()), // the window's opening (world px): x0, x1, z0, z1
+    wallY: uniform(1e9), // and the wall it is in (world y)
+    flameI: [spectrumUniform(), spectrumUniform()], // each flame's light now, W / sr per bin
+    indirect: spectrumUniform(), // the room's settled light at the page, less the sun's and the flames' own
+    W: [spectrumUniform(), spectrumUniform(), spectrumUniform()], // the eye: radiance → linear r, g, b
+    paper: spectrumUniform(), // the paper's reflectance per bin
     bandOn: uniform(0),
-    paper: uniform(paper.clone()),
     dropPx: uniform(dropPx), // page px a drop of height (the relief's exaggeration in it)
     crisp: uniform(0), // the page close up: 1 crisp cells, 0 smooth (bicubic)
     // sheets of paper lying on the table, and on the page (world x0, y0, x1, y1): their shadows
@@ -144,9 +177,206 @@ export function lightUniforms(paper, dropPx) {
       'vec4',
     ),
     thick: uniform(3), // a sheet's thickness, page px
+    pxPerM: uniform(1),
+    footK: uniform(1), // cells a pixel covers a metre away (the room's surfaces: how fine to grow them)
+    slabMin: uniform(new THREE.Vector3(1e9, 1e9, 1e9)), // the table's slab (world px): it shades what is under it
+    slabMax: uniform(new THREE.Vector3(1e9, 1e9, 1e9)),
   };
-  L.candleAt = L.candlePos.value.map((v) => uniform(v));
+  setSpectrum(L.paper, paper);
+  // the flames' places (world px): the shade is marched toward them
+  L.candleAt = [new THREE.Vector3(), new THREE.Vector3()].map((v) => uniform(v));
   return L;
+}
+
+// What a point reflects per bin: its surface's curve through the ink's
+// absorbance a (the law's three channels, natural units).
+const reflectance = (surface, a) => INK[0].map((_, g) => surface.element(g).mul(exp(INK[0][g].mul(a.x).add(INK[1][g].mul(a.y)).add(INK[2][g].mul(a.z)).negate())));
+const plainly = (surface) => [0, 1, 2, 3].map((g) => surface.element(g));
+
+// The share of the sun's disk seen through the window from p (light/direct.js
+// sunAperture, in world px): the soft-edged patch of sun.
+function aperture(p, Ls, L) {
+  const out = float(0).toVar();
+  If(Ls.z.greaterThan(0).and(Ls.y.greaterThan(1e-6)), () => {
+    const t = L.wallY.sub(p.y).div(Ls.y);
+    If(t.greaterThan(0), () => {
+      const x = p.x.add(Ls.x.mul(t)),
+        z = p.z.add(Ls.z.mul(t));
+      const w = t.mul(SUN_RADIUS);
+      const below = (q) => {
+        const c = clamp(q, -1, 1);
+        return float(0.5).add(
+          c
+            .mul(sqrt(float(1).sub(c.mul(c))))
+            .add(asin(c))
+            .div(Math.PI),
+        );
+      };
+      const within = (c, hw, a, b) => below(b.sub(c).div(hw)).sub(below(a.sub(c).div(hw)));
+      const wx = w.mul(sqrt(float(1).add(Ls.x.div(Ls.y).mul(Ls.x.div(Ls.y)))));
+      const wz = w.mul(sqrt(float(1).add(Ls.z.div(Ls.y).mul(Ls.z.div(Ls.y)))));
+      out.assign(max(within(x, wx, L.window.x, L.window.y).mul(within(z, wz, L.window.z, L.window.w)), 0));
+    });
+  });
+  return out;
+}
+
+// The eye's tone (light/eye.js EYE_GLSL eyeTone): linear up to the knee, then a soft shoulder.
+const KNEE = 0.9;
+const eyeTone = (x) =>
+  mix(
+    max(x, vec3(0)),
+    tanh(x.sub(KNEE).div(1 - KNEE))
+      .mul(1 - KNEE)
+      .add(KNEE),
+    step(vec3(KNEE), x),
+  );
+
+// Whether the table's slab is between p and a light toward `dir` (unit), within
+// `far` world px: 0 hidden, 1 not (a ray against the box).
+function underSlab(p, dir, far, L) {
+  const inv = vec3(1).div(select(abs(dir).lessThan(vec3(1e-6)), vec3(1e-6), dir));
+  const t0 = L.slabMin.sub(p).mul(inv),
+    t1 = L.slabMax.sub(p).mul(inv);
+  const lo = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), min(t0.z, t1.z));
+  const hi = min(min(max(t0.x, t1.x), max(t0.y, t1.y)), max(t0.z, t1.z));
+  return select(hi.greaterThan(max(lo, 0.5)).and(lo.lessThan(far)), float(0), float(1));
+}
+
+// The light on a point (reflectance R: four vec4s): the room's settled light by
+// how open the point is to it, the sun through the window and each flame, each
+// through its shade (sun, flame 1, flame 2); a wet bead mirrors the sources;
+// the eye takes it to the screen. The moments' bands darken their cells.
+// opts.ambient: the room's light already as colour (a room surface's, from its
+// vertices) in place of the page's; opts.slab: the table's slab may hide the sources.
+function spectral(R, n, open, shade, wet, V, L, band, opts = {}) {
+  const p = positionWorld;
+  const Ls = normalize(L.sunDir).toVar();
+  const sunOn = aperture(p, Ls, L)
+    .mul(shade.x)
+    .mul(opts.slab ? underSlab(p, Ls, 1e9, L) : float(1))
+    .toVar();
+  const sunCos = max(dot(n, Ls), 0).mul(sunOn);
+  const gloss = wet.mul(0.04); // water's mirror, about 4% (it shows the sources themselves)
+  const sunSpec = pow(max(dot(n, normalize(Ls.add(V))), 0), 70)
+    .mul(sunOn)
+    .mul(gloss);
+  const flames = L.candleAt.map((pos, k) => {
+    const toF = pos.sub(p).toVar();
+    const d = length(toF).toVar();
+    const Lf = toF.div(d);
+    const dm = d.div(L.pxPerM);
+    const fall = float(1)
+      .div(dm.mul(dm))
+      .mul(k === 0 ? shade.y : shade.z)
+      .mul(opts.slab ? underSlab(p, Lf, d, L) : float(1))
+      .toVar();
+    return {
+      on: max(dot(n, Lf), 0).mul(fall),
+      spec: pow(max(dot(n, normalize(Lf.add(V))), 0), 60)
+        .mul(fall)
+        .mul(gloss),
+    };
+  });
+  const rgb = (opts.ambient ?? vec3(0)).toVar();
+  for (let g = 0; g < BIN_GROUPS; g++) {
+    const E = (opts.ambient ? vec4(0) : L.indirect.element(g).mul(open)).add(L.sunE.element(g).mul(sunCos)).add(L.flameI[0].element(g).mul(flames[0].on)).add(L.flameI[1].element(g).mul(flames[1].on));
+    const mirror = L.sunE.element(g).mul(sunSpec).add(L.flameI[0].element(g).mul(flames[0].spec)).add(L.flameI[1].element(g).mul(flames[1].spec));
+    const rad = R[g].mul(E).div(Math.PI).add(mirror).toVar();
+    rgb.addAssign(vec3(dot(L.W[0].element(g), rad), dot(L.W[1].element(g), rad), dot(L.W[2].element(g), rad)));
+  }
+  const col = eyeTone(rgb).toVar();
+  // show the moments: faint tree rings of when each cell's ink went down
+  if (band) {
+    If(L.bandOn.greaterThan(0.5).and(band().greaterThan(0.5)), () => {
+      col.mulAssign(0.86);
+    });
+  }
+  return col;
+}
+
+// --- the room (light-waves §4: its surfaces grown cell by cell, at the paper's grain) ---
+
+// growMean (light/surface.js) in the shader's own language: → (height, tone).
+const growers = {};
+function grower(webgpu) {
+  const key = webgpu ? 'wgsl' : 'glsl';
+  growers[key] ??= webgpu
+    ? wgslFn('fn roomGrow(kind: i32, m: u32, pos: vec2<f32>, foot: f32) -> vec2<f32> { return growMean(kind, m, pos, foot); }', [code(grown.SURFACE_WGSL, [], 'wgsl')])
+    : glslFn('vec2 roomGrow(int kind, uint m, vec2 pos, float foot) { return growMean(kind, m, pos, foot); }', [code(grown.SURFACE_GLSL, [], 'glsl')]);
+  return growers[key];
+}
+// A grown surface's reflectance at tone t (0..1): its light curve toward its dark one.
+const toned = (light, dark, t) => [0, 1, 2, 3].map((g) => light.element(g).add(dark.element(g).sub(light.element(g)).mul(t)));
+const pairUniforms = ({ light, dark }) => {
+  const a = spectrumUniform(),
+    b = spectrumUniform();
+  setSpectrum(a, light);
+  setSpectrum(b, dark);
+  return [a, b];
+};
+// How many cells a pixel covers here (the eye's footprint: crisp up close, averaged far away).
+const footAt = (L) => max(length(positionWorld.sub(cameraPosition)).div(L.pxPerM).mul(L.footK), 1e-4);
+
+// A surface of the room (floor, ceiling, a wall, the table): its cells grown from
+// its seed (attribute cellPos: where in its own cells), its tone between its
+// matter's light and dark curves; the room's light from its vertices (ambA + t·ambB:
+// the colours its light and dark curves reflect), the sun and the flames per pixel.
+// spec: { kind (light/surface.js), seed (u32), pair ({ light, dark } curves), normal,
+// top (the table's top: the sheets' shadows fall on it), webgpu }.
+export function roomMaterial(L, { kind, seed, pair, normal, top = false, slab = true, webgpu }) {
+  const m = new MeshBasicNodeMaterial();
+  const [light, dark] = pairUniforms(pair);
+  const seedU = uniform(seed, 'uint');
+  const grow = grower(webgpu);
+  m.colorNode = Fn(() => {
+    const ht = grow({ kind: int(kind), m: seedU, pos: attribute('cellPos', 'vec2'), foot: footAt(L) });
+    const t = clamp(ht.y.div(255), 0, 1).toVar();
+    const ambient = attribute('ambA', 'vec3').add(attribute('ambB', 'vec3').mul(t));
+    const V = normalize(cameraPosition.sub(positionWorld));
+    return spectral(toned(light, dark, t), vec3(...normal), float(0), top ? restShade(L, L.rests) : vec3(1), float(0), V, L, null, { ambient, slab: slab && !top });
+  })();
+  return m;
+}
+
+// An object (a leg, the window's frame, a candle's holder): its matter (grown
+// wood, or brass), lit like the room; its cells along its own faces. ambient:
+// { A, B } uniforms (the room's mean light, as colours).
+export function objectMaterial(L, { kind = null, seed = 0, pair, webgpu }) {
+  const m = new MeshBasicNodeMaterial();
+  const [light, dark] = pairUniforms(pair);
+  const A = uniform(new THREE.Vector3()),
+    B = uniform(new THREE.Vector3());
+  const seedU = uniform(seed, 'uint');
+  m.colorNode = Fn(() => {
+    const n = normalize(normalWorld).toVar();
+    let t = float(0);
+    if (kind !== null) {
+      // cells along the face (CELL_PX = half a page px), from far out so they stay positive
+      const w = positionWorld.mul(2).add(1e5);
+      const pos = select(abs(n.z).greaterThan(0.5), w.xy, select(abs(n.x).greaterThan(0.5), w.yz, w.xz));
+      t = clamp(grower(webgpu)({ kind: int(kind), m: seedU, pos, foot: footAt(L) }).y.div(255), 0, 1).toVar();
+    }
+    const V = normalize(cameraPosition.sub(positionWorld));
+    return spectral(toned(light, dark, t), n, float(0), vec3(1), float(0), V, L, null, { ambient: A.add(B.mul(t)), slab: true });
+  })();
+  m.ambient = { A, B };
+  return m;
+}
+
+// A pane of the window: the outside seen through the glass (a map of the sky,
+// the sun and the field, by direction: light/outside.js outsideMap, already
+// through the glass and the eye's weights, linear), toned by the eye.
+export function windowMaterial(outside) {
+  const m = new MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+  m.colorNode = Fn(() => {
+    const d = normalize(positionWorld.sub(cameraPosition)).toVar();
+    const az = atan(d.x, d.y); // 0 straight out of the window (+y), toward +x is positive
+    const el = asin(clamp(d.z, -1, 1));
+    const q = vec2(az.div(2 * Math.PI).add(0.5), float(0.5).sub(el.div(Math.PI)));
+    return eyeTone(texture(outside, q).rgb);
+  })();
+  return m;
 }
 
 // A value of the object being drawn (its chunk, or a base's or the page's
@@ -296,12 +526,16 @@ export function chunkMaterial(L, K, c = null) {
     const n = vec3(sf.g, sf.b, sqrt(max(float(1).sub(sf.g.mul(sf.g)).sub(sf.b.mul(sf.b)), 0))).toVar();
     const shade = at(u.SH, q).toVar();
     const ink = between(u.C, q, K.TEXN, L).toVar();
-    const base = mix(L.paper, ink.rgb, ink.a).toVar();
     const V = normalize(cameraPosition.sub(positionWorld)).toVar();
-    // ink sunk into the fibers shows deeper at grazing angles
+    // the ink's absorbance per channel: its look is the light it lets through
+    // (colour to alpha over white: the law's transmittance), and ink sunk into the
+    // fibers drinks more at grazing angles
+    const through = max(mix(vec3(1), ink.rgb, ink.a), vec3(1 / 512));
     const graze = clamp(V.z, 0, 1).oneMinus();
-    base.mulAssign(float(1).sub(graze.mul(0.35).mul(ink.a).mul(hf.b.div(24))));
-    return lit(base, n, sf.a, shade, wet, V, L, () => at(u.B, q).r);
+    const a = log(through)
+      .negate()
+      .mul(float(1).add(graze.mul(0.35).mul(hf.b.div(24))));
+    return spectral(reflectance(L.paper, a), n, sf.a, shade, wet, V, L, () => at(u.B, q).r);
   })();
   return m;
 }
@@ -323,94 +557,44 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
     const gy = g(q.add(vec2(0, d))).sub(g(q.sub(vec2(0, d))));
     const n = normalize(vec3(gx.negate().div(cellPx.mul(6)), gy.negate().div(cellPx.mul(6)), 1)).toVar();
     const V = normalize(cameraPosition.sub(positionWorld));
-    return lit(L.paper, n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), float(0), V, L, null);
+    return spectral(plainly(L.paper), n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), float(0), V, L, null);
   })();
   return m;
 }
 
-// The table: lit, flat, the sheets' (or the page's) shadows on it. Its wood is
-// grown later (light-waves); for now it is plain.
-export function tableMaterial(L, color) {
+// A candle's wax or wick (its matter's curve, N values): lit like everything else.
+export function waxMaterial(L, curve) {
   const m = new MeshBasicNodeMaterial();
-  const base = uniform(color.clone());
+  const R = spectrumUniform();
+  setSpectrum(R, curve);
   m.colorNode = Fn(() => {
     const V = normalize(cameraPosition.sub(positionWorld));
-    return lit(base, vec3(0, 0, 1), float(1), restShade(L, L.rests), float(0), V, L, null);
+    return spectral(plainly(R), normalize(normalWorld), float(1), vec3(1), float(0), V, L, null);
   })();
   return m;
 }
 
-// A candle's wax and wick: lit by the sun and the sky, and warm near the flame.
-export function waxMaterial(L, color, glow) {
-  const m = new MeshBasicNodeMaterial();
-  const base = uniform(color.clone());
-  m.colorNode = Fn(() => {
-    const n = normalize(normalWorld);
-    const sun = max(dot(n, normalize(L.sunDir)), 0).mul(L.sunInt);
-    return base.mul(L.ambient.add(L.ambient.oneMinus().mul(sun).mul(L.sunColor))).add(L.candleColor.mul(glow).mul(0.25));
-  })();
-  return m;
-}
-
-// A candle's flame: a teardrop facing the eye, white-yellow at the core into
-// orange, with a soft glow; added to what is behind it. `brightness` is the
-// candle's light (its flicker), set each frame with the flame's size.
+// A candle's flame: a teardrop facing the eye, white-hot at the core into
+// orange, with a soft glow; added to what is behind it. `brightness` is its
+// strength now, `core` its colour as the eye sees it (light.js), set each frame.
 export function flameMaterial() {
   const m = new SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const brightness = uniform(1);
+  const core = uniform(new THREE.Color(1, 0.8, 0.5));
   m.colorNode = Fn(() => {
     const p = uv().sub(vec2(0.5, 0.32)).mul(vec2(2.2, 1.3)).toVar(); // the drop's round foot low, its tip up
     const r = length(vec2(p.x.mul(float(1).add(max(p.y, 0).mul(1.6))), p.y));
     const body = smoothstep(0.62, 0.18, r);
-    const core = smoothstep(0.3, 0.02, r);
+    const hot = smoothstep(0.3, 0.02, r);
     const glow = smoothstep(1.1, 0.2, length(uv().sub(vec2(0.5, 0.4)).mul(vec2(1.6, 1.1)))).mul(0.25);
-    const col = mix(vec3(1, 0.42, 0.08), vec3(1, 0.93, 0.7), core)
+    const col = mix(core.mul(vec3(1, 0.55, 0.25)), max(core, vec3(1, 0.93, 0.75)), hot)
       .mul(body)
-      .add(vec3(1, 0.55, 0.2).mul(glow));
+      .add(core.mul(vec3(1, 0.6, 0.3)).mul(glow));
     return vec4(col.mul(brightness), body.add(glow).clamp(0, 1).mul(brightness));
   })();
   m.brightness = brightness;
+  m.core = core;
   return m;
-}
-
-// The light on a point of paper: the sun and the candles, each through its shade,
-// the sky's share by how open it is; a wet bead glossy; the moments' bands.
-function lit(base, n, open, shade, wet, V, L, band) {
-  const Ls = normalize(L.sunDir).toVar();
-  const sun = max(dot(n, Ls), 0).mul(shade.x).mul(L.sunInt);
-  // lit paper is its own colour; shade and shadow only take light away
-  const col = base.mul(L.ambient.mul(open).add(L.ambient.oneMinus().mul(sun).mul(L.sunColor))).toVar();
-  const spec = float(0).toVar();
-  If(wet.greaterThan(0.5), () => {
-    spec.addAssign(pow(max(dot(n, normalize(Ls.add(V))), 0), 70).mul(L.sunInt));
-  });
-  // two candles, one each side: warm, soft falloff, each its own shadow
-  L.candleAt.forEach((pos, i) => {
-    const toC = pos.sub(positionWorld).toVar();
-    const dist = length(toC);
-    const Lc = toC.div(dist).toVar();
-    const att = (i === 0 ? L.candleInt.x : L.candleInt.y).div(float(1).add(pow(dist.div(900), 2).mul(2))).toVar();
-    col.addAssign(
-      base
-        .mul(L.candleColor)
-        .mul(max(dot(n, Lc), 0))
-        .mul(att)
-        .mul(i === 0 ? shade.y : shade.z)
-        .mul(L.ambient.oneMinus()),
-    );
-    If(wet.greaterThan(0.5), () => {
-      spec.addAssign(pow(max(dot(n, normalize(Lc.add(V))), 0), 60).mul(att));
-    });
-  });
-  // a wet bead: glossy, a little translucent
-  col.assign(mix(col, col.mul(1.05).add(0.02), wet.mul(0.35)).add(spec.mul(0.55)));
-  // show the moments: faint tree rings of when each cell's ink went down
-  if (band) {
-    If(L.bandOn.greaterThan(0.5).and(band().greaterThan(0.5)), () => {
-      col.mulAssign(0.86);
-    });
-  }
-  return col;
 }
 
 // The paper's cut edges: its layers, lit.
@@ -418,7 +602,17 @@ export function slabMaterial(L) {
   const m = new MeshBasicNodeMaterial({ side: THREE.DoubleSide });
   m.colorNode = Fn(() => {
     const layer = float(0.94).add(float(0.06).mul(step(0.5, fract(positionWorld.z.mul(1.4)))));
-    return L.paper.mul(layer).mul(L.ambient.add(L.ambient.oneMinus().mul(0.55).mul(L.sunInt).mul(L.sunColor)));
+    const V = normalize(cameraPosition.sub(positionWorld));
+    return spectral(
+      plainly(L.paper).map((r) => r.mul(layer)),
+      normalize(normalWorld),
+      float(0.8),
+      vec3(1),
+      float(0),
+      V,
+      L,
+      null,
+    );
   })();
   return m;
 }

@@ -11,27 +11,32 @@
 //
 // With one view on screen (write mode, a letter, a pad) the renderer draws
 // straight into it; with several, each view's frame is copied to its own canvas.
-// The paper rests on a table (a journal's sheets on its page, the page on the
-// table), each casting a soft shadow; two candles stand on it, their flames
-// flickering with their light. Torn cells are holes onto what is behind.
-// Nothing here touches the record.
+// The paper rests on the table of a room (light-waves §4: roomDraw.js; a
+// journal's sheets on its page, the page on the table), each casting a soft
+// shadow; the room's surfaces are grown cell by cell in the shader, the window
+// shows the outside; two candles stand on the table, burning down, their
+// flames shivering with their light (light.js). Light is a range of waves: the
+// shading goes bin by bin, through the eye. Torn cells are holes onto what is
+// behind. Nothing here touches the record.
 //
-// Units: page px (x right, y down the page); three's world is (x, −y, z), z up.
+// Units: page px (x right, y down the page); three's world is (x, −y, z), z up:
+// the room's axes, its metres × PX_PER_M, each view's page lying on the room's page.
 
 import * as THREE from 'three';
 import { frame } from './camera.js';
 import { toHalf } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
+import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
+import { GEOM, worldOf } from './light.js';
+import { roomMeshes, vertexLight, meanLight, pairOf } from './roomDraw.js';
 
 export const CHUNK = 128; // cells a side
 const APRON = 4; // cells each chunk also holds of its neighbours: edges sample the same values (no seams)
 const TEXN = CHUNK + 2 * APRON; // texels a side
 export const DROP_PX = 0.004; // a drop of height at true scale, page px
 const SLAB_PX = 3; // the paper's thickness
-const PAPER = new THREE.Color(0.965, 0.945, 0.905);
-const DESK = new THREE.Color(0.32, 0.29, 0.26); // the table (plain for now; light-waves grows its wood)
-const WAX = new THREE.Color(0.86, 0.8, 0.66);
-const WICK = new THREE.Color(0.05, 0.04, 0.035);
+const PAPER = [0xf7, 0xf3, 0xea]; // a page's colour until it says its own
+const CLEAR = new THREE.Color(0, 0, 0); // behind everything (transparent: the page around shows)
 const STAGE = TILE; // a live upload's largest rectangle: one tile
 const MAX_RECTS = 64; // live rectangles a chunk queues before it is sent whole instead
 
@@ -130,7 +135,7 @@ const linear = (tex) => {
 const halfTex = (data, w, h) => linear(new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.HalfFloatType));
 const colorTex = (data, w, h) => {
   const t = linear(new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.UnsignedByteType));
-  t.colorSpace = THREE.SRGBColorSpace;
+  t.colorSpace = THREE.NoColorSpace; // the law's transmittance per channel, as it is (the shader takes its absorbance)
   return t;
 };
 const byteTex = (data, w, h) => linear(new THREE.DataTexture(data, w, h, THREE.RedFormat, THREE.UnsignedByteType));
@@ -163,6 +168,73 @@ function stages() {
     at: new THREE.Vector2(),
   };
   return stage;
+}
+
+// The room (light-waves §4; roomDraw.js): its surfaces' meshes in metres, and
+// their light, shared by every view (each places the room so its page lies on
+// the room's page). The outside, as the window shows it: a map by direction.
+const OUT_W = 64,
+  OUT_H = 32;
+let room = null;
+function theRoom() {
+  if (room) return room;
+  const meshes = roomMeshes(GEOM);
+  const geos = meshes.map((m) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
+    g.setAttribute('cellPos', new THREE.BufferAttribute(m.cellPos, 2));
+    for (const name of ['ambA', 'ambB']) g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(m.touches.length * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    g.setIndex(m.index);
+    g.computeBoundingSphere();
+    return g;
+  });
+  const panes = GEOM.openings.map((o) => {
+    const sf = GEOM.surfaces[o.surface];
+    const [u0, u1, v0, v1] = o.rect;
+    const at = (a, b) => [0, 1, 2].map((k) => sf.origin[k] + sf.u[k] * a + sf.v[k] * b);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([...at(u0, v0), ...at(u1, v0), ...at(u1, v1), ...at(u0, v1)], 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    return g;
+  });
+  const outside = new THREE.DataTexture(new Uint16Array(OUT_W * OUT_H * 4), OUT_W, OUT_H, THREE.RGBAFormat, THREE.HalfFloatType);
+  outside.colorSpace = THREE.NoColorSpace;
+  outside.magFilter = outside.minFilter = THREE.LinearFilter;
+  outside.wrapS = THREE.RepeatWrapping;
+  room = { meshes, geos, panes, outside, light: [], sunKey: '', sunMap: null, outAt: -1e9 };
+  return room;
+}
+// The room's light from a moment's light (light.js): each vertex's colours, the outside's.
+function lightRoom(l, now) {
+  const R = theRoom();
+  vertexLight(R.meshes, l.ambient, l.W, R.light);
+  R.geos.forEach((g, i) => {
+    g.attributes.ambA.array.set(R.light[i].A);
+    g.attributes.ambB.array.set(R.light[i].B);
+    g.attributes.ambA.needsUpdate = true;
+    g.attributes.ambB.needsUpdate = true;
+  });
+  const sunKey = l.sun.dir.map((v) => Math.round(v * 500)).join();
+  if (sunKey !== R.sunKey) {
+    R.sunKey = sunKey;
+    R.sunMap = outsideMap(l.sun.dir, OUT_W, OUT_H);
+    R.outAt = -1e9;
+  }
+  if (now - R.outAt > 250) {
+    // through the glass and the eye (a few times a second: the eye moves slowly)
+    R.outAt = now;
+    const glass = curves.MATTER.glass;
+    const d = R.outside.image.data;
+    for (let k = 0; k < OUT_W * OUT_H; k++) {
+      for (let c = 0; c < 3; c++) {
+        let v = 0;
+        for (let b = 0; b < N - 1; b++) v += l.W[c * N + b] * R.sunMap[k * N + b] * glass[b];
+        d[4 * k + c] = toHalf(Math.min(60000, Math.max(0, v)));
+      }
+      d[4 * k + 3] = toHalf(1);
+    }
+    R.outside.needsUpdate = true;
+  }
 }
 
 // A chunk's footprint, written only to the stencil.
@@ -224,7 +296,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   const scene = new THREE.Scene();
   const persp = new THREE.PerspectiveCamera(40, 1, 0.5, 60000);
   const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -60000, 60000);
-  const lights = gpu.lightUniforms(PAPER, DROP_PX);
+  const lights = gpu.lightUniforms(paperCurve(PAPER), DROP_PX);
+  lights.pxPerM.value = PX_PER_M;
   const K = { APRON, CHUNK, TEXN, generic: generic(), blank: blank() };
   // each kind of material once, for every chunk (a chunk's own textures and numbers go
   // per object); with WebGPU, each chunk and sheet its own (nodes.js says why)
@@ -266,16 +339,54 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   const held = new gpu.ClippingGroup(); // the sheets: the cut cuts all of them
   scene.add(held);
   lights.thick.value = SLAB_PX;
-  // the table the paper rests on: lit, the sheets' shadows on it
-  const desk = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), gpu.tableMaterial(lights, DESK));
-  desk.position.z = -SLAB_PX;
-  desk.renderOrder = -3; // first of all: the sheets' paper (which writes no depth) goes over it
-  scene.add(desk);
+  // the room: the table the paper rests on (the sheets' shadows on its top), the
+  // floor, the walls, the ceiling, the window and what stands about, all grown
+  const R = theRoom();
+  const roomGroup = new THREE.Group(); // metres; placed by setLight so this view's page lies on the room's page
+  const roomMats = [];
+  R.meshes.forEach((m, i) => {
+    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: m.seed, pair: pairOf(m.matter), normal: m.normal, top: m.top, webgpu: own });
+    roomMats.push(mat);
+    const mesh = new THREE.Mesh(R.geos[i], mat);
+    if (m.top) mesh.renderOrder = -3; // first of all: the sheets' paper (which writes no depth) goes over it
+    roomGroup.add(mesh);
+  });
+  const paneMat = gpu.windowMaterial(R.outside);
+  for (const g of R.panes) roomGroup.add(new THREE.Mesh(g, paneMat));
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const disc = new THREE.CylinderGeometry(1, 1, 1, 32).rotateX(Math.PI / 2);
+  const objectMats = [];
+  for (const o of GEOM.objects) {
+    const brass = o.matter === 'brass';
+    const mat = gpu.objectMaterial(
+      lights,
+      brass ? { pair: { light: curves.MATTER.brass, dark: curves.MATTER.brass } } : { kind: grown.BOARD, seed: grown.seedMix(grown.defaultSeed('table')), pair: pairOf(o.matter), webgpu: own },
+    );
+    mat.matter = o.matter;
+    objectMats.push(mat);
+    const mesh = new THREE.Mesh(o.box ? box : disc, mat);
+    if (o.box) {
+      const [x0, y0, z0, x1, y1, z1] = o.box;
+      mesh.scale.set(x1 - x0, y1 - y0, z1 - z0);
+      mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    } else {
+      mesh.scale.set(o.radius, o.radius, o.z1 - o.z0);
+      mesh.position.set(o.center[0], o.center[1], (o.z0 + o.z1) / 2);
+    }
+    roomGroup.add(mesh);
+  }
+  // the room is all around the eye: drawn whole (no culling), its shaders made now,
+  // while the page loads (not when a wall first comes into view)
+  roomGroup.traverse((o) => {
+    o.frustumCulled = false;
+  });
+  scene.add(roomGroup);
+  renderer.compileAsync?.(scene, persp).catch(() => {});
   // two candles standing on it, either side of the page: wax, a wick, a flame
   const cylinder = new THREE.CylinderGeometry(1, 1, 1, 28).rotateX(Math.PI / 2).translate(0, 0, 0.5);
-  const candles = [0, 1].map((i) => {
-    const wax = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, WAX, i === 0 ? lights.candleInt.x : lights.candleInt.y));
-    const wick = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, WICK, i === 0 ? lights.candleInt.x : lights.candleInt.y));
+  const candles = [0, 1].map(() => {
+    const wax = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, curves.MATTER.wax));
+    const wick = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, curves.MATTER.wick));
     const flame = new THREE.Sprite(gpu.flameMaterial());
     flame.center.set(0.5, 0.18); // its foot on the wick
     flame.renderOrder = 10;
@@ -612,7 +723,7 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
     },
     // The paper's colour (sRGB 0..255): each pad and letter has its own.
     setPaper([r, g, b]) {
-      lights.paper.value.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+      gpu.setSpectrum(lights.paper, paperCurve([r, g, b]));
     },
     // How much taller than true the relief is drawn (a drop's height × this). Scene only.
     setRelief(x) {
@@ -620,40 +731,61 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       lights.dropPx.value = DROP_PX * x;
       for (const s of sheets.values()) for (const c of s.chunks.values()) c.surfDirty = true;
     },
-    // The light at this moment (light.js lightAt), page frame → world.
-    setLight(l) {
-      lights.sunDir.value.set(l.sun.dir[0], -l.sun.dir[1], l.sun.dir[2]);
-      lights.sunColor.value.setRGB(...l.sun.color);
-      lights.sunInt.value = l.sun.intensity;
-      l.candles.forEach((c, i) => {
-        lights.candlePos.value[i].set(c.pos[0], -c.pos[1], c.pos[2]);
-        lights.candleInt.value.setComponent(i, c.intensity * 1.4);
-      });
-      lights.candleColor.value.setRGB(...l.candles[0].color);
-      lights.ambient.value = l.ambient;
-      // the candles stand on the table where their light is; a flame's size and brightness are its light's
-      const tableZ = desk.position.z;
-      l.candles.forEach((c, i) => {
+    // The light at this moment (light.js), for a view whose page starts at
+    // `origin` in the room (light.js originOf): the sun through the window, each
+    // flame where its candle has burnt down to, the room's light at the page, the eye.
+    setLight(l, origin) {
+      const lift = groundSize ? -SLAB_PX : 0; // a page lies on the table under the sheets: the table sits lower
+      const W = (p) => {
+        const w = worldOf(p, origin);
+        w[2] += lift;
+        return w;
+      };
+      roomGroup.scale.setScalar(PX_PER_M);
+      roomGroup.position.set(-origin[0] * PX_PER_M, -origin[1] * PX_PER_M, -origin[2] * PX_PER_M + lift);
+      const t = GEOM.table;
+      lights.slabMin.value.set(...W([t.x0, t.y0, t.bottom]));
+      lights.slabMax.value.set(...W([t.x1, t.y1, t.top]));
+      lightRoom(l, performance.now());
+      for (const m of objectMats) {
+        const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
+        m.ambient.A.value.set(...A);
+        m.ambient.B.value.set(...B);
+      }
+      lights.sunDir.value.set(...l.sun.dir); // the room's axes are the world's
+      gpu.setSpectrum(lights.sunE, l.sun.E);
+      const g = l.geom;
+      const [x0] = W([g.window.x0, 0, 0]);
+      const [x1] = W([g.window.x1, 0, 0]);
+      const z0 = W([0, 0, g.window.z0])[2];
+      const z1 = W([0, 0, g.window.z1])[2];
+      lights.window.value.set(x0, x1, z0, z1);
+      lights.wallY.value = W([0, g.size[1], 0])[1];
+      gpu.setSpectrum(lights.indirect, l.indirect);
+      for (let c = 0; c < 3; c++) gpu.setSpectrum(lights.W[c], l.W.subarray(c * 17, c * 17 + 17));
+      // the candles: wax from the table up to where it has burnt down, the wick, the flame
+      const r = (DIAMETER / 2) * PX_PER_M;
+      l.flames.forEach((fl, i) => {
+        const at = W(fl.pos);
+        lights.candleAt[i].value.set(...at);
+        gpu.setSpectrum(lights.flameI[i], fl.I);
+        const foot = W(fl.foot);
+        const top = foot[2] + fl.height * PX_PER_M;
+        const wickH = (fl.wick / 1000) * PX_PER_M;
         const { wax, wick, flame } = candles[i];
-        const Z = c.pos[2];
-        const flick = l.night > 0.01 ? c.intensity / l.night : 0;
-        const fh = 0.2 * Z * (0.8 + 0.2 * flick);
-        const wickTop = Z - 0.3 * 0.2 * Z;
-        const wickH = 0.05 * Z;
-        const r = 0.11 * Z;
-        wax.position.set(c.pos[0], -c.pos[1], tableZ);
-        wax.scale.set(r, r, Math.max(1, wickTop - wickH - tableZ));
-        wick.position.set(c.pos[0], -c.pos[1], wickTop - wickH);
-        wick.scale.set(r * 0.05, r * 0.05, wickH);
-        flame.visible = l.night > 0.01;
-        flame.position.set(c.pos[0], -c.pos[1], wickTop);
+        wax.position.set(foot[0], foot[1], foot[2]);
+        wax.scale.set(r, r, Math.max(1, top - foot[2]));
+        wick.position.set(foot[0], foot[1], top);
+        wick.scale.set(r * 0.06, r * 0.06, wickH);
+        flame.visible = fl.lit;
+        const fh = fl.flameSize * PX_PER_M;
+        flame.position.set(at[0], at[1], at[2] - fh * 0.32);
         flame.scale.set(fh * 0.42, fh, 1);
-        flame.material.brightness.value = Math.min(1, l.night) * flick;
+        flame.material.brightness.value = fl.lit ? 1 : 0;
+        flame.material.core.value.setRGB(...fl.seen);
       });
       // the shade is baked again when the light has really moved (not for the flicker)
-      const d = lights.sunDir.value,
-        p = lights.candlePos.value;
-      lightKey = [d.x, d.y, d.z, p[0].x, p[0].y, p[0].z, p[1].x, p[1].y, p[1].z].map((v) => Math.round(v * 400)).join();
+      lightKey = l.key;
     },
     // The cut (page px, a → b): everything on the far side is cut away and the
     // cross-section (the side view's picture, law/v2/look.js) stands in the cut.
@@ -731,7 +863,7 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
         persp.fov = cam.fov;
         persp.aspect = aspect;
         persp.near = Math.max(1e-4, cam.dist / 1000); // close flight (the depth buffer is logarithmic)
-        persp.far = cam.dist * 40 + 20000;
+        persp.far = cam.dist * 40 + 60000; // the room, wall to wall
         camera = persp;
       }
       camera.position.copy(toW(f.eye));
@@ -739,10 +871,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       camera.lookAt(toW([cam.target[0], cam.target[1], 0]));
       camera.updateProjectionMatrix();
       cam3 = camera;
-      // the desk under everything, as big as the view needs
-      desk.scale.set(cam.dist * 60 + 40000, cam.dist * 60 + 40000, 1);
-      desk.position.x = cam.target[0];
-      desk.position.y = -cam.target[1];
+      // how fine to grow the room's surfaces: cells a pixel covers a metre away
+      lights.footK.value = (2 * Math.tan((cam.fov * Math.PI) / 360)) / h / grown.CELL_M;
       // detail by distance (one level a sheet: no cracks between chunks)
       const eye = camera.position;
       for (const s of sheets.values()) {
@@ -774,11 +904,10 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
         (groundSize ? onPage : rests)[k++].set(x0, y1 - sh.h * sh.cellPx, x0 + sh.w * sh.cellPx, y1);
       }
       if (groundSize) rests[0].set(0, -groundSize[1], groundSize[0], 0);
-      desk.position.z = groundSize ? -2 * SLAB_PX : -SLAB_PX;
       const t1 = performance.now();
       prepare();
       const t2 = performance.now();
-      renderer.setClearColor(DESK, 0);
+      renderer.setClearColor(CLEAR, 0);
       renderer.render(scene, camera);
       stats.prepareMs += t2 - t1;
       stats.mainMs += performance.now() - t2;
@@ -798,7 +927,7 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       stats.renderMs += performance.now() - t0;
     },
     // The page the sheets lie on (a journal page): paper, lit, a sheet's thickness
-    // below them, so a tear in one shows the page behind. null: the desk.
+    // below them, so a tear in one shows the page behind. null: the table.
     setGround(size) {
       if (ground) {
         scene.remove(ground);
@@ -829,7 +958,9 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       settleDirect();
       bakeQuad.geometry.dispose();
       for (const m of Object.values(mats)) m.dispose();
-      desk.material.dispose();
+      for (const m of [...roomMats, ...objectMats, paneMat]) m.dispose();
+      box.dispose();
+      disc.dispose();
       for (const c of candles) for (const o of [c.wax, c.wick, c.flame]) o.material.dispose();
       cylinder.dispose();
       baked.surface.dispose();

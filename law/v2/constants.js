@@ -78,7 +78,12 @@ export const POOL_LEVELS = 16; // AIR rows: pool height (peak >> 2), capped
 
 // --- 5. fading by exposure (views, at most one per viewer per day) ---
 export const EXPOSURE_STEP = 8; // views per exposure bucket (looks are cached per bucket)
-export const FADE_SHIFT = 10; // fade index = views × SURFACE[depth] >> FADE_SHIFT
+export const FADE_SHIFT = 10; // fade index = views × SURFACE[depth] × DRUNK[ch] / 256 >> FADE_SHIFT
+// How much of a reference daylight each channel's absorbance curve drinks (and
+// oak gall's), per unit absorbance, ×256 (light-waves §8; the curves are
+// frontend/src/scene/light/curves.js, made by frontend/scripts/curves.mjs):
+// light fades what it is drunk by. [r, g, b, gall]
+export const DRUNK = Object.freeze([278, 273, 217, 721]);
 
 // --- 6. paper that remembers water ---
 export const SOAK_Q = 512; // soakA per dry step at W_SAT (soak level = soakA >> 8): +2 levels a step when full

@@ -450,17 +450,19 @@ try {
     await page.locator('.walk-back-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.walk-back-scene .scene-tools button[aria-pressed="true"]')].some((b) => b.textContent === 'Moments'), null, { timeout: 60000 });
-    // cut through it: the far side is cut away, so less paper shows (paper is far brighter than the
-    // table under any light: the pixels well above the view's middle brightness are the paper)
-    const paperSeen = (d) => {
-      const lum = [];
-      for (let i = 0; i < d.length; i += 4 * 5) lum.push(d[i] + d[i + 1] + d[i + 2]);
-      const mid = [...lum].sort((a, b) => a - b)[lum.length >> 1];
-      return lum.filter((v) => v > 1.6 * mid).length;
+    // cut through it: the far side is cut away and its cross-section stands in the cut, so a
+    // good share of the view changes (more than the light alone changes it while still)
+    const pixels = (d) => {
+      const out = [];
+      for (let i = 0; i < d.length; i += 4 * 5) out.push(d[i] + d[i + 1] + d[i + 2]);
+      return out;
     };
+    const changed = (p, q) => p.filter((v, i) => Math.abs(v - (q[i] ?? v)) > 60).length / p.length;
     await page.locator('.walk-back-scene').evaluate((el) => el.scrollIntoView({ block: 'center' })); // the drag stays on screen
     await page.waitForTimeout(800);
-    const before = await onScreen(page, '.walk-back-scene', paperSeen);
+    const before = await onScreen(page, '.walk-back-scene', pixels);
+    await page.waitForTimeout(500);
+    const still = changed(await onScreen(page, '.walk-back-scene', pixels), before);
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Cut' }).click();
     const wb = await page.locator('.walk-back-scene canvas.scene-canvas').boundingBox();
     // across the sheet's middle: one half of it is cut away, however thin the sheet
@@ -468,8 +470,9 @@ try {
     await page.mouse.down();
     await page.mouse.move(wb.x + wb.width * 0.5, wb.y + wb.height * 0.85, { steps: 8 });
     await page.mouse.up();
-    await untilOnScreen(page, '.walk-back-scene', (d) => paperSeen(d) < before * 0.85 - 20).catch(async (err) => {
-      throw new Error(`${err.message}: ${await onScreen(page, '.walk-back-scene', paperSeen)} paper pixels after the cut, ${before} before`);
+    await untilOnScreen(page, '.walk-back-scene', (d) => changed(pixels(d), before) > Math.max(0.005, 3 * still)).catch(async (err) => {
+      const now = await onScreen(page, '.walk-back-scene', pixels);
+      throw new Error(`${err.message}: ${(changed(now, before) * 100).toFixed(2)}% of the view changed by the cut, ${(still * 100).toFixed(2)}% while still`);
     });
     console.log(`   side view ${sideW}; the sheet in the scene, its moments banded, cut through`);
   } else console.log(`   side view ${sideW}`);

@@ -5,7 +5,7 @@ export { encodeActs, decodeActs, decodeCanonical, penTimeline, precheck, SPATTER
 export { splatOdds } from './splat.js';
 export { makePaper, checkFamily } from './paper.js';
 export { createSim, grow, isGall, darkAt } from './sim.js';
-export { settledCells, boxOf, lookRGB, lookRGBA, factsDigest, lookDigest, hasGall, ageBucket, exposureBucket, gallDark, fadeOf, sideView, heightOf } from './look.js';
+export { settledCells, boxOf, lookRGB, lookRGBA, factsDigest, lookDigest, hasGall, ageBucket, exposureBucket, gallDark, fadeByLight, sideView, heightOf } from './look.js';
 export { sceneField, liveField, encodeScene, decodeScene, paperDetail, sceneWindow, MAX_LOD } from './scene.js';
 export { momentsOf, bandOf } from './moments.js';
 export { createLive, createPlayback, livePoints } from './live.js';

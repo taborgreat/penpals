@@ -13,18 +13,13 @@
 // before sunk ink. At zero exposure nothing fades, so the canonical look and
 // its digest are untouched.
 
-import { FADE, SURFACE } from 'penpals-law/v2/tables';
-import { THICK, FADE_SHIFT } from 'penpals-law/v2/constants';
-import { exposureBucket } from 'penpals-law/v2/look';
-import { DRUNK } from './curves.js';
+// The law's look fades this way (law/v2/look.js fadeByLight, one source, with
+// DRUNK as a constant of the law, equal to curves.js's).
+import { fadeByLight } from 'penpals-law/v2/look';
 
 // What is left (0..256) of each channel's ink, and of its oak gall, after
 // `views` at `depth` (the cell's depth fact, levels of THICK): [r, g, b, gall].
-export function fadeByLight(views, depth) {
-  if (!views) return [256, 256, 256, 256];
-  const lit = exposureBucket(views) * SURFACE[Math.min(THICK, Math.max(0, depth))];
-  return DRUNK.map((d) => FADE[Math.min(FADE.length - 1, Math.floor((lit * d) / (256 << FADE_SHIFT)))]);
-}
+export { fadeByLight };
 
 // A cell's absorbances after fading: `abs` the law's three channels (F0..F2),
 // `gall` its gall amount (matter.js gallAmount). → { abs, gall }

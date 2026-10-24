@@ -83,3 +83,17 @@ What changed:
 - The two candles are objects: wax, wick, and a flame that flickers with their light.
 
 The sky, window light and colour grading come with light-waves (§7).
+
+## After §7: the lit room
+
+Measured the same way, with the light-waves modules integrated. The page now sits on the table of a grown room: walls, floor and ceiling, the window with the outside, and two burning candles. Every pixel is shaded bin by bin through the eye.
+
+| | idle at night | writing a line | a second line | orbiting (by day) |
+|---|---|---|---|---|
+| WebGL2 | 7.0% main, 11.2 fps × 3.7 ms | 25.1%, 28.9 fps × 5.7 ms | 26.8%, 30.0 fps × 6.1 ms | 54.3%, 51.5 fps × 9.3 ms |
+| WebGPU | 4.6% main, 11.6 fps × 1.4 ms | 29.8%, 28.2 fps × 7.0 ms | 27.6%, 30.2 fps × 6.0 ms | 13.4%, 40.2 fps × 1.5 ms |
+
+- **Orbiting costs most.** Turning toward the walls fills the screen with surfaces grown cell by cell (light/surface.js growMean, averaged as cells shrink below a pixel). On WebGL2 the bench waits for the GPU, so those 9 ms are the GPU's: about 54% of the main thread while orbiting at 51 fps.
+- **A first-orbit stall is gone.** Each view now compiles the room's shaders while the page loads. The room's meshes are never culled, since they surround the eye. Before that, the first turn toward the walls stalled 380 ms on WebGPU; now its worst frame is 8.3 ms.
+- **The eye adapts gently.** It starts settled on the room's light as soon as that light arrives, rather than from darkness. While it adapts, the scene draws 25 frames a second, not every display frame. Without this, writing at night ran at the display's full rate.
+- **The room's light settles in a worker** (bounce, sun, sky and flames): about 100–150 ms when the sun moves half a degree or a candle burns down half a millimetre. Flicker only rescales the flames' parts.

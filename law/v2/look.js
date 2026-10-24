@@ -19,7 +19,7 @@
 // read the paper's facts (depth, dents).
 
 import { sha256 } from '@noble/hashes/sha2.js';
-import { TILE, LAW, SCALE_ONE, THICK, DENT_SHIFT, DEPTH_SHIFT, WEAR_SHIFT, OAK_GALL, GALL_FRESH, AGE_CAP_H, EXPOSURE_STEP, FADE_SHIFT, TORN, DENT_Z, FILM_Q } from './constants.js';
+import { TILE, LAW, SCALE_ONE, THICK, DENT_SHIFT, DEPTH_SHIFT, WEAR_SHIFT, OAK_GALL, GALL_FRESH, AGE_CAP_H, EXPOSURE_STEP, FADE_SHIFT, DRUNK, TORN, DENT_Z, FILM_Q } from './constants.js';
 import { EXP8, ABS_Q } from '../v1/tables.js';
 import { FADE, SURFACE } from './tables.js';
 import { GALL_ABS, darkAt, filmLevel } from './sim.js';
@@ -92,31 +92,27 @@ export const exposureBucket = (views) => Math.max(0, Math.floor(views / EXPOSURE
 // How far a cell's gall has darkened (0..256) at `ageH` hours: air reaches a
 // hairline at the surface fully, ink sunk deep or under a tall pool less.
 export const gallDark = (cell, ageH) => darkAt(cell[7], cell[13], ageBucket(ageH));
-// What is left of a cell's colour after `views` (0..256): light reaches the surface first.
-export function fadeOf(cell, views) {
-  if (!views) return 256;
-  const k = Math.floor((exposureBucket(views) * SURFACE[Math.min(THICK, cell[7])]) / (1 << FADE_SHIFT));
-  return FADE[Math.min(FADE.length - 1, k)];
+// Fading by absorbed light (light-waves §8): light fades what it is drunk by.
+// What is left (0..256) of each channel's ink, and of its oak gall, after
+// `views` at `depth` (the cell's depth fact): [r, g, b, gall]. Each channel by
+// how much daylight its curve drinks (DRUNK), surface ink before sunk ink
+// (SURFACE), from the exposure bucket alone: still a pure function of the facts
+// and the view, and nothing fades at zero exposure (the canonical look).
+export function fadeByLight(views, depth) {
+  if (!views) return [256, 256, 256, 256];
+  const lit = exposureBucket(views) * SURFACE[Math.min(THICK, Math.max(0, depth))];
+  return DRUNK.map((d) => FADE[Math.min(FADE.length - 1, Math.floor((lit * d) / (256 << FADE_SHIFT)))]);
 }
 
 // Absorbance per channel of one cell, at a view.
 function cellAbs(c, ageH, views) {
-  let a0 = c[2],
-    a1 = c[3],
-    a2 = c[4];
+  const f = fadeByLight(views, c[7]); // (all 256 unseen)
+  const out = [c[2], c[3], c[4]].map((a, k) => Math.floor((a * f[k]) / 256));
   if (c[5]) {
     const factor = GALL_FRESH + Math.floor(((256 - GALL_FRESH) * gallDark(c, ageH)) / 256);
-    a0 += Math.floor((c[5] * GN[0] * factor) / 65536);
-    a1 += Math.floor((c[5] * GN[1] * factor) / 65536);
-    a2 += Math.floor((c[5] * GN[2] * factor) / 65536);
+    for (let k = 0; k < 3; k++) out[k] += Math.floor((Math.floor((c[5] * GN[k] * factor) / 65536) * f[3]) / 256);
   }
-  if (views) {
-    const f = fadeOf(c, views);
-    a0 = Math.floor((a0 * f) / 256);
-    a1 = Math.floor((a1 * f) / 256);
-    a2 = Math.floor((a2 * f) / 256);
-  }
-  return [a0, a1, a2];
+  return out;
 }
 const tOf = (a) => EXP8[Math.min(a >> 2, 2047)];
 

@@ -9,10 +9,14 @@
 //     page?: reflectance (N), curves?: { [patch]: reflectance }, seeds? }
 // Out, by id:
 //   { id, day, flames: [...], scales: [...], passes, ms }   parts as Float32Array n × N, handed over;
-//     scales: each flame's strength now (candleState intensity), to start combining from
+//     scales: each flame's strength now (candleState intensity), to start combining from;
+//     with direct: true, also sunDirect and flameDirect: [...] (n × N each): what each patch
+//     takes straight from the sun's disk and from each flame (unit strength), so the drawing
+//     can put those back per pixel, sharp, over the rest of the settled light
 //   { id, error }
 import { decodeRoom } from './room.js';
-import { roomAbsorption, settleParts } from './settle.js';
+import { roomAbsorption, settleParts, daySources } from './settle.js';
+import { directLight } from './direct.js';
 import { candleState, flameLight } from './candle.js';
 
 let room = null;
@@ -39,10 +43,17 @@ export function handle(msg) {
     const flames = flamesOf(room, msg.candles ?? []);
     const absorption = roomAbsorption(room, { page: msg.page, curves: msg.curves, seeds: msg.seeds });
     const parts = settleParts(room, absorption, { sun: msg.sun ?? null, flames, present: msg.present ?? true });
+    const direct = {};
+    if (msg.direct) {
+      const day = msg.sun && msg.sun.el > -6 && (msg.present ?? true) ? daySources(msg.sun) : null;
+      direct.sunDirect = day ? Float32Array.from(directLight(room, { sunDir: day.sunDir, sun: day.sun, glass: day.glass })) : new Float32Array(parts.day.length);
+      direct.flameDirect = flames.map((f) => Float32Array.from(directLight(room, { flames: [f] })));
+    }
     return {
       id: msg.id,
       day: Float32Array.from(parts.day),
       flames: parts.flames.map((f) => Float32Array.from(f)),
+      ...direct,
       scales: flames.map((f) => f.scale),
       passes: parts.passes,
       ms: performance.now() - t0,
@@ -59,7 +70,7 @@ if (typeof WorkerGlobalScope !== 'undefined' && globalThis instanceof WorkerGlob
     } catch (err) {
       out = { id: data?.id, error: String(err?.message ?? err) };
     }
-    const transfer = out.day ? [out.day.buffer, ...out.flames.map((f) => f.buffer)] : [];
+    const transfer = out.day ? [out.day.buffer, ...out.flames.map((f) => f.buffer), ...(out.sunDirect ? [out.sunDirect.buffer, ...out.flameDirect.map((f) => f.buffer)] : [])] : [];
     globalThis.postMessage(out, transfer);
   };
 }

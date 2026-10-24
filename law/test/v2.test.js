@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { grow, darkAt, heldE } from '../v2/sim.js';
-import { settledCells, boxOf, lookRGB, factsDigest, lookDigest, gallDark, fadeOf, sideView, heightOf } from '../v2/look.js';
+import { settledCells, boxOf, lookRGB, factsDigest, lookDigest, gallDark, fadeByLight, sideView, heightOf } from '../v2/look.js';
 import { sceneField, liveField, encodeScene, decodeScene, paperDetail, sceneWindow } from '../v2/scene.js';
 import { momentsOf, bandOf } from '../v2/moments.js';
 import { createLive, createPlayback } from '../v2/live.js';
@@ -596,11 +596,15 @@ test('fading: no exposure is the fresh look; much exposure fades surface ink mor
   const inked = cells.filter((c) => ink(c) > 0);
   const surface = inked.filter((c) => c[7] <= 2);
   const sunk = inked.filter((c) => c[7] >= 12);
-  const s = mean(surface, (c) => fadeOf(c, 4000)),
-    d = mean(sunk, (c) => fadeOf(c, 4000));
+  const s = mean(surface, (c) => fadeByLight(4000, c[7])[0]),
+    d = mean(sunk, (c) => fadeByLight(4000, c[7])[0]);
   console.log(`fading at 4000 views: surface ink keeps ${s.toFixed(0)}/256 (${surface.length} cells), sunk ink ${d.toFixed(0)} (${sunk.length})`);
   assert.ok(surface.length > 20 && sunk.length > 20);
   assert.ok(s < d - 20, 'light takes the surface first');
+  // and each channel by what it drinks (light-waves §8): the red channel's curve drinks more daylight than the blue's
+  const [r, , b, gall] = fadeByLight(4000, 0);
+  assert.ok(r < b && gall < r, `channels fade by what they absorb: ${fadeByLight(4000, 0)}`);
+  assert.deepEqual(fadeByLight(0, 0), [256, 256, 256, 256], 'unseen: nothing fades');
   const faded = lookRGB(cells, box, { views: 4000 });
   assert.ok(sum([...faded], (v) => v) > sum([...fresh], (v) => v), 'faded is lighter');
   assert.deepEqual(factsDigest({ cells, box, actsBytes: bytes, family }), facts);

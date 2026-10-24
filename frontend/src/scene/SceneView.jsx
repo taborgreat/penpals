@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { createView, engineReady } from './engine.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, MIN_WRITE_EL } from './camera.js';
-import { lightAt, returnTo, sunAt } from './light.js';
+import { theLight, originOf, withinRoom, returnTo, sunAt } from './light.js';
 import { isPhone } from './support.js';
 import { sightOf } from './sight.js';
 
@@ -22,7 +22,7 @@ import { sightOf } from './sight.js';
 //   momentsKey  changes when the writing does: shown moments are banded again
 //   onSight     (sight | null) => …: what the eye sees, once the view settles (sight.js);
 //               null while the view is out of sight
-//   ground      the sheets lie on the page (a journal page), not on the desk
+//   ground      the sheets lie on the page (a journal page), not on the table
 //   onFlat      the viewer chose the flat look
 //   toolsHost   an element to put the tools in (a pad's own bar, off the page), else over the view
 // ref: { camera(), setCamera(cam), invalidate() }
@@ -46,6 +46,7 @@ function storedRelief() {
   }
 }
 const SIGHT_MS = 150; // the view still this long: what it sees is told (and asked for)
+const SETTLE_MS = 40; // while the eye adapts (it is slow: seconds), drawn this often
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
 const SceneView = forwardRef(function SceneView(
@@ -112,7 +113,7 @@ const SceneView = forwardRef(function SceneView(
       override = k < 1 ? returnTo(S.back.from, sunAt(new Date()), k) : null;
       if (k >= 1) S.back = null;
     }
-    return lightAt(new Date(), now / 1000, page[0], page[1], override);
+    return theLight().at({ now, date: new Date(), override });
   }
 
   // What the eye sees, told once the view has settled (SIGHT_MS after it stops).
@@ -149,8 +150,16 @@ const SceneView = forwardRef(function SceneView(
       cam = { ...cam, target: [(x0 + x1) / 2, (y0 + y1) / 2], view: Math.max(1, x1 - x0) };
     }
     if (cam.mode === '3d' && follow) cam = chaseFollow(cam, follow.base, follow.offset);
+    if (cam.mode === '3d') {
+      // in the room: never through a wall, the floor, the ceiling or the table
+      const kept = withinRoom(cam, page[0], page[1]);
+      if (kept !== cam) {
+        cam = kept;
+        if (!S.anim && !follow) S.cam = kept;
+      }
+    }
     const light = currentLight(now);
-    S.view.setLight(light);
+    S.view.setLight(light, originOf(page[0], page[1]));
     // the resolution: capped; lower while moving and for the flicker alone (full again once still)
     const moving = !!S.anim || now < S.moveUntil || S.drag?.kind === 'orbit' || S.drag?.kind === 'pan' || S.drag?.kind === 'two';
     if (!S.flickerOnly) S.lastFull = now;
@@ -168,7 +177,13 @@ const SceneView = forwardRef(function SceneView(
     setSteep((was) => (was === low ? was : low));
     if (S.anim || S.override || S.back)
       schedule(); // moving
-    else if (light.night > 0.01 && !S.flicker) {
+    else if (light.settling && !S.settle) {
+      // the room's light settling, the eye adapting: a few frames a second
+      S.settle = setTimeout(() => {
+        S.settle = 0;
+        schedule();
+      }, SETTLE_MS);
+    } else if (light.night > 0.01 && !S.flicker) {
       // only the candles flickering
       S.flicker = setTimeout(() => {
         S.flicker = 0;
@@ -194,6 +209,7 @@ const SceneView = forwardRef(function SceneView(
     const view = createView(canvasRef.current, { host: wrapRef.current, invalidate: schedule });
     S.view = view;
     if (paper) view.setPaper(paper);
+    const offLight = theLight().onSettled(schedule); // the room's light settled anew: draw it
     const ro = new ResizeObserver(() => {
       if (!wrapRef.current) return;
       const r = wrapRef.current.getBoundingClientRect();
@@ -216,10 +232,12 @@ const SceneView = forwardRef(function SceneView(
     setReady(gpu);
     return () => {
       ro.disconnect();
+      offLight();
       io.disconnect();
       clearInterval(tick);
       clearTimeout(S.liveTimer);
       clearTimeout(S.flicker);
+      clearTimeout(S.settle);
       clearTimeout(S.still);
       clearTimeout(S.sightTimer);
       cancelAnimationFrame(S.raf);
