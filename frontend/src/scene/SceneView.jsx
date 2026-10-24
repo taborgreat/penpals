@@ -28,6 +28,20 @@ const LIVE_MS = 16; // a sheet being written is drawn again at most this often (
 const STILL_MS = 200; // after this long without the camera moving, frames are full resolution again
 const MOVING = 0.75; // the resolution while the camera moves, and for frames drawn only for the candles' flicker
 const CAP_DESKTOP = 1.5; // device pixels per CSS pixel, at most (phones: 1)
+// How much taller than true the relief is drawn (scene only): 1× to 200×, about
+// 20× by default (cleanup-and-speed.md §3); the slider runs on a log scale.
+const RELIEF = 20;
+const RELIEF_KEY = 'penpals:relief';
+const reliefFrom = (pos) => Math.max(1, Math.round(200 ** (pos / 100)));
+const posFrom = (x) => Math.round((100 * Math.log(Math.max(1, x))) / Math.log(200));
+function storedRelief() {
+  try {
+    const v = Number(localStorage.getItem(RELIEF_KEY));
+    return v >= 1 && v <= 200 ? v : RELIEF;
+  } catch {
+    return RELIEF;
+  }
+}
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
 const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, frame2d, writer, follow, cutSide, moments, momentsKey, ground = false, onFlat, paper = null, tools = true, toolsHost = null, className = '', style }, ref) {
@@ -35,6 +49,12 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const canvasRef = useRef(null);
   const st = useRef(null);
   const [tool, setTool] = useState(null); // 'light' | 'cut' | null
+  // the hand (drag turns, right-drag or shift slides) or the pen (drag writes, right-drag turns):
+  // the pen where there is writing to do, the hand in viewers
+  const [handChoice, setHand] = useState(null); // null: as the view is (a writer: the pen)
+  const hand = handChoice ?? !writer;
+  const penMode = !!writer && !hand;
+  const [relief, setRelief] = useState(storedRelief);
   const [steep, setSteep] = useState(false); // too low to write
   const [bandsOn, setBandsOn] = useState(false);
   const [banded, setBanded] = useState(0); // cells in a dark band (shown on the element: data-banded)
@@ -42,7 +62,8 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const phone = useRef(isPhone()).current;
 
   if (!st.current) {
-    st.current = { cam: mode === '3d' ? camera3d(...page) : camera2d(...page), anim: null, override: null, back: null, raf: 0, last: 0, view: null, applied: new Map(), css: [1, 1], moveUntil: 0, pointers: new Map(), drag: null, taps: [] };
+    const cam0 = mode === '3d' ? camera3d(...page) : camera2d(...page);
+    st.current = { cam: cam0, home: cam0, anim: null, override: null, back: null, raf: 0, last: 0, view: null, applied: new Map(), css: [1, 1], moveUntil: 0, pointers: new Map(), drag: null, taps: [] };
   }
   const S = st.current;
 
@@ -255,6 +276,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const onPointerDown = (e) => {
     const c = canvasRef.current;
     c.setPointerCapture(e.pointerId);
+    c.focus({ preventScroll: true }); // (the keys: fly, H)
     S.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     if (tool === 'light' || e.altKey) {
       S.drag = { kind: 'light' };
@@ -287,15 +309,24 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       S.drag = { kind: 'two', mid: [(a.x + b.x) / 2, (a.y + b.y) / 2], dist: Math.hypot(a.x - b.x, a.y - b.y) };
       return;
     }
-    const writes = writer && (e.pointerType === 'pen' || e.pointerType === 'touch' || e.button === 0) && !e.shiftKey && e.button !== 2;
-    const at = writes && canWrite(S.shown ?? S.cam) ? pageOf(e) : null;
-    if (onPage(at)) {
-      writer.penDown?.(S.shown ?? S.cam);
-      S.drag = { kind: 'write', last: at };
-      writer.down(at, e.nativeEvent, e.pointerType);
-      return;
+    const leftish = e.button === 0 || e.pointerType === 'pen' || e.pointerType === 'touch';
+    if (penMode && leftish && !e.shiftKey) {
+      const can = canWrite(S.shown ?? S.cam);
+      const at = can ? pageOf(e) : null;
+      if (onPage(at)) {
+        writer.penDown?.(S.shown ?? S.cam);
+        S.drag = { kind: 'write', last: at };
+        writer.down(at, e.nativeEvent, e.pointerType);
+        return;
+      }
+      if (can) { // the pen down on the desk: it writes from where it reaches the page
+        S.drag = { kind: 'pen-off', type: e.pointerType };
+        return;
+      }
     }
-    S.drag = { kind: e.button === 1 || e.shiftKey ? 'pan' : 'orbit', x: e.clientX, y: e.clientY };
+    // the hand: drag turns, right-drag or shift slides; the pen: right-drag turns, shift slides
+    const slide = e.shiftKey || e.button === 1 || (!penMode && e.button === 2);
+    S.drag = { kind: slide ? 'pan' : 'orbit', x: e.clientX, y: e.clientY };
   };
 
   const onPointerMove = (e) => {
@@ -309,6 +340,13 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     } else if (d.kind === 'cut') {
       const p = pageOf(e);
       if (p) d.b = [p.x, p.y];
+    } else if (d.kind === 'pen-off') {
+      const p = pageOf(e);
+      if (onPage(p)) {
+        writer.penDown?.(S.shown ?? S.cam);
+        S.drag = { kind: 'write', last: p };
+        writer.down(p, e.nativeEvent, d.type);
+      }
     } else if (d.kind === 'write') {
       const evs = e.nativeEvent.getCoalescedEvents?.() ?? [];
       for (const ev of evs.length ? evs : [e.nativeEvent]) {
@@ -376,7 +414,8 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const onWheel = (e) => {
     if (mode !== '3d') return;
     e.preventDefault();
-    S.cam = zoomBy(S.cam, e.deltaY > 0 ? 1.12 : 1 / 1.12);
+    const p = pageOf(e);
+    S.cam = zoomBy(S.cam, e.deltaY > 0 ? 1.12 : 1 / 1.12, p ? [p.x, p.y] : null);
     S.moveUntil = performance.now() + STILL_MS;
     schedule();
   };
@@ -391,7 +430,11 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const onKeyDown = (e) => {
     if (mode !== '3d') return;
     const k = e.key.toLowerCase();
-    const step = Math.max(2, S.cam.dist * 0.04);
+    if (k === 'h' && writer) {
+      setHand(!hand);
+      return;
+    }
+    const step = Math.max(0.01, S.cam.dist * 0.04); // the speed scales with the distance
     const moves = { w: [step, 0, 0], arrowup: [step, 0, 0], s: [-step, 0, 0], arrowdown: [-step, 0, 0], a: [0, -step, 0], arrowleft: [0, -step, 0], d: [0, step, 0], arrowright: [0, step, 0], q: [0, 0, 0.08], e: [0, 0, -0.08] };
     if (!moves[k]) return;
     e.preventDefault();
@@ -437,6 +480,24 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     if (bandsOn) showBands();
   }, [momentsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // back to the writing view: a glide
+  function toSeat() {
+    S.anim = { from: S.shown ?? S.cam, to: S.home, t0: performance.now(), ms: 600 };
+    S.cam = S.home;
+    schedule();
+  }
+  // the relief, here and remembered (a convenience only)
+  useEffect(() => {
+    try {
+      localStorage.setItem(RELIEF_KEY, String(relief));
+    } catch {
+      // private mode: not remembered
+    }
+    if (!S.view) return;
+    S.view.setRelief(relief);
+    schedule();
+  }, [relief, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const interactive = mode === '3d' || tool === 'light';
   const wrapTools = (el) => (toolsHost ? createPortal(el, toolsHost) : el);
   return (
@@ -453,11 +514,22 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
         onDoubleClick={onDoubleClick}
         onKeyDown={onKeyDown}
         onContextMenu={(e) => e.preventDefault()}
-        aria-label={mode === '3d' ? 'The page in 3D: drag to turn it, wheel to come closer, double-click to fly to a spot' : 'The page, lit'}
+        aria-label={mode === '3d' ? (penMode ? 'The page in 3D, the pen: drag to write, right-drag to turn, wheel to come closer, H for the hand' : 'The page in 3D: drag to turn it, right-drag to slide, wheel to come closer, double-click to fly to a spot, keys to fly') : 'The page, lit'}
       />
-      {steep && <p className="scene-hint">Tilt up to write: below {MIN_WRITE_EL}° a pixel covers too much page.</p>}
+      {steep && penMode && <p className="scene-hint">Tilt up to write: below {MIN_WRITE_EL}° a pixel covers too much page.</p>}
+      {penMode && !steep && mode === '3d' && <p className="scene-hint quiet">The pen: drag to write · right-drag to turn · H for the hand</p>}
       {tools && wrapTools(
         <div className={`scene-tools${toolsHost ? ' hosted' : ''}`} role="group" aria-label="View">
+          {writer && mode === '3d' && (
+            <button type="button" aria-pressed={!hand} onClick={() => setHand(!hand)} title="The pen writes (right-drag turns); the hand turns and slides the page (H)">{hand ? 'Hand' : 'Pen'}</button>
+          )}
+          {mode === '3d' && (
+            <button type="button" onClick={toSeat} title="Back to the writing view">Seat</button>
+          )}
+          <label className="scene-relief" title="How much taller than true the ink and paper are drawn (the scene only)">
+            Relief
+            <input type="range" min={0} max={100} value={posFrom(relief)} onChange={(e) => setRelief(reliefFrom(Number(e.target.value)))} aria-label={`Relief ${relief}×`} />
+          </label>
           <button type="button" aria-pressed={tool === 'light'} onClick={() => setTool(tool === 'light' ? null : 'light')} title="Drag to move the light; let go and it returns to the time of day">Light</button>
           {mode === '3d' && cutSide && (
             <button type="button" aria-pressed={tool === 'cut'} onClick={() => { setTool(tool === 'cut' ? null : 'cut'); if (tool === 'cut') { S.view?.setCut(null); schedule(); } }} title="Drag a line across the writing to cut through the paper">Cut</button>

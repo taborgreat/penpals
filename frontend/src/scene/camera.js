@@ -12,7 +12,8 @@
 //   { mode: '2d' | '3d', target: [x, y], dist, az, el, fov, view }
 //     view: in 2D, the page width shown (px); fov: in 3D, the vertical field (deg)
 
-export const MIN_WRITE_EL = 25; // below this elevation writing pauses (a pixel covers too much page)
+export const MIN_WRITE_EL = 25; // below this elevation writing pauses (a pixel covers too much page); looking goes down to 0°
+export const MIN_DIST = 0.3; // the closest the camera comes (page px): between the beads
 
 const rad = (d) => (d * Math.PI) / 180;
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -78,8 +79,15 @@ export const elevationOf = (cam) => (cam.mode === '2d' ? 90 : Math.min(90, cam.e
 export const canWrite = (cam, min = MIN_WRITE_EL) => elevationOf(cam) >= min;
 
 // Moving the camera (3D).
-export const orbit = (cam, dAz, dEl) => ({ ...cam, az: (cam.az + dAz + 360) % 360, el: Math.max(5, Math.min(89.9, cam.el + dEl)) });
-export const zoomBy = (cam, k) => (cam.mode === '2d' ? { ...cam, view: Math.max(20, Math.min(20000, cam.view * k)) } : { ...cam, dist: Math.max(4, Math.min(20000, cam.dist * k)) });
+export const orbit = (cam, dAz, dEl) => ({ ...cam, az: (cam.az + dAz + 360) % 360, el: Math.max(0, Math.min(90, cam.el + dEl)) });
+// Closer or further by k; coming closer, the target slides toward `toward` (the page point under the cursor) as much.
+export function zoomBy(cam, k, toward = null) {
+  if (cam.mode === '2d') return { ...cam, view: Math.max(20, Math.min(20000, cam.view * k)) };
+  const dist = Math.max(MIN_DIST, Math.min(20000, cam.dist * k));
+  if (!toward || dist >= cam.dist) return { ...cam, dist };
+  const s = 1 - dist / cam.dist;
+  return { ...cam, dist, target: [cam.target[0] + (toward[0] - cam.target[0]) * s, cam.target[1] + (toward[1] - cam.target[1]) * s] };
+}
 // Slide the target across the page by a screen-space drag (px of the view's width).
 export function panBy(cam, dx, dy, viewPx) {
   const scaleK = (cam.mode === '2d' ? cam.view : 2 * cam.dist * Math.tan(rad(cam.fov) / 2)) / Math.max(1, viewPx);
@@ -89,13 +97,13 @@ export function panBy(cam, dx, dy, viewPx) {
   return { ...cam, target: [cam.target[0] - (dx * r[0] - dy * u[0]) * scaleK, cam.target[1] - (dx * r[1] - dy * u[1]) * scaleK] };
 }
 // Fly to a page point (double tap): the target moves there and the camera comes closer.
-export const flyTo = (cam, p) => ({ ...cam, target: [p[0], p[1]], dist: Math.max(4, cam.dist * 0.45), view: Math.max(20, cam.view * 0.45) });
+export const flyTo = (cam, p) => ({ ...cam, target: [p[0], p[1]], dist: Math.max(MIN_DIST, cam.dist * 0.45), view: Math.max(20, cam.view * 0.45) });
 // Free flight (keys): forward/back along the view on the page, sideways, up and down.
 export function fly(cam, fwd, side, rise) {
   const az = rad(cam.az);
   const ahead = [-Math.sin(az), -Math.cos(az)];
   const r = [Math.cos(az), -Math.sin(az)];
-  return { ...cam, target: [cam.target[0] + ahead[0] * fwd + r[0] * side, cam.target[1] + ahead[1] * fwd + r[1] * side], dist: Math.max(4, cam.dist * (1 - rise)) };
+  return { ...cam, target: [cam.target[0] + ahead[0] * fwd + r[0] * side, cam.target[1] + ahead[1] * fwd + r[1] * side], dist: Math.max(MIN_DIST, cam.dist * (1 - rise)) };
 }
 
 // The chase in 3D: the camera's target slides along the line by the chase's

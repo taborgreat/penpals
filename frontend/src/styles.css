@@ -1059,6 +1059,9 @@ canvas.corner-picker {
 .scene-tools.hosted { position: static; display: inline-flex; }
 .scene-tools-host { display: inline-flex; }
 .scene-tools button[aria-pressed='true'] { box-shadow: inset 0 0 0 1px var(--text); }
+.scene-relief { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 0 6px; border-radius: 6px; background: color-mix(in srgb, var(--surface) 88%, transparent); }
+.scene-relief input { width: 72px; }
+.scene-hint.quiet { opacity: 0.7; font-size: 12px; }
 .scene-hint { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); margin: 0; padding: 4px 10px; border-radius: 6px; background: color-mix(in srgb, var(--surface) 92%, transparent); font-size: 13px; pointer-events: none; }
 
 @media (max-width: 640px) {

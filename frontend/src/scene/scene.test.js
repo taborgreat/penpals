@@ -2,7 +2,7 @@
 // minimum angle; the chase in 3D; the light is a beauty layer only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { camera2d, camera3d, pageAt, project, canWrite, elevationOf, orbit, lerpCam, chaseFollow, MIN_WRITE_EL } from './camera.js';
+import { camera2d, camera3d, pageAt, project, canWrite, elevationOf, orbit, zoomBy, flyTo, fly, lerpCam, chaseFollow, MIN_WRITE_EL, MIN_DIST } from './camera.js';
 import { sunAt, lightAt, candleMix, returnTo, kelvin } from './light.js';
 import { createCameraStack } from './stack.js';
 import { watchBattery, isLowPower, LOW_BATTERY } from './support.js';
@@ -150,4 +150,21 @@ test('low power: on battery and nearly out, the scene stands down; charging brin
   battery.dispatchEvent(new Event('chargingchange'));
   assert.equal(isLowPower(), false);
   assert.equal(await watchBattery({}), false); // no Battery Status API: the scene as chosen
+});
+
+test('the camera: looking goes from dead sideways to straight down; coming closer slides toward the cursor; it flies down to the beads', () => {
+  const c = camera3d(1000, 600);
+  assert.equal(orbit(c, 0, -200).el, 0, 'down to 0°, edge on');
+  assert.equal(orbit(c, 0, 200).el, 90, 'up to straight down');
+  assert.ok(!canWrite(orbit(c, 0, -200)) && canWrite(c), 'writing still needs ' + MIN_WRITE_EL + '°');
+  const p = [900, 100];
+  const closer = zoomBy(c, 0.5, p);
+  assert.equal(closer.dist, c.dist * 0.5);
+  assert.deepEqual(closer.target, [c.target[0] + (p[0] - c.target[0]) * 0.5, c.target[1] + (p[1] - c.target[1]) * 0.5], 'halfway closer, halfway to the cursor');
+  assert.deepEqual(zoomBy(c, 2, p).target, c.target, 'going back does not slide');
+  let near = c;
+  for (let i = 0; i < 200; i++) near = zoomBy(near, 0.5, p);
+  assert.equal(near.dist, MIN_DIST, 'as close as ' + MIN_DIST + ' px');
+  assert.equal(flyTo(near, p).dist, MIN_DIST);
+  assert.ok(fly(near, 0, 0, 0.5).dist >= MIN_DIST);
 });

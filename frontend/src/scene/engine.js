@@ -55,7 +55,7 @@ export function engineReady(prefer = null) {
         webgpu = false;
       }
     }
-    const renderer = new gpu.WebGPURenderer({ antialias: false, alpha: true, stencil: true, forceWebGL: !webgpu });
+    const renderer = new gpu.WebGPURenderer({ antialias: false, alpha: true, stencil: true, logarithmicDepthBuffer: true, forceWebGL: !webgpu });
     await renderer.init();
     renderer.setPixelRatio(1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -607,7 +607,7 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       } else {
         persp.fov = cam.fov;
         persp.aspect = aspect;
-        persp.near = Math.max(0.2, cam.dist / 500);
+        persp.near = Math.max(1e-4, cam.dist / 1000); // close flight (the depth buffer is logarithmic)
         persp.far = cam.dist * 40 + 20000;
         camera = persp;
       }
