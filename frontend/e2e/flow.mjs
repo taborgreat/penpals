@@ -255,7 +255,7 @@ try {
     await page.getByRole('button', { name: 'Scene', exact: true }).click();
     await page.locator('.walk-back-scene canvas').waitFor({ timeout: 60000 });
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
-    await page.waitForFunction(() => document.querySelector('.walk-back-scene .scene-tools button[aria-pressed="true"]')?.textContent === 'Moments', null, { timeout: 60000 });
+    await page.waitForFunction(() => [...document.querySelectorAll('.walk-back-scene .scene-tools button[aria-pressed="true"]')].some((b) => b.textContent === 'Moments'), null, { timeout: 60000 });
     console.log(`   side view ${sideW}; the sheet in the scene, its moments banded`);
   } else console.log(`   side view ${sideW}`);
   await page.getByRole('button', { name: 'Close' }).click();

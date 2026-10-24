@@ -56,6 +56,7 @@ to start clean.
 ```
 npm test                                  # law, backend, frontend suites
 npm run check:browsers -w law             # the law byte-identical in Chromium, Firefox, WebKit
+node frontend/e2e/flow.mjs --dev --no-webgl   # the same flow with WebGL off: the flat look, writing in 2D
 npm run build -w frontend && node frontend/e2e/flow.mjs   # the whole site in Chromium, by hand-like input
 node backend/scripts/fsck.js [--regrow]   # the data directory, read-only
 node law/bin/verify.js <file.book | proof.json> [--json]
@@ -82,6 +83,7 @@ backend/scripts/fsck.js
 frontend/src
   keys/              the key in this tab; register, sign in, sketches (key worker)
   ink/               capture, live sheet (ink worker), films, plus the photo pipeline
+  scene/             the scene: one three.js renderer, 2D/3D cameras, the light, writing by ray
   book/              the journal: chain, looks, edits, walk back
   components/ pages/ Pad, WriteMode, Register, SignIn, Proofs, BookViewer, ...
 ```
@@ -128,7 +130,11 @@ and a letter each have one commit point, so a crash never leaves half of one.
   ink again, wet paper wears and tears, soaked paper cockles, pens throw ink (splatter, decided
   by the paper), and oak gall darkens over days while every colour fades with views: aging is
   applied when someone looks, never on a timer.
-  Law 1 sheets settle exactly as they always did. Side and relief views in walk back.
+  Law 1 sheets settle exactly as they always did.
+- **The scene**: every ink view is a lit 3D scene, seen straight down (2D) or from anywhere
+  (3D), lit by the viewer's clock (candles at night); you can write in either. The flat look
+  where WebGL2 is not there (or by choice). Walk back: the side view, the sheet in the
+  scene with a cut plane, and its moments.
 - **Walk back**: tap a spot of your own (or an open) sheet and see why it looks that way.
 - **Films**: the sheet being written, frame by frame, saved as WebM (WebCodecs) or GIF.
 - **Live proofs**: ask someone; your challenge and their key name a sheet and a phrase;

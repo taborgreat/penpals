@@ -375,6 +375,28 @@ What law 2 adds. Every one is a fact (in the facts digest), computed only under 
 
 **Cost.** Law 2 adds dent, depth, peak, soak, wear and flags (one byte each per cell, published as levels) and gall only where it went; exposure is one integer per record. The water brush and oak gall are pen colours, already in PNKA; spatter adds one byte to a pen act that sets it. Splatter's drops are stored nowhere: they regrow from the acts and the paper.
 
+## The scene: 3D, light and splatter
+
+The page is always a 3D scene; 2D is that scene seen straight down. Every ink view can switch between 2D and 3D, and you can write in either. The facts decide; the scene only shows: acts, facts, seals and digests are the same whatever the camera or the light.
+
+**The height field (law 2).** A bead stands while it is wet: the water over the cell's capacity. As it sinks, the height above falls and the liquid below rises; above + in the paper + what the paper drank is exactly the water that came to the cell. Dry, only the **film** stands: the ink that dried on top (what the water could no longer carry, and the last of the bead), the ring a little higher at the edge. Never the peak. Depth is the liquid that sank in over the paper's porosity, taken over each cell and its neighbours (it wicks sideways: no spikes), and it never comes back up. The film is a fact (it took the digest's spare byte); peak stays for walk back.
+
+**One renderer** (`frontend/src/scene`, three.js, WebGL2). One WebGL context for the whole page: each view (a pad, a journal page, a letter, walk back, write mode) renders into it and copies its frame. A sheet is cut into chunks of 128 × 128 cells with small textures (heights, colour, the paper's detail, the moments), so live writing uploads only what it touched, and detail drops with distance. Torn cells are holes onto the desk behind the page; the paper is a slab with thickness; a cut plane shows the cross-section (the side view's picture). 2D is an orthographic camera straight down, lit; 3D a perspective camera to orbit, zoom, fly (keys), double-tap to fly to a point. The switch animates; the page under it does not change. Where WebGL2 is missing, with reduced motion or data saving, or by choice ("Flat"), every view shows the flat look, which stays the record's own image (the .book, the cache, lookDigest).
+
+**Light.** The sun by the viewer's own clock: low and warm in the morning, high and white at noon, long and gold in the evening. At night two candles flank the page, about 1800 K, flickering (noise, non-canonical), each with its own shadows; dusk and dawn cross-fade. Drag the light anywhere ("Light"); let go and it returns to the clock. Shadows are marched across the height field toward each light; wet beads are glossy. Light never touches the record.
+
+**Writing in 3D.** Each pointer sample casts a ray from the camera onto the paper (z = 0) and takes that page point: the same pointer path in page terms gives the same acts and facts in 2D or 3D. Below 25° of elevation writing pauses ("tilt up"). Undo restores the whole camera from before the stroke, with the ink. In write mode the chase works as ever, and in 3D the camera's target slides along the line with it.
+
+**Show the moments.** On own and open sheets (walk back), the ink banded by when each cell's ink went down: tight rings where the pen was slow, wide where it was fast, one thick band at a pause.
+
+**Splatter** (law 2): see Depth, water and oak gall.
+
+**Flex tips (law 2).** The flex nib's footprint is a short wide rectangle: its two tines spread across the nib's axis (which follows the slant) by pressure, so a downstroke along the slant is full width and an upstroke stays hairline; press and hold so the tines open, pull down, stop, hold, lift: square at both ends. With a mouse or thumb on a law 2 sheet, holding still builds the pressure (about 0.3 s to open fully); a real stylus's pressure drives it as it is. Wide tines with too little ink railroad: the middle starves and the ink runs down the tines.
+
+**The nib's supply (law 2).** Ink is wiped off by the distance moved and fed for the time spent, less as the cell under the nib fills, and a still nib's tip empties: fast strokes are not starved into hairlines, turns do not blot (an even S: within a few percent at its turns), and a dwell beads to a capped size however long it is held.
+
+**Serving.** Own and open sheets regrow on the device, the paper's real fibers included. A visitor's closed sheet comes from the render pool as its scene field (`/look?mode=scene`: heights, depth, colour as it looks now, holes; never the seed or the paper's fields), with a generic paper grain.
+
 ## Rulings taken in this build
 
 Tabor's rulings, and the defaults taken where none was given. Each is one constant or flag in the code.
@@ -408,6 +430,12 @@ Tabor's rulings, and the defaults taken where none was given. Each is one consta
 | Side and relief views (law 2) | the writer's, and anyone's once the sheet is open (default: depth reveals the secret paper) |
 | Paper thickness, dents (law 2) | 24 depth levels; dents up to 32 levels; a mouse or finger dents only by dwelling or through the flex nib's synthetic pressure (defaults) |
 | Tearing (law 2) | on for every paper family; a hard scrub over one wet spot tears it, the same strokes dry never do (default) |
+| The site's view (scene) | the lit 2D scene by default; 3D, and the flat look, to choose (remembered per device) |
+| 3D for visitors on closed sheets (scene) | yes, from the server's scene field (`config.book.depthForVisitors`; false: only the writer and open sheets) |
+| Minimum writing angle (scene) | 25° |
+| Phones (scene) | the lit 2D scene, at a lower resolution and 30 frames a second |
+| Flex nib hold, railroading (law 2) | a hold opens the tines in about 0.3 s (`HOLD_RAMP`, on law 2 sheets only: the hand is read under law 1); railroading on |
+| The scene on the hand's pads | none: registration and sign-in read the hand under law 1, flat and unhurried |
 | Splatter (law 2) | on, low: spatter 3 for the flex nib, 1 for the others, settable 0..15 on the pad (default) |
 | The water brush in the acts (law 2) | the pen colour pure white, not a new pen kind: acts don't grow (white ink is no ink anyway) |
 
@@ -436,6 +464,7 @@ Tabor's rulings, and the defaults taken where none was given. Each is one consta
 - Whether visitors' profiles mention the hand at all (default: no).
 - The hand's code radii and quantizer: frozen only after real hands are measured (three people, ten sessions, phone and desktop). Until then `LAW_HAND_UNFROZEN` is on and the radii are the synthetic run's, loose enough for one person on a phone and a desktop.
 - The sketch cap, confirmed by that device report.
+- The scene: the default view (lit 2D or the flat look); 3D for visitors on closed sheets; the minimum writing angle; phones (lit 2D or flat to save battery); how long a flex hold takes to open the tines, and railroading.
 - Law 2: water on sealed sheets (a continuation sheet, or drafts only); the oak gall colour, its darkening time and cap; how strong fading is and whether the count is shown; whether visitors see side and relief views; paper thickness and dent strength for mouse and thumb; how easily paper tears, and whether tearing is on by default or a paper-family setting; the default spatter, and whether it is on by default. Each is a constant (`law/v2/constants.js`, `law/tools/gen-tables-v2.js`); any change before v2 writing exists means new goldens; after, a law 3.
 
 ## Build order
