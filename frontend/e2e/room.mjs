@@ -151,6 +151,40 @@ const darkened = (a, b, share = 0.3, by = 10) => {
   return n;
 };
 
+// Register at the lobby's desk: sign three times, the name, keep the key, in.
+async function register(page, name) {
+  await page
+    .getByRole('button', { name: /register/i })
+    .first()
+    .click();
+  for (let i = 1; i <= 3; i++) {
+    await page.getByText(`Signature ${i} of 3`).waitFor({ timeout: 30000 });
+    await sign(page, signature(0.002 * i + name.length * 0.001));
+    await page.getByRole('button', { name: 'Done' }).click();
+  }
+  await page.locator('#reg-name').waitFor({ timeout: 60000 });
+  await page.fill('#reg-name', name);
+  await page.getByText('free', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByText('I have kept my words or my private key').click();
+  await page.getByRole('button', { name: 'Make my account' }).click();
+}
+// Dark marks in the middle of a picture: pixels well under its median brightness.
+const marksIn =
+  (share = 0.3, by = 25) =>
+  (d, w, h) => {
+    const lum = [];
+    for (let y = Math.floor(h * (0.5 - share / 2)); y < h * (0.5 + share / 2); y++) {
+      for (let x = Math.floor(w * (0.5 - share / 2)); x < w * (0.5 + share / 2); x++) {
+        const i = (y * w + x) * 4;
+        lum.push((d[i] + d[i + 1] + d[i + 2]) / 3);
+      }
+    }
+    const median = [...lum].sort((a, b) => a - b)[lum.length >> 1];
+    return lum.filter((v) => v < median - by).length;
+  };
+const PX_PER_M = 1400 / 0.2159;
+
 const webgpu = process.argv.includes('--webgpu');
 const browser = await chromium.launch(webgpu ? { channel: 'chromium', args: ['--enable-unsafe-webgpu'] } : { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 let failed = null;
@@ -172,21 +206,7 @@ try {
   if (lobby.lum < 4) throw new Error('the lobby is dark');
 
   step('register at the desk: sign three times on its paper, the name, keep the key');
-  await page
-    .getByRole('button', { name: /register/i })
-    .first()
-    .click();
-  for (let i = 1; i <= 3; i++) {
-    await page.getByText(`Signature ${i} of 3`).waitFor({ timeout: 30000 });
-    await sign(page, signature(0.002 * i));
-    await page.getByRole('button', { name: 'Done' }).click();
-  }
-  await page.locator('#reg-name').waitFor({ timeout: 60000 });
-  await page.fill('#reg-name', 'tabor');
-  await page.getByText('free', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Next' }).click();
-  await page.getByText('I have kept my words or my private key').click();
-  await page.getByRole('button', { name: 'Make my account' }).click();
+  await register(page, 'tabor');
 
   step('the eye closes, and opens in your own room');
   await page.waitForURL(/\/u\/tabor$/, { timeout: 90000 });
@@ -270,7 +290,76 @@ try {
   if (after < 150) throw new Error('the placed writing does not show on the wall');
   await page.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-room.png') });
   console.log(`   (a picture: ${path.join(os.tmpdir(), 'penpals-e2e-room.png')})`);
-  console.log('ok: the lobby, your room, the shelf, a wall written on');
+
+  step("a door: the writing on the wall made a way into someone else's room");
+  const other = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const guest = await other.newPage();
+  guest.on('pageerror', (err) => console.log('  [guest page error]', err.message));
+  guest.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && console.log('  [guest console]', m.text()));
+  await guest.goto(base);
+  await guest.locator('.lobby-scene[data-gpu]').waitFor({ timeout: 60000 });
+  await register(guest, 'bo');
+  await guest.waitForURL(/\/u\/bo$/, { timeout: 90000 });
+  const item = onWall[0][1].items[0];
+  const linked = await page.request.post(`${base}/api/books/me/edit`, { headers: { origin: base }, data: { op: 'link', surface: 'wall-left', item: item.id, target_room: 'bo' } });
+  if (linked.status() !== 200) throw new Error(`making the door: ${linked.status()} ${await linked.text()}`);
+
+  step("visiting: bo comes into tabor's room, reads the wall, takes the book down, and goes through the door");
+  await guest.goto(`${base}/u/tabor`);
+  const there = '.journal-scene';
+  await guest.locator(`${there}[data-gpu]`).waitFor({ timeout: 60000 });
+  await guest.locator(there).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await guest.locator(`${there} .scene-tools`).getByRole('button', { name: 'Look' }).click();
+  const gcentre = async () => {
+    await guest.locator(there).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await guest.waitForTimeout(200);
+    const b = await guest.locator(`${there} canvas.scene-canvas`).boundingBox();
+    return [b.x + b.width / 2, b.y + b.height / 2];
+  };
+  // the wall's writing, from where its writer stood
+  const lines = (await (await guest.request.get(`${base}/api/books/tabor/ink`)).text())
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  const box = lines.find((l) => l.id === item.ink).ink.box;
+  const [cx, cy] = [item.x + box[2] / 4, item.y + box[3] / 4]; // its middle (two cells a unit)
+  const markAt = [0, cx / PX_PER_M, 2.438 - cy / PX_PER_M];
+  await guest.evaluate((p) => {
+    globalThis.__sceneLook.at([0.4, p[1], p[2]]);
+    globalThis.__sceneLook.aim(p);
+  }, markAt);
+  let seen = 0;
+  for (const end = Date.now() + 40000; Date.now() < end && seen < 150;) {
+    await guest.waitForTimeout(500);
+    await gcentre(); // (the scene's middle on screen, where the head looks)
+    seen = await onScreen(guest, there, marksIn());
+  }
+  await guest.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-guest.png') });
+  console.log(`   the wall, as a visitor reads it: ${seen} pixels of ink`);
+  if (seen < 150) throw new Error('the visitor does not see the writing on the wall');
+  // the book from the shelf
+  await guest.evaluate(() => {
+    globalThis.__sceneLook.at([0.9, 2.31, 1.52]);
+    globalThis.__sceneLook.aim([0.175, 2.31, 1.52]);
+  });
+  await guest.waitForTimeout(600);
+  let gmid = await gcentre();
+  await guest.mouse.click(...gmid);
+  await guest.locator('.book-open').waitFor({ timeout: 10000 });
+  console.log('   the book, taken down by a visitor: ' + (await guest.locator('.book-open button').allTextContents()).join(' · '));
+  await guest.getByRole('button', { name: 'Put it back' }).click();
+  // through the door
+  await guest.evaluate((p) => {
+    globalThis.__sceneLook.at([0.4, p[1], p[2]]);
+    globalThis.__sceneLook.aim(p);
+  }, markAt);
+  await guest.waitForTimeout(600);
+  gmid = await gcentre();
+  await guest.mouse.click(...gmid);
+  await guest.waitForURL(/\/u\/bo$/, { timeout: 15000 });
+  console.log("   through the door: into bo's room");
+  await other.close();
+  console.log('ok: the lobby, your room, the shelf, a wall written on; visiting, a door into another room');
 } catch (err) {
   failed = err;
 } finally {

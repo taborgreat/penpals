@@ -39,6 +39,9 @@ import { sightOf } from './sight.js';
 //   fixed       the eye cannot look around (the lobby, rooms.md §1a)
 //   shelf       { books: [{ id, color: [r, g, b] }], onOpen(id) }: the owner's books on the shelf (rooms.md §3);
 //               a click on one pulls it down
+//   doors       [{ id, surface (null: the page), rect: [x0, y0, x1, y1] (that page's units), link }]:
+//               writing that leads somewhere (rooms.md §3); a click on one is onDoor(link)
+//   gazeAt      { surface, n }: turn the head to that surface (a door to it was followed)
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
 const LIVE_MS = 16; // a sheet being written is drawn again at most this often (about every frame)
@@ -94,6 +97,9 @@ const SceneView = forwardRef(function SceneView(
     timeZone: zoneProp = null,
     fixed: fixedProp = false,
     shelf = null,
+    doors = null,
+    onDoor = null,
+    gazeAt = null,
   },
   ref,
 ) {
@@ -245,10 +251,13 @@ const SceneView = forwardRef(function SceneView(
         const k = Math.min(1, (now - S.glide.t0) / S.glide.ms);
         S.pose = roomCamera.glide(S.glide.from, S.glide.to, k);
         if (k >= 1) {
+          const home = S.glide.to.mode === 'seated';
           S.glide = null;
-          S.pose = null; // back in the seat: the page camera again
-          S.cam = S.home;
-          setLooking(false);
+          if (home) {
+            S.pose = null; // back in the seat: the page camera again
+            S.cam = S.home;
+            setLooking(false);
+          }
         }
       }
     }
@@ -466,6 +475,22 @@ const SceneView = forwardRef(function SceneView(
     }
     schedule();
   }
+
+  // a door to a surface was followed: the head turns to it (into Look)
+  useEffect(() => {
+    if (!gazeAt?.surface || fixed) return;
+    const f = surfaceFrame(GEOM, gazeAt.surface);
+    if (!f) return;
+    if (!S.pose) {
+      S.pose = poseOfCam(S.shown ?? S.cam);
+      setLooking(true);
+    }
+    const c = f.origin.map((v, k) => v + (f.right[k] * f.size[0] + f.down[k] * f.size[1]) / 2);
+    const d = c.map((v, k) => v - S.pose.pos[k]);
+    const to = { ...S.pose, mode: 'fly', yaw: (Math.atan2(d[0], d[1]) * 180) / Math.PI, pitch: (Math.asin(d[2] / Math.hypot(...d)) * 180) / Math.PI };
+    S.glide = { from: S.pose, to, t0: performance.now(), ms: 700 };
+    schedule();
+  }, [gazeAt?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the 2D/3D switch: the camera moves, the page under it does not
   useEffect(() => {
@@ -717,7 +742,27 @@ const SceneView = forwardRef(function SceneView(
 
   // A click (no drag) on a book on the shelf pulls it down.
   const pick = (e) => {
-    if (!shelf?.books?.length || !S.press || Math.hypot(e.clientX - S.press.x, e.clientY - S.press.y) > 4) return false;
+    if (!S.press || Math.hypot(e.clientX - S.press.x, e.clientY - S.press.y) > 4) return false;
+    if (doors?.length && onDoor) {
+      // a door: on the page (where the ray meets the paper), or on a surface of the room
+      const inside = (r, q) => q && q.x >= r[0] && q.y >= r[1] && q.x <= r[2] && q.y <= r[3];
+      const onPagePoint = pageOf(e);
+      const { origin: o0, dir: d0 } = roomRay(e);
+      const h = roomHit(GEOM, o0, d0);
+      const where = h ? surfaceOfHit(GEOM, h.surface) : null;
+      const onWall = where
+        ? fromRoom(
+            surfaceFrame(GEOM, where),
+            o0.map((v, k) => v + d0[k] * h.t),
+          )
+        : null;
+      const door = doors.find((dr) => (dr.surface ? dr.surface === where && inside(dr.rect, onWall) : inside(dr.rect, onPagePoint)));
+      if (door) {
+        onDoor(door.link);
+        return true;
+      }
+    }
+    if (!shelf?.books?.length) return false;
     const { origin: o, dir } = roomRay(e);
     const { books } = shelfLayout(GEOM, shelf.books.length);
     let best = null;

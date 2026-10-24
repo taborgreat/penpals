@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { keys as K, b64url } from 'penpals-law';
 import Pad from '../components/Pad.jsx';
 import Hand from '../components/Hand.jsx';
@@ -45,6 +46,9 @@ const CLOTHS = [
   [58, 40, 70],
 ];
 const clothOf = (seeds) => CLOTHS[(seeds?.table?.[0] ?? 0) % CLOTHS.length];
+// A door's target as one select value, and back (rooms.md §3: a page, a surface, someone's room).
+const doorValue = (l) => (l?.page ? `page:${l.page}` : l?.surface ? `surface:${l.surface}` : l?.room ? `room:${l.room}` : '');
+const surfaceName = (id) => `the ${id.replace('-', ' ')}`;
 
 export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null, timeZone = null }) {
   const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
@@ -62,6 +66,18 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const [wallColor, setWallColor] = useState(INK_COLORS[0].hex);
   const [wallBusy, setWallBusy] = useState(false);
   const [reading, setReading] = useState(false); // the book pulled down from the shelf, to flip through
+  const [gazeAt, setGazeAt] = useState(null); // a door to a surface was followed: { surface, n } (the head turns to it)
+  const navigate = useNavigate();
+  // Through a door (rooms.md §3): to a page of this book, to a surface of this room
+  // (the head turns to it), or into someone's room (entering their space).
+  const follow = useCallback(
+    (link) => {
+      if (link?.page) onPage(link.page === book.skeleton?.home ? null : link.page);
+      else if (link?.surface) setGazeAt((g) => ({ surface: link.surface, n: (g?.n ?? 0) + 1 }));
+      else if (link?.room) navigate(`/u/${encodeURIComponent(link.room)}`);
+    },
+    [onPage, navigate, book.skeleton?.home],
+  );
   useEffect(() => () => wallRef.current?.destroy(), []);
 
   const skeleton = book.skeleton;
@@ -173,16 +189,16 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   // the shelf: the owner's own book (their journal), until Tabor rules which others stand there
   const shelf = useMemo(() => ({ books: [{ id: 'journal', color: clothOf(seeds) }], onOpen: () => setReading(true) }), [seeds]);
   const room = useMemo(
-    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, timeZone, wallWriter, live: wall ? [wall.mark] : [], shelf }),
-    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf],
+    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, timeZone, wallWriter, live: wall ? [wall.mark] : [], shelf, follow, gazeAt }),
+    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf, follow, gazeAt],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
   if (book.status === 'private') return <p className="muted">This journal is private. Only their friends can see it.</p>;
   if (book.status === 'error') return <p className="error">Could not open the book: {book.error}</p>;
   const size = book.page ?? DEFAULT_PAGE;
-  // Nothing written in the whole book yet: visitors see nothing rather than a blank page.
-  if (!editable && Object.values(skeleton.pages).every((p) => !p.items.length)) return null;
+  // Nothing written in the whole book yet, on a page or in the room: visitors see nothing rather than a blank page.
+  if (!editable && Object.values(skeleton.pages).every((p) => !p.items.length) && Object.values(skeleton.surfaces ?? {}).every((f) => !f.items.length)) return null; // (writing on the room's surfaces counts)
   const missing = pageId && !skeleton.pages[pageId];
 
   function newPage() {
@@ -289,23 +305,50 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
             </button>
           )}
           <label className="field">
-            <span>Button to</span>
+            <span>Door to</span>
             <select
-              value={item.link?.page ?? ''}
-              onChange={(e) => send(e.target.value ? { op: 'link', page: current, item: item.id, target_page: e.target.value } : { op: 'unlink', page: current, item: item.id })}
+              value={doorValue(item.link)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return send({ op: 'unlink', page: current, item: item.id });
+                const at = v.indexOf(':');
+                const kind = v.slice(0, at),
+                  to = v.slice(at + 1);
+                if (kind === 'room' && !to) {
+                  const name = window.prompt('Whose room? (their name)');
+                  if (name) send({ op: 'link', page: current, item: item.id, target_room: name.trim() });
+                  return undefined;
+                }
+                return send({ op: 'link', page: current, item: item.id, [`target_${kind}`]: to });
+              }}
             >
-              <option value="">— not a button —</option>
-              {pageIds
-                .filter((id) => id !== current)
-                .map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
+              <option value="">— not a door —</option>
+              <optgroup label="A page">
+                {pageIds
+                  .filter((id) => id !== current)
+                  .map((id) => (
+                    <option key={id} value={`page:${id}`}>
+                      {id}
+                    </option>
+                  ))}
+              </optgroup>
+              {skeleton.surfaces && (
+                <optgroup label="The room">
+                  {Object.keys(skeleton.surfaces).map((id) => (
+                    <option key={id} value={`surface:${id}`}>
+                      {surfaceName(id)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Someone else">
+                {item.link?.room && <option value={`room:${item.link.room}`}>@{item.link.room}'s room</option>}
+                <option value="room:">Someone's room…</option>
+              </optgroup>
             </select>
           </label>
           {item.link && (
-            <button type="button" onClick={() => onPage(item.link.page === skeleton.home ? null : item.link.page)}>
+            <button type="button" onClick={() => follow(item.link)}>
               Follow →
             </button>
           )}
@@ -359,7 +402,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         selected={selected}
         onSelect={setSelected}
         onOp={op}
-        onFollow={(id) => onPage(id === skeleton.home ? null : id)}
+        onFollow={(id) => follow({ page: id })}
         lookSrc={lookSrc ?? looks}
         sceneSrc={sceneSrc ?? (fromFile ? null : scenes)}
         momentsSrc={momentsSrc}

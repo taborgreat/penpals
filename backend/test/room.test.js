@@ -132,3 +132,33 @@ test('each space keeps its own time: the zone of its owner from registration, sh
   assert.equal((await d.post('/api/social/time', { timeZone: 42 })).status, 400);
   assert.equal((await app.ana.get('/api/users/ana')).data.user.timeZone, null, 'none given: the clock of the viewer stands in');
 });
+
+test("doors: writing leads to a page, a surface of the room, or into someone else's room", async () => {
+  const res = await writeInk(app.ana, ana, { family: PLASTER, place: { surface: 'wall-near', x: 3000, y: 3000, scale: 64 } });
+  assert.equal(res.status, 201);
+  const item = res.data.item;
+  const edit = (op) => app.ana.post('/api/books/me/edit', op);
+  const linkOf = async () => (await app.ana.get('/api/books/me')).data.skeleton.surfaces['wall-near'].items.find((x) => x.id === item).link;
+  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_surface: 'ceiling' })).status, 200);
+  assert.deepEqual(await linkOf(), { surface: 'ceiling' });
+  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_room: 'Bo' })).status, 200);
+  assert.deepEqual(await linkOf(), { room: 'bo' }, 'into their room, by name');
+  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_room: 'nobody_here' })).status, 400, 'no such room');
+  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_surface: 'roof' })).status, 400);
+  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_page: 'home' })).status, 200);
+  assert.deepEqual(await linkOf(), { page: 'home' });
+});
+
+test("visiting: others read the walls (the scene of a closed sheet), as the profile's privacy allows", async () => {
+  const res = await writeInk(app.ana, ana, { family: PLASTER, place: { surface: 'wall-right', x: 8000, y: 7000, scale: 64 } });
+  assert.equal(res.status, 201);
+  const ink = res.data.ink;
+  assert.equal((await app.bo.get(`/api/books/ana/look/${ink}?mode=scene&s=64`)).status, 200, 'a visitor reads the wall');
+  assert.equal((await app.bo.get(`/api/books/ana/look/${ink}?s=64`)).status, 200);
+  // a private room: only friends may come in
+  assert.equal((await app.ana.post('/api/social/private', { private: true })).status, 200);
+  const stranger = client(app.base);
+  assert.notEqual((await stranger.get(`/api/books/ana/look/${ink}?s=64`)).status, 200, 'a stranger cannot read the walls of a private room');
+  assert.equal((await app.ana.post('/api/social/private', { private: false })).status, 200);
+  assert.equal((await stranger.get(`/api/books/ana/look/${ink}?s=64`)).status, 200);
+});

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { appendLine, completeBytes, readJson, readLines, serial, writeJson, crashpoint, httpError } from '../files.js';
-import { userDir } from './accounts.js';
+import { userDir, findByName } from './accounts.js';
 import { addSeed } from './seeds.js';
 import { applyOp, allItems, blankSurfaces } from './ops.js';
 import { keys as K, fromB64url } from 'penpals-law';
@@ -112,6 +112,7 @@ const stale = (version) => Object.assign(httpError(409, 'stale', 'Someone change
 // Context the edit ops need: is this ink placeable here, and how big is it.
 const opContext = (userId) => ({
   inkBody: async (id) => (await inkLine(userId, id))?.ink ?? null,
+  roomOf: async (name) => !!findByName(name), // a door into someone's room: someone there
 });
 
 // Apply one edit (books.md A5): check the version the client had, apply the op

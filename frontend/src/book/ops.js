@@ -18,8 +18,8 @@ export function applyLocal(skeleton, op) {
     case 'resize':
       item.scale = op.scale;
       break;
-    case 'link':
-      item.link = { page: op.target_page };
+    case 'link': // a door: to a page, a surface of the room, or into someone's room
+      item.link = op.target_surface !== undefined ? { surface: op.target_surface } : op.target_room !== undefined ? { room: op.target_room.toLowerCase() } : { page: op.target_page };
       break;
     case 'unlink':
       delete item.link;

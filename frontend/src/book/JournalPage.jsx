@@ -145,6 +145,19 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
     const keys = new Set(surfaceItems.map((w) => w.key));
     return [...[...onWalls.values()].filter((m) => keys.has(m.id)), ...(room?.live ?? [])];
   }, [onWalls, surfaceItems, room?.live]);
+  // doors (rooms.md §3): writing that leads somewhere, on the page or on a surface, followed in the scene
+  const doors = useMemo(
+    () => [
+      ...placed.filter((p) => p.item.link).map((p) => ({ id: p.key, surface: null, rect: p.rect, link: p.item.link })),
+      ...surfaceItems
+        .filter((w) => w.item.link)
+        .map((w) => {
+          const [iw, ih] = itemSize(w.line.ink, w.item.scale);
+          return { id: w.key, surface: w.surface, rect: [w.item.x, w.item.y, w.item.x + iw, w.item.y + ih], link: w.item.link };
+        }),
+    ],
+    [placed, surfaceItems],
+  );
   const paper = useMemo(() => hexRgb(page.background), [page.background]);
   const moments = useMemo(() => {
     const parts = momentsSrc
@@ -213,6 +226,9 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           wallWriter={room?.wallWriter ?? null}
           timeZone={room?.timeZone ?? null}
           shelf={room?.shelf ?? null}
+          doors={doors}
+          onDoor={room?.follow ?? ((link) => link.page && onFollow(link.page))}
+          gazeAt={room?.gazeAt ?? null}
           ground
           onFlat={() => {
             setViewChoice('flat');

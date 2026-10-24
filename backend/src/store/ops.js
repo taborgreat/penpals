@@ -12,7 +12,9 @@ import { config } from '../config.js';
 //   add          page | surface, ink, x, y, scale   place book ink (returns item)
 //   move         page, item, x, y
 //   resize       page, item, scale              scale: integer, 1/64 units (64 = 1×)
-//   link         page, item, target_page        make it a button
+//   link         page, item, target_page | target_surface | target_room
+//                                              make it a button (a door, rooms.md §3): to a page,
+//                                              to one of the room's surfaces, or into someone's room
 //   unlink       page, item
 //   remove       page, item
 //   reorder      page, item, index              bring forward / send back
@@ -81,7 +83,7 @@ export function scaleFor(body, v) {
   return v;
 }
 
-export async function applyOp(s, op, { inkBody }) {
+export async function applyOp(s, op, { inkBody, roomOf = async () => false }) {
   if (!op || typeof op !== 'object') throw bad('An edit needs an op.');
   switch (op.op) {
     case 'add': {
@@ -113,9 +115,17 @@ export async function applyOp(s, op, { inkBody }) {
     }
     case 'link': {
       const { item } = itemOf(holderOf(s, op), op.item);
-      const target = op.target_page ?? op.target;
-      pageOf(s, target);
-      item.link = { page: target };
+      if (op.target_surface !== undefined) {
+        if (typeof op.target_surface !== 'string' || !Object.hasOwn(s.surfaces ?? {}, op.target_surface)) throw bad(`There is no surface "${op.target_surface}".`);
+        item.link = { surface: op.target_surface };
+      } else if (op.target_room !== undefined) {
+        if (typeof op.target_room !== 'string' || !config.auth.username.test(op.target_room) || !(await roomOf(op.target_room))) throw bad('There is no such room.');
+        item.link = { room: op.target_room.toLowerCase() };
+      } else {
+        const target = op.target_page ?? op.target;
+        pageOf(s, target);
+        item.link = { page: target };
+      }
       return null;
     }
     case 'unlink': {
