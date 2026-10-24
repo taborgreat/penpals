@@ -4,7 +4,7 @@ import { httpError } from '../files.js';
 import { requireAuth } from '../auth.js';
 import { findByName, getAccount } from '../store/accounts.js';
 import { bookBytes, chainBytes, edit, getSkeleton, inkLine, sheetLine, openSeed, digestOf, landInk, landOpen, dryRunEdit, NEW_INK } from '../store/books.js';
-import { CLIENT_OPS, SCALE } from '../store/ops.js';
+import { CLIENT_OPS, SCALE, allItems, familyFor } from '../store/ops.js';
 import { seedOf } from '../store/seeds.js';
 import { sheetUsedInLetters } from '../store/letters.js';
 import { readCached, writeCached, lookPath, lookName, filmPath, scenePath } from '../store/cache.js';
@@ -96,7 +96,7 @@ booksRouter.get('/:name/look/:inkId', async (req, res) => {
   if (req.user?.id !== account.id) {
     // the look at the scale it is shown at; the scene (grown at the record's own scale
     // and laid over the item, however big) of anything shown
-    const onPage = (fit) => Object.values(skeleton.pages).some((p) => p.items.some((it) => it.ink === inkId && fit(it)));
+    const onPage = (fit) => [...allItems(skeleton)].some((it) => it.ink === inkId && fit(it));
     const shown =
       req.query.mode === 'scene'
         ? scale === SCALE.one && (skeleton.signature === inkId || onPage(() => true))
@@ -157,7 +157,7 @@ booksRouter.get('/:name/film/:inkId', async (req, res) => {
   if (!line || line.ink.kind !== 'ink') throw httpError(404, 'no_ink', 'No such ink.');
   if (req.user?.id !== account.id) {
     const skeleton = await getSkeleton(account.id);
-    const shown = skeleton.signature === inkId || Object.values(skeleton.pages).some((p) => p.items.some((it) => it.ink === inkId));
+    const shown = skeleton.signature === inkId || [...allItems(skeleton)].some((it) => it.ink === inkId);
     if (!shown) throw httpError(404, 'no_ink', 'No such ink.');
   }
   await sendFilm(
@@ -243,14 +243,19 @@ async function checkSheetFromMe(req, line, use, maxActsBytes) {
   return { account, body, D };
 }
 
-// New ink: { line: { ink, seal }, seed, place?: { page, x, y, scale }, base? }.
+// New ink: { line: { ink, seal }, seed, place?: { page | surface, x, y, scale }, base? }.
+// Ink is written on the paper family of where it goes: the book's for a page, a
+// surface's own (plaster, wood) for a wall, the floor, the ceiling or the table.
 booksRouter.post('/me/ink', requireAuth, inkJson, async (req, res) => {
   take('inkUser', req.user.id);
   const { line, place = null } = req.body ?? {};
   const base = typeof req.body?.base === 'number' ? req.body.base : null;
   const { account, body, D } = await checkSheetFromMe(req, line, 'book', config.book.maxActsBytes);
   const skeleton = await getSkeleton(account.id);
-  if (JSON.stringify(body.paper) !== JSON.stringify(skeleton.paperFamily)) throw httpError(400, 'wrong_paper', 'Write on your own paper family.');
+  const family = familyFor(skeleton, place);
+  if (!family) throw httpError(400, 'bad_edit', 'There is no such surface.');
+  if (JSON.stringify(body.paper) !== JSON.stringify(family))
+    throw httpError(400, 'wrong_paper', place?.surface !== undefined ? 'Write on the matter of that surface.' : 'Write on your own paper family.');
   const seed = decodeField(req.body.seed, 64, 'seed');
   R.verifySeedFor(body, seed);
   if (sheetUsedInLetters(account.id, body.sheet)) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');

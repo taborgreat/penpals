@@ -36,6 +36,7 @@ import {
   exposureOf,
   step,
   screenWeights,
+  grownCurve,
   N,
 } from './light/index.js';
 
@@ -48,6 +49,21 @@ const DEFAULT_PAPER = [0xf7, 0xf3, 0xea]; // the page the room settles with (and
 
 // The sun by the clock: { az, el } in degrees (light/air.js sunPlace).
 export const sunAt = (date) => sunPlace(date);
+
+// A room's own clock (rooms.md §1b: a space keeps its own time, its owner's
+// zone): the moment `date` as that zone's wall clock reads it (what sunPlace
+// reads), the instant itself unchanged. No zone: the viewer's own clock.
+export function zoned(date, timeZone) {
+  if (!timeZone) return date;
+  let parts;
+  try {
+    parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone, hour12: false, hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(date).map((x) => [x.type, x.value]));
+  } catch {
+    return date;
+  }
+  const h = Number(parts.hour) % 24;
+  return { getHours: () => h, getMinutes: () => Number(parts.minute), getSeconds: () => Number(parts.second), getTime: () => date.getTime() };
+}
 
 // Easing a dragged sun back to the clock's.
 export function returnTo(from, to, k) {
@@ -173,10 +189,14 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
       S.listeners.add(fn);
       return () => S.listeners.delete(fn);
     },
-    // The light at a moment. now: ms (performance clock); date: the viewer's
-    // clock; override: { az, el } while the sun is dragged; present: someone is
-    // looking (the candles burn only then, at night).
-    at({ now, date, override = null, present = true }) {
+    // The light at a moment. now: ms (performance clock); date: the room's
+    // clock (zoned); override: { az, el } while the sun is dragged; present:
+    // someone is looking (the candles burn only then, at night); eye: where the
+    // lids and colour are headed (light-waves §7: { lids 0 closed..1 open,
+    // color 0 luminance only..1 }; the eye ramps there by its own reactions);
+    // gaze: the patch of the room the eye is on (Look), else the page: the eye
+    // takes in what is in view, so a wall looked at is lit as a wall is.
+    at({ now, date, override = null, present = true, eye = { lids: 1, color: 1 }, gaze = null }) {
       const dt = S.t === null ? 0 : Math.min(1, Math.max(0, (now - S.t) / 1000));
       S.t = now;
       const place = override ?? sunAt(date);
@@ -217,9 +237,17 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
       const indirect = ambient.slice(S.geom.page * N, S.geom.page * N + N);
       // the eye on the page: settled on the room's light the first time it is
       // there (before that, an eye at an ordinary indoor level), then adapting
-      const seen = pageLight.map((v, b) => (v * S.page[b]) / Math.PI);
-      if (S.parts) S.eye = S.eye ? step(S.eye, seen, dt) : settledOn(seen);
-      const W = screenWeights(S.eye ?? INDOORS);
+      let seen = pageLight.map((v, b) => (v * S.page[b]) / Math.PI);
+      const on = gaze !== null && gaze !== S.geom.page && S.parts ? S.geom.patches[gaze] : null;
+      if (on) {
+        // a surface of the room: all the light it takes, what its matter gives back
+        const at = gaze * N;
+        const R = grownCurve(on.matter, on.matter === 'plaster' ? 72 : 150);
+        seen = R.map((r, b) => (r * (S.parts.day[at + b] + flames.reduce((t, fl, k) => t + fl.intensity * (S.parts.flames[k]?.[at + b] ?? 0), 0))) / Math.PI);
+      }
+      const aim = { lids: eye.lids ?? 1, color: eye.color ?? 1 };
+      if (S.parts) S.eye = S.eye ? step(S.eye, seen, dt, aim) : settledOn(seen, aim);
+      const W = S.eye ? screenWeights(S.eye) : screenWeights(INDOORS, aim);
       // each flame as the eye sees it (its radiance over its own outline), for the flame drawn
       for (const f of flames) {
         const area = f.flameSize * f.flameSize * 0.42 * (Math.PI / 4);
@@ -231,7 +259,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
               )
             : [0, 0, 0];
       }
-      const adapting = !!S.eye && dt > 0 && !!S.last && Math.abs(Math.log(exposureOf(S.eye) / exposureOf(S.last))) > 2e-3;
+      const blinking = !!S.eye && (Math.abs(S.eye.lids - aim.lids) > 1e-3 || Math.abs(S.eye.color - aim.color) > 1e-3);
+      const adapting = blinking || (!!S.eye && dt > 0 && !!S.last && Math.abs(Math.log(exposureOf(S.eye) / exposureOf(S.last))) > 2e-3);
       S.last = S.eye;
       return {
         geom: S.geom,

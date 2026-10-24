@@ -248,7 +248,9 @@ function underSlab(p, dir, far, L) {
 // through its shade (sun, flame 1, flame 2); a wet bead mirrors the sources;
 // the eye takes it to the screen. The moments' bands darken their cells.
 // opts.ambient: the room's light already as colour (a room surface's, from its
-// vertices) in place of the page's; opts.slab: the table's slab may hide the sources.
+// vertices) in place of the page's; opts.indirect: the room's light as a
+// spectrum (four vec4s: a mark's, rooms.md §2, so ink on a wall drinks it by
+// wavelength); opts.slab: the table's slab may hide the sources.
 function spectral(R, n, open, shade, wet, V, L, band, opts = {}) {
   const p = positionWorld;
   const Ls = normalize(L.sunDir).toVar();
@@ -280,7 +282,10 @@ function spectral(R, n, open, shade, wet, V, L, band, opts = {}) {
   });
   const rgb = (opts.ambient ?? vec3(0)).toVar();
   for (let g = 0; g < BIN_GROUPS; g++) {
-    const E = (opts.ambient ? vec4(0) : L.indirect.element(g).mul(open)).add(L.sunE.element(g).mul(sunCos)).add(L.flameI[0].element(g).mul(flames[0].on)).add(L.flameI[1].element(g).mul(flames[1].on));
+    const E = (opts.ambient ? vec4(0) : opts.indirect ? opts.indirect[g] : L.indirect.element(g).mul(open))
+      .add(L.sunE.element(g).mul(sunCos))
+      .add(L.flameI[0].element(g).mul(flames[0].on))
+      .add(L.flameI[1].element(g).mul(flames[1].on));
     const mirror = L.sunE.element(g).mul(sunSpec).add(L.flameI[0].element(g).mul(flames[0].spec)).add(L.flameI[1].element(g).mul(flames[1].spec));
     const rad = R[g].mul(E).div(Math.PI).add(mirror).toVar();
     rgb.addAssign(vec3(dot(L.W[0].element(g), rad), dot(L.W[1].element(g), rad), dot(L.W[2].element(g), rad)));
@@ -336,6 +341,34 @@ export function roomMaterial(L, { kind, seed, pair, normal, top = false, slab = 
     const V = normalize(cameraPosition.sub(positionWorld));
     return spectral(toned(light, dark, t), vec3(...normal), float(0), top ? restShade(L, L.rests) : vec3(1), float(0), V, L, null, { ambient, slab: slab && !top });
   })();
+  m.seed = seedU; // a view grows its owner's room (rooms.md §1): engine.js setSeeds
+  return m;
+}
+
+// A mark on a surface (rooms.md §2: a wall written on is a sheet): the
+// surface's own cells grown under it, the same seed and the same cells (where
+// there is no ink it is the surface itself), drinking through the ink (`ink`:
+// its look, colour to alpha over white as the chunks take it: the law's
+// transmittance; its absorbance −ln T by the INK basis), lit like the surface: the room's light as a
+// spectrum at its corners (attributes amb0..amb3, from the surface's own
+// vertices), the sun and the flames per pixel. Drawn just over the surface.
+export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
+  const m = new MeshBasicNodeMaterial({ side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const [light, dark] = pairUniforms(pair);
+  const seedU = uniform(seed, 'uint');
+  const inkTex = texture(ink);
+  m.colorNode = Fn(() => {
+    const ht = grower(webgpu)({ kind: int(kind), m: seedU, pos: attribute('cellPos', 'vec2'), foot: footAt(L) });
+    const t = clamp(ht.y.div(255), 0, 1).toVar();
+    const ink4 = at(inkTex, uv()).toVar();
+    const a = log(max(mix(vec3(1), ink4.rgb, ink4.a), vec3(1 / 512))).negate(); // as a chunk takes its colour (colour to alpha over white)
+    const E = [0, 1, 2, 3].map((g) => attribute(`amb${g}`, 'vec4'));
+    const V = normalize(cameraPosition.sub(positionWorld));
+    const surf = toned(light, dark, t); // (four vec4s, not a uniform array)
+    const R = surf.map((r, g) => r.mul(exp(INK[0][g].mul(a.x).add(INK[1][g].mul(a.y)).add(INK[2][g].mul(a.z)).negate())));
+    return spectral(R, vec3(...normal), float(0), vec3(1), float(0), V, L, null, { indirect: E, slab: true });
+  })();
+  m.seed = seedU;
   return m;
 }
 
@@ -361,6 +394,7 @@ export function objectMaterial(L, { kind = null, seed = 0, pair, webgpu }) {
     return spectral(toned(light, dark, t), n, float(0), vec3(1), float(0), V, L, null, { ambient: A.add(B.mul(t)), slab: true });
   })();
   m.ambient = { A, B };
+  m.seed = seedU;
   return m;
 }
 

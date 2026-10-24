@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keys as K, b64url } from 'penpals-law';
 import Pad from '../components/Pad.jsx';
 import Hand from '../components/Hand.jsx';
@@ -17,6 +17,8 @@ import { momentsHere } from '../ink/grown.js';
 import InkWell from '../ink/InkWell.jsx';
 import FilmDownload from '../components/FilmDownload.jsx';
 import { fromB64url } from 'penpals-law';
+import { roomSeedsOf } from '../room/seeds.js';
+import { createWallInk } from '../room/wallInk.js';
 
 // The living journal (books.md, Part B; keys.md): a book of handwritten pages.
 // The owner writes anything anywhere (each piece a sheet of the law's paper,
@@ -24,12 +26,27 @@ import { fromB64url } from 'penpals-law';
 // is one micro edit. Visitors see the same pages, each piece as its settled
 // look, and writing that's a button takes them to its page. Every page has its
 // own link (onPage). A sheet's paper is the writer's secret until they open it.
+//
+// The journal is the page on the owner's table in their room, and the room's
+// surfaces are its pages too (rooms.md §1, §2): their walls, floor, ceiling and
+// table, grown from their key, carry what they wrote there. The owner writes on
+// a surface from Look, the pen pointed at it (room/wallInk.js); `timeZone` is
+// the room's own clock.
 const WRITE_PAD = { width: 1000, height: 470 }; // writing is placed at the size it was written on a page-wide pad
 const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c.light }));
 const BACKGROUNDS = ['#f6f1e7', '#ffffff', '#f2e8d0', '#e8eef6', '#f6e6e6', '#e7f1e6', '#2b2a33', '#1f2a40'];
 const DEFAULT_PAGE = { width: 1000, height: 1400 };
+// The cloth a book on the shelf is bound in (rooms.md §3): one of these, by its owner's key.
+const CLOTHS = [
+  [104, 28, 32],
+  [32, 64, 44],
+  [30, 40, 76],
+  [92, 62, 36],
+  [58, 40, 70],
+];
+const clothOf = (seeds) => CLOTHS[(seeds?.table?.[0] ?? 0) % CLOTHS.length];
 
-export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null }) {
+export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null, timeZone = null }) {
   const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
   const { user } = useAuth();
   const key = useKey(user);
@@ -38,6 +55,14 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const [preview, setPreview] = useState(false);
   const [walking, setWalking] = useState(null); // the item being walked back
   const editing = editable && !preview;
+  // writing on the room's surfaces: one sheet at a time, begun where the pen first touches one
+  const [wall, setWall] = useState(null); // room/wallInk.js, while a surface is being written on
+  const wallRef = useRef(null);
+  wallRef.current = wall;
+  const [wallColor, setWallColor] = useState(INK_COLORS[0].hex);
+  const [wallBusy, setWallBusy] = useState(false);
+  const [reading, setReading] = useState(false); // the book pulled down from the shelf, to flip through
+  useEffect(() => () => wallRef.current?.destroy(), []);
 
   const skeleton = book.skeleton;
   const current = skeleton && (pageId && skeleton.pages[pageId] ? pageId : skeleton.home);
@@ -105,6 +130,52 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     if (book.seeds?.get(sheet)) return book.seeds.get(sheet);
     return key && key.publicKey === book.key ? b64url(K.sheetSeed(key.sk, sheet)) : null;
   };
+
+  // the room this page lies in: the owner's own, grown from their key
+  const seeds = useMemo(() => roomSeedsOf(book.key), [book.key]);
+  const mine = !!(editable && key && book.key && key.publicKey === book.key && skeleton?.surfaces);
+  async function placeWall(w) {
+    if (!w.strokes) {
+      w.destroy();
+      if (wallRef.current === w) setWall(null);
+      return;
+    }
+    setWallBusy(true);
+    try {
+      await w.place(addInk);
+    } finally {
+      setWallBusy(false);
+      w.destroy();
+      if (wallRef.current === w) setWall(null);
+    }
+  }
+  const wallWriter = useMemo(
+    () =>
+      mine
+        ? {
+            down(surface, p, ev, type) {
+              const was = wallRef.current;
+              if (was?.pen.down(surface, p, ev, type)) return;
+              if (was) placeWall(was); // the pen came down elsewhere: what was there is laid down, a new sheet begins
+              const next = createWallInk({ writer: key, family: skeleton.surfaces[surface].family, surface, at: p, color: wallColor });
+              wallRef.current = next;
+              setWall(next);
+              next.pen.down(surface, p, ev, type);
+            },
+            move: (p, ev) => wallRef.current?.pen.move(p, ev),
+            up: (p, ev) => wallRef.current?.pen.up(p, ev),
+            cancel: () => wallRef.current?.pen.cancel(),
+          }
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mine, key, skeleton?.surfaces, wallColor],
+  );
+  // the shelf: the owner's own book (their journal), until Tabor rules which others stand there
+  const shelf = useMemo(() => ({ books: [{ id: 'journal', color: clothOf(seeds) }], onOpen: () => setReading(true) }), [seeds]);
+  const room = useMemo(
+    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, timeZone, wallWriter, live: wall ? [wall.mark] : [], shelf }),
+    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf],
+  );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
   if (book.status === 'private') return <p className="muted">This journal is private. Only their friends can see it.</p>;
@@ -292,7 +363,50 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         lookSrc={lookSrc ?? looks}
         sceneSrc={sceneSrc ?? (fromFile ? null : scenes)}
         momentsSrc={momentsSrc}
+        room={fromFile ? null : room}
       />
+      {reading && (
+        <div className="journal-tools book-open" role="toolbar" aria-label="The book, pulled down from the shelf">
+          <span className="meta">The book, open:</span>
+          {pageIds.map((id) => (
+            <button key={id} type="button" aria-pressed={id === current} onClick={() => onPage(id === skeleton.home ? null : id)}>
+              {id}
+            </button>
+          ))}
+          <button type="button" className="quiet" onClick={() => setReading(false)}>
+            Put it back
+          </button>
+        </div>
+      )}
+      {wall && (
+        <div className="journal-tools wall-tools" role="toolbar" aria-label="Writing on the room">
+          <span className="meta">On the {wall.surface.replace('-', ' ')}</span>
+          <InkWell
+            value={wallColor}
+            onChange={(c) => {
+              setWallColor(c);
+              wall.setColor(c);
+            }}
+          />
+          <button type="button" onClick={() => wall.undo()} disabled={wallBusy}>
+            Undo
+          </button>
+          <button type="button" className="primary" onClick={() => placeWall(wall)} disabled={wallBusy}>
+            {wallBusy ? 'Sealing…' : 'Place it there'}
+          </button>
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => {
+              wall.destroy();
+              setWall(null);
+            }}
+            disabled={wallBusy}
+          >
+            Let it go
+          </button>
+        </div>
+      )}
       {editing && !page.items.length && <p className="hint journal-empty">An empty page. Press ✎ Write to put something on it.</p>}
     </section>
   );

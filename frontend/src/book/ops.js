@@ -1,11 +1,12 @@
 // The edit ops (books.md B5), applied on the client so the owner sees an edit
 // at once; the server applies the same op to the real skeleton and has the
 // last word (backend/src/store/ops.js). Returns a new skeleton. There is no
-// recolour: colour is pigment in the sealed strokes.
+// recolour: colour is pigment in the sealed strokes. Ops that place, move or take
+// away items name a `page` or one of the room's `surface`s (rooms.md §1).
 
 export function applyLocal(skeleton, op) {
   const s = structuredClone(skeleton);
-  const page = s.pages[op.page];
+  const page = op.surface !== undefined ? s.surfaces?.[op.surface] : s.pages[op.page];
   const item = page?.items.find((it) => it.id === op.item);
   switch (op.op) {
     case 'add':
@@ -38,11 +39,11 @@ export function applyLocal(skeleton, op) {
     case 'rename_page':
       s.pages = Object.fromEntries(Object.entries(s.pages).map(([k, v]) => [k === op.page_id ? op.new_id : k, v]));
       if (s.home === op.page_id) s.home = op.new_id;
-      for (const p of Object.values(s.pages)) for (const it of p.items) if (it.link?.page === op.page_id) it.link.page = op.new_id;
+      for (const it of itemsOf(s)) if (it.link?.page === op.page_id) it.link.page = op.new_id;
       break;
     case 'remove_page':
       delete s.pages[op.page_id];
-      for (const p of Object.values(s.pages)) for (const it of p.items) if (it.link?.page === op.page_id) delete it.link;
+      for (const it of itemsOf(s)) if (it.link?.page === op.page_id) delete it.link;
       break;
     case 'background':
       page.background = op.color;
@@ -67,3 +68,6 @@ export const pageIdFrom = (text) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40);
+
+// Every item in a book: on its pages, then on its surfaces.
+export const itemsOf = (s) => [...Object.values(s.pages).flatMap((p) => p.items), ...Object.values(s.surfaces ?? {}).flatMap((f) => f.items)];

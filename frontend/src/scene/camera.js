@@ -11,6 +11,10 @@
 //
 //   { mode: '2d' | '3d', target: [x, y], dist, az, el, fov, view }
 //     view: in 2D, the page width shown (px); fov: in 3D, the vertical field (deg)
+//   { mode: 'pose', eye: [x, y, z], forward, up, fov, near, target }
+//     the eye looking around the room (light-waves §9, rooms.md §2: to face a
+//     wall and write on it), in the same page frame; target: the page point it
+//     was turned from (kept for what reads a target)
 
 export const MIN_WRITE_EL = 25; // below this elevation writing pauses (a pixel covers too much page); looking goes down to 0°
 export const MIN_DIST = 0.3; // the closest the camera comes (page px): between the beads
@@ -28,6 +32,11 @@ export const camera3d = (pageW, pageH) => ({ mode: '3d', target: [pageW / 2, pag
 
 // Where the camera stands, and which way it looks.
 export function frame(cam) {
+  if (cam.mode === 'pose') {
+    const forward = norm(cam.forward);
+    const right = norm(cross(cam.up ?? [0, 0, 1], forward));
+    return { eye: cam.eye, forward, right, up: cross(forward, right) };
+  }
   const el = Math.min(rad(cam.mode === '2d' ? 90 : Math.min(cam.el, 89.9)), rad(90));
   const az = rad(cam.az);
   const t = [cam.target[0], cam.target[1], 0];
@@ -75,7 +84,7 @@ export function project(cam, p, aspect) {
   return [dot(v, right) / (z * k * aspect), dot(v, up) / (z * k)];
 }
 
-export const elevationOf = (cam) => (cam.mode === '2d' ? 90 : Math.min(90, cam.el));
+export const elevationOf = (cam) => (cam.mode === '2d' ? 90 : cam.mode === 'pose' ? (Math.asin(Math.max(-1, Math.min(1, -norm(cam.forward)[2]))) * 180) / Math.PI : Math.min(90, cam.el));
 export const canWrite = (cam, min = MIN_WRITE_EL) => elevationOf(cam) >= min;
 
 // Moving the camera (3D).

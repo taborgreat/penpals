@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { getAccount, nameOf, updateAccount } from '../store/accounts.js';
+import { checkTimeZone } from '../timezone.js';
 
 export const socialRouter = Router();
 socialRouter.use(requireAuth);
@@ -16,6 +17,7 @@ socialRouter.get('/', (req, res) => {
     incoming: names(me.incoming),
     outgoing: names(me.outgoing),
     blocked: names(me.blocked),
+    timeZone: me.settings?.timeZone ?? null,
   });
 });
 
@@ -26,4 +28,13 @@ socialRouter.post('/private', async (req, res) => {
     a.private = value;
   });
   res.json({ private: value });
+});
+
+// The room's clock: { timeZone } (rooms.md §1b, changeable by its owner).
+socialRouter.post('/time', async (req, res) => {
+  const zone = checkTimeZone(req.body?.timeZone);
+  await updateAccount(req.user.id, (a) => {
+    a.settings = { ...(a.settings ?? {}), timeZone: zone };
+  });
+  res.json({ timeZone: zone });
 });

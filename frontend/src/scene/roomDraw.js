@@ -103,11 +103,43 @@ export function vertexLight(meshes, ambient, W, out = []) {
   return out;
 }
 
+// The room's ambient light as a spectrum at a point of surface `si` (its own
+// u, v in m), as that surface's mesh carries it: each grid vertex the mean of
+// the patches it touches, bilinear between them. A mark over the surface takes
+// this at its corners (rooms.md §2), so where it holds no ink it is lit as the
+// surface is. → out (N values).
+export function spectrumAt(geom, meshes, si, u, v, ambient, out = new Float64Array(N)) {
+  const { u: us, v: vs } = geom.surfaces[si].grid;
+  const cell = (lines, x) => {
+    let i = 0;
+    while (i < lines.length - 2 && lines[i + 1] <= x) i++;
+    return i;
+  };
+  const i = cell(us, u),
+    j = cell(vs, v);
+  const fu = Math.max(0, Math.min(1, (u - us[i]) / (us[i + 1] - us[i]))),
+    fv = Math.max(0, Math.min(1, (v - vs[j]) / (vs[j + 1] - vs[j])));
+  const nu = us.length;
+  out.fill(0);
+  for (const [di, dj] of [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+  ]) {
+    const w = (di ? fu : 1 - fu) * (dj ? fv : 1 - fv);
+    const near = meshes[si].touches[(j + dj) * nu + (i + di)];
+    if (!w || !near.length) continue;
+    for (const p of near) for (let b = 0; b < N; b++) out[b] += (w * ambient[p * N + b]) / near.length;
+  }
+  return out;
+}
+
 // The objects' (and anything else's) ambient: the room's mean over its patches, as A, B for a matter.
 export function meanLight(ambient, n, W, matter) {
   const E = new Float64Array(N);
   for (let p = 0; p < n; p++) for (let b = 0; b < N; b++) E[b] += ambient[p * N + b] / n;
-  const { light, dark } = matter === 'brass' ? { light: curves.MATTER.brass, dark: curves.MATTER.brass } : pairOf(matter);
+  const { light, dark } = typeof matter === 'object' ? matter : matter === 'brass' ? { light: curves.MATTER.brass, dark: curves.MATTER.brass } : pairOf(matter); // (or a pair of its own: a book's cloth)
   const A = [0, 0, 0],
     B = [0, 0, 0];
   for (let c = 0; c < 3; c++) {

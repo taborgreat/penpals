@@ -51,6 +51,15 @@ async function lockKeyFor(username, password, answer, kdf) {
 // Registration. `key` from keyFromK(username, K) (makeKey above); `signature`:
 // { family, seed, settled } of sheet 0, the last signature settled again on the
 // key's own paper; `password`: '' for none.
+// This machine's time zone (IANA), or nothing where the browser does not say.
+const localZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export async function register({ key, username, password, signature }) {
   let started = null;
   let keyring;
@@ -88,6 +97,7 @@ export async function register({ key, username, password, signature }) {
     publicKey: key.publicKey,
     proof: authProof(key, 'register', started.nonce, username),
     keyring,
+    timeZone: localZone(), // the room's clock (rooms.md §1b): this machine's, when the room is made
     line: { ...line, open },
   });
   holdKey(res.user.username, key.K);

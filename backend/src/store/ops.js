@@ -5,7 +5,11 @@ import { config } from '../config.js';
 // thing that touches the chain. `applyOp` changes `s` in place and returns
 // anything the client should hear back (e.g. a new item's id).
 //
-//   add          page, ink, x, y, scale         place book ink (returns item)
+// Ink is placed on a page, or on one of the room's surfaces (rooms.md §1: a
+// wall, the floor, the ceiling or the table top is a page of the book too):
+// the ops that place, move and take away items name either `page` or `surface`.
+//
+//   add          page | surface, ink, x, y, scale   place book ink (returns item)
 //   move         page, item, x, y
 //   resize       page, item, scale              scale: integer, 1/64 units (64 = 1×)
 //   link         page, item, target_page        make it a button
@@ -44,6 +48,24 @@ function pageOf(s, id) {
   if (!page) throw bad(`There is no page "${id}".`);
   return page;
 }
+// What an op places on: { items, w, h } of a page or a surface (surfaces have their own size).
+function holderOf(s, op) {
+  if (op.surface === undefined) return { items: pageOf(s, op.page).items, w: W, h: H };
+  const surface = typeof op.surface === 'string' && Object.hasOwn(s.surfaces ?? {}, op.surface) ? s.surfaces[op.surface] : null;
+  if (!surface) throw bad(`There is no surface "${op.surface}".`);
+  return { items: surface.items, w: surface.size[0], h: surface.size[1] };
+}
+// Every item in the book, on its pages and on its surfaces.
+export function* allItems(s) {
+  for (const page of Object.values(s.pages)) yield* page.items;
+  for (const surface of Object.values(s.surfaces ?? {})) yield* surface.items;
+}
+// The room's surfaces as a new book has them (backend config.book.surfaces): each
+// with its matter's paper family and size, and nothing on it yet.
+export const blankSurfaces = () =>
+  Object.fromEntries(Object.entries(config.book.surfaces).map(([id, { matter, size }]) => [id, { matter, family: { ...config.book.families[matter] }, size: [...size], items: [] }]));
+// The paper family ink must be written on to be placed by `op` (a surface's own, or the book's).
+export const familyFor = (s, op) => (op?.surface !== undefined ? (s.surfaces?.[op.surface]?.family ?? null) : s.paperFamily);
 function itemOf(page, id) {
   const index = page.items.findIndex((it) => it.id === id);
   if (index < 0) throw bad('That writing is not on this page.');
@@ -63,49 +85,50 @@ export async function applyOp(s, op, { inkBody }) {
   if (!op || typeof op !== 'object') throw bad('An edit needs an op.');
   switch (op.op) {
     case 'add': {
-      const page = pageOf(s, op.page);
+      const page = holderOf(s, op);
       if (page.items.length >= config.book.maxItemsPerPage) throw bad('This page is full.');
       const body = typeof op.ink === 'string' ? await inkBody(op.ink) : null;
       if (!body || body.use !== 'book') throw bad('That is not writing from this book.');
       const item = {
         id: `i${s.nextItem++}`,
         ink: op.ink,
-        x: num(op.x, -W, 2 * W, 'x'),
-        y: num(op.y, -H, 2 * H, 'y'),
+        x: num(op.x, -page.w, 2 * page.w, 'x'),
+        y: num(op.y, -page.h, 2 * page.h, 'y'),
         scale: scaleFor(body, op.scale ?? SCALE.one),
       };
       page.items.push(item);
       return { item: item.id };
     }
     case 'move': {
-      const { item } = itemOf(pageOf(s, op.page), op.item);
-      item.x = num(op.x, -W, 2 * W, 'x');
-      item.y = num(op.y, -H, 2 * H, 'y');
+      const page = holderOf(s, op);
+      const { item } = itemOf(page, op.item);
+      item.x = num(op.x, -page.w, 2 * page.w, 'x');
+      item.y = num(op.y, -page.h, 2 * page.h, 'y');
       return null;
     }
     case 'resize': {
-      const { item } = itemOf(pageOf(s, op.page), op.item);
+      const { item } = itemOf(holderOf(s, op), op.item);
       item.scale = scaleFor(await inkBody(item.ink), op.scale);
       return null;
     }
     case 'link': {
-      const { item } = itemOf(pageOf(s, op.page), op.item);
+      const { item } = itemOf(holderOf(s, op), op.item);
       const target = op.target_page ?? op.target;
       pageOf(s, target);
       item.link = { page: target };
       return null;
     }
     case 'unlink': {
-      delete itemOf(pageOf(s, op.page), op.item).item.link;
+      delete itemOf(holderOf(s, op), op.item).item.link;
       return null;
     }
     case 'remove': {
-      const page = pageOf(s, op.page);
+      const page = holderOf(s, op);
       page.items.splice(itemOf(page, op.item).index, 1);
       return null;
     }
     case 'reorder': {
-      const page = pageOf(s, op.page);
+      const page = holderOf(s, op);
       const { item, index } = itemOf(page, op.item);
       const to = Math.round(num(op.index, -1e6, 1e6, 'position'));
       page.items.splice(index, 1);
@@ -127,9 +150,7 @@ export async function applyOp(s, op, { inkBody }) {
       if (s.pages[to]) throw bad(`There is already a page "${to}".`);
       s.pages = Object.fromEntries(Object.entries(s.pages).map(([k, v]) => [k === from ? to : k, v]));
       if (s.home === from) s.home = to;
-      for (const page of Object.values(s.pages)) {
-        for (const it of page.items) if (it.link?.page === from) it.link.page = to;
-      }
+      for (const it of allItems(s)) if (it.link?.page === from) it.link.page = to;
       return { page: to };
     }
     case 'remove_page': {
@@ -137,9 +158,7 @@ export async function applyOp(s, op, { inkBody }) {
       pageOf(s, id);
       if (id === s.home) throw bad('The home page stays.');
       delete s.pages[id];
-      for (const page of Object.values(s.pages)) {
-        for (const it of page.items) if (it.link?.page === id) delete it.link;
-      }
+      for (const it of allItems(s)) if (it.link?.page === id) delete it.link;
       return null;
     }
     case 'background': {

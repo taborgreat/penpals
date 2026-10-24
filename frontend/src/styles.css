@@ -2125,3 +2125,26 @@ canvas.corner-picker {
     display: none;
   }
 }
+/* the lobby (rooms.md §1a): the room everyone comes in by, seen in black and white, the desk under it */
+.lobby {
+  display: grid;
+  gap: 12px;
+}
+.lobby-scene {
+  width: 100%;
+  height: min(48vh, 480px);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #111;
+}
+.lobby.closing .lobby-desk {
+  opacity: 0.35;
+  transition: opacity 0.3s;
+}
+/* writing on the room's surfaces: what to do with the sheet on the wall */
+.wall-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}

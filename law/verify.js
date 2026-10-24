@@ -89,6 +89,15 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
       if (!l?.ink || l.ink.use !== 'book') problems.push(`page ${pid} item ${it.id} points at ${it.ink}, which is not book ink here`);
     }
   }
+  // and so does the room's: each surface (a wall, the floor, the table) holds book
+  // ink written on that surface's own matter (rooms.md §2)
+  for (const [sid, surface] of Object.entries(head.surfaces ?? {})) {
+    for (const it of surface.items ?? []) {
+      const l = byId.get(it.ink);
+      if (!l?.ink || l.ink.use !== 'book') problems.push(`surface ${sid} item ${it.id} points at ${it.ink}, which is not book ink here`);
+      else if (JSON.stringify(l.ink.paper) !== JSON.stringify(surface.family)) problems.push(`surface ${sid} item ${it.id} is not written on that surface's matter`);
+    }
+  }
   if (head.signature) {
     const l = byId.get(head.signature);
     if (!l?.ink || l.ink.use !== 'signature' || (l.ink.name !== String(head.name).toLowerCase() && l.ink.name !== head.name)) problems.push('the signature is not a signature record for this name');

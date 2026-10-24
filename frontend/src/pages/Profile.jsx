@@ -23,6 +23,8 @@ import { sceneOn, sceneSupported, setViewChoice, useLowPower } from '../scene/su
 import { sceneOf } from '../scene/sources.js';
 import { useBook } from '../book/useBook.js';
 import { CELLS } from '../book/ink.js';
+import { RoomContext } from '../room/RoomContext.js';
+import { roomSeedsOf } from '../room/seeds.js';
 
 // A profile (books.md B1): your own shows your signature setting, Download my
 // book, and your journal to edit; someone else's shows their journal at once,
@@ -80,7 +82,8 @@ export default function Profile() {
   const name = u.username;
 
   return (
-    <>
+    // their room (rooms.md §1): every scene here lies in it, grown from their key, under its own clock
+    <RoomContext.Provider value={{ seeds: roomSeedsOf(u.publicKey), timeZone: u.timeZone ?? null }}>
       <h1>
         <Username name={name} height={1.4} /> {u.private && <small className="badge quiet-badge">private</small>}
       </h1>
@@ -167,6 +170,7 @@ export default function Profile() {
           name={name}
           pageId={page ?? null}
           editable={!!isMe}
+          timeZone={u.timeZone ?? null}
           onPage={(id) => navigate(id ? `/u/${encodeURIComponent(name)}/${encodeURIComponent(id)}` : `/u/${encodeURIComponent(name)}`)}
         />
       )}
@@ -220,7 +224,7 @@ export default function Profile() {
           ))}
         </>
       )}
-    </>
+    </RoomContext.Provider>
   );
 }
 

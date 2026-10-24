@@ -15,7 +15,7 @@ const nameText = (p) => p.username.replace(/[^a-z]/gi, 'a');
 // paper of fresh randomness r32; the key is made from them; the last signature,
 // settled again on the key's own paper, is sheet 0. With a password, the key is
 // also locked on the server under it.
-export async function register(c, p, { family = FAMILY, r32 = K.newR32(), signatures = null } = {}) {
+export async function register(c, p, { family = FAMILY, r32 = K.newR32(), signatures = null, timeZone } = {}) {
   const sigs = signatures ?? [1, 2, 3].map((s) => S.write(p.writer, nameText(p), s));
   const { K: key } = R.accountKey(r32, sigs);
   setKey(p, key);
@@ -41,7 +41,16 @@ export async function register(c, p, { family = FAMILY, r32 = K.newR32(), signat
   const line = { ...made.line, open: R.makeOpen(p.sk, made.D, K.SHEET_ZERO, made.seed) };
   const nonce = begin.data.nonce;
   const proof = K.authProof(p.sk, { purpose: 'register', origin: c.origin, nonce: fromB64url(nonce, 32), username: p.username });
-  return c.post('/api/auth/register/finish', { username: p.username, nonce, origin: c.origin, publicKey: b64url(p.pk), proof: b64url(proof), keyring, line });
+  return c.post('/api/auth/register/finish', {
+    username: p.username,
+    nonce,
+    origin: c.origin,
+    publicKey: b64url(p.pk),
+    proof: b64url(proof),
+    keyring,
+    line,
+    ...(timeZone !== undefined ? { timeZone } : {}),
+  });
 }
 
 function setKey(p, key) {

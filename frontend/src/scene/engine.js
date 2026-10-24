@@ -29,6 +29,9 @@ import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live update
 import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { GEOM, worldOf } from './light.js';
 import { roomMeshes, vertexLight, meanLight, pairOf } from './roomDraw.js';
+import { createMarks } from './marks.js';
+import { SEED_NAME } from './surfaces.js';
+import { shelfLayout } from './shelf.js';
 
 export const CHUNK = 128; // cells a side
 const APRON = 4; // cells each chunk also holds of its neighbours: edges sample the same values (no seams)
@@ -289,7 +292,7 @@ const keyOf = (cx, cy) => (cy + 32768) * 65536 + (cx + 32768); // a chunk's numb
 // A view: `target` the 2D canvas it shows in (and takes the pointer); `host` the
 // element the renderer's own canvas goes in when this view is drawn straight
 // into; `invalidate()` asks for a frame (when how it is drawn changes).
-export function createView(target, { host = null, invalidate = () => {} } = {}) {
+export function createView(target, { host = null, invalidate = () => {}, seeds = null } = {}) {
   if (!shared) throw new Error('the scene: engineReady() first');
   const { renderer, gpu } = shared;
   const ctx = target.getContext('2d');
@@ -343,9 +346,14 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   // floor, the walls, the ceiling, the window and what stands about, all grown
   const R = theRoom();
   const roomGroup = new THREE.Group(); // metres; placed by setLight so this view's page lies on the room's page
+  // whose room this is: its surfaces grown from its owner's key (rooms.md §1;
+  // seeds by name, as light/surface.js names them), else the shared defaults
+  let roomSeeds = seeds;
+  const seedOf = (name) => grown.seedMix(roomSeeds?.[name] ?? grown.DEFAULT_SEEDS[name] ?? grown.defaultSeed(name));
   const roomMats = [];
   R.meshes.forEach((m, i) => {
-    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: m.seed, pair: pairOf(m.matter), normal: m.normal, top: m.top, webgpu: own });
+    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: seedOf(SEED_NAME(m.id)), pair: pairOf(m.matter), normal: m.normal, top: m.top, webgpu: own });
+    mat.seedName = SEED_NAME(m.id);
     roomMats.push(mat);
     const mesh = new THREE.Mesh(R.geos[i], mat);
     if (m.top) mesh.renderOrder = -3; // first of all: the sheets' paper (which writes no depth) goes over it
@@ -360,7 +368,7 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
     const brass = o.matter === 'brass';
     const mat = gpu.objectMaterial(
       lights,
-      brass ? { pair: { light: curves.MATTER.brass, dark: curves.MATTER.brass } } : { kind: grown.BOARD, seed: grown.seedMix(grown.defaultSeed('table')), pair: pairOf(o.matter), webgpu: own },
+      brass ? { pair: { light: curves.MATTER.brass, dark: curves.MATTER.brass } } : { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf(o.matter), webgpu: own },
     );
     mat.matter = o.matter;
     objectMats.push(mat);
@@ -382,6 +390,11 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
   });
   scene.add(roomGroup);
   renderer.compileAsync?.(scene, persp).catch(() => {});
+  // the shelf (rooms.md §3): its board, and the owner's books on it, spine out
+  const shelf = { group: new THREE.Group(), mats: [] };
+  roomGroup.add(shelf.group);
+  // ink on the room's surfaces (rooms.md §2): drawn in the surfaces' own cells
+  const marks = createMarks({ gpu, lights, group: roomGroup, geom: GEOM, meshes: R.meshes, seedOf, webgpu: own });
   // two candles standing on it, either side of the page: wax, a wick, a flame
   const cylinder = new THREE.CylinderGeometry(1, 1, 1, 28).rotateX(Math.PI / 2).translate(0, 0, 0.5);
   const candles = [0, 1].map(() => {
@@ -747,7 +760,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       lights.slabMin.value.set(...W([t.x0, t.y0, t.bottom]));
       lights.slabMax.value.set(...W([t.x1, t.y1, t.top]));
       lightRoom(l, performance.now());
-      for (const m of objectMats) {
+      marks.light(l.ambient);
+      for (const m of [...objectMats, ...shelf.mats]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
         m.ambient.A.value.set(...A);
         m.ambient.B.value.set(...B);
@@ -786,6 +800,55 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       });
       // the shade is baked again when the light has really moved (not for the flicker)
       lightKey = l.key;
+    },
+    // Whose room: { [name]: [s0, s1] } (light/surface.js names: floor, ceiling,
+    // wall-near, wall-far, wall-left, wall-right, table), from the owner's key.
+    setSeeds(next) {
+      roomSeeds = next;
+      for (const m of roomMats) m.seed.value = seedOf(m.seedName);
+      for (const m of objectMats) if (m.seed) m.seed.value = seedOf('table');
+      marks.reseed();
+    },
+    // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], their cloth's colour.
+    setShelf(books) {
+      for (const o of [...shelf.group.children]) shelf.group.remove(o);
+      for (const m of shelf.mats) m.dispose();
+      shelf.mats = [];
+      if (!books?.length) return;
+      const { board, books: boxes } = shelfLayout(GEOM, books.length);
+      const put = (b, mat) => {
+        const mesh = new THREE.Mesh(box, mat);
+        mesh.scale.set(b[3] - b[0], b[4] - b[1], b[5] - b[2]);
+        mesh.position.set((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2);
+        shelf.group.add(mesh);
+      };
+      const wood = gpu.objectMaterial(lights, { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf('table'), webgpu: own });
+      wood.matter = 'table';
+      shelf.mats.push(wood);
+      put(board, wood);
+      boxes.forEach((b, k) => {
+        const cloth = paperCurve(books[k].color);
+        const mat = gpu.objectMaterial(lights, { pair: { light: cloth, dark: cloth } });
+        mat.matter = { light: cloth, dark: cloth };
+        shelf.mats.push(mat);
+        put(b, mat);
+      });
+    },
+    // Ink on a surface (scene/marks.js): a mark set, its cells, its live tiles, gone.
+    setMark(id, spec) {
+      marks.set(id, spec);
+    },
+    putMark(id, x0, y0, w, h, rgba) {
+      marks.put(id, x0, y0, w, h, rgba);
+    },
+    setMarkTiles(id, tiles) {
+      const t0 = performance.now();
+      marks.tiles(id, tiles);
+      stats.tiles += tiles.length;
+      stats.tilesMs += performance.now() - t0;
+    },
+    removeMark(id) {
+      marks.remove(id);
     },
     // The cut (page px, a → b): everything on the far side is cut away and the
     // cross-section (the side view's picture, law/v2/look.js) stands in the cut.
@@ -862,13 +925,14 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
       } else {
         persp.fov = cam.fov;
         persp.aspect = aspect;
-        persp.near = Math.max(1e-4, cam.dist / 1000); // close flight (the depth buffer is logarithmic)
-        persp.far = cam.dist * 40 + 60000; // the room, wall to wall
+        // close flight (the depth buffer is logarithmic); a pose's near plane follows what is nearest it
+        persp.near = cam.mode === 'pose' ? Math.max(1e-4, cam.near ?? 1) : Math.max(1e-4, cam.dist / 1000);
+        persp.far = cam.mode === 'pose' ? 120000 : cam.dist * 40 + 60000; // the room, wall to wall
         camera = persp;
       }
       camera.position.copy(toW(f.eye));
       camera.up.copy(toW(f.up));
-      camera.lookAt(toW([cam.target[0], cam.target[1], 0]));
+      camera.lookAt(cam.mode === 'pose' ? toW(f.eye.map((v, k) => v + f.forward[k])) : toW([cam.target[0], cam.target[1], 0]));
       camera.updateProjectionMatrix();
       cam3 = camera;
       // how fine to grow the room's surfaces: cells a pixel covers a metre away
@@ -952,6 +1016,8 @@ export function createView(target, { host = null, invalidate = () => {} } = {}) 
     },
     dispose() {
       for (const id of [...sheets.keys()]) view.removeSheet(id);
+      marks.dispose();
+      view.setShelf(null);
       view.setGround(null);
       view.setCut(null);
       shared.views.delete(view);

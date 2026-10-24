@@ -89,6 +89,22 @@ export const config = {
     visitorsCanDownload: false, // ruling: only the owner downloads their .book
     depthForVisitors: true, // the scene and the side view of a closed sheet for anyone who may see its look (Tabor's to rule; false: writer and open sheets only)
     defaultBackground: '#f6f1e7',
+    // The room's surfaces (rooms.md §1, §2): each a page of the book that ink can
+    // be placed on, with its matter (a paper family: plaster is heavy and
+    // fiberless, wood's fibers all run along its grain) and its size in page
+    // units (the room's metres × 1400 / 0.2159, frontend light/room.js ROOM).
+    surfaces: Object.fromEntries(
+      [
+        ['table', 'wood', 1.4, 0.75],
+        ['wall-far', 'plaster', 3.048, 2.438],
+        ['wall-near', 'plaster', 3.048, 2.438],
+        ['wall-left', 'plaster', 3.353, 2.438],
+        ['wall-right', 'plaster', 3.353, 2.438],
+        ['floor', 'wood', 3.048, 3.353],
+        ['ceiling', 'plaster', 3.048, 3.353],
+      ].map(([id, matter, w, h]) => [id, { matter, size: [Math.round((w * 1400) / 0.2159), Math.round((h * 1400) / 0.2159)] }]),
+    ),
+    families: { plaster: { grain: 0, weight: 15, tooth: 0 }, wood: { grain: 15, weight: 4, tooth: 0 } },
   },
 
   letterBackgrounds: ['plain', 'white', 'cream', 'parchment'],

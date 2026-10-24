@@ -25,7 +25,13 @@ import { CHUNK } from '../scene/engine.js';
 // out of sight a while is let go.
 // `momentsSrc(item, line)` → (() => Promise<{ box, at }>) | null: show the moments
 // of the sheets this device can grow (yours, or open).
-export default function JournalPage({ pageId, page, size, inks, editable, selected, onSelect, onOp, onFollow, lookSrc, sceneSrc = null, momentsSrc = null }) {
+//
+// The room (rooms.md §1, §2): the page lies on its owner's table, in their room.
+// `room`: { surfaces (the book's: skeleton.surfaces), seeds (the owner's grown
+// room, room/seeds.js), timeZone (the room's clock), wallWriter (the owner's pen
+// on the walls, from Look), live (marks being written now) }. Ink on a surface is
+// drawn on it (scene/marks.js), every piece of it (there are few), whole.
+export default function JournalPage({ pageId, page, size, inks, editable, selected, onSelect, onOp, onFollow, lookSrc, sceneSrc = null, momentsSrc = null, room = null }) {
   const ref = useRef(null);
   const [k, setK] = useState(0); // CSS px per page unit
   const [scene, setScene] = useState(() => !!sceneSrc && sceneOn());
@@ -103,6 +109,42 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
       }),
     [placed, shown],
   );
+  // ink on the room's surfaces: each piece's whole field (or its look), set on its surface
+  const [onWalls, setOnWalls] = useState(() => new Map()); // item key → mark
+  const surfaceItems = useMemo(
+    () =>
+      Object.entries(room?.surfaces ?? {}).flatMap(([surface, f]) =>
+        f.items.flatMap((item) => {
+          const line = inks.get(item.ink);
+          return line?.ink ? [{ surface, item, line, key: `${surface}:${keyOf(item)}` }] : [];
+        }),
+      ),
+    [room?.surfaces, inks],
+  );
+  useEffect(() => {
+    if (!sceneShows || !sceneSrc) return undefined;
+    let alive = true;
+    for (const w of surfaceItems) {
+      if (onWalls.has(w.key)) continue;
+      sceneSrc(w.item, w.line, { lod: 0, at: null })
+        .then((d) => {
+          if (!alive || !d) return;
+          const cellUnits = w.item.scale / SCALE_ONE / CELLS;
+          const mark = d.field
+            ? { id: w.key, surface: w.surface, origin: [w.item.x, w.item.y], cellUnits, box: d.field.box, rgba: d.field.rgba }
+            : { id: w.key, surface: w.surface, origin: [w.item.x, w.item.y], cellUnits: itemSize(w.line.ink, w.item.scale)[0] / d.look.w, box: [0, 0, d.look.w, d.look.h], rgba: d.look.rgba };
+          setOnWalls((m) => new Map(m).set(w.key, mark));
+        })
+        .catch((err) => console.warn('[room] ink on the', w.surface, err.message)); // (the wall stays bare)
+    }
+    return () => {
+      alive = false;
+    };
+  }, [sceneShows, surfaceItems]); // eslint-disable-line react-hooks/exhaustive-deps
+  const marks = useMemo(() => {
+    const keys = new Set(surfaceItems.map((w) => w.key));
+    return [...[...onWalls.values()].filter((m) => keys.has(m.id)), ...(room?.live ?? [])];
+  }, [onWalls, surfaceItems, room?.live]);
   const paper = useMemo(() => hexRgb(page.background), [page.background]);
   const moments = useMemo(() => {
     const parts = momentsSrc
@@ -166,6 +208,11 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           paper={paper}
           moments={moments}
           onSight={setSight}
+          seeds={room?.seeds ?? null}
+          marks={marks}
+          wallWriter={room?.wallWriter ?? null}
+          timeZone={room?.timeZone ?? null}
+          shelf={room?.shelf ?? null}
           ground
           onFlat={() => {
             setViewChoice('flat');

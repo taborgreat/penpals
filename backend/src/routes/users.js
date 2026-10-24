@@ -47,7 +47,7 @@ usersRouter.get('/:username', (req, res) => {
   const savedAt = (l) => at(l.savedBy.find((s) => s.userId === user.id)?.at ?? l.createdAt);
   const saved = keptBy(user.id).sort((a, b) => savedAt(b) - savedAt(a));
   res.json({
-    user: { username: user.username, createdAt: user.createdAt, lettersSent: user.lettersSent ?? 0, private: !!user.private, ...keyOf(user) },
+    user: { username: user.username, createdAt: user.createdAt, lettersSent: user.lettersSent ?? 0, private: !!user.private, timeZone: user.settings?.timeZone ?? null, ...keyOf(user) },
     relation: rel,
     saved: saved.map((l) => letterJson(l, req.user)),
   });

@@ -143,6 +143,16 @@ export const verifySeed = (pk, sheet, seed) => isSheetId(sheet) && verify(seed, 
 export const commitOf = (seed) => sha256(concat(T('commit'), seed));
 export const paperKeyOf = (seed) => sha256(concat(T('paperkey'), seed));
 
+// A room's grown surfaces (rooms.md §1: each person's walls, floor, ceiling and
+// table are grown from their own key, so no two rooms look alike). Public: from
+// the owner's public key and the surface's name, so every visitor grows the very
+// same room; scene only, never a fact. → two u32 (light/surface.js's seed).
+export function roomSeed(pk, surface) {
+  const h = sha256(concat(T('room'), pk, ascii(surface)));
+  const dv = new DataView(h.buffer, h.byteOffset, 8);
+  return [dv.getUint32(0, false), dv.getUint32(4, false)];
+}
+
 // --- records ---
 
 export const recordDigest = (body) => sha256(concat(T('ink'), utf8(jcs(body))));

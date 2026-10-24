@@ -4,7 +4,10 @@ import { listDirs, readJson, serial, serialAll, writeJson } from '../files.js';
 
 // Accounts: data/users/<id>/account.json. Private, never part of a book:
 //   { id, username, usernameLower, publicKey, createdAt, private,
-//     friends: [id], incoming: [id], outgoing: [id], blocked: [id], lettersSent, settings: {} }
+//     friends: [id], incoming: [id], outgoing: [id], blocked: [id], lettersSent,
+//     settings: { timeZone? } }
+// timeZone is the room's clock (rooms.md §1b): an IANA zone taken from the
+// owner's machine when the room is made; everyone in the room sees its sun by it.
 // There is no password: the account is its public key (keys.md, "there is no
 // account, there is a key"). account.json is written last when an account is
 // made, so a folder without one is a registration that never finished.
@@ -65,8 +68,8 @@ const lockKey = (id) => `account:${id}`;
 
 // The last step of a registration (the commit point): the account file, then the indexes.
 // Callers hold the 'names' lock and have checked the name and key are free.
-export async function commitAccount({ id, username, publicKey, createdAt }) {
-  const account = blank({ id, username, usernameLower: username.toLowerCase(), publicKey, createdAt });
+export async function commitAccount({ id, username, publicKey, createdAt, settings = {} }) {
+  const account = blank({ id, username, usernameLower: username.toLowerCase(), publicKey, createdAt, settings });
   await writeJson(accountFile(id), account);
   remember(account);
   await saveNames();

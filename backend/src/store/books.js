@@ -4,12 +4,13 @@ import { config } from '../config.js';
 import { appendLine, completeBytes, readJson, readLines, serial, writeJson, crashpoint, httpError } from '../files.js';
 import { userDir } from './accounts.js';
 import { addSeed } from './seeds.js';
-import { applyOp } from './ops.js';
+import { applyOp, allItems, blankSurfaces } from './ops.js';
 import { keys as K, fromB64url } from 'penpals-law';
 
 // A person's book is two files in data/users/<id>/book/ (books.md Part A, keys.md):
-//   skeleton.json  { version, signature, paperFamily, home, nextItem, pages }:
-//                  layout only, rewritten whole (atomically) per edit
+//   skeleton.json  { version, signature, paperFamily, home, nextItem, pages, surfaces }:
+//                  layout only, rewritten whole (atomically) per edit; surfaces
+//                  are the room's walls, floor, ceiling and table top (rooms.md §1)
 //   ink.chain      append-only lines, public:
 //                  { id, made, ink: <sealed body>, seal, open? }   a sheet of writing
 //                  { id, made, open: <sheet>, ref, seed, by }      a sheet opened later
@@ -29,6 +30,7 @@ export const blankSkeleton = (paperFamily) => ({
   home: 'home',
   nextItem: 1,
   pages: { home: { background: config.book.defaultBackground, items: [] } },
+  surfaces: blankSurfaces(),
 });
 
 const skeletons = new Map(); // userId → skeleton
@@ -151,7 +153,7 @@ export function landInk(userId, { line, D, seed, then, base }) {
     if (existing) {
       const same = Buffer.from(await digestOf(userId, existing)).equals(Buffer.from(D));
       if (!same) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
-      const placed = then?.op === 'add' && Object.values(skeleton.pages).some((p) => p.items.some((it) => it.ink === existing.id));
+      const placed = then?.op === 'add' && [...allItems(skeleton)].some((it) => it.ink === existing.id);
       if (!then || placed || then.op !== 'add') return { ink: existing.id, version: skeleton.version, replay: true };
       const out = await landEdit(userId, { ...then, ink: existing.id }, null);
       return { ink: existing.id, ...out, replay: true };

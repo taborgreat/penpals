@@ -9,6 +9,7 @@ import { writeCached, lookPath } from '../store/cache.js';
 import { createSession, deleteSession, deleteUserSessions, setSessionCookie, clearSessionCookie, requireAuth, originOk } from '../auth.js';
 import { take, ipKey } from '../limits.js';
 import { confirmFacts } from '../services.js';
+import { checkTimeZone } from '../timezone.js';
 import { keys as K, record as R, unlock as U, fromB64url, b64url } from 'penpals-law';
 
 // Accounts (accounts-change.md): the device makes the key K from fresh
@@ -87,8 +88,9 @@ authRouter.post('/register/begin', json, (req, res) => {
 });
 
 authRouter.post('/register/finish', json, async (req, res) => {
-  const { username, nonce, origin, publicKey, proof, keyring, line } = req.body ?? {};
+  const { username, nonce, origin, publicKey, proof, keyring, line, timeZone } = req.body ?? {};
   checkName(username);
+  const zone = timeZone === undefined || timeZone === null ? null : checkTimeZone(timeZone);
   takeNonce(nonce, 'register', username.toLowerCase());
   const held = takeHeld(username, nonce);
   checkOrigin(req, origin);
@@ -124,7 +126,7 @@ authRouter.post('/register/finish', json, async (req, res) => {
     const now = new Date().toISOString();
     if (ring) await writeUnlock(id, { oprfKey: b64url(held.oprfKey), keyring: ring });
     crashpoint('register:before-account');
-    const a = await commitAccount({ id, username, publicKey, createdAt: now });
+    const a = await commitAccount({ id, username, publicKey, createdAt: now, ...(zone ? { settings: { timeZone: zone } } : {}) });
     await writeCached(lookPath(id, record.id, 64, body.law, { ageH: 0, views: 0 }), Buffer.from(settled.png)).catch(() => {});
     return a;
   });

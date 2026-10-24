@@ -4,8 +4,10 @@ import Hand from './Hand.jsx';
 import SignIn from './SignIn.jsx';
 import Register from './Register.jsx';
 
-// Log in or make an account: both by hand (keys.md, design B).
-export default function AuthPanel() {
+// Log in or make an account (accounts-change.md: signatures make the key; sign
+// in by name and a password, the 24 words or the private key). onDone(user):
+// what happens once you are in (the lobby closes the eye first: rooms.md §1a).
+export default function AuthPanel({ onDone = null }) {
   const { signedIn } = useAuth();
   const [mode, setMode] = useState('login');
 
@@ -24,7 +26,7 @@ export default function AuthPanel() {
           <Hand>register</Hand>
         </button>
       </div>
-      {mode === 'login' ? <SignIn onDone={signedIn} /> : <Register onDone={signedIn} />}
+      {mode === 'login' ? <SignIn onDone={onDone ?? signedIn} /> : <Register onDone={onDone ?? signedIn} />}
     </div>
   );
 }
