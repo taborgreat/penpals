@@ -10,7 +10,7 @@ import { isPhone } from './support.js';
 // only shows.
 //
 //   page        [w, h] page px (the camera's home, the candles' places)
-//   mode        '2d' | '3d', onMode(mode): the toggle (the switch animates)
+//   mode        '3d': the scene is always seen in 3D (no toggle; '2d', straight down, is kept for the lab only)
 //   sheets      [{ id, box: [x0, y0, w, h] (cells), origin: [px, py], cellPx,
 //                  field?, look?: { rgba, box }, live?, detail?: { data, box }, bands?: { data, box } }]
 //   frame2d     () => [x0, y0, x1, y1]: the part of the page the 2D view shows (default: all of it)
@@ -24,7 +24,10 @@ import { isPhone } from './support.js';
 //   toolsHost   an element to put the tools in (a pad's own bar, off the page), else over the view
 // ref: { camera(), setCamera(cam), invalidate() }
 const BAND_MS = 40;
-const LIVE_MS = 50; // a sheet being written is drawn again at most this often
+const LIVE_MS = 16; // a sheet being written is drawn again at most this often (about every frame)
+const STILL_MS = 200; // after this long without the camera moving, frames are full resolution again
+const MOVING = 0.75; // the resolution while the camera moves, and for frames drawn only for the candles' flicker
+const CAP_DESKTOP = 1.5; // device pixels per CSS pixel, at most (phones: 1)
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
 const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, frame2d, writer, follow, cutSide, moments, momentsKey, ground = false, onFlat, paper = null, tools = true, toolsHost = null, className = '', style }, ref) {
@@ -39,7 +42,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
   const phone = useRef(isPhone()).current;
 
   if (!st.current) {
-    st.current = { cam: mode === '3d' ? camera3d(...page) : camera2d(...page), anim: null, override: null, back: null, raf: 0, last: 0, view: null, applied: new Map(), size: [1, 1], pointers: new Map(), drag: null, taps: [] };
+    st.current = { cam: mode === '3d' ? camera3d(...page) : camera2d(...page), anim: null, override: null, back: null, raf: 0, last: 0, view: null, applied: new Map(), css: [1, 1], moveUntil: 0, pointers: new Map(), drag: null, taps: [] };
   }
   const S = st.current;
 
@@ -87,7 +90,17 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     if (cam.mode === '3d' && follow) cam = chaseFollow(cam, follow.base, follow.offset);
     const light = currentLight(now);
     S.view.setLight(light);
-    S.view.render(cam, S.size[0], S.size[1]);
+    // the resolution: capped; lower while moving and for the flicker alone (full again once still)
+    const moving = !!S.anim || now < S.moveUntil || S.drag?.kind === 'orbit' || S.drag?.kind === 'pan' || S.drag?.kind === 'two';
+    if (!S.flickerOnly) S.lastFull = now;
+    const quiet = S.flickerOnly && now - (S.lastFull ?? 0) > 1000; // only the candles, for a second now
+    const k = (phone ? 1 : Math.min(CAP_DESKTOP, window.devicePixelRatio || 1)) * (moving || quiet ? MOVING : 1);
+    S.flickerOnly = false;
+    if (moving && !S.anim) {
+      clearTimeout(S.still);
+      S.still = setTimeout(schedule, Math.max(0, S.moveUntil - now) + 20);
+    }
+    S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     const low = cam.mode === '3d' && !!writer && !canWrite(cam);
     setSteep((was) => (was === low ? was : low));
@@ -96,6 +109,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       // only the candles flickering
       S.flicker = setTimeout(() => {
         S.flicker = 0;
+        if (!S.raf) S.flickerOnly = true;
         schedule();
       }, FLICKER_MS);
     }
@@ -114,19 +128,19 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   function start(gpu) {
-    const view = createView(canvasRef.current);
+    const view = createView(canvasRef.current, { host: wrapRef.current, invalidate: schedule });
     S.view = view;
     if (paper) view.setPaper(paper);
     const ro = new ResizeObserver(() => {
       if (!wrapRef.current) return;
       const r = wrapRef.current.getBoundingClientRect();
-      const dpr = phone ? 1 : Math.min(2, window.devicePixelRatio || 1);
-      S.size = [Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr))];
+      S.css = [r.width, r.height];
       schedule();
     });
     ro.observe(wrapRef.current);
     const io = new IntersectionObserver(([e]) => {
       S.hidden = !e.isIntersecting;
+      view.setVisible(!S.hidden);
       if (!S.hidden) schedule();
     });
     io.observe(wrapRef.current);
@@ -138,6 +152,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       clearInterval(tick);
       clearTimeout(S.liveTimer);
       clearTimeout(S.flicker);
+      clearTimeout(S.still);
       cancelAnimationFrame(S.raf);
       S.raf = 0;
       for (const a of S.applied.values()) a.unsub?.();
@@ -177,7 +192,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
         view.setTiles(s.id, s.live.tiles());
         unsub = s.live.onTiles((tiles) => {
           view.setTiles(s.id, tiles);
-          liveSoon(); // at most every LIVE_MS: the pen's own events come first
+          liveSoon(); // at most every LIVE_MS
         });
       }
       S.applied.set(s.id, { spec: s, unsub });
@@ -229,6 +244,8 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     const p = pageAt(S.shown ?? S.cam, nx, ny, aspect);
     return p ? { x: p[0], y: p[1] } : null;
   };
+  // the pen writes only where the ray meets the page (over the desk it lays nothing)
+  const onPage = (p) => p && p.x >= 0 && p.y >= 0 && p.x <= page[0] && p.y <= page[1];
   const lightFromPointer = (e) => {
     const r = canvasRef.current.getBoundingClientRect();
     const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
@@ -271,12 +288,11 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       return;
     }
     const writes = writer && (e.pointerType === 'pen' || e.pointerType === 'touch' || e.button === 0) && !e.shiftKey && e.button !== 2;
-    if (writes && canWrite(S.shown ?? S.cam)) {
-      const p = pageOf(e);
-      if (!p) return;
+    const at = writes && canWrite(S.shown ?? S.cam) ? pageOf(e) : null;
+    if (onPage(at)) {
       writer.penDown?.(S.shown ?? S.cam);
-      S.drag = { kind: 'write' };
-      writer.down(p, e.nativeEvent, e.pointerType);
+      S.drag = { kind: 'write', last: at };
+      writer.down(at, e.nativeEvent, e.pointerType);
       return;
     }
     S.drag = { kind: e.button === 1 || e.shiftKey ? 'pan' : 'orbit', x: e.clientX, y: e.clientY };
@@ -297,7 +313,13 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       const evs = e.nativeEvent.getCoalescedEvents?.() ?? [];
       for (const ev of evs.length ? evs : [e.nativeEvent]) {
         const p = pageOf(ev);
-        if (p) writer.move(p, ev);
+        if (!onPage(p)) { // off the page: the stroke ends at its edge
+          writer.up(d.last, ev);
+          S.drag = null;
+          break;
+        }
+        writer.move(p, ev);
+        d.last = p;
       }
     } else if (d.kind === 'two' && S.pointers.size >= 2) {
       const [a, b] = [...S.pointers.values()];
@@ -326,6 +348,10 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     if (!d) return;
     if (d.kind === 'two' && S.pointers.size) return;
     S.drag = null;
+    if (d.kind === 'orbit' || d.kind === 'pan' || d.kind === 'two') {
+      S.moveUntil = performance.now() + STILL_MS;
+      schedule();
+    }
     if (d.kind === 'light') {
       S.back = { from: S.override, t0: performance.now() }; // released: back to the clock
       S.override = null;
@@ -340,7 +366,10 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       }
     } else if (d.kind === 'write') {
       if (e.type === 'pointercancel') writer.cancel();
-      else writer.up(pageOf(e), e.nativeEvent);
+      else {
+        const p = pageOf(e);
+        writer.up(onPage(p) ? p : d.last, e.nativeEvent);
+      }
     }
   };
 
@@ -348,6 +377,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     if (mode !== '3d') return;
     e.preventDefault();
     S.cam = zoomBy(S.cam, e.deltaY > 0 ? 1.12 : 1 / 1.12);
+    S.moveUntil = performance.now() + STILL_MS;
     schedule();
   };
   const onDoubleClick = (e) => {
@@ -366,6 +396,7 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
     if (!moves[k]) return;
     e.preventDefault();
     S.cam = fly(S.cam, ...moves[k]);
+    S.moveUntil = performance.now() + STILL_MS;
     schedule();
   };
 
@@ -427,7 +458,6 @@ const SceneView = forwardRef(function SceneView({ page, mode, onMode, sheets, fr
       {steep && <p className="scene-hint">Tilt up to write: below {MIN_WRITE_EL}° a pixel covers too much page.</p>}
       {tools && wrapTools(
         <div className={`scene-tools${toolsHost ? ' hosted' : ''}`} role="group" aria-label="View">
-          <button type="button" aria-pressed={mode === '3d'} onClick={() => onMode(mode === '3d' ? '2d' : '3d')} title="See the page in 3D, or straight down">{mode === '3d' ? '2D' : '3D'}</button>
           <button type="button" aria-pressed={tool === 'light'} onClick={() => setTool(tool === 'light' ? null : 'light')} title="Drag to move the light; let go and it returns to the time of day">Light</button>
           {mode === '3d' && cutSide && (
             <button type="button" aria-pressed={tool === 'cut'} onClick={() => { setTool(tool === 'cut' ? null : 'cut'); if (tool === 'cut') { S.view?.setCut(null); schedule(); } }} title="Drag a line across the writing to cut through the paper">Cut</button>

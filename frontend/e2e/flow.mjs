@@ -80,7 +80,13 @@ const scribble = (lines, perLine = 5) => {
 const cdps = new WeakMap();
 async function draw(page, canvas, strokes, ms = 9) {
   await canvas.scrollIntoViewIfNeeded();
-  const b = await canvas.boundingBox();
+  let b = await canvas.boundingBox();
+  // a pad shown in 3D: write where the page is in the view (its middle), by ray onto the page
+  const lit = page.locator('.pad-scene canvas.scene-canvas').first();
+  if (await lit.isVisible().catch(() => false)) {
+    const v = await lit.boundingBox();
+    b = { x: v.x + v.width * 0.24, y: v.y + v.height * 0.4, width: v.width * 0.52, height: v.height * 0.22 };
+  }
   if (!cdps.has(page)) cdps.set(page, await page.context().newCDPSession(page));
   const cdp = cdps.get(page);
   const send = (type, [x, y], t, buttons) => cdp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons, clickCount: 1, timestamp: t / 1000 });
@@ -104,6 +110,30 @@ const pad = (page) => page.locator('.pad canvas.ink').first();
 const tries = { login: 0, unlock: 0 };
 
 // Write the phrase (and type the password, if the account has one) until it opens (a person tries again too).
+// What an element shows on screen (the scene may draw straight into its own
+// canvas, which has no 2D picture to read): `fn(d, w, h)` over its pixels, in the page.
+async function onScreen(page, selector, fn) {
+  const png = await page.locator(selector).first().screenshot();
+  return page.evaluate(async ({ b64, src }) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    return (0, eval)(`(${src})`)(g.getImageData(0, 0, img.width, img.height).data, img.width, img.height);
+  }, { b64: png.toString('base64'), src: fn.toString() });
+}
+async function untilOnScreen(page, selector, fn, timeout = 60000) {
+  for (const end = Date.now() + timeout; ; ) {
+    if (await onScreen(page, selector, fn).catch(() => false)) return;
+    if (Date.now() > end) throw new Error(`${selector} never showed what was looked for`);
+    await page.waitForTimeout(500);
+  }
+}
+
 async function openByWriting(page, { unlock, done, password = '' }) {
   const submit = () => page.getByRole('button', { name: unlock ? 'Unlock' : /Log in/ }).last().click();
   for (let attempt = 1; attempt <= 5; attempt++) {
@@ -210,23 +240,20 @@ try {
   console.log(`   live cut through the paper: ${await page.locator('.depth-view.live canvas').evaluate((c) => `${c.width}×${c.height}`)}`);
   await page.getByRole('button', { name: 'Into the paper' }).click();
   if (webgl) {
-    // the lit 2D scene lies over the pad; then a stroke written in 3D, by ray onto the page
+    // the lit scene lies over the pad, always in 3D; a stroke written in it, by ray onto the page
     const lit = page.locator('.pad-scene canvas.scene-canvas');
     await lit.waitFor({ timeout: 30000 });
     await page.waitForFunction(() => { const c = document.querySelector('.pad-scene canvas.scene-canvas'); return c && c.width > 10; }, null, { timeout: 30000 });
     const drawnBy = await page.locator('.pad-scene .scene-view').getAttribute('data-gpu');
     if (drawnBy !== (webgpu ? 'webgpu' : 'webgl2')) throw new Error(`the scene is drawn with ${drawnBy}`);
     console.log(`   the lit pad, drawn with ${drawnBy === 'webgpu' ? 'WebGPU' : 'WebGL2'}`);
-    await page.locator('.scene-tools-host').getByRole('button', { name: '3D' }).click();
-    await page.waitForTimeout(900); // the camera's move from straight down
     const sb = await lit.boundingBox();
     await page.mouse.move(sb.x + sb.width * 0.4, sb.y + sb.height * 0.5);
     await page.mouse.down();
     for (let i = 1; i <= 24; i++) await page.mouse.move(sb.x + sb.width * (0.4 + i * 0.006), sb.y + sb.height * (0.5 + Math.sin(i / 4) * 0.03), { steps: 2 });
     await page.mouse.up();
     await page.waitForTimeout(300);
-    await page.locator('.scene-tools-host').getByRole('button', { name: '2D' }).click();
-    console.log('   wrote a stroke in 3D, then back to 2D');
+    console.log('   wrote a stroke in 3D');
     // show the moments of your own sheet as it is written: its ink banded by when it went down
     // (counted by the view: the candles flicker, so the pixels are no measure)
     await page.locator('.scene-tools-host').getByRole('button', { name: 'Moments' }).click();
@@ -259,26 +286,27 @@ try {
   if (webgl) {
     // the journal, as visitors see it, shows its writing in the scene, lit (pale fresh oak gall: any ink)
     await page.getByRole('button', { name: 'Preview' }).click();
-    await page.waitForFunction(() => {
-      const c = document.querySelector('.journal-scene canvas');
-      if (!c || c.width < 10) return false;
-      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    await page.locator('.journal-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
+    await untilOnScreen(page, '.journal-scene', (d) => {
       const paper = [d[0], d[1], d[2]];
       let ink = 0;
       for (let i = 0; i < d.length; i += 4 * 7) if (Math.abs(d[i] - paper[0]) + Math.abs(d[i + 1] - paper[1]) + Math.abs(d[i + 2] - paper[2]) > 45) ink++;
       return ink > 20;
-    }, null, { timeout: 60000 });
-    console.log('   the journal page shows it in the scene');
-    // its page lies under its sheets, not the desk: the corners are the page's paper, lit like the sheet
-    const sides = await page.evaluate(() => {
-      const c = document.querySelector('.journal-scene canvas');
-      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-      const at = (x, y) => { const k = 4 * (Math.floor(y) * c.width + Math.floor(x)); return [d[k], d[k + 1], d[k + 2]]; };
-      return { corner: at(4, 4), far: at(c.width - 5, c.height - 5) };
     });
-    if (sides.corner.join() !== sides.far.join() && Math.abs(sides.corner[0] - sides.far[0]) > 30) throw new Error(`the page's corners differ: ${sides.corner} vs ${sides.far}`);
-    const deskish = (p) => Math.abs(p[0] - p[1]) < 8 && Math.abs(p[1] - p[2]) < 8 && p[0] < 200;
-    if (deskish(sides.corner)) throw new Error(`the journal page shows the desk, not its page: ${sides.corner}`);
+    console.log('   the journal page shows it in the scene');
+    // its page lies under its sheets, not the desk: most of what the view shows is paper
+    const paperShare = await onScreen(page, '.journal-scene', (d) => {
+      let paper = 0, all = 0;
+      for (let i = 0; i < d.length; i += 4 * 11) {
+        all++;
+        if (!(Math.abs(d[i] - d[i + 1]) < 8 && Math.abs(d[i + 1] - d[i + 2]) < 8 && d[i] < 200)) paper++; // not the desk's grey
+      }
+      return paper / all;
+    });
+    if (paperShare < 0.35) throw new Error(`the journal page shows mostly the desk, not its page (${Math.round(paperShare * 100)}% paper)`);
+    // and the page itself does not run off to the side
+    const wide = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, view: window.innerWidth, img: [...document.querySelectorAll('img.signature-look')].map((i) => ({ src: i.getAttribute('src'), nat: [i.naturalWidth, i.naturalHeight], css: [Math.round(i.getBoundingClientRect().width), Math.round(i.getBoundingClientRect().height)], style: i.getAttribute('style'), parent: i.parentElement.className + ' ' + (i.parentElement.getAttribute('style') ?? '') })).slice(0, 3), widest: [...document.querySelectorAll('body *')].map((e) => [Math.round(e.getBoundingClientRect().right), e.tagName + '.' + e.className]).sort((x, y) => y[0] - x[0]).slice(0, 4) }));
+    if (wide.scroll > wide.view + 2) throw new Error(`the page runs ${wide.scroll - wide.view}px off to the side: ${JSON.stringify(wide.widest)} ${JSON.stringify(wide.img)}`);
     await page.locator('.journal-page').screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-journal.png') });
     // your own sheet on the page: its moments too
     await page.locator('.journal-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
@@ -302,27 +330,25 @@ try {
   const sideW = await page.locator('.depth-view img').evaluate((i) => `${i.naturalWidth}×${i.naturalHeight}`);
   if (webgl) {
     await page.getByRole('button', { name: 'Scene', exact: true }).click();
-    await page.locator('.walk-back-scene canvas').waitFor({ timeout: 60000 });
+    await page.locator('.walk-back-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.walk-back-scene .scene-tools button[aria-pressed="true"]')].some((b) => b.textContent === 'Moments'), null, { timeout: 60000 });
     // cut through it: the far side is cut away, so more of the desk shows (the desk is unlit: the candles do not move it)
-    const deskSeen = () => {
-      const c = document.querySelector('.walk-back-scene canvas');
-      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const deskSeen = (d) => {
       const desk = [d[0], d[1], d[2]];
       let n = 0;
       for (let i = 0; i < d.length; i += 4 * 5) if (Math.abs(d[i] - desk[0]) + Math.abs(d[i + 1] - desk[1]) + Math.abs(d[i + 2] - desk[2]) < 6) n++;
       return n;
     };
     await page.waitForTimeout(800);
-    const before = await page.evaluate(deskSeen);
+    const before = await onScreen(page, '.walk-back-scene', deskSeen);
     await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Cut' }).click();
-    const wb = await page.locator('.walk-back-scene canvas').boundingBox();
+    const wb = await page.locator('.walk-back-scene canvas.scene-canvas').boundingBox();
     await page.mouse.move(wb.x + wb.width * 0.2, wb.y + wb.height * 0.5);
     await page.mouse.down();
     await page.mouse.move(wb.x + wb.width * 0.8, wb.y + wb.height * 0.5, { steps: 8 });
     await page.mouse.up();
-    await page.waitForFunction(`(${deskSeen})() > ${before} * 1.02 + 20`, null, { timeout: 60000 });
+    await untilOnScreen(page, '.walk-back-scene', new Function('d', `return (${deskSeen})(d) > ${before} * 1.02 + 20;`));
     console.log(`   side view ${sideW}; the sheet in the scene, its moments banded, cut through`);
   } else console.log(`   side view ${sideW}`);
   await page.getByRole('button', { name: 'Close' }).click();

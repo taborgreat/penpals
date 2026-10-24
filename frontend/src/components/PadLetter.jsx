@@ -20,7 +20,7 @@ export default function PadLetter({ letter }) {
   const [scene, setScene] = useState(() => sceneOn());
   const lowPower = useLowPower();
   useEffect(() => { setScene(sceneOn()); }, [lowPower]);
-  const [sceneMode, setSceneMode] = useState('2d');
+  const [sceneMode, setSceneMode] = useState('3d'); // always 3D
   const [data, setData] = useState(null);
   useEffect(() => {
     if (!scene || !line || !letter.id) return undefined;
@@ -75,7 +75,7 @@ export default function PadLetter({ letter }) {
           <span className="meta" title="Sealed by the writer's key: the server grew this from the sheet, and it must match the seal">sealed</span>
           <span className="spacer" />
           {!scene && sceneSupported() && (
-            <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The letter lit, in 2D or 3D">Scene</button>
+            <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The letter lit, in 3D">Scene</button>
           )}
           {letter.id && <FilmDownload source={{ url: `/api/letters/${letter.id}/film` }} background={(PAPERS[letter.background] ?? PAPERS.plain).color} name={`penpals-${letter.from ?? ''}-${letter.id}`} />}
         </div>

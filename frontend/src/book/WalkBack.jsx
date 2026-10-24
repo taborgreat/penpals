@@ -59,8 +59,9 @@ export default function WalkBack({ line, seed, src, onClose }) {
       setBusy(false);
     }
   }
-  const sheets = useMemo(() => (scene ? [{ id: 'sheet', box: scene.field.box, origin: [scene.field.box[0] / CELLS, scene.field.box[1] / CELLS], cellPx: 1 / CELLS, field: scene.field, detail: scene.detail }] : []), [scene]);
-  const toCell = (p) => [Math.round(p[0] * CELLS), Math.round(p[1] * CELLS)];
+  // the sheet framed on its own (its box at the scene's origin)
+  const sheets = useMemo(() => (scene ? [{ id: 'sheet', box: scene.field.box, origin: [0, 0], cellPx: 1 / CELLS, field: scene.field, detail: scene.detail }] : []), [scene]);
+  const toCell = (p) => [Math.round(p[0] * CELLS) + scene.field.box[0], Math.round(p[1] * CELLS) + scene.field.box[1]];
 
   const t = result;
   return (
@@ -95,7 +96,7 @@ export default function WalkBack({ line, seed, src, onClose }) {
       {scene && !lowPower && (
         <div className="walk-back-scene">
           <SceneView
-            page={[(scene.field.box[0] + scene.field.box[2]) / CELLS, (scene.field.box[1] + scene.field.box[3]) / CELLS]}
+            page={[scene.field.box[2] / CELLS, scene.field.box[3] / CELLS]}
             mode={sceneMode}
             onMode={setSceneMode}
             sheets={sheets}

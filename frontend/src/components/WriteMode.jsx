@@ -80,10 +80,10 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
   const playerRef = useRef(null);
   const [count, setCount] = useState(draftRef.current.strokes.length);
   const [playing, setPlaying] = useState(null); // the whole letter, while it is written out
-  // The chase in 3D (the scene): the camera's target slides along the line with the chase.
-  const [view3d, setView3d] = useState(false);
+  // Always in 3D (the scene): the camera's target slides along the line with the chase. Flat only
+  // where the scene can't draw: no live sheet, no WebGL, the flat look chosen, or low power.
   const lowPower = useLowPower();
-  useEffect(() => { if (lowPower) setView3d(false); }, [lowPower]);
+  const view3d = !!live && sceneOn() && !lowPower;
   const view3dRef = useRef(false);
   view3dRef.current = view3d;
   const sceneRef = useRef(null);
@@ -569,7 +569,6 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
           className="monk-scene"
           page={[pageW, height]}
           mode="3d"
-          onMode={(m) => setView3d(m === '3d')}
           sheets={sheets3d}
           follow={followRef.current}
           writer={writer3d}
@@ -581,7 +580,6 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
       <div className="monk-bar">
         <button type="button" onClick={leave} disabled={!!playing} title="Leave write mode (Esc)">Escape</button>
         <button type="button" onClick={undo} disabled={!!playing || !count} title="Take back the last stroke (Ctrl+Z)">Undo</button>
-        {live && sceneOn() && !view3d && <button type="button" onClick={() => setView3d(true)} disabled={!!playing} title="Write on the page in 3D: the chase moves the camera along the line">3D</button>}
         <button type="button" className="primary" onClick={play} disabled={!!playing || (!count && !getStrokes().length)} title="Watch it written out, then save or send">
           ▶ Play
         </button>

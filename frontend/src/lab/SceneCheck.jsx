@@ -11,7 +11,7 @@ const CELLS = 2;
 
 export default function SceneCheck() {
   const params = new URLSearchParams(window.location.search);
-  const [mode, setMode] = useState(params.get('mode') === '3d' ? '3d' : '2d');
+  const [mode, setMode] = useState(params.get('mode') === '2d' ? '2d' : '3d'); // 3D, as everywhere (?mode=2d: straight down, for checking)
   const [loaded, setLoaded] = useState([]);
   // chosen while rendering, before the scene's own effects ask
   const chosen = useMemo(() => engineReady(params.get('gpu')), []); // eslint-disable-line react-hooks/exhaustive-deps

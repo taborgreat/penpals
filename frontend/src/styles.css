@@ -702,7 +702,6 @@ button.danger:hover:not(:disabled) { color: var(--wax); }
 .journal-scene { position: absolute; inset: 0; z-index: 0; }
 .journal-page.scene-shown .ink-item { opacity: 0; z-index: 1; }
 .journal-page.scene-3d .journal-scene { z-index: 5; }
-.journal-page.scene-3d { overflow: visible; }
 /* a pad letter: its ink and its scene lie over it, so it takes its size from the column (at most 80vh tall, like a photo) */
 .pad-letter { width: 100%; }
 .letter-section .pad-letter { width: min(100%, calc(80vh / var(--ui-zoom) * var(--ratio, 0.75))); }

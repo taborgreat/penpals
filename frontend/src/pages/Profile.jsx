@@ -186,7 +186,7 @@ function SignatureCard({ name }) {
           <div className="row">
             <button type="button" onClick={() => setSigning(true)}><Hand>Sign again</Hand></button>
             {!scene && signature && sceneSupported() && (
-              <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="Your signature lit, in 2D or 3D">Scene</button>
+              <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="Your signature lit, in 3D">Scene</button>
             )}
           </div>
         </>
@@ -200,7 +200,7 @@ function SignatureCard({ name }) {
 function SignatureScene({ name, signature, onFlat }) {
   const { book } = useBook(name);
   const [data, setData] = useState(null);
-  const [mode, setMode] = useState('2d');
+  const [mode, setMode] = useState('3d'); // always 3D
   const line = book.inks?.get(signature.ink);
   const seed = line ? (book.seeds?.get(line.ink.sheet) ?? line.open?.seed ?? null) : null;
   useEffect(() => {

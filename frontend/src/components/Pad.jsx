@@ -70,13 +70,13 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
   const [cssWidth, setCssWidth] = useState(0); // on-screen width of the page
   const [hand, setHand] = useState(false); // the move tool
   const [depth, setDepth] = useState(false); // a cut through the paper below the pad (law 2)
-  // The scene (lit 2D by default, 3D to choose; the flat look where the device can't, or by choice).
+  // The scene (lit, always in 3D; the flat look where the device can't, or by choice).
   // (not on the pads that read the hand: law 1 sheets stay as they are)
   const [scene, setScene] = useState(() => ink.law >= 2 && sceneOn());
   const lowPower = useLowPower();
   useEffect(() => { setScene(ink.law >= 2 && sceneOn()); }, [lowPower]); // eslint-disable-line react-hooks/exhaustive-deps
   const [toolsHost, setToolsHost] = useState(null);
-  const [sceneMode, setSceneMode] = useState('2d');
+  const [sceneMode, setSceneMode] = useState('3d'); // always 3D
   const sceneRef = useRef(null);
   const sceneBoxRef = useRef(null);
   const camStack = useRef(createCameraStack()).current;
@@ -591,7 +591,7 @@ export default function Pad({ ink, onChange = null, inkColor = '#1a1a1a', size =
             <button type="button" onClick={undo} disabled={!strokeCount} title="Undo (Ctrl+Z)">Undo</button>
             {scene && <span ref={setToolsHost} className="scene-tools-host" />}
             {!scene && ink.law >= 2 && sceneSupported() && (
-              <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The page lit, in 2D or 3D">Scene</button>
+              <button type="button" className="quiet" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The page lit, in 3D">Scene</button>
             )}
             <button type="button" className="quiet" onClick={clear} disabled={!strokeCount}>Clear</button>
           </div>

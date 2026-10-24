@@ -25,7 +25,7 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
   const [scene, setScene] = useState(() => !!sceneSrc && sceneOn());
   const lowPower = useLowPower();
   useEffect(() => { setScene(!!sceneSrc && sceneOn()); }, [lowPower]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [sceneMode, setSceneMode] = useState('2d');
+  const [sceneMode, setSceneMode] = useState('3d'); // always 3D
   const [shown, setShown] = useState(() => new Map()); // item key → { field, detail } | { look }
   const keyOf = (item) => `${item.id}:${item.ink}`;
   useEffect(() => {
@@ -110,7 +110,7 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
       )}
       {!scene && sceneSrc && !editable && sceneSupported() && (
         <div className="scene-tools">
-          <button type="button" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The page lit, in 2D or 3D">Scene</button>
+          <button type="button" onClick={() => { setViewChoice('scene'); setScene(true); }} title="The page lit, in 3D">Scene</button>
         </div>
       )}
     </div>

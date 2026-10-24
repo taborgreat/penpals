@@ -13,10 +13,12 @@ import Hand from './components/Hand.jsx';
 import Username from './components/Username.jsx';
 import WriteSpeed from './components/WriteSpeed.jsx';
 
-// Dev-only tools for Living Ink's Phase 0 (never in a production build).
-const HandLab = import.meta.env.DEV ? lazy(() => import('./lab/HandLab.jsx')) : null;
-const LawCheck = import.meta.env.DEV ? lazy(() => import('./lab/LawCheck.jsx')) : null;
-const SceneCheck = import.meta.env.DEV ? lazy(() => import('./lab/SceneCheck.jsx')) : null;
+// Dev-only tools (never in a production build; VITE_LABS=1 keeps them, for e2e/perf.mjs).
+const LABS = import.meta.env.DEV || import.meta.env.VITE_LABS === '1';
+const HandLab = LABS ? lazy(() => import('./lab/HandLab.jsx')) : null;
+const LawCheck = LABS ? lazy(() => import('./lab/LawCheck.jsx')) : null;
+const SceneCheck = LABS ? lazy(() => import('./lab/SceneCheck.jsx')) : null;
+const PadCheck = LABS ? lazy(() => import('./lab/PadCheck.jsx')) : null;
 
 // You, your mailbox, and the way out, in that order.
 function UserMenu() {
@@ -61,6 +63,7 @@ export default function App() {
           {HandLab && <Route path="/hand-lab" element={<Suspense fallback={null}><HandLab /></Suspense>} />}
           {LawCheck && <Route path="/law-check" element={<Suspense fallback={null}><LawCheck /></Suspense>} />}
           {SceneCheck && <Route path="/scene-check" element={<Suspense fallback={null}><SceneCheck /></Suspense>} />}
+          {PadCheck && <Route path="/pad-check" element={<Suspense fallback={null}><PadCheck /></Suspense>} />}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

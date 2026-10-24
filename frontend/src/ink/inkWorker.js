@@ -19,6 +19,7 @@
 // Out: { type: 'tiles', tiles: [{ tx, ty, rgba }] } (and 'reset'), replies by id.
 import { lawOf, CURRENT } from 'penpals-law/laws';
 import { paperDetail } from 'penpals-law/v2/scene';
+import { halves } from '../scene/half.js';
 import { verify as V, keys as K, record as R, fromB64url, b64url } from 'penpals-law';
 
 let sheet = null; // { paperKey, family, law }
@@ -35,8 +36,15 @@ function growBody(body, seed, scale = 64) {
 }
 const plays = new Map();
 
+// Tiles out: RGBA, and the heights (when the scene is on) as half floats, the
+// renderer's own format; both buffers handed over, not copied.
+function out(tiles) {
+  for (const t of tiles) if (t.hf) t.hf = halves(t.hf);
+  return tiles;
+}
+const handed = (tiles) => tiles.flatMap((t) => (t.hf ? [t.rgba.buffer, t.hf.buffer] : [t.rgba.buffer]));
 const postTiles = (tiles, extra = {}) => {
-  if (tiles.length || extra.type) postMessage({ type: 'tiles', tiles, ...extra }, tiles.map((t) => t.rgba.buffer));
+  if (tiles.length || extra.type) postMessage({ type: 'tiles', tiles: out(tiles), ...extra }, handed(tiles));
 };
 
 function apply(o) {
@@ -58,8 +66,8 @@ onmessage = ({ data: m }) => {
       live = lawOf(sheet.law).createLive(sheet);
     } else if (m.type === 'ops') {
       for (const o of m.ops) apply(o);
-      const tiles = live.changed({ heights: sheet.scene });
-      postMessage({ type: 'tiles', tiles, ack: true }, tiles.map((t) => t.rgba.buffer)); // always answered: the main thread sends the next batch only then
+      const tiles = out(live.changed({ heights: sheet.scene }));
+      postMessage({ type: 'tiles', tiles, ack: true }, handed(tiles)); // always answered: the main thread sends the next batch only then
     } else if (m.type === 'advance') {
       live.advanceTo(m.ms);
       postTiles(live.changed({ heights: sheet.scene }));
