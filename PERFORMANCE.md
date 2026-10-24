@@ -1,55 +1,67 @@
 # Performance report (cleanup-and-speed.md §1–6, §5b)
 
-Measured with `node frontend/e2e/perf.mjs` (and `--webgpu`). It builds the site in production mode, serves it, and drives the full Chromium on this machine's GPU at 1280 × 900, device pixel ratio 2. For WebGL2 each scene frame waits for the GPU (`__sceneSync`), so its draw time is the whole frame. "Main" is the main thread's busy share over the window (Chrome's TaskDuration, the Performance panel's total).
+## How this was measured
 
-**Before**: commit c74f539, before §1. **After**: the working tree at §5b, the commit that adds this report.
+Both columns were measured back to back on this machine on 2026-10-24, with the same bench: `frontend/e2e/perf.mjs` from commit 8da9ee4.
+- The bench builds the site in production mode with the dev pages in (`VITE_LABS=1`), serves it, and drives the full Chromium on this machine's GPU at 1280 × 900, device pixel ratio 2.
+- For WebGL2, each scene frame waits for the GPU (`__sceneSync`), so its draw time is the whole frame.
+- "Main" is the main thread's busy share over the window (Chrome's TaskDuration, the Performance panel's total).
+- **Before:** commit c74f539, before §1, in a git worktree. The only additions were what the bench reads: the engine's frame, draw-time and upload counters, the GPU wait, and the dev pages built in (the pad check page).
+- **After:** commit 8da9ee4, after §5 and §5b.
+- Rerun with `node frontend/e2e/perf.mjs [--webgpu]`.
 
 ## Idle at night (nothing moves but the candles)
 
-| | main busy | scene frames | per frame | uploads |
+| | main busy | scene frames | per frame | page frames p95 / worst |
 |---|---|---|---|---|
-| WebGL2 before | 6.9% | 11.2 fps | 3.71 ms | 0 |
-| WebGL2 after | 8.3% | 11.2 fps | 5.35 ms | 0 |
-| WebGPU before | 4.8% | 12.0 fps | 1.39 ms | 0 |
-| WebGPU after | 3.5% | 11.8 fps | 0.93 ms | 0 |
+| WebGL2 before | 19.1% | 9.6 fps | 18.0 ms | 15.9 / 24.0 ms |
+| WebGL2 after | 8.1% | 11.2 fps | 5.2 ms | 8.1 / 8.3 ms |
+| WebGPU before | 3.9% | 11.6 fps | 1.17 ms | 8.1 / 8.3 ms |
+| WebGPU after | 3.5% | 11.6 fps | 0.92 ms | 8.1 / 8.3 ms |
 
-- A still night view now draws only the candle flicker, at most 12 fps and at 0.75× resolution after a quiet second (§1.1).
-- Before, the 12 fps was the cap of the old flicker loop. That loop still ran the full-cost shader every frame: about 170 texture reads a pixel, at full resolution with MSAA.
-- On WebGL2 the after frame costs more than §1's own 3.1 ms. The difference is the lit table with its soft shadows and the two candle objects (§4, §6), which are new things on screen.
+- **Before, a still night view ran the full-cost shader at the flicker's rate.** That was about 170 texture reads a pixel: shadows marched toward the sun and each candle, every frame, at full resolution with MSAA. On WebGL2 that cost 18 ms a frame and dropped page frames.
+- **Now shadows and openness are baked per chunk** (§1.2). Only the flicker is drawn, at most 12 fps, and at 0.75× resolution after a quiet second (§1.1).
 - 26 chunks are drawn.
 
-## Writing a line
+## Writing a line (a 2 s stroke at 120 Hz, then a second of drying)
 
 | | main busy | scene frames | per frame | worst frame | uploads |
 |---|---|---|---|---|---|
-| WebGL2 before | 23.5% | 21.6 fps | 6.96 ms | 34.6 ms | 9,203 KB/s |
-| WebGL2 after, first line | 20.4% | 30.1 fps | 4.39 ms | 55.9 ms | 1,794 KB/s |
-| WebGL2 after, second line | 20.6% | 30.7 fps | 4.42 ms | 8.3 ms | 1,520 KB/s |
-| WebGPU before | 24.9% | 21.3 fps | 6.70 ms | 125 ms | 11,227 KB/s |
-| WebGPU after, first line | 25.1% | 30.4 fps | 5.53 ms | 66.6 ms | 1,861 KB/s |
-| WebGPU after, second line | 23.4% | 31.8 fps | 4.83 ms | 55.5 ms | 1,641 KB/s |
+| WebGL2 before, first line | 22.3% | 23.1 fps | 6.34 ms | 39.9 ms | 8,497 KB/s |
+| WebGL2 before, second line | 22.6% | 22.2 fps | 6.97 ms | 8.2 ms | 8,429 KB/s |
+| WebGL2 after, first line | 20.9% | 31.2 fps | 4.27 ms | 55.9 ms | 1,738 KB/s |
+| WebGL2 after, second line | 22.2% | 31.4 fps | 4.74 ms | 16.0 ms | 1,493 KB/s |
+| WebGPU before, first line | 19.2% | 21.0 fps | 4.71 ms | 119.2 ms | 8,767 KB/s |
+| WebGPU before, second line | 15.1% | 22.3 fps | 3.05 ms | 24.0 ms | 9,100 KB/s |
+| WebGPU after, first line | 25.5% | 29.9 fps | 5.76 ms | 63.4 ms | 1,871 KB/s |
+| WebGPU after, second line | 24.5% | 32.7 fps | 4.95 ms | 39.4 ms | 1,618 KB/s |
 
-- **The bench writes more ink than before.** Since §3, the writing view looks at the page from the seat, so the bench now writes where the view shows the page: two full-width lines, 240 samples at 120 Hz each.
-  - The old bench path drew over the 2D pad's box. In the new view, most of that lands off the page.
-  - Each line is now about 1,000–1,300 live tiles and 24–30 new chunks.
-- **One live tile** (taking it into its chunk, plus its share of the uploads and bakes):
-  - WebGL2: 0.11–0.13 ms.
-  - WebGPU: 0.43–0.50 ms. Each three.js render target switch costs WebGPU more CPU time.
-- **Uploads fall about five-fold** (9.2 → 1.8 MB/s) while writing more. Live updates now upload only the changed 16 × 16 rectangle as half floats, not the whole 136 × 136 chunk (§1.4).
-- **The first line's worst frame** is the page making its first chunks. The second line's worst frame on WebGL2 is 8.3 ms.
+- **Uploads fall about five-fold** (8.4–9.1 MB/s → 1.5–1.9 MB/s). A live tile now uploads only its 16 × 16 rectangle as half floats, not the whole 136 × 136 chunk (§1.4).
+- **The ink keeps up with more frames.** The view draws 30–33 frames a second while writing, against 21–23.
+- **On WebGPU the main thread is busier for it** (19% → 25%). Each three.js render-target switch costs WebGPU CPU time. One live tile costs:
+  - WebGPU: 0.46–0.49 ms (taking it in, plus its share of the uploads and bakes);
+  - WebGL2: 0.12–0.14 ms.
+- **The first line's worst frame is the page making its first chunks.** On WebGPU it halves (119 → 63 ms).
+- **The ink itself differs a little.** The bench writes in the middle of the 3D pad view. Since §3 that view looks from the seat, so the same pointer path puts down a similar but not identical amount of ink.
 
 ## Orbiting (three seconds of dragging, by day)
 
-| | main busy | scene frames | per frame |
-|---|---|---|---|
-| WebGL2 before | 18.1% | 35.4 fps | 3.49 ms |
-| WebGL2 after | 19.7% | 53.2 fps | 2.65 ms |
-| WebGPU before | 12.7% | 36.3 fps | 1.37 ms |
-| WebGPU after | 10.4% | 44.6 fps | 1.03 ms |
+| | main busy | scene frames | per frame | worst frame |
+|---|---|---|---|---|
+| WebGL2 before | 15.2% | 22.7 fps | 4.52 ms | 12.9 ms |
+| WebGL2 after | 22.4% | 53.3 fps | 3.12 ms | 23.1 ms |
+| WebGPU before | 10.8% | 41.6 fps | 1.16 ms | 8.2 ms |
+| WebGPU after | 10.5% | 44.7 fps | 0.98 ms | 8.3 ms |
 
-Shadows and openness are baked per chunk, so a frame reads about 4 textures a pixel. Resolution drops to 0.75× while moving and is capped at 1.5× device pixels (§1.2, §1.5). When one view is on screen, it is drawn straight into its own canvas, not copied (§1.3).
+- **Each frame is cheaper.** Shadows are baked, a frame reads about 4 textures a pixel, resolution is 0.75× while moving, and it is capped at 1.5× device pixels (§1.2, §1.5).
+- **The view is drawn straight into its own canvas** when it is the only one on screen, not copied (§1.3).
+- **WebGL2 keeps up with the drag:** 53 frames a second against 23.
 
 ## Scene payload (§5)
+
+Before §5, the server sent PNKS 1 for every cell of the box. At c74f539, before the wet front, that was 746,381 B (59,598 deflated) for the line of handwriting, and 598,281 B (90,255 deflated) for the flicks.
+
+Below, the same fields today, in both formats:
 
 | field | PNKS 1 (every cell) | PNKS 2 | PNKS 1 deflated | PNKS 2 deflated |
 |---|---|---|---|---|
