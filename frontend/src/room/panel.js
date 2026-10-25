@@ -5,10 +5,11 @@
 //   signedIn  someone is in (no: sign in or register, wherever you are)
 //   mine      the house is yours
 //   seated    at the table; atCorner: by the account corner (scene/keys.js cornerOf)
-//   holding   what the hand holds: 'candle' | 'sheet' | 'stamper' | null
+//   holding   what the hand holds: 'book' (pulled down from the shelf) | 'candle' | 'sheet' | 'stamper' | null
 //   pen       the pen is in the hand
-// → 'sign-in' | 'candle' | 'sheet' | 'stamper' | 'pen' | 'account' | 'paper' | null
+// → 'sign-in' | 'book' | 'candle' | 'sheet' | 'stamper' | 'pen' | 'account' | 'paper' | null
 export function panelFor({ signedIn, mine = false, seated = false, atCorner = false, holding = null, pen = false }) {
+  if (holding === 'book') return 'book'; // (anyone may read a book they can see)
   if (!signedIn) return 'sign-in';
   if (holding) return holding;
   if (pen) return 'pen';

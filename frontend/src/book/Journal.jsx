@@ -48,7 +48,11 @@ import { useFreshSheet } from './fresh.js';
 // toolbars did for what is in hand: the pen (components/PenPanel.jsx; it writes
 // the next strokes on the walls, on shared sheets and on a fresh sheet), or, at
 // the table with nothing in hand, new paper (a fresh sheet on the table:
-// book/fresh.js). Ctrl+Z lifts the fresh sheet's last stroke.
+// book/fresh.js). Ctrl+Z lifts the fresh sheet's last stroke. E on a piece of
+// your writing picks it up (`sheetHand`): its panel is the editor's tools for
+// it, and E again sets it down at the pointer (one move). The book pulled down
+// from the shelf is in the hand too (`onHold('book')`): its panel turns its
+// pages and holds the page's own tools.
 const WRITE_PAD = { width: 1000, height: 470 }; // writing is placed at the size it was written on a page-wide pad
 const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c.light }));
 const BACKGROUNDS = ['#f6f1e7', '#ffffff', '#f2e8d0', '#e8eef6', '#f6e6e6', '#e7f1e6', '#2b2a33', '#1f2a40'];
@@ -66,7 +70,7 @@ const clothOf = (seeds) => CLOTHS[(seeds?.table?.[0] ?? 0) % CLOTHS.length];
 const doorValue = (l) => (l?.page ? `page:${l.page}` : l?.surface ? `surface:${l.surface}` : l?.room ? `room:${l.room}` : '');
 const surfaceName = (id) => `the ${id.replace('-', ' ')}`;
 
-export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null, timeZone = null, world = false, panel = null }) {
+export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null, timeZone = null, world = false, panel = null, onHold = null }) {
   const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
   const { user } = useAuth();
   const key = useKey(user);
@@ -175,6 +179,39 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     pen,
     onPlace: (line, seed, at) => addInk(line, seed, { page: current, x: Math.round(at.x), y: Math.round(at.y), scale: SCALE_ONE }),
   });
+  // the world: a piece of writing on the page picked up (E), its panel open, and set down elsewhere (one move)
+  const [held, setHeld] = useState(null); // { id, grab: [dx, dy] (page px, from its corner) }
+  useEffect(() => setHeld(null), [current]);
+  const heldItem = held ? (page?.items.find((it) => it.id === held.id) ?? null) : null;
+  const pageSize = book.page ?? DEFAULT_PAGE;
+  const sheetHand = useMemo(
+    () =>
+      world && mine && page
+        ? {
+            held: held?.id ?? null,
+            pick(id, p) {
+              const it = page.items.find((x) => x.id === id);
+              if (it) setHeld({ id, grab: [p.x - it.x, p.y - it.y] });
+            },
+            down(p) {
+              if (!held) return false;
+              const it = page.items.find((x) => x.id === held.id);
+              setHeld(null);
+              if (!it) return true;
+              const [w, h] = itemSize(book.inks.get(it.ink).ink, it.scale);
+              const x = Math.round(Math.max(0, Math.min(pageSize.width - w, p.x - held.grab[0])));
+              const y = Math.round(Math.max(0, Math.min(pageSize.height - h, p.y - held.grab[1])));
+              if (x !== it.x || y !== it.y) send({ op: 'move', page: current, item: it.id, x, y });
+              return true;
+            },
+          }
+        : null,
+    [world, mine, page, held, current, send, book.inks, pageSize.width, pageSize.height],
+  );
+  // the book pulled down from the shelf is in the hand: the world's panel is its
+  useEffect(() => {
+    onHold?.(world && reading ? 'book' : null);
+  }, [world, reading, onHold]);
   useEffect(() => {
     if (!world || !fresh.sheet) return undefined;
     const onKey = (e) => {
@@ -252,9 +289,10 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       hand: carry.hand,
       paper: fresh.scene, // the fresh sheet on the table, and the pen on it
       paperWriter: fresh.writer,
+      sheetHand,
       world,
     }),
-    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, world],
+    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, sheetHand, world],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
@@ -284,6 +322,111 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     send({ op: 'remove_page', page_id: current });
     onPage(skeleton.home);
   }
+  // The page open on the table: its colour, the paper next writing is grown on, its name. (The editor's
+  // page tools; in the world, the book's panel.)
+  const pageTools = () => (
+    <>
+      <span className="field">
+        <span>Page</span>
+        <span className="swatches small" role="group" aria-label="Page background">
+          {BACKGROUNDS.map((c) => (
+            <button key={c} type="button" title={c} aria-pressed={page.background === c} style={{ '--sig-l': c }} onClick={() => send({ op: 'background', page: current, color: c })} />
+          ))}
+          <input type="color" value={page.background} onChange={(e) => send({ op: 'background', page: current, color: e.target.value })} title="Any colour" />
+        </span>
+      </span>
+      <FamilyPicker family={skeleton.paperFamily} onChange={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />
+      <button type="button" className="quiet" onClick={renamePage}>
+        Rename page
+      </button>
+      {current !== skeleton.home && (
+        <button type="button" className="quiet" onClick={removePage}>
+          Remove page
+        </button>
+      )}
+    </>
+  );
+  // One piece of writing on the page: its size, a door, its place in the stack, opening it, its
+  // film, walking it back, removing it. (The editor's selected tools; in the world, the sheet in hand's panel.)
+  const sheetTools = (it, letGo) => (
+    <>
+      <span className="meta">size {Math.round((it.scale / SCALE_ONE) * 100)}%</span>
+      {it.scale !== SCALE_ONE && (
+        <button type="button" className="quiet" onClick={() => send({ op: 'resize', page: current, item: it.id, scale: SCALE_ONE })}>
+          As written
+        </button>
+      )}
+      <label className="field">
+        <span>Door to</span>
+        <select
+          value={doorValue(it.link)}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (!v) return send({ op: 'unlink', page: current, item: it.id });
+            const at = v.indexOf(':');
+            const kind = v.slice(0, at),
+              to = v.slice(at + 1);
+            if (kind === 'room' && !to) {
+              const name = window.prompt('Whose room? (their name)');
+              if (name) send({ op: 'link', page: current, item: it.id, target_room: name.trim() });
+              return undefined;
+            }
+            return send({ op: 'link', page: current, item: it.id, [`target_${kind}`]: to });
+          }}
+        >
+          <option value="">— not a door —</option>
+          <optgroup label="A page">
+            {pageIds
+              .filter((id) => id !== current)
+              .map((id) => (
+                <option key={id} value={`page:${id}`}>
+                  {id}
+                </option>
+              ))}
+          </optgroup>
+          {skeleton.surfaces && (
+            <optgroup label="The room">
+              {Object.keys(skeleton.surfaces).map((id) => (
+                <option key={id} value={`surface:${id}`}>
+                  {surfaceName(id)}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Someone else">
+            {it.link?.room && <option value={`room:${it.link.room}`}>@{it.link.room}'s room</option>}
+            <option value="room:">Someone's room…</option>
+          </optgroup>
+        </select>
+      </label>
+      {it.link && (
+        <button type="button" onClick={() => follow(it.link)}>
+          Follow →
+        </button>
+      )}
+      <button type="button" onClick={() => send({ op: 'reorder', page: current, item: it.id, index: page.items.length - 1 })} title="Bring to front">
+        Forward
+      </button>
+      <button type="button" onClick={() => send({ op: 'reorder', page: current, item: it.id, index: 0 })} title="Send to back">
+        Back
+      </button>
+      <OpenSheet line={book.inks.get(it.ink)} opened={book.opened} keyOf={key} onOpen={openSheet} />
+      <FilmDownload source={() => filmOf(it)} background={page.background} name={`${bookName}-${it.ink}`} />
+      <button type="button" className="quiet" disabled={!seedOf(it)} onClick={() => setWalking(it)} title={seedOf(it) ? 'Why each spot looks the way it does' : 'Unlock to walk back your own sheets'}>
+        Walk back
+      </button>
+      <button
+        type="button"
+        className="quiet danger"
+        onClick={() => {
+          send({ op: 'remove', page: current, item: it.id });
+          letGo();
+        }}
+      >
+        Delete
+      </button>
+    </>
+  );
 
   return (
     <section className="journal">
@@ -326,121 +469,13 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         </div>
       )}
 
-      {editing && (
-        <div className="journal-tools">
-          <span className="field">
-            <span>Page</span>
-            <span className="swatches small" role="group" aria-label="Page background">
-              {BACKGROUNDS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  title={c}
-                  aria-pressed={page.background === c}
-                  style={{ '--sig-l': c, '--sig-d': c }}
-                  onClick={() => send({ op: 'background', page: current, color: c })}
-                />
-              ))}
-              <input type="color" value={page.background} onChange={(e) => send({ op: 'background', page: current, color: e.target.value })} title="Any colour" />
-            </span>
-          </span>
-          <FamilyPicker family={skeleton.paperFamily} onChange={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />
-          <button type="button" className="quiet" onClick={renamePage}>
-            Rename page
-          </button>
-          {current !== skeleton.home && (
-            <button type="button" className="quiet" onClick={removePage}>
-              Remove page
-            </button>
-          )}
-        </div>
-      )}
+      {editing && <div className="journal-tools">{pageTools()}</div>}
 
       {editing && writing && <WritePanel family={skeleton.paperFamily} onPlace={place} />}
 
       {editing && item && (
         <div className="journal-tools selected-tools" role="toolbar" aria-label="Selected writing">
-          <span className="meta">size {Math.round((item.scale / SCALE_ONE) * 100)}%</span>
-          {item.scale !== SCALE_ONE && (
-            <button type="button" className="quiet" onClick={() => send({ op: 'resize', page: current, item: item.id, scale: SCALE_ONE })}>
-              As written
-            </button>
-          )}
-          <label className="field">
-            <span>Door to</span>
-            <select
-              value={doorValue(item.link)}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return send({ op: 'unlink', page: current, item: item.id });
-                const at = v.indexOf(':');
-                const kind = v.slice(0, at),
-                  to = v.slice(at + 1);
-                if (kind === 'room' && !to) {
-                  const name = window.prompt('Whose room? (their name)');
-                  if (name) send({ op: 'link', page: current, item: item.id, target_room: name.trim() });
-                  return undefined;
-                }
-                return send({ op: 'link', page: current, item: item.id, [`target_${kind}`]: to });
-              }}
-            >
-              <option value="">— not a door —</option>
-              <optgroup label="A page">
-                {pageIds
-                  .filter((id) => id !== current)
-                  .map((id) => (
-                    <option key={id} value={`page:${id}`}>
-                      {id}
-                    </option>
-                  ))}
-              </optgroup>
-              {skeleton.surfaces && (
-                <optgroup label="The room">
-                  {Object.keys(skeleton.surfaces).map((id) => (
-                    <option key={id} value={`surface:${id}`}>
-                      {surfaceName(id)}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              <optgroup label="Someone else">
-                {item.link?.room && <option value={`room:${item.link.room}`}>@{item.link.room}'s room</option>}
-                <option value="room:">Someone's room…</option>
-              </optgroup>
-            </select>
-          </label>
-          {item.link && (
-            <button type="button" onClick={() => follow(item.link)}>
-              Follow →
-            </button>
-          )}
-          <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: page.items.length - 1 })} title="Bring to front">
-            Forward
-          </button>
-          <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: 0 })} title="Send to back">
-            Back
-          </button>
-          <OpenSheet line={book.inks.get(item.ink)} opened={book.opened} keyOf={key} onOpen={openSheet} />
-          <FilmDownload source={() => filmOf(item)} background={page.background} name={`${bookName}-${item.ink}`} />
-          <button
-            type="button"
-            className="quiet"
-            disabled={!seedOf(item)}
-            onClick={() => setWalking(item)}
-            title={seedOf(item) ? 'Why each spot looks the way it does' : 'Unlock to walk back your own sheets'}
-          >
-            Walk back
-          </button>
-          <button
-            type="button"
-            className="quiet danger"
-            onClick={() => {
-              send({ op: 'remove', page: current, item: item.id });
-              setSelected(null);
-            }}
-          >
-            Delete
-          </button>
+          {sheetTools(item, () => setSelected(null))}
         </div>
       )}
 
@@ -471,7 +506,34 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         momentsSrc={momentsSrc}
         room={fromFile ? null : room}
       />
-      {reading && (
+      {world && panel === 'book' && (
+        <Panel title="The book, open in your hands">
+          <div className="journal-pages" role="tablist" aria-label="Pages">
+            {pageIds.map((id) => (
+              <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => onPage(id === skeleton.home ? null : id)}>
+                {id === skeleton.home ? '⌂ ' : ''}
+                {id}
+              </button>
+            ))}
+            {mine && (
+              <button type="button" className="quiet" onClick={newPage} title="Add a page">
+                + page
+              </button>
+            )}
+          </div>
+          {mine && <div className="journal-tools">{pageTools()}</div>}
+          <button type="button" className="quiet" onClick={() => setReading(false)}>
+            Put it back
+          </button>
+        </Panel>
+      )}
+      {world && panel === 'sheet' && heldItem && (
+        <Panel title="Your writing, in your hand">
+          <div className="journal-tools selected-tools">{sheetTools(heldItem, () => setHeld(null))}</div>
+          <p className="meta">Tap E to set it down where the pointer is.</p>
+        </Panel>
+      )}
+      {!world && reading && (
         <div className="journal-tools book-open" role="toolbar" aria-label="The book, pulled down from the shelf">
           <span className="meta">The book, open:</span>
           {pageIds.map((id) => (

@@ -40,6 +40,7 @@ function House({ name }) {
   const [error, setError] = useState(null);
   const [pageId, setPageId] = useState(null); // the journal's page open on the table
   const [place, setPlace] = useState(null); // where the being is and what it holds (SceneView, the world's)
+  const [inHands, setInHands] = useState(null); // the book pulled down from the shelf (Journal)
   useEffect(() => {
     let alive = true;
     api
@@ -55,7 +56,7 @@ function House({ name }) {
   if (error) return <p className="error world-note">{error}</p>;
   if (!owner) return null;
   const mine = !!user && user.username.toLowerCase() === owner.username.toLowerCase();
-  const kind = panelFor({ signedIn: !!user, mine, ...place });
+  const kind = panelFor({ signedIn: !!user, mine, ...place, holding: inHands ?? place?.holding ?? null });
   const panel = <WorldPanel kind={kind} />; // (what the house's own things need, the house shows: Journal's panel)
   if (!room)
     return (
@@ -66,7 +67,7 @@ function House({ name }) {
     );
   return (
     <RoomContext.Provider value={room}>
-      <Journal name={owner.username} pageId={pageId} editable={mine} timeZone={room.timeZone} onPage={setPageId} world panel={kind} />
+      <Journal name={owner.username} pageId={pageId} editable={mine} timeZone={room.timeZone} onPage={setPageId} world panel={kind} onHold={setInHands} />
       {panel}
     </RoomContext.Provider>
   );

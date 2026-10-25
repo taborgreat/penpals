@@ -4,9 +4,15 @@ import { panelFor } from './panel.js';
 import { GEOM } from '../scene/light.js';
 import { cornerOf, atCorner, atChair, standUp } from '../scene/keys.js';
 
-test('not signed in, the panel offers signing in, wherever you are', () => {
+test('not signed in, the panel offers signing in, wherever you are, unless a book is open in your hands', () => {
   assert.equal(panelFor({ signedIn: false }), 'sign-in');
   assert.equal(panelFor({ signedIn: false, mine: true, seated: true, holding: 'candle' }), 'sign-in');
+  assert.equal(panelFor({ signedIn: false, holding: 'book' }), 'book');
+});
+
+test('the book pulled down from the shelf, a piece of writing picked up: each its panel', () => {
+  assert.equal(panelFor({ signedIn: true, mine: true, seated: true, holding: 'book', pen: true }), 'book');
+  assert.equal(panelFor({ signedIn: true, mine: true, holding: 'sheet' }), 'sheet');
 });
 
 test('it follows the hand: pick something up, its panel; set it down, it closes; pick up another, its panel', () => {

@@ -63,6 +63,8 @@ import * as WK from './keys.js';
 //               the table, W A S D stand up and walk, Space jumps (twice: flies), Shift crouches or
 //               lowers, a drag turns the head, the scroll is the eye's zoom, E picks up, sets down
 //               and sits at the chair (held, it tilts what is in the hand); no tools over the view
+//   sheetHand   the world: { items: [{ id, rect: [x0, y0, x1, y1] (page px) }], held, pick(id, p), down(p) }:
+//               writing on the page that E picks up (the topmost under the pointer) and sets down
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
 const LIVE_MS = 16; // a sheet being written is drawn again at most this often (about every frame)
@@ -135,6 +137,7 @@ const SceneView = forwardRef(function SceneView(
     tableWriter = null,
     focus = null,
     hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
+    sheetHand = null,
     world = false,
   },
   ref,
@@ -224,7 +227,7 @@ const SceneView = forwardRef(function SceneView(
   const headNow = () => (S.pose ? WK.headOf(S.pose, crouched()) : null);
   const eyeNow = () => WK.eyeOf(headNow(), world ? S.zoom : null);
   // The world: where the being is and what it holds, told to the room when it changes (the panel follows it: room/panel.js).
-  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.holding ? 'candle' : null, pen: penMode };
+  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.holding ? 'candle' : sheetHand?.held ? 'sheet' : null, pen: penMode };
   function tellPlace() {
     const b = S.beingIn;
     if (!b.world || !b.onBeing) return;
@@ -1137,8 +1140,15 @@ const SceneView = forwardRef(function SceneView(
         S.eDown = { t: now, tilted: false };
         return;
       }
+      const p = S.lastPointer ? pageOf(S.lastPointer) : null; // the point on the page under the pointer
+      if (sheetHand?.held) {
+        if (onPage(p)) sheetHand.down(p); // the writing in the hand, set down there
+        return;
+      }
       const id = S.lastPointer ? pickableAt(S.lastPointer) : null; // the thing under the pointer, picked up
-      if (id !== null) carrying.pick(id);
+      if (id !== null) return carrying.pick(id);
+      const it = onPage(p) ? sheetHand?.items.findLast((x) => p.x >= x.rect[0] && p.y >= x.rect[1] && p.x <= x.rect[2] && p.y <= x.rect[3]) : null; // (the topmost)
+      if (it) sheetHand.pick(it.id, p);
       else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit
       return;
     }
