@@ -39,17 +39,21 @@ export function createShadows(gpu) {
   const sphere = new THREE.Sphere();
   let mats = null;
   let L = null;
+  let made = false;
   const shown = (o) => {
     for (; o; o = o.parent) if (!o.visible) return false;
     return true;
   };
-  // each stand-in where its thing is now; ver counts its moves
+  // each stand-in where its thing is now; ver counts its moves (of half a world px or more
+  // since it was last drawn: a candle burning down a hair a frame draws nothing new)
   let ver = 0;
+  const MOVE_PX = 0.5;
+  const moved = (a, b) => a.elements.some((v, i) => Math.abs(v - b.elements[i]) > MOVE_PX);
   function follow() {
     for (const [mesh, s] of things) {
       mesh.updateWorldMatrix(true, false);
       const on = shown(mesh);
-      if (on !== s.visible || !s.matrix.equals(mesh.matrixWorld)) {
+      if (on !== s.visible || (on && moved(s.matrix, mesh.matrixWorld))) {
         s.matrix.copy(mesh.matrixWorld);
         s.matrixWorld.copy(mesh.matrixWorld);
         s.visible = on;
@@ -105,6 +109,18 @@ export function createShadows(gpu) {
         drew = true;
         renderer.setClearColor(0x000000, 0);
       };
+      // every map made once, empty (one never drawn into would be set up again each frame it is read)
+      if (!made) {
+        made = true;
+        begin();
+        for (const f of flames)
+          for (let i = 0; i < 6; i++) {
+            renderer.setRenderTarget(f.rt, i);
+            renderer.clear();
+          }
+        renderer.setRenderTarget(sun.rt);
+        renderer.clear();
+      }
       src.flames.forEach((f, k) => {
         const F = flames[k];
         if (!f.lit) {

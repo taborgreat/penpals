@@ -22,7 +22,16 @@ const lum = (E) => xyzOf(E, CMF, LUMENS)[1];
 // straight from the flames (as light.js keeps it: the direct light is drawn per pixel).
 function night() {
   handle({ type: 'room', json, bin });
-  const out = handle({ type: 'settle', id: 1, candles: [{ litMs: 600000, which: 0 }, { litMs: 600000, which: 1 }], direct: true, present: true });
+  const out = handle({
+    type: 'settle',
+    id: 1,
+    candles: [
+      { litMs: 600000, which: 0 },
+      { litMs: 600000, which: 1 },
+    ],
+    direct: true,
+    present: true,
+  });
   assert.ok(!out.error, out.error);
   const ambient = new Float64Array(out.day.length);
   out.flames.forEach((part, k) => {
@@ -42,7 +51,15 @@ test("a thing takes the room's light where it is: the patches nearest it that fa
   const far = [room.size[0] - 0.3, room.size[1] - 0.3, 0.3];
   // (its neighbours share a little, so the light runs on smoothly as a thing is carried across patches)
   assert.ok(lightAt(room, ambient, front)[8] > 0.35, 'in front of the lit patch');
-  assert.ok(lightAt(room, ambient, front)[8] > lightAt(room, ambient, p.center.map((v, i) => v + p.normal[i] * 0.3))[8], 'less, farther off');
+  assert.ok(
+    lightAt(room, ambient, front)[8] >
+      lightAt(
+        room,
+        ambient,
+        p.center.map((v, i) => v + p.normal[i] * 0.3),
+      )[8],
+    'less, farther off',
+  );
   assert.ok(lightAt(room, ambient, far)[8] < 0.01, 'across the room');
   assert.equal(lightAt(room, ambient, behind)[8], 0, 'not from behind a surface');
   // an even room is even everywhere

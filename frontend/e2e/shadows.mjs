@@ -26,9 +26,11 @@ await build({ root: frontend, configFile: path.join(frontend, 'vite.config.js'),
 const server = await preview({ root: frontend, configFile: path.join(frontend, 'vite.config.js'), logLevel: 'error', build: { outDir }, preview: { port: PORT, host: '127.0.0.1', strictPort: true } });
 const browser = await chromium.launch({ channel: 'chromium', args: ['--enable-unsafe-webgpu'] });
 
-// A candle's wax top (1.1 cm round) is 2 cm under its flame: straight below it, within
-// about 29° of straight down, the table is in the candle's own shade.
-const OWN_DEG = 33;
+// A candle's own wax top shades the table straight below its flame: within the angle its
+// rim makes from the flame (light/candle.js: its radius, the flame's height over the wax; and a little).
+const { candleState, DIAMETER } = await import(pathToUrl(path.join(frontend, 'src', 'scene', 'light', 'candle.js')));
+const lit = candleState(600000, 0, { which: 0 });
+const OWN_DEG = (Math.atan2(DIAMETER / 2, lit.flameAt - lit.height) * 180) / Math.PI + 3;
 const fromDown = (F, X) => (Math.atan2(Math.hypot(X[0] - F[0], X[1] - F[1]), F[2] - X[2]) * 180) / Math.PI;
 const CLEAR_M = 0.015; // the rest of the being stays this far off every line that matters (past a shadow's soft edge)
 const sub = (a, b) => a.map((v, i) => v - b[i]);
@@ -209,9 +211,18 @@ try {
     w = await now();
     const P2 = under(w.flames[0], toWorld(pick.H));
     if (!onPage(P2)) throw new Error(`${gpu}: the moved shadow is off the page (${P2.map(Math.round)})`);
-    for (const [a, b, what] of [[F, pick.P, 'the first place'], [w.flames[0], P2, 'the new place']]) if (fromDown(a, b) < OWN_DEG) throw new Error(`${gpu}: ${what} is in the candle's own shade`);
+    for (const [a, b, what] of [
+      [F, pick.P, 'the first place'],
+      [w.flames[0], P2, 'the new place'],
+    ])
+      if (fromDown(a, b) < OWN_DEG) throw new Error(`${gpu}: ${what} is in the candle's own shade`);
     const parts = partsOf(pick.head, pick.yaw, pick.s);
-    for (const [a, b, what] of [[w.flames[0], P2, 'flame 1 to the new place'], [w.flames[1], P2, 'flame 2 to the new place'], [w.eye, P2, 'the eye to the new place'], [w.flames[0], pick.Q, 'flame 1 to the bare place']])
+    for (const [a, b, what] of [
+      [w.flames[0], P2, 'flame 1 to the new place'],
+      [w.flames[1], P2, 'flame 2 to the new place'],
+      [w.eye, P2, 'the eye to the new place'],
+      [w.flames[0], pick.Q, 'flame 1 to the bare place'],
+    ])
       if (!parts.others.every((o) => past(toRoom(a), toRoom(b), o) > CLEAR_M)) throw new Error(`${gpu}: the being is in the way of ${what}`);
     await being(false);
     const bareOld = await share(pick.P, pick.Q),
