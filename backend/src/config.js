@@ -14,6 +14,7 @@ const list = (v) =>
 
 export const config = {
   port: Number(env.PORT) || 3000,
+  host: env.HOST || '0.0.0.0', // every network this machine is on (the LAN too); HOST=127.0.0.1 for this machine only
 
   // Everything lives in files here (books.md, keys.md): accounts, books, letters,
   // sessions. There is no database. FORMAT marks the layout; older data is refused.
