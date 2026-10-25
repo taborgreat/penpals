@@ -81,8 +81,9 @@ export function useCarry({ name, me, page, sheets = [], onTilt = null }) {
       },
       // the pen: where it lies when set down (room m), null where the room was made with it
       penPlace: things.pen?.at ?? null,
-      penDown(at) {
-        placeThing(name, 'pen', at).catch(() => {});
+      // set down over `p` (room m): it falls onto what is under it
+      penDown(p) {
+        placeThing(name, 'pen', p ? restOf(GEOM, origin, live.current.sheets, p) : null).catch(() => {});
       },
       penUp() {
         placeThing(name, 'pen', null).catch(() => {});

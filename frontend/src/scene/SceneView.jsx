@@ -159,7 +159,7 @@ const SceneView = forwardRef(function SceneView(
     if (penWas.current === penMode) return;
     penWas.current = penMode;
     if (penMode) carrying?.penUp?.();
-    else carrying?.penDown?.(st.current?.pen ? [st.current.pen.nib[0], st.current.pen.nib[1], GEOM.table.top] : null);
+    else carrying?.penDown?.(st.current?.pen?.nib ?? null);
     if (!penMode && st.current) st.current.pen = null;
     schedule(); // (drawn again: the pen in the hand, or set down)
   }, [penMode]); // eslint-disable-line react-hooks/exhaustive-deps
