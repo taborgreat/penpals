@@ -605,7 +605,19 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       )}
       {world && panel === 'paper' && editable && (
         <Panel title="At your table">
-          <KeyGate>{() => <PaperPanel fresh={fresh} family={skeleton.paperFamily} onFamily={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />}</KeyGate>
+          <KeyGate>
+            {() => (
+              <PaperPanel
+                fresh={fresh}
+                family={skeleton.paperFamily}
+                onFamily={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })}
+                page={page}
+                pageWidth={size.width}
+                onPaper={(color) => send({ op: 'background', page: current, color })}
+                onRule={(spacing) => send({ op: 'rule', page: current, spacing })}
+              />
+            )}
+          </KeyGate>
           <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={pen.color} onColor={pen.set.color} />
         </Panel>
       )}

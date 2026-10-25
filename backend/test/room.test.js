@@ -182,3 +182,17 @@ test("visiting: others read the walls (the scene of a closed sheet), as the prof
   assert.equal((await app.ana.post('/api/social/private', { private: false })).status, 200);
   assert.equal((await stranger.get(`/api/books/ana/look/${ink}?s=64`)).status, 200);
 });
+
+test('paper: a page is ruled (its lines so far apart) or not, and coloured as its paper; the owner chooses, in the new-paper panel', async () => {
+  const edit = (op) => app.ana.post('/api/books/me/edit', op);
+  const home = async () => (await app.ana.get('/api/books/me')).data.skeleton.pages.home;
+  assert.equal((await edit({ op: 'rule', page: 'home', spacing: 52 })).status, 200);
+  assert.equal((await home()).rule, 52);
+  assert.equal((await edit({ op: 'rule', page: 'home', spacing: 5 })).status, 400, 'too close');
+  assert.equal((await edit({ op: 'rule', page: 'home', spacing: 52.5 })).status, 400, 'whole px');
+  assert.equal((await edit({ op: 'background', page: 'home', color: '#eddcb6' })).status, 200, 'parchment');
+  assert.equal((await home()).background, '#eddcb6');
+  assert.equal((await edit({ op: 'rule', page: 'home', spacing: 0 })).status, 200);
+  assert.equal((await home()).rule, undefined, 'plain again');
+  assert.equal((await app.bo.post('/api/books/me/edit', { op: 'rule', page: 'nope', spacing: 52 })).status, 400, "no such page in bo's book");
+});

@@ -1,14 +1,18 @@
 import { useState } from 'react';
 import { SIZES } from '../book/fresh.js';
+import { PAPERS } from '../ink/paper.js';
+import { RULE_MM, ruleSpacing, ruleMm } from '../book/ruled.js';
 
 // At your table with nothing in hand (one-world.md, the panel): new paper, and
 // its type (the paper it is grown on: grain and weight; half a page or a whole
 // one), which brings a fresh sheet onto the table. The sheet already there, if
-// written on, is sealed into the book first, where it lies.
+// written on, is sealed into the book first, where it lies. The page it lies on:
+// its paper (its colour) and its ruled lines and their height (book/ruled.js).
 //   fresh: book/fresh.js; family: the paper the next sheet is grown on; onFamily(f): choose it
+//   page: { background, rule } (the page on the table); pageWidth (its px); onPaper(color), onRule(spacing)
 const RANGE = [...Array(16).keys()];
 
-export default function PaperPanel({ fresh, family, onFamily }) {
+export default function PaperPanel({ fresh, family, onFamily, page = null, pageWidth = 1000, onPaper = null, onRule = null }) {
   const [size, setSize] = useState('half');
   const f = family ?? { grain: 8, weight: 8, tooth: 0 };
   const pick = (field) => (e) => onFamily({ ...f, [field]: Number(e.target.value) });
@@ -38,6 +42,31 @@ export default function PaperPanel({ fresh, family, onFamily }) {
           </select>
         </label>
       </div>
+      {page && onPaper && (
+        <div className="field" title="The page's paper: its colour">
+          <span>Its colour</span>
+          <div className="tabs" role="group" aria-label="The page's paper">
+            {Object.entries(PAPERS).map(([id, p]) => (
+              <button key={id} type="button" aria-pressed={page.background?.toLowerCase() === p.color} onClick={() => onPaper(p.color)}>
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {page && onRule && (
+        <label className="field" title="Lines printed on the page, so far apart">
+          <span>Lines</span>
+          <select value={ruleMm(page.rule ?? 0, pageWidth)} onChange={(e) => onRule(Number(e.target.value) ? ruleSpacing(Number(e.target.value), pageWidth) : 0)}>
+            <option value={0}>none</option>
+            {RULE_MM.map((mm) => (
+              <option key={mm} value={mm}>
+                ruled, {mm} mm
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="field">
         <span>Page</span>
         <div className="tabs" role="group" aria-label="Page">

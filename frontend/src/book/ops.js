@@ -48,6 +48,10 @@ export function applyLocal(skeleton, op) {
     case 'background':
       page.background = op.color;
       break;
+    case 'rule':
+      if (op.spacing) page.rule = op.spacing;
+      else delete page.rule;
+      break;
     case 'family':
       s.paperFamily = { grain: op.grain, weight: op.weight, tooth: 0 };
       break;

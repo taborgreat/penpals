@@ -989,6 +989,12 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setPaper([r, g, b]) {
       gpu.setSpectrum(lights.paper, paperCurve([r, g, b]));
     },
+    // The page's ruled lines (book/ruled.js): { spacing, width (page px), abs: [r, g, b] (their printing's
+    // absorbance by the ink's channels), size: [w, h] (the page) } or null (none).
+    setRule(r) {
+      lights.rule.value.set(r ? r.spacing : 0, r?.width ?? 1, r?.size[0] ?? 0, r?.size[1] ?? 0);
+      lights.ruleAbs.value.set(...(r?.abs ?? [0, 0, 0]));
+    },
     // How much taller than true the relief is drawn (a drop's height × this). Scene only.
     setRelief(x) {
       if (lights.dropPx.value === DROP_PX * x) return;

@@ -22,6 +22,7 @@ import { config } from '../config.js';
 //   rename_page  page_id, new_id                buttons pointing at it follow
 //   remove_page  page_id                        buttons pointing at it unlink
 //   background   page, color
+//   rule         page, spacing                  its lines this many page px apart (0: none)
 //   family       grain, weight                  the paper family new sheets are written on
 //   signature    ink                            (internal: set when a signature lands)
 //
@@ -175,6 +176,14 @@ export async function applyOp(s, op, { inkBody, roomOf = async () => false }) {
       pageOf(s, op.page).background = color(op.color);
       return null;
     }
+    case 'rule': {
+      const sp = op.spacing;
+      if (!Number.isInteger(sp) || (sp !== 0 && (sp < 10 || sp > 400))) throw bad('A page is ruled 10 to 400 px apart, or not at all.');
+      const page = pageOf(s, op.page);
+      if (sp) page.rule = sp;
+      else delete page.rule;
+      return null;
+    }
     case 'family': {
       const g = op.grain,
         w = op.weight;
@@ -194,4 +203,4 @@ export async function applyOp(s, op, { inkBody, roomOf = async () => false }) {
 }
 
 // Ops a client may send as micro edits (the rest are internal).
-export const CLIENT_OPS = new Set(['add', 'move', 'resize', 'link', 'unlink', 'remove', 'reorder', 'add_page', 'rename_page', 'remove_page', 'background', 'family']);
+export const CLIENT_OPS = new Set(['add', 'move', 'resize', 'link', 'unlink', 'remove', 'reorder', 'add_page', 'rename_page', 'remove_page', 'background', 'rule', 'family']);

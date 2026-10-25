@@ -293,10 +293,17 @@ try {
       return b.skeleton.pages[b.skeleton.home].items;
     });
 
-  step('the pen set down (H): at the table with nothing in hand, new paper, a whole page');
+  step('the pen set down (H): at the table with nothing in hand, new paper, a whole page, cream and ruled');
   await scene.focus();
   await page.keyboard.press('h');
   await panel(page, 'At your table').waitFor({ timeout: 10000 });
+  await panel(page, 'At your table').getByRole('button', { name: 'Cream' }).click();
+  await panel(page, 'At your table').getByLabel('Lines').selectOption({ label: 'ruled, 8 mm' });
+  await page.waitForFunction(async () => {
+    const b = await (await fetch('/api/books/tabor')).json();
+    const p = b.skeleton.pages[b.skeleton.home];
+    return p.background === '#f2e8d0' && p.rule > 0;
+  });
   await panel(page, 'At your table').getByRole('button', { name: 'full' }).click();
   await panel(page, 'At your table').getByRole('button', { name: 'New paper' }).click();
   await panel(page, 'At your table')
@@ -338,6 +345,7 @@ try {
   });
   const [item] = await homeItems();
   console.log(`   ${strokesIn} strokes, law ${placed.law}, PNKA format ${format}, on the page at ${item.x}, ${item.y}, shown in the scene`);
+  if (process.env.FLOW_SHOT) await page.screenshot({ path: process.env.FLOW_SHOT }); // (to look at the scene by eye)
 
   // Until `test(pose)` holds: the scene steps at most 50 ms of time a frame, so a slow GPU walks slower in
   // wall-clock time, not shorter. → that pose

@@ -6,6 +6,7 @@ import { sceneOn, sceneSupported, setViewChoice, useLowPower } from '../scene/su
 import { hexRgb } from '../scene/sources.js';
 import { wantOf, toAsk, stale } from '../scene/sight.js';
 import { CHUNK } from '../scene/engine.js';
+import { ruleCss } from './ruled.js';
 
 // One page of a journal: its background, and its writing in list order (later
 // items on top). Each item is a sealed record's look; `lookSrc(item, line)`
@@ -193,7 +194,7 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
     <div
       ref={ref}
       className={`journal-page${editable ? ' editing' : ''}${sceneShows ? ` scene-shown scene-${sceneMode}` : ''}`}
-      style={{ background: page.background, aspectRatio: `${size.width} / ${size.height}` }}
+      style={{ background: page.background, backgroundImage: ruleCss(page.rule ?? 0, k), aspectRatio: `${size.width} / ${size.height}` }}
       onPointerDown={(e) => {
         if (editable && e.target === ref.current) onSelect(null);
       }}
@@ -228,6 +229,7 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           onMode={setSceneMode}
           sheets={allSheets}
           paper={paper}
+          rule={page.rule ?? 0}
           moments={moments}
           onSight={setSight}
           seeds={room?.seeds ?? null}
