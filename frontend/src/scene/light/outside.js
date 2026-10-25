@@ -35,7 +35,8 @@ const angle = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
 // The treetops' height at azimuth az (degrees: 0 straight out of the window),
 // and how far away those trees are (in airs: how much the air pales them).
 export function treeline(az, seed = TREES_SEED) {
-  let top = 0, far = 0;
+  let top = 0,
+    far = 0;
   for (const b of belts(seed)) {
     const d = angle(az, b.at) / (b.width / 2);
     if (d >= 1) continue;
@@ -51,11 +52,27 @@ export function treeline(az, seed = TREES_SEED) {
 
 // The look outward, for a sun toward `sunDir`: → (dir) → radiance spectrum.
 // What the ground and the trees are lit by is worked out once per sun.
-export function outsideAt(sunDir, { seed = TREES_SEED } = {}) {
+// A deck of cloud (world.md Phase 5) turning back `cloud` of the light (law/weather.js): its droplets
+// scatter every wave alike, so it is white, and grey as it thickens. Its optical depth τ (cloud =
+// τ / (τ + 7.7), the two-stream share turned back); of the light on its top, e^−τ comes through
+// straight, the rest it lets through comes out of its underside every way alike.
+export function deckOf(cloud = 0) {
+  if (!(cloud > 0)) return { through: 1, glow: 0 };
+  const tau = (7.7 * cloud) / (1 - Math.min(cloud, 0.999));
+  const through = Math.exp(-tau);
+  return { through, glow: Math.max(0, 1 - cloud - through) };
+}
+
+export function outsideAt(sunDir, { seed = TREES_SEED, cloud = 0 } = {}) {
   const el = elevationOf(sunDir);
-  const beam = sunLight(el);
+  const deck = deckOf(cloud);
+  const clearBeam = sunLight(el);
+  const clearSky = skyIrradiance([0, 0, 1], sunDir);
+  const top = clearSky.map((v, i) => v + clearBeam[i] * Math.max(0, sunDir[2])); // on a level face above the deck
+  const under = top.map((v) => (v * deck.glow) / Math.PI); // the deck's underside, as bright every way
+  const beam = clearBeam.map((v) => v * deck.through);
   const disk = beam.map((v) => v / (Math.PI * SUN_RADIUS * SUN_RADIUS)); // the disk's radiance
-  const fromSky = skyIrradiance([0, 0, 1], sunDir);
+  const fromSky = clearSky.map((v, i) => v * deck.through + under[i] * Math.PI);
   const level = fromSky.map((v, i) => v + beam[i] * Math.max(0, sunDir[2])); // on the field
   const ground = level.map((v, i) => (MATTER.grass[i] * v) / Math.PI);
   const crowns = fromSky.map((v, i) => (MATTER.leaf[i] * 0.5 * v) / Math.PI); // the trees' shaded sides face us
@@ -78,6 +95,7 @@ export function outsideAt(sunDir, { seed = TREES_SEED } = {}) {
       return out;
     }
     sky(dir, sunDir, out);
+    for (let i = 0; i < N; i++) out[i] = out[i] * deck.through + under[i];
     const c = dir[0] * sunDir[0] + dir[1] * sunDir[1] + dir[2] * sunDir[2];
     if (c > Math.cos(SUN_RADIUS)) for (let i = 0; i < N; i++) out[i] += disk[i];
     return out;
@@ -87,6 +105,13 @@ export function outsideAt(sunDir, { seed = TREES_SEED } = {}) {
 // The view out, as an equirectangular map: w × h looks (azimuth −180..180
 // across, elevation 90..−90 down), each N values: for the integration to draw
 // the sky dome and the field behind the glass when the sun moves.
+// A sky of one radiance every way and the field under it (what a flash of lightning in the clouds
+// is, at unit strength): what the room takes through its window from it.
+export const evenSky = (dir, out = new Float64Array(N)) => {
+  for (let i = 0; i < N; i++) out[i] = dir[2] > 0 ? 1 : MATTER.grass[i];
+  return out;
+};
+
 export function outsideMap(sunDir, w, h, opts) {
   const look = outsideAt(sunDir, opts);
   const map = new Float32Array(w * h * N);

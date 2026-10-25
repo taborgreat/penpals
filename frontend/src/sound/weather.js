@@ -6,11 +6,19 @@
 //   Wind   the air's rush past what stands in it: as loud as the sixth power of its speed (Curle's:
 //          the flow's force on each thing, swinging), about the pitch its speed sheds eddies off the
 //          twigs at (Strouhal's 0.2 · U / D).
+//   Thunder (Phase 5) a strike's share of sound, let go along its channel (from the clouds' foot to the
+//          ground: law/weather.js LAYER), each stretch bursting as wide as its channel relaxes (Few's
+//          radius: √(its energy a metre / π·p)), so its spread is a knock that short; heard as long as
+//          sound takes along the channel, from where it struck: the ear's own way to it is the gap
+//          between the flash and the thunder. Matter's music tunes it, but never moves it (its time is
+//          its distance).
 // Outside, as it is; inside, through the window (sound/room.js through: open, all of it; shut, what
 // the glass lets by).
 //   rainBed(mmPerHour, height) → bands (energy a second, at the ear: the ear's units)
 //   windBed(speed, height) → bands      weatherBeds(weather, head, acoustics) → { rain, wind }
-import { BANDS, NB, LOUD, knock, airAbsorption, throughPane } from './bands.js';
+//   thunder(strike, from (room m), t (s, the ear's clock), world (s)) → an event
+import { BANDS, NB, LOUD, SPEED, knock, airAbsorption, throughPane } from './bands.js';
+import { STRIKE, LAYER } from 'penpals-law/weather';
 import { inside } from './room.js';
 import { PANE } from '../scene/light/room.js';
 
@@ -50,6 +58,28 @@ export function windBed(U, h = 1.6) {
     shape.map((x) => (P * x) / total),
     h,
   );
+}
+
+export function thunder(s, from, t, world = t) {
+  const E = STRIKE.energy * STRIKE.sound;
+  const R0 = Math.sqrt(STRIKE.energy / LAYER / (Math.PI * 101325)); // m: the channel's burst
+  const k = knock(E, R0 / SPEED);
+  const dur = LAYER / SPEED;
+  const total = k.bands.reduce((a, x) => a + x, 0) || 1;
+  const a = (s.bearing * Math.PI) / 180;
+  return {
+    kind: 'thunder',
+    matter: true,
+    keepTime: true,
+    t,
+    world,
+    rate: 1 / 120,
+    pos: [from[0] + Math.sin(a) * s.away, from[1] + Math.cos(a) * s.away, from[2] + LAYER / 2],
+    bands: k.bands.map((x) => ((E * LOUD) / dur) * (x / total)),
+    dur,
+    attack: R0 / SPEED,
+    seed: (s.at >>> 0) ^ 0x7a1d,
+  };
 }
 
 // As heard where the head is: outside, as it is; inside, through the window (given off from it

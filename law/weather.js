@@ -25,7 +25,8 @@
 //            past the air's breakdown it strikes: lightning, somewhere about (seeded).
 //   weatherAt(seed, ms) → { temp (°C), humidity (‰ of what the air holds), cloud (0..1: of the sun the
 //     clouds turn back), rain (mm/h), wind (m/s), charge (0..1 of a strike), strikes: [{ at (ms), away
-//     (m), bearing (°) }] (in the STEP before ms) }
+//     (m), bearing (°) }] (in the STEP before ms), coming: the strikes of the STEP after (so a flash is
+//     seen, and its thunder heard, when it falls) }
 import { MATTER, AIR } from './matter.js';
 import { sunAt, levelLight, dayOf } from './sun.js';
 import { exp } from './dmath.js';
@@ -74,13 +75,15 @@ const qSat = (T, p = P0) => {
 };
 
 // a fixed hash, 0..1
-const mix = (a, b) => {
-  let x = (Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ b) >>> 0;
-  x ^= x >>> 13;
-  x = Math.imul(x, 0xc2b2ae35);
-  x ^= x >>> 16;
-  return (x >>> 0) / 4294967296;
+const fmix = (h) => {
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
 };
+const mix = (a, b) => fmix((fmix(a >>> 0) + Math.imul(b, 0x9e3779b9)) >>> 0) / 4294967296; // (MurmurHash3's finish, twice)
 const seedOf = (seed) => {
   let h = 0x811c9dc5;
   for (const c of String(seed)) h = Math.imul(h ^ c.codePointAt(0), 0x01000193) >>> 0;
@@ -187,6 +190,8 @@ export function weatherAt(seed, ms) {
     st.t += STEP * 1000;
     stepOnce(st, s, st.t);
   }
+  const next = { ...st, strikes: [] };
+  stepOnce(next, s, st.t + STEP * 1000);
   return {
     temp: st.T - T0,
     humidity: Math.round((1000 * st.q) / qSat(st.T)),
@@ -195,6 +200,7 @@ export function weatherAt(seed, ms) {
     wind: st.wind,
     charge: st.Q,
     strikes: st.strikes,
+    coming: next.strikes,
     at: st.t,
   };
 }

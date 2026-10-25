@@ -14,6 +14,9 @@ import { shelfLayout, rayBox } from './shelf.js';
 import { penRestOf, JAR } from './light/room.js';
 import { hear, earAt, roomIs, spaceIs, weatherIs, startSound, now as soundNow } from '../sound/index.js';
 import { weatherAt } from 'penpals-law/weather';
+import { thunder } from '../sound/weather.js';
+import { createPane } from './glass.js';
+import { ask, asWeather } from './askWeather.js';
 import { AIR } from 'penpals-law/matter';
 import { BAR } from '../sound/music.js';
 import { penHand, recordSounds, dipTap } from '../sound/pen.js';
@@ -397,6 +400,26 @@ const SceneView = forwardRef(function SceneView(
     if (S.heardTo !== undefined && worldS - S.heardTo < (2 * FLICKER_MS) / 1000)
       for (const f of light.flames) for (const e of crackles(f, S.heardTo + BAR, worldS + BAR)) hear({ ...e, t: e.t - worldS + soundNow() });
     S.heardTo = worldS;
+    // the rain on the window's glass (world.md Phase 5): stepped as the frames go, each drop's landing
+    // heard where it lands, the beads drawn as the view bends through them
+    const w = S.weather;
+    if (w && (w.rain > 0 || S.pane?.beads.length)) {
+      const win = GEOM.window;
+      S.pane ??= createPane({
+        width: win.x1 - win.x0,
+        height: win.z1 - win.z0,
+        seed: [...String(space ?? '')].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5),
+        at: (x, y) => [win.x0 + x, GEOM.size[1], win.z1 - y],
+      });
+      const dt = Math.min(0.25, Math.max(0, (now - (S.paneAt ?? now)) / 1000));
+      for (const e of S.pane.step(dt, { rain: w.rain, wind: w.wind, t: worldS })) hear({ ...e, t: e.t - worldS + soundNow() });
+      S.view.setBeads(S.pane.heights(256, 307), 256, 307);
+      S.beadsShown = true;
+    } else if (S.beadsShown) {
+      S.view.setBeads(null);
+      S.beadsShown = false;
+    }
+    S.paneAt = now;
     // the resolution: capped; lower while moving and for the flicker alone (full again once still)
     const moving = !!S.anim || now < S.moveUntil || S.drag?.kind === 'orbit' || S.drag?.kind === 'pan' || S.drag?.kind === 'two';
     if (!S.flickerOnly) S.lastFull = now;
@@ -433,8 +456,8 @@ const SceneView = forwardRef(function SceneView(
         S.settle = 0;
         schedule();
       }, SETTLE_MS);
-    } else if (light.night > 0.01 && !S.flicker) {
-      // only the candles flickering
+    } else if ((light.night > 0.01 || light.weather?.rain > 0 || S.pane?.beads.length || light.flash) && !S.flicker) {
+      // only the candles flickering, the rain falling (past the window, down its glass), a flash
       S.flicker = setTimeout(() => {
         S.flicker = 0;
         if (!S.raf) S.flickerOnly = true;
@@ -836,17 +859,32 @@ const SceneView = forwardRef(function SceneView(
   useEffect(() => {
     if (!space) return undefined;
     const tick = () => {
-      const w = weatherAt(space, worldClock(new Date()).getTime());
+      const ms = worldClock(new Date()).getTime();
+      const w = asWeather(weatherAt(space, ms), S.asked, ms / 1000); // (what this viewer called up, easing back)
       weatherIs(w);
+      S.weather = w;
       theLight().setWindow(windowOpen, w.temp - AIR.temp);
+      theLight().setWeather(w);
+      // each strike coming: its flash drawn when it falls, its thunder heard from where it struck
+      S.struck ??= new Set();
+      const win = GEOM.window;
+      const from = [(win.x0 + win.x1) / 2, GEOM.size[1], (win.z0 + win.z1) / 2];
+      for (const s of [...w.strikes, ...w.coming]) {
+        if (S.struck.has(s.at) || s.at < ms - 10000) continue;
+        S.struck.add(s.at);
+        hear(thunder(s, from, s.at / 1000 - ms / 1000 + soundNow(), s.at / 1000));
+        setTimeout(schedule, Math.max(0, s.at - ms));
+      }
+      schedule();
     };
+    S.weatherTick = tick;
     tick();
     const id = setInterval(tick, 2000); // (the beds follow the ear as it moves; the weather steps every two minutes)
     return () => {
       clearInterval(id);
       weatherIs(null);
     };
-  }, [space, windowOpen]);
+  }, [space, windowOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // the window under the pointer (E opens it, or shuts it)
   const windowAt = (e) => {
     if (!e || !carrying?.openWindow) return false;
@@ -1311,6 +1349,12 @@ const SceneView = forwardRef(function SceneView(
       setHand(!hand); // the pen into the hand, or set down
       return;
     }
+    if ((k === 'r' || k === 'g') && !e.repeat) {
+      // rain, or wind, called up for a while (this viewer's own: world.md, as the light is dragged)
+      S.asked = ask(S.asked, k === 'r' ? 'rain' : 'wind', worldClock(new Date()).getTime() / 1000);
+      S.weatherTick?.();
+      return;
+    }
     if (S.pose && (k === '[' || k === ']')) return resize(k);
     if (!(WK.isMoveKey(k) || k === ' ' || k === 'shift')) return;
     e.preventDefault();
@@ -1510,7 +1554,7 @@ const SceneView = forwardRef(function SceneView(
       {world && !steep && (
         <p className="scene-hint quiet">
           {looking
-            ? `W A S D ${walking ? 'walk' : 'fly'} · Space ${walking ? 'jump, twice to fly' : 'rise, twice to fall'} · Shift ${walking ? 'crouch' : 'lower'} · drag to turn your head · scroll to look closer · E picks up, sets down, sits at the chair · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''}`
+            ? `W A S D ${walking ? 'walk' : 'fly'} · Space ${walking ? 'jump, twice to fly' : 'rise, twice to fall'} · Shift ${walking ? 'crouch' : 'lower'} · drag to turn your head · scroll to look closer · E picks up, sets down, opens the window, sits at the chair · R rain, G wind for a while · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''}`
             : `${penMode ? 'The pen: drag to write · ' : ''}W A S D to stand up · scroll to look closer · E picks up and sets down${canPen ? ` · H ${penMode ? 'sets the pen down' : 'for the pen'}` : ''}`}
         </p>
       )}

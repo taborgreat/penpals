@@ -11,7 +11,7 @@
 
 import { N } from './axis.js';
 import { sunLight, toward } from './air.js';
-import { outsideAt } from './outside.js';
+import { outsideAt, deckOf, evenSky } from './outside.js';
 import { MATTER } from './curves.js';
 import { paperCurve, grownCurve, patchAbsorption } from './matter.js';
 import { directLight } from './direct.js';
@@ -45,13 +45,17 @@ export function roomAbsorption(room, { page = paperCurve([0xf7, 0xf3, 0xea]), se
 // The sources by day for a sun at { az, el } (degrees; air.js sunPlace).
 export function daySources(sun) {
   const sunDir = toward(sun.az, sun.el);
-  return { sunDir, sun: sunLight(sun.el), outside: outsideAt(sunDir), glass: MATTER.glass };
+  const { through } = deckOf(sun.cloud);
+  return { sunDir, sun: sunLight(sun.el).map((v) => v * through), outside: outsideAt(sunDir, { cloud: sun.cloud ?? 0 }), glass: MATTER.glass };
 }
+// A sky of unit radiance every way (outside.js evenSky): what the room settles to under it, scaled
+// for a flash in the clouds.
+export const evenSources = () => ({ sunDir: [0, 0, -1], sun: null, outside: evenSky, glass: MATTER.glass });
 
 // Settle the parts: → { day, flames: [part per flame], passes }. `flames`:
 // [{ pos, intensity }] with intensity the flame's spectrum at the strength its
 // part is kept at (combine scales it from there).
-export function settleParts(room, absorption, { sun = null, flames = [], present = true } = {}) {
+export function settleParts(room, absorption, { sun = null, flames = [], present = true, even = false } = {}) {
   const n = room.patches.length;
   const dark = () => new Float64Array(n * N);
   if (!present) return { day: dark(), flames: flames.map(dark), passes: 0 };
@@ -62,7 +66,7 @@ export function settleParts(room, absorption, { sun = null, flames = [], present
     return r.light;
   };
   const day = sun && sun.el > -6 ? run(daySources(sun)) : dark();
-  return { day, flames: flames.map((f) => run({ flames: [f] })), passes };
+  return { day, flames: flames.map((f) => run({ flames: [f] })), ...(even ? { even: run(evenSources()) } : {}), passes };
 }
 
 // The light now: the day plus each flame's part times its scale (its flicker).

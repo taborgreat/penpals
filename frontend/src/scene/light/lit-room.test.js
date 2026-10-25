@@ -9,7 +9,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { N } from './axis.js';
 import { sunLight, toward, sunPlace, NOON_EL } from './air.js';
-import { outsideAt } from './outside.js';
+import { outsideAt, evenSky } from './outside.js';
+import { daySources } from './settle.js';
 import { CMF, MATTER } from './curves.js';
 import { xyzOf, LUMENS } from './color.js';
 import { paperCurve, grownCurve, patchAbsorption, pageCurve } from './matter.js';
@@ -25,10 +26,10 @@ const baked = path.join(here, '..', '..', '..', 'public', 'room');
 const room = fs.existsSync(path.join(baked, 'room.ff'))
   ? decodeRoom(fs.readFileSync(path.join(baked, 'room.json'), 'utf8'), new Uint8Array(fs.readFileSync(path.join(baked, 'room.ff'))))
   : (() => {
-    const g = roomGeometry(ROOM);
-    const { json, bin } = encodeRoom(g, formFactors(g, { positions: 4, directions: 16 }));
-    return decodeRoom(json, bin);
-  })();
+      const g = roomGeometry(ROOM);
+      const { json, bin } = encodeRoom(g, formFactors(g, { positions: 4, directions: 16 }));
+      return decodeRoom(json, bin);
+    })();
 const PLAIN = [0xf7, 0xf3, 0xea];
 const paper = paperCurve(PLAIN);
 const curveOf = (page) => (p) => (p.matter === 'paper' ? page : p.matter === 'plaster' ? grownCurve('plaster', 96) : grownCurve(p.matter, 128));
@@ -42,10 +43,11 @@ function day(hour) {
   const sunDir = toward(az, el);
   return { sunDir, sun: sunLight(el), outside: outsideAt(sunDir), glass: MATTER.glass };
 }
-const flames = (t = 0) => room.candles.map((c, which) => {
-  const s = candleState(NEW_CANDLE, t, { which });
-  return { pos: [c[0], c[1], c[2] + s.flameAt], intensity: flameLight(s) };
-});
+const flames = (t = 0) =>
+  room.candles.map((c, which) => {
+    const s = candleState(NEW_CANDLE, t, { which });
+    return { pos: [c[0], c[1], c[2] + s.flameAt], intensity: flameLight(s) };
+  });
 const settle = (sources, page) => solve(room.patches, room.F, absorption(page), directLight(room, sources));
 
 test('the lit room: noon fills the page with daylight, night leaves it to the candles, warm', () => {
@@ -60,13 +62,16 @@ test('the lit room: noon fills the page with daylight, night leaves it to the ca
   const seenNoon = toScreen(radiance(of(noon.light, room.page), paper), settledOn(radiance(of(noon.light, room.page), paper)));
   const nightLook = radiance(of(night.light, room.page), paper);
   const seenNight = toScreen(nightLook, settledOn(nightLook));
-  assert.ok(seenNoon.every((v) => v > 0.9), `noon ${seenNoon.map((v) => v.toFixed(2))}`);
+  assert.ok(
+    seenNoon.every((v) => v > 0.9),
+    `noon ${seenNoon.map((v) => v.toFixed(2))}`,
+  );
   assert.ok(seenNight[0] > 1.3 * seenNight[2], `night ${seenNight.map((v) => v.toFixed(2))}`);
   // the light the page drinks becomes its heat
   assert.ok(heatOf(noon.light, absorption(), room.patches)[room.page] > heatOf(night.light, absorption(), room.patches)[room.page]);
 });
 
-test('the lit room: ink on the page changes the room\'s light (absorption is a runtime input)', () => {
+test("the lit room: ink on the page changes the room's light (absorption is a runtime input)", () => {
   const cells = 1000;
   const ink = Array.from({ length: 600 }, () => ({ abs: [0x900, 0x700, 0x300] })); // a dense blue, most of the page
   const inked = pageCurve(paper, ink, cells);
@@ -81,7 +86,7 @@ test('the lit room: ink on the page changes the room\'s light (absorption is a r
   assert.ok(ratio(back(dark, inked)) > ratio(back(clean, paper)));
 });
 
-test('the lit room: the window\'s patch of sun moves across the table through the day, soft-edged', () => {
+test("the lit room: the window's patch of sun moves across the table through the day, soft-edged", () => {
   const top = room.table.top + 1e-4;
   const pts = [];
   for (let x = room.size[0] / 2 - 0.7; x <= room.size[0] / 2 + 0.7; x += 0.02) {
@@ -89,7 +94,9 @@ test('the lit room: the window\'s patch of sun moves across the table through th
   }
   const centroid = (hour) => {
     const { sunDir } = day(hour);
-    let s = 0, sx = 0, soft = 0;
+    let s = 0,
+      sx = 0,
+      soft = 0;
     for (const p of pts) {
       const a = sunAperture(room, p, sunDir);
       s += a;
@@ -103,4 +110,24 @@ test('the lit room: the window\'s patch of sun moves across the table through th
   assert.ok(m.x > n.x && n.x > a.x, `from right to left: ${m.x.toFixed(2)}, ${n.x.toFixed(2)}, ${a.x.toFixed(2)}`);
   assert.ok(n.soft > 0, 'the sun is a disk: the edges are soft');
   assert.equal(centroid(23).lit, 0, 'none at night');
+});
+
+test("clouds dim the room through the bounce: the sun's beam gone, the deck's underside glowing white; a flash lights it at night", () => {
+  const { az, el } = sunPlace(new Date(Date.UTC(2026, 5, 21, 19)));
+  const page = (r) => lum(radiance(of(r.light, room.page), paper));
+  const clear = page(settle(daySources({ az, el, cloud: 0 }))),
+    grey = page(settle(daySources({ az, el, cloud: 0.6 }))),
+    dark = page(settle(daySources({ az, el, cloud: 0.95 })));
+  assert.ok(grey < clear * 0.7 && dark < grey * 0.5, `the page: ${clear.toFixed(0)} clear, ${grey.toFixed(0)} grey, ${dark.toFixed(0)} heavy (cd/m²)`);
+  // a flash: the room under an even sky (unit radiance), scaled; at night, it outshines the candles
+  const even = settle({ outside: evenSky, glass: MATTER.glass });
+  const night = settle({ flames: flames() });
+  const flashL = (1e9 * 0.01) / 0.2 / (4 * Math.PI * 2000 * 2000) / Math.PI / (N - 1); // (a strike 2 km off, a bin)
+  const flashed = lum(
+    radiance(
+      of(even.light, room.page).map((v) => v * flashL),
+      paper,
+    ),
+  );
+  assert.ok(flashed > page(night), `a strike 2 km off: ${flashed.toFixed(1)} cd/m² on the page against the candles' ${page(night).toFixed(1)}`);
 });

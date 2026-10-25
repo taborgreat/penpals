@@ -5,14 +5,15 @@
 // (settle.js combine) from the parts this returns.
 // Messages in:
 //   { type: 'room', json, bin }                                  the baked room
-//   { type: 'settle', id, sun?: { az, el }, present?, candles?: [{ which, at?, height, fed, burntS, spent }],
+//   { type: 'settle', id, sun?: { az, el, cloud? }, present?, even?, candles?: [{ which, at?, height, fed, burntS, spent }],
 //     page?: reflectance (N), curves?: { [patch]: reflectance }, seeds? }
 // Out, by id:
 //   { id, day, flames: [...], scales: [...], passes, ms }   parts as Float32Array n × N, handed over;
 //     scales: each flame's strength now (candleState intensity), to start combining from;
 //     with direct: true, also sunDirect and flameDirect: [...] (n × N each): what each patch
 //     takes straight from the sun's disk and from each flame (unit strength), so the drawing
-//     can put those back per pixel, sharp, over the rest of the settled light
+//     can put those back per pixel, sharp, over the rest of the settled light; with even: true, also
+//     even: the room under a sky of unit radiance every way (a flash in the clouds is that, scaled)
 //   { id, error }
 import { decodeRoom } from './room.js';
 import { roomAbsorption, settleParts, daySources } from './settle.js';
@@ -42,7 +43,7 @@ export function handle(msg) {
     const t0 = performance.now();
     const flames = flamesOf(room, msg.candles ?? []);
     const absorption = roomAbsorption(room, { page: msg.page, curves: msg.curves, seeds: msg.seeds });
-    const parts = settleParts(room, absorption, { sun: msg.sun ?? null, flames, present: msg.present ?? true });
+    const parts = settleParts(room, absorption, { sun: msg.sun ?? null, flames, present: msg.present ?? true, even: !!msg.even });
     const direct = {};
     if (msg.direct) {
       const day = msg.sun && msg.sun.el > -6 && (msg.present ?? true) ? daySources(msg.sun) : null;
@@ -53,6 +54,7 @@ export function handle(msg) {
       id: msg.id,
       day: Float32Array.from(parts.day),
       flames: parts.flames.map((f) => Float32Array.from(f)),
+      ...(parts.even ? { even: Float32Array.from(parts.even) } : {}),
       ...direct,
       scales: flames.map((f) => f.scale),
       passes: parts.passes,

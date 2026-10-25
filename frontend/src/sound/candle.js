@@ -15,13 +15,15 @@ export const WAX_A_BEAD = 0.005; // g of wax about each bead it holds (Tabor's t
 const ATM = 101325; // Pa: the air's pressure
 
 // a fixed hash of two integers, 0..1
-const mix = (a, b) => {
-  let x = (Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ b) >>> 0;
-  x ^= x >>> 13;
-  x = Math.imul(x, 0xc2b2ae35);
-  x ^= x >>> 16;
-  return (x >>> 0) / 4294967296;
+const fmix = (h) => {
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
 };
+const mix = (a, b) => fmix((fmix(a >>> 0) + Math.imul(b, 0x9e3779b9)) >>> 0) / 4294967296; // (MurmurHash3's finish, twice)
 
 export const crackleRate = (flame) => (flame.lit && flame.smokeRate > 0 ? (flame.smokeRate / WAX_A_BEAD) * (flame.wick / WICK_TRIM) : 0);
 

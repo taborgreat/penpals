@@ -16,7 +16,10 @@
 // world.md 3b) takes the flames' heat and smoke; its soot hazes the room (light/
 // smoke.js): what the room bounces dims over its mean free path, and the haze
 // goes to the drawing (each pixel dimmed over its way to the eye, the grains'
-// glow added).
+// glow added). The weather (law/weather.js: setWeather) clouds the sky, dimming the sun's beam
+// by the deck's depth and lighting the room from its underside (the solver's day, under it), and
+// a strike's flash lights the room through the window as a bright sky does (the solver's even
+// sky, scaled) for as long as it lasts.
 //
 // Frames: the room's (metres; x the writer's right, y toward the window, z up)
 // and each view's page (page px; x right, y down the page, z up). A view's page
@@ -44,6 +47,7 @@ import {
   step,
   screenWeights,
   grownCurve,
+  deckOf,
   N,
 } from './light/index.js';
 
@@ -51,6 +55,7 @@ const MATTER_GLASS = curves.MATTER.glass;
 
 import { frame } from './camera.js';
 import { createRoomAir } from './roomAir.js';
+import { STRIKE } from 'penpals-law/weather';
 import { hazeOf } from './light/smoke.js';
 
 export { PX_PER_M };
@@ -58,6 +63,22 @@ const DEFAULT_PAPER = [0xf7, 0xf3, 0xea]; // the page the room settles with (and
 
 // The sun by the clock: { az, el } in degrees (light/air.js sunPlace).
 export const sunAt = (date) => sunPlace(date);
+
+// The clouds, as the light takes them: to a hundredth (the room's light settles anew past each), never
+// all of it (a deck that turned back every last ray would be night at noon).
+export const cloudOf = (w) => Math.min(0.99, Math.round((w?.cloud ?? 0) * 100) / 100);
+// A strike's light on the clouds over the room, while it lasts: the sky's radiance it adds, per bin
+// (white: spread evenly over the visible bins), or null.
+function flashOf(w, ms) {
+  let L = 0;
+  for (const s of [...(w?.strikes ?? []), ...(w?.coming ?? [])]) {
+    const age = (ms - s.at) / 1000;
+    if (age < 0 || age > STRIKE.lasts) continue;
+    const E = (STRIKE.energy * STRIKE.light) / STRIKE.lasts / (4 * Math.PI * s.away * s.away); // W/m² here
+    L += E / Math.PI;
+  }
+  return L > 0 ? Float64Array.from({ length: N }, (_, b) => (b < N - 1 ? L / (N - 1) : 0)) : null;
+}
 
 // The world's clock (rooms.md §1b: one world, one sun, one time zone, Pacific): the
 // moment `date` as its wall clock reads it (what sunPlace reads), the instant itself
@@ -151,6 +172,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     air: null, // the room's air (roomAir.js), begun when it is first drawn
     open: false, // the window (an act: room/carry.js)
     outside: 0, // the outside air's heat, °C above the room's (the weather's: world.md Phase 4)
+    weather: null, // law/weather.js weatherAt, now
+    even: null, // the room under an even sky of unit radiance (the solver's; asked once)
   };
   // The room's light in parts (the worker's settle): the day and each flame
   // (unit strength), and what of each comes straight from the sun's disk or a
@@ -160,8 +183,10 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     if (!settle || !S.room || S.asked === key) return;
     S.asked = key;
     const candles = [0, 1].map((which) => ({ ...(S.candles?.[which] ?? NEW_CANDLE), lit: undefined, which, at: S.candleAt[which] ?? undefined }));
-    settle({ sun: sun.el > -6 ? { az: sun.az, el: sun.el } : null, present: true, direct: true, candles }).then(
+    const cloud = cloudOf(S.weather);
+    settle({ sun: sun.el > -6 ? { az: sun.az, el: sun.el, cloud } : null, present: true, direct: true, even: !S.even, candles }).then(
       (r) => {
+        if (r.even) S.even = r.even;
         if (S.asked !== key) return; // a newer one is coming
         S.parts = { key, day: r.day, flames: r.flames, sunDirect: r.sunDirect, flameDirect: r.flameDirect };
         for (const fn of S.listeners) fn();
@@ -218,12 +243,19 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     get air() {
       return S.air;
     },
+    // The weather over the room now (law/weather.js weatherAt): its clouds, its strikes
+    setWeather(w) {
+      const was = cloudOf(S.weather);
+      S.weather = w;
+      if (cloudOf(w) !== was) for (const fn of S.listeners) fn(); // (the room's light settles anew)
+    },
     at({ now, date, override = null, present = true, eye = { lids: 1, color: 1 }, gaze = null }) {
       const dt = S.t === null ? 0 : Math.min(1, Math.max(0, (now - S.t) / 1000));
       S.t = now;
       const place = override ?? sunAt(date);
       const sun = { az: place.az, el: place.el, dir: toward(place.az, place.el) };
-      sun.E = sunLight(place.el).map((v, b) => v * MATTER_GLASS[b]); // through the glass, normal to the beam
+      const { through: beamThrough } = deckOf(cloudOf(S.weather));
+      sun.E = sunLight(place.el).map((v, b) => v * MATTER_GLASS[b] * beamThrough); // through the clouds and the glass, normal to the beam
       // the candles: lit as the room's acts have them (where no chain says: at night while someone
       // is here); their flames shiver by the hour's clock
       const dark = candleLit({ sunEl: place.el, present });
@@ -246,7 +278,13 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       const through = haze.ext.map((e) => Math.exp(-e * free)); // what of a bounce the smoke lets through
       // the room's light at the page, less what comes straight from the sun and the flames (drawn per pixel)
       const lit = flames.some((f) => f.lit);
-      const key = [Math.round(place.az * 2), Math.round(place.el * 2), ...flames.map((f) => [Math.round(f.height * 2000), ...f.pos.map((v) => Math.round(v * 200))].join(':')), lit ? 1 : 0].join();
+      const key = [
+        cloudOf(S.weather),
+        Math.round(place.az * 2),
+        Math.round(place.el * 2),
+        ...flames.map((f) => [Math.round(f.height * 2000), ...f.pos.map((v) => Math.round(v * 200))].join(':')),
+        lit ? 1 : 0,
+      ].join();
       if (!S.parts || S.parts.key !== key) request(key, sun);
       // each patch's ambient light now (its flames at their strength now), and all that reaches the page
       const n = S.geom.patches.length;
@@ -265,6 +303,13 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         const at = S.geom.page * N;
         for (let b = 0; b < N; b++) pageLight[b] = (p.day[at + b] + flames.reduce((t, fl, k) => t + fl.intensity * (p.flames[k]?.[at + b] ?? 0), 0)) * through[b];
       } else ambient.fill(0);
+      // a strike's flash: the clouds lit, as bright every way as its light falls on them here
+      const flash = flashOf(S.weather, date.getTime());
+      if (flash && S.even) {
+        const at = S.geom.page * N;
+        for (let i = 0; i < n * N; i++) ambient[i] += S.even[i] * flash[i % N];
+        for (let b = 0; b < N; b++) pageLight[b] += S.even[at + b] * flash[b];
+      }
       const indirect = ambient.slice(S.geom.page * N, S.geom.page * N + N);
       // the eye on the page: settled on the room's light the first time it is
       // there (before that, an eye at an ordinary indoor level), then adapting
@@ -298,6 +343,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         sun,
         flames,
         haze,
+        flash, // (the sky's radiance a strike adds, per bin, or null)
+        weather: S.weather,
         indirect,
         ambient, // per patch (n × N): the room drawn takes it
         W,

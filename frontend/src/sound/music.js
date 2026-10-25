@@ -16,7 +16,7 @@
 //              a second is a fifth.
 //   grouping(rate) → { n, tree }   rootOf(key) → Hz   pitchOf(e) → Hz   place(e, key) → e placed and tuned
 //   (an event: { world (s on the world's clock: when it happened), t (s on the ear's), rate (its
-//   source's events a second), matter: true, bands, ring? })
+//   source's events a second), matter: true, bands, ring?, keepTime? (tuned only) })
 import { BANDS } from './bands.js';
 
 export const BAR = 4; // the world's ticks (seconds) in a bar (Tabor's to set)
@@ -88,6 +88,10 @@ export function tuned(f, root) {
 
 export function place(e, key) {
   if (!e.matter) return e; // (a being's act: as it happened)
+  if (e.keepTime) {
+    const f = pitchOf(e);
+    return { ...e, tune: tuned(f, rootOf(key)) / f }; // (tuned, never moved: thunder's time is its distance)
+  }
   const { n } = grouping(e.rate ?? 1 / BAR);
   const leaf = BAR / n;
   const bar = Math.floor(e.world / BAR) * BAR;

@@ -64,6 +64,7 @@ import {
   fract,
   step,
   sqrt,
+  sin,
   smoothstep,
   exp,
   log,
@@ -76,6 +77,7 @@ import {
   wgslFn,
 } from 'three/tsl';
 import { curves, SUN_RADIUS, surface as grown, shine } from './light/index.js';
+import { MATTER as LAW } from 'penpals-law/matter';
 
 export { WebGPURenderer, ClippingGroup, CubeRenderTarget } from 'three/webgpu';
 
@@ -622,14 +624,56 @@ export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', 
 // A pane of the window: the outside seen through the glass (a map of the sky,
 // the sun and the field, by direction: light/outside.js outsideMap, already
 // through the glass and the eye's weights, linear), toned by the eye.
-export function windowMaterial(outside) {
+// The view out (world.md Phase 5): the sky and the field as the clouds leave them (the map: light/
+// outside.js), a strike's flash on the clouds (m.flash: the eye's colours it adds to the sky), the
+// rain falling past (m.rain: how many of the view's columns hold a falling drop, how fast it falls
+// across the view, the clock), and the beads on the glass (m.beads: their water's depth over the
+// window, mm), each a lens turning the view by its slope as water's index does.
+export function windowMaterial(outside, L, beads) {
   const m = new MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+  m.flash = uniform(new THREE.Vector3());
+  m.rain = uniform(new THREE.Vector4());
+  const BEND = LAW.water.ior / 1000 - 1; // (water's index, less the air's)
+  const B = texture(beads);
   m.colorNode = Fn(() => {
     const d = normalize(positionWorld.sub(cameraPosition)).toVar();
-    const az = atan(d.x, d.y); // 0 straight out of the window (+y), toward +x is positive
-    const el = asin(clamp(d.z, -1, 1));
-    const q = vec2(az.div(2 * Math.PI).add(0.5), float(0.5).sub(el.div(Math.PI)));
-    return eyeTone(texture(outside, q).rgb);
+    // where on the window (0..1 across, 0..1 down) and the beads' slope there (mm a mm)
+    const wu = positionWorld.x
+      .sub(L.window.x)
+      .div(max(L.window.y.sub(L.window.x), 1e-6))
+      .toVar();
+    const wv = L.window.w
+      .sub(positionWorld.z)
+      .div(max(L.window.w.sub(L.window.z), 1e-6))
+      .toVar();
+    const tx = 1 / 256,
+      ty = 1 / 307; // (a texel of the beads' map)
+    const h = (o) => at(B, vec2(wu, wv).add(o)).r;
+    const across = L.window.y
+      .sub(L.window.x)
+      .div(L.pxPerM)
+      .mul(1000 / 256); // mm a texel
+    const slope = vec2(h(vec2(tx, 0)).sub(h(vec2(-tx, 0))), h(vec2(0, ty)).sub(h(vec2(0, -ty))))
+      .div(across.mul(2))
+      .toVar();
+    const az = atan(d.x, d.y).add(slope.x.mul(BEND)); // 0 straight out of the window (+y), toward +x is positive
+    const el = asin(clamp(d.z, -1, 1)).sub(slope.y.mul(BEND));
+    const q = vec2(az.div(2 * Math.PI).add(0.5), float(0.5).sub(el.div(Math.PI))).toVar();
+    const col = texture(outside, q)
+      .rgb.add(m.flash.mul(step(0, el)))
+      .toVar();
+    // the rain: in each of the view's narrow columns, now and then a drop, falling, catching the light
+    const cols = q.x.mul(720);
+    const c = floor(cols);
+    const seed = fract(sin(c.mul(12.9898)).mul(43758.5453));
+    const fall = fract(q.y.mul(4).sub(m.rain.z.mul(m.rain.y)).add(seed.mul(7.31)));
+    const streak = step(seed, m.rain.x)
+      .mul(step(fract(cols), 0.12))
+      .mul(step(fall, 0.06));
+    col.mulAssign(float(1).add(streak.mul(0.6)));
+    // the beads: steep edges turn the view far aside (darker rims)
+    col.mulAssign(float(1).sub(clamp(length(slope).mul(0.8), 0, 0.5)));
+    return eyeTone(col);
   })();
   return m;
 }

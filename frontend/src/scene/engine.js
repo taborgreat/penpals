@@ -31,7 +31,7 @@ import { DROP_PX, DETAIL_PX } from './light/surface.js';
 import { STAMPER, PEN, JAR } from './light/room.js';
 import { room as RL } from 'penpals-law';
 import * as shine from './light/shine.js';
-import { geomOf, worldOf } from './light.js';
+import { geomOf, worldOf, cloudOf } from './light.js';
 import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf } from './roomDraw.js';
 import { createShadows } from './shadows.js';
 import { createMarks } from './marks.js';
@@ -242,10 +242,11 @@ function lightRoom(l, now, R) {
     g.attributes.ambA.needsUpdate = true;
     g.attributes.ambB.needsUpdate = true;
   });
-  const sunKey = l.sun.dir.map((v) => Math.round(v * 500)).join();
+  const cloud = cloudOf(l.weather); // (as the light takes it)
+  const sunKey = [...l.sun.dir.map((v) => Math.round(v * 500)), cloud].join();
   if (sunKey !== R.sunKey) {
     R.sunKey = sunKey;
-    R.sunMap = outsideMap(l.sun.dir, OUT_W, OUT_H);
+    R.sunMap = outsideMap(l.sun.dir, OUT_W, OUT_H, { cloud });
     R.outAt = -1e9;
   }
   if (now - R.outAt > 250) {
@@ -403,7 +404,12 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     if (m.top) mesh.renderOrder = -3; // first of all: the sheets' paper (which writes no depth) goes over it
     roomGroup.add(mesh);
   });
-  const paneMat = gpu.windowMaterial(R.outside);
+  // the beads on the window's glass (scene/glass.js heights, mm), as the view out bends through them
+  const beadsTex = new THREE.DataTexture(new Uint16Array(256 * 307 * 4), 256, 307, THREE.RGBAFormat, THREE.HalfFloatType);
+  beadsTex.colorSpace = THREE.NoColorSpace;
+  beadsTex.magFilter = beadsTex.minFilter = THREE.LinearFilter;
+  beadsTex.needsUpdate = true;
+  const paneMat = gpu.windowMaterial(R.outside, lights, beadsTex);
   for (const g of R.panes) roomGroup.add(new THREE.Mesh(g, paneMat));
   const box = new THREE.BoxGeometry(1, 1, 1);
   const disc = new THREE.CylinderGeometry(1, 1, 1, 32).rotateX(Math.PI / 2);
@@ -1009,6 +1015,18 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     // The light at this moment (light.js), for a view whose page starts at
     // `origin` in the room (light.js originOf): the sun through the window, each
     // flame where its candle has burnt down to, the room's light at the page, the eye.
+    // the beads on the window (glass.js heights: m, w × h over the window, top row first)
+    setBeads(h, w, hh) {
+      const d = beadsTex.image.data;
+      const W = beadsTex.image.width,
+        H = beadsTex.image.height;
+      for (let j = 0; j < H; j++)
+        for (let i = 0; i < W; i++) {
+          const v = h ? h[Math.min(hh - 1, Math.floor((j * hh) / H)) * w + Math.min(w - 1, Math.floor((i * w) / W))] * 1000 : 0;
+          d[4 * (j * W + i)] = toHalf(v);
+        }
+      beadsTex.needsUpdate = true;
+    },
     setLight(l, origin) {
       const lift = groundSize ? -SLAB_PX : 0; // a page lies on the table under the sheets: the table sits lower
       const W = (p) => {
@@ -1044,6 +1062,12 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         gpu.setSpectrum(lights.haze, l.haze.ext);
         gpu.setSpectrum(lights.haze, l.haze.sca, 1, gpu.BIN_GROUPS);
       }
+      // a strike's flash on the clouds, through the glass and the eye; the rain falling past
+      const glass = curves.MATTER.glass;
+      const fl = [0, 1, 2].map((c) => (l.flash ? l.flash.reduce((s, v, b) => s + (b < N - 1 ? l.W[c * N + b] * v * glass[b] : 0), 0) : 0));
+      paneMat.flash.value.set(...fl);
+      const mm = l.weather?.rain ?? 0;
+      paneMat.rain.value.set(mm > 0 ? 1 - Math.exp(-mm / 2) : 0, 1.5, performance.now() / 1000, 0);
       for (let c = 0; c < 3; c++) gpu.setSpectrum(lights.W[c], l.W.subarray(c * 17, c * 17 + 17));
       // the candles: wax from the table up to where it has burnt down, the wick, the flame
       const r = (DIAMETER / 2) * PX_PER_M;
