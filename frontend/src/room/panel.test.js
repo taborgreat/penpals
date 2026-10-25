@@ -23,10 +23,10 @@ test('it follows the hand: pick something up, its panel; set it down, it closes;
   assert.equal(panelFor({ ...at, holding: 'sheet', pen: true }), 'sheet'); // the thing picked up last is in front
 });
 
-test('at your table with nothing in hand: new paper; by your corner: your account; neither in someone else’s house', () => {
+test('at a table with nothing in hand: the table’s panel (new paper at yours); by your corner: your account, not by another’s', () => {
   assert.equal(panelFor({ signedIn: true, mine: true, seated: true }), 'paper');
   assert.equal(panelFor({ signedIn: true, mine: true, atCorner: true }), 'account');
-  assert.equal(panelFor({ signedIn: true, mine: false, seated: true }), null);
+  assert.equal(panelFor({ signedIn: true, mine: false, seated: true }), 'paper');
   assert.equal(panelFor({ signedIn: true, mine: false, atCorner: true }), null);
 });
 

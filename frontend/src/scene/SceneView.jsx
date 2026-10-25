@@ -1358,7 +1358,7 @@ const SceneView = forwardRef(function SceneView(
             : `${penMode ? 'The pen: drag to write · ' : ''}W A S D to stand up · scroll to look closer · E picks up and sets down${canPen ? ` · H ${penMode ? 'sets the pen down' : 'for the pen'}` : ''}`}
         </p>
       )}
-      {!world && penMode && !steep && mode === '3d' && (
+      {!world && !fixed && penMode && !steep && mode === '3d' && (
         <p className="scene-hint quiet">
           {(writer || tableWriter) && !looking
             ? `The pen: drag to write${writer ? '' : ' on a shared sheet'} · right-drag to turn · H for the hand`

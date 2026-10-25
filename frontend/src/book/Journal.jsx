@@ -27,7 +27,7 @@ import TogetherBar from '../room/TogetherBar.jsx';
 import Panel from '../components/Panel.jsx';
 import PenPanel, { usePen } from '../components/PenPanel.jsx';
 import PaperPanel, { FreshSheet } from '../components/PaperPanel.jsx';
-import { useFreshSheet } from './fresh.js';
+import { useFreshSheet, SIZES } from './fresh.js';
 
 // The living journal (books.md, Part B; keys.md): a book of handwritten pages.
 // The owner writes anything anywhere (each piece a sheet of the law's paper,
@@ -184,6 +184,13 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   useEffect(() => setHeld(null), [current]);
   const heldItem = held ? (page?.items.find((it) => it.id === held.id) ?? null) : null;
   const pageSize = book.page ?? DEFAULT_PAGE;
+  // in your own house you sit before a fresh sheet, the pen in your hand (as you came in from the lobby)
+  const laid = useRef(false);
+  useEffect(() => {
+    if (!world || !mine || laid.current || fresh.sheet) return;
+    laid.current = true;
+    fresh.newPaper({ size: SIZES.half });
+  }, [world, mine, fresh]);
   const sheetHand = useMemo(
     () =>
       world && mine && page
@@ -490,7 +497,9 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       )}
       {missing && <p className="muted">There is no page "{pageId}" in this book, so here is the first page.</p>}
 
-      {!fromFile && <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={tableColor} onColor={setTableColor} />}
+      {!fromFile && !world && (
+        <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={tableColor} onColor={setTableColor} />
+      )}
       <JournalPage
         pageId={current}
         page={page}
@@ -522,6 +531,14 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
             )}
           </div>
           {mine && <div className="journal-tools">{pageTools()}</div>}
+          {mine && (
+            <p className="book-download">
+              <a className="button" href="/api/books/me/download" download={`${bookName}.book`}>
+                ↓ Download this book
+              </a>{' '}
+              <span className="meta">your journal and signature as one .book file</span>
+            </p>
+          )}
           <button type="button" className="quiet" onClick={() => setReading(false)}>
             Put it back
           </button>
@@ -564,9 +581,15 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           </PenPanel>
         </Panel>
       )}
-      {world && panel === 'paper' && mine && (
+      {world && panel === 'paper' && editable && (
         <Panel title="At your table">
-          <PaperPanel fresh={fresh} family={skeleton.paperFamily} onFamily={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />
+          <KeyGate>{() => <PaperPanel fresh={fresh} family={skeleton.paperFamily} onFamily={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />}</KeyGate>
+          <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={pen.color} onColor={pen.set.color} />
+        </Panel>
+      )}
+      {world && panel === 'paper' && !editable && (together.others.length > 0 || together.sheets.length > 0) && (
+        <Panel title="At their table">
+          <TogetherBar t={together} myRoom={false} me={user?.username ?? null} family={skeleton.paperFamily} color={pen.color} onColor={pen.set.color} />
         </Panel>
       )}
       {world && panel === 'candle' && (

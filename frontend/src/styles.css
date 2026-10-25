@@ -197,12 +197,14 @@ a:hover {
     --tools-zoom: 1.4;
   }
 }
+/* The world is the window and is not zoomed; its one panel is (the panel's own rule). */
 .site-head-inner,
-main:not(.wide),
+main:not(.wide):not(.world),
 .site-foot {
   zoom: var(--ui-zoom);
 }
-main:not(.wide) .pad {
+main:not(.wide):not(.world) .pad,
+.panel .pad {
   zoom: calc(1 / var(--ui-zoom));
 }
 /* The pad's settings and toolbar grow a little, not as much as the page around them. */
@@ -1739,12 +1741,13 @@ details.download .hint {
 }
 /* the world's one panel (one-world.md): a box over the world, for what is in hand or in front of you */
 .panel {
+  zoom: var(--ui-zoom); /* (read like the site's text; its window units divided back, to fit the window) */
   position: fixed;
   top: 16px;
   right: 16px;
   z-index: 20;
-  width: min(380px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
+  width: min(380px, calc((100vw - 32px) / var(--ui-zoom)));
+  max-height: calc((100vh - 32px) / var(--ui-zoom));
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1757,7 +1760,7 @@ details.download .hint {
   box-shadow: var(--shadow-soft);
 }
 .panel.wide {
-  width: min(600px, calc(100vw - 32px));
+  width: min(600px, calc((100vw - 32px) / var(--ui-zoom)));
 }
 .panel-title {
   margin: 0;

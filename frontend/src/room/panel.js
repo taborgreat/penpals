@@ -14,6 +14,6 @@ export function panelFor({ signedIn, mine = false, seated = false, atCorner = fa
   if (holding) return holding;
   if (pen) return 'pen';
   if (mine && atCorner) return 'account';
-  if (mine && seated) return 'paper'; // at your table with nothing in hand: new paper
+  if (seated) return 'paper'; // at a table with nothing in hand: new paper at yours, the shared sheets at anyone's
   return null;
 }
