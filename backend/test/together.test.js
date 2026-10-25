@@ -211,7 +211,10 @@ test("seals: the owner presses bo's seal (his signature's face) into warm wax an
   dee.c = client(app.base);
   assert.equal((await register(dee.c, dee)).status, 201);
   const deeId = accounts.findByName('dee').id;
-  await files.appendLine(path.join(accounts.userDir(deeId), 'room.chain'), JSON.stringify({ n: 1, at: new Date(Date.now() - 435000).toISOString(), ...roomAct(dee, dee, { act: 'light', thing: 'candle-0' }) }));
+  await files.appendLine(
+    path.join(accounts.userDir(deeId), 'room.chain'),
+    JSON.stringify({ n: 1, at: new Date(Date.now() - 435000).toISOString(), ...roomAct(dee, dee, { act: 'light', thing: 'candle-0' }) }),
+  );
   const sheet = K.newSheetId();
   assert.equal((await dee.c.post('/api/shared', SH.makeSharedSheet({ sk: dee.sk, pk: dee.pk, sheet, family: FAMILY }))).status, 201);
   const sealed = await dee.c.get('/api/signatures/bo/seal');
@@ -257,7 +260,10 @@ test("seals: the owner presses bo's seal (his signature's face) into warm wax an
   assert.equal(JSON.parse(text.slice(0, text.indexOf('\n'))).wax, undefined, 'no wax in her book');
   const v = verifyBook(text);
   assert.equal(v.ok, true, JSON.stringify(v.problems));
-  assert.ok(v.unverified.some((u) => u.includes(sheet)), JSON.stringify(v.unverified));
+  assert.ok(
+    v.unverified.some((u) => u.includes(sheet)),
+    JSON.stringify(v.unverified),
+  );
   // no one else tilts it; it is not lit twice; she puts it out (her act)
   assert.equal((await doIn(bo, dee, roomAct(bo, dee, { act: 'tilt', thing: 'candle-0', pos: [1000, 1000, 900].map((v) => v / 1000), deg: 30 }))).status, 409, 'not in her room');
   assert.equal((await doIn(dee, dee, roomAct(dee, dee, { act: 'light', thing: 'candle-0' }))).status, 409, 'lit already');

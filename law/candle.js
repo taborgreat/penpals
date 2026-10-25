@@ -287,7 +287,7 @@ function stir(cd) {
     }),
   );
   for (const row of byZ.values()) {
-    for (let s = 0; s < row.length; ) {
+    for (let s = 0; s < row.length;) {
       let e = s + 1;
       while (e < row.length && row[e][0] === row[e - 1][0] + 1) e++;
       if (e - s > 1) {

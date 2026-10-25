@@ -186,7 +186,7 @@ test('the eye closes and opens: lids down, the view dark; opening onto the room,
   for (let b = 0; b < N; b++) assert.ok(Math.abs(W[b] - W[N + b]) < 1e-9 && Math.abs(W[N + b] - W[2 * N + b]) < 1e-9, 'black and white: r = g = b');
 });
 
-test('one world, one sun, one clock (rooms.md §1b): every room is lit by Pacific time, whatever the viewer\'s', () => {
+test("one world, one sun, one clock (rooms.md §1b): every room is lit by Pacific time, whatever the viewer's", () => {
   const noon = worldClock(new Date('2026-06-21T19:00:00Z')),
     night = worldClock(new Date('2026-06-22T07:00:00Z'));
   assert.equal(noon.getHours(), 12);

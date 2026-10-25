@@ -203,7 +203,8 @@ export function replay(owner, lines, { seals = true, ctx = null } = {}) {
       if (seals && !verifyActSeal(line.act, line.seal)) throw bad("the seal is not its writer's");
       const why = refusal(state, line.act);
       if (why) throw bad(why);
-      if ((line.act.act === 'stroke' || line.act.act === 'lift') && bySealUnknown(state, line.act.by)) unverified.push(`act ${line.n}: by a seal pressed into wax regrown from a room's acts (not here)`);
+      if ((line.act.act === 'stroke' || line.act.act === 'lift') && bySealUnknown(state, line.act.by))
+        unverified.push(`act ${line.n}: by a seal pressed into wax regrown from a room's acts (not here)`);
       state = apply(state, line);
     } catch (err) {
       problems.push(`act ${line.n}: ${err.message}`);

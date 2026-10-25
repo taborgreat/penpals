@@ -64,7 +64,10 @@ test('a long-lit candle drips when tilted, more the further, as hot as its pool;
     b = tilted(60);
   assert.ok(a.length > 0 && sum(b) > sum(a), `tilted further, more: ${sum(a)} µg at 30°, ${sum(b)} µg at 60°`);
   for (const d of [...a, ...b]) assert.ok(d.heat >= WAX_MELT, `liquid wax, past its melting heat: ${d.heat}`);
-  assert.ok(a.some((d) => d.on.on === 'sheet'), 'onto the sheet under its rim');
+  assert.ok(
+    a.some((d) => d.on.on === 'sheet'),
+    'onto the sheet under its rim',
+  );
   // burnt + dripped + what is left = the wax it was made with
   const room = W.createRoomWax({ landing });
   room.advance(chain([[0, ana, 'light'], held(lit), tilt(lit + 1000, 60), tilt(lit + 6000, 0), [lit + 7000, ana, 'out']]), T0 + lit + 60000);
@@ -89,7 +92,10 @@ test('replaying the signed acts alone gives the same drips everywhere and whenev
   assert.deepEqual(ahead.advance(lines, T0 + lit + 8000), once, 'each act arriving after this clock ran past it: the same');
   // a tilt by someone not holding it changes nothing
   const theirs = regrow(chain([[0, ana, 'light'], held(lit), tilt(lit + 1000, 60, bo)]), lit + 8000);
-  assert.ok(theirs.every((d) => d.on.on === 'dish'), 'upright in her hand: nothing falls free');
+  assert.ok(
+    theirs.every((d) => d.on.on === 'dish'),
+    'upright in her hand: nothing falls free',
+  );
 });
 
 test('a drip that landed on a sheet is wax on its paper; upright, what runs over goes down the side into the dish', () => {
