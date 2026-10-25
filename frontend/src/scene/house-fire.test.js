@@ -2,8 +2,11 @@
 // comes only from the table of matter and its rules (law/heat.js): no fire code, no burn timer, no
 // special case. The desk is built from the room (scene/light/room.js: the table, the page, the two
 // candles in their brass holders), the candles as the candle law has them after half an hour alight
-// (law/candle.js: their height, their pools). The one act: the left candle lies down, its foot at its
-// holder's rim, its wick toward the page; its pool spills where its top was.
+// (law/candle.js: their height, their pools). The one act: the left candle knocked over, by a hand carrying
+// the other into it (room acts; where each comes to rest is law/bodies.js's, by their matter and shape):
+// the hand takes up the right candle, goes round behind the left one, and pushes it toward the page until
+// it goes over; then it sets the right one back in its place. The fallen candle lies the way the law laid
+// it, its foot at its holder's rim (the holder stays where it stood); its pool spills where its top was.
 //
 // Either result passes: if the heat where a holder sits passed metal's melting point, that metal is a
 // puddle where it ran; if not, it is still a holder. The test reports the highest heat each reached.
@@ -14,6 +17,7 @@ import { createHeat, heatOf } from 'penpals-law/heat';
 import { MATTER, AIR } from 'penpals-law/matter';
 import * as Cn from 'penpals-law/candle';
 import { roomGeometry, ROOM, HOLDER } from './light/room.js';
+import { bodiesAfter } from '../room/carry.js';
 
 const DX = 0.01; // m: the heat rule's grain here (a resolution: finer is truer and dearer)
 const SECONDS = Number(process.env.HOUSE_FIRE_S ?? 30);
@@ -37,15 +41,45 @@ function desk() {
   const R = CANDLE.radius,
     W = CANDLE.wick;
   const wickFill = (Math.PI * CANDLE.wickRadius ** 2) / (DX * DX);
-  const fallen = { x0: c0[0] + HOLDER.radius, x1: c0[0] + HOLDER.radius + L, y: c0[1], z: top + DX + R };
-  const standing = { x: c1[0], y: c1[1], z0: top + HOLDER.height, z1: top + HOLDER.height + L };
+  // the act: the right candle carried round behind the left, into it toward the page, and back to its place
+  const t0 = Date.UTC(2026, 9, 25, 20);
+  let k = 0;
+  const line = (a) => ({ at: new Date(t0 + ++k * 1000).toISOString(), act: { kind: 'room', by: 'tabor', ...a } });
+  const mm = (p) => p.map((v) => Math.round(v * 1000));
+  const carry = (p) => line({ act: 'tilt', thing: 'candle-1', pos: mm(p), deg: 0 });
+  const hand = top + 0.01;
+  const B = bodiesAfter([
+    line({ act: 'place', thing: 'candle-1', to: null }),
+    ...[
+      [c1[0], 3.05],
+      [c0[0] - 0.14, 3.05],
+      [c0[0] - 0.14, c0[1]],
+      [c0[0] + 0.05, c0[1]],
+    ].map(([x, y]) => carry([x, y, hand])),
+    ...[
+      [c0[0] - 0.14, c0[1]],
+      [c0[0] - 0.14, 3.05],
+      [c1[0], 3.05],
+      [c1[0], c1[1]],
+    ].map(([x, y]) => carry([x, y, hand])),
+    line({ act: 'place', thing: 'candle-1', to: mm([c1[0], c1[1], hand]) }),
+  ]);
+  const fell = B['candle-0'],
+    stood = B['candle-1'];
+  assert.ok(fell.lying, 'the left candle went over');
+  assert.ok(!stood.lying && Math.abs(stood.at[0] - c1[0]) < 1e-3, 'the right one stands in its place again');
+  assert.deepEqual(fell.lying, [1, 0], 'toward the page: the way it was pushed');
+  const rim = fell.at[0]; // (its foot, at its holder's rim: the holder stays where it stood)
+  const fallen = { x0: rim, x1: rim + L, y: fell.at[1], z: top + DX + R, holder: [rim - HOLDER.radius, fell.at[1]] };
+  const standing = { x: stood.at[0], y: stood.at[1], z0: top + HOLDER.height, z1: top + HOLDER.height + L };
   const near = (a, b) => Math.abs(a - b) < DX / 2;
   function cellAt(ix, iy, iz) {
     const x = at(ix, X0),
       y = at(iy, Y0),
       z = at(iz, Z0);
     if (z < top) return 'wood';
-    for (const c of [c0, c1]) if ((x - c[0]) ** 2 + (y - c[1]) ** 2 <= HOLDER.radius ** 2 && z < top + HOLDER.height) return ['metal', Math.min(1, (top + HOLDER.height - (z - DX / 2)) / DX)];
+    for (const c of [fallen.holder, [standing.x, standing.y]])
+      if ((x - c[0]) ** 2 + (y - c[1]) ** 2 <= HOLDER.radius ** 2 && z < top + HOLDER.height) return ['metal', Math.min(1, (top + HOLDER.height - (z - DX / 2)) / DX)];
     if (z < top + DX && x >= pg.x0 && x <= pg.x1 && y >= pg.y0 && y <= pg.y1) return ['paper', MATTER.paper.ink.thickness / 1e6 / DX];
     if (near(y, fallen.y) && near(z, fallen.z) && x >= fallen.x0 && x <= fallen.x1 + W) return ['wick', wickFill];
     if (Math.hypot(y - fallen.y, z - fallen.z) <= R + DX / 2 && x >= fallen.x0 && x <= fallen.x1) return 'wax';
@@ -66,7 +100,7 @@ function desk() {
         const c = h.at(ix, iy, iz);
         const x = at(ix, X0),
           z = at(iz, Z0);
-        if (c.matter === 'metal') holders[Math.abs(x - c0[0]) < Math.abs(x - c1[0]) ? 0 : 1].push(i);
+        if (c.matter === 'metal') holders[Math.abs(x - fallen.holder[0]) < Math.abs(x - standing.x) ? 0 : 1].push(i);
         if (c.matter !== 'wick') continue;
         h.soak(i, 'wax', Math.floor((c.m * MATTER.wick.pores * MATTER.wax.density) / (MATTER.wick.density * 1000)));
         if ((x < standing.x - R && x > fallen.x1) || (Math.abs(x - standing.x) < DX && z > standing.z1)) {

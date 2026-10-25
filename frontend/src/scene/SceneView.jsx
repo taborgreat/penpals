@@ -504,8 +504,8 @@ const SceneView = forwardRef(function SceneView(
     const drawn = Object.fromEntries(Object.entries(carrying?.penPlaces ?? { pen: penLies }).map(([id, at]) => [id, at ? { place: at } : null]));
     if (penMode && S.pen) drawn[carrying?.penHeld ?? 'pen'] = S.pen;
     S.view.setPens(drawn);
-    S.view.setJar(carrying?.jarAt?.() ?? null);
-    S.view.setStamper(carrying?.stamperAt?.() ?? null); // (the stamper: in the hand, or where it lies)
+    S.view.setJar(carrying?.jarAt?.() ?? null, carrying?.jarLying?.() ?? null);
+    S.view.setStamper(carrying?.stamperAt?.() ?? null, carrying?.stamperLying?.() ?? null); // (the stamper: in the hand, or where it lies)
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     seen(cam, moving);
@@ -517,8 +517,8 @@ const SceneView = forwardRef(function SceneView(
     }
     const low = cam.mode === '3d' && !!(writer || tableWriter) && !canWrite(cam);
     setSteep((was) => (was === low ? was : low));
-    if (S.anim || S.override || S.back || S.glide || (S.pose && (S.keys.size || (S.pose.mode === 'walk' && S.pose.vz))) || gliding)
-      schedule(); // moving (or falling)
+    if (S.anim || S.override || S.back || S.glide || (S.pose && (S.keys.size || (S.pose.mode === 'walk' && S.pose.vz))) || gliding || carrying?.falling?.())
+      schedule(); // moving (or falling; or something let go falling)
     else if (light.settling && !S.settle) {
       // the room's light settling, the eye adapting: a few frames a second
       S.settle = setTimeout(() => {

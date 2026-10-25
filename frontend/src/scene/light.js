@@ -165,7 +165,11 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     asked: null, // the key being settled
     candles: null, // the room's candles as the law has them: [{ lit, height, fed, burntS, spent }] (setCandles); null: no chain says
     candleAt: [null, null], // where a candle stands when it has been carried (rooms.md §3b): its foot, room m
-    candleTilt: [0, 0], // how far a held candle leans (degrees, toward +x)
+    candleTilt: [0, 0], // how far a candle leans (degrees: held and tilted, or lying)
+    candleWay: [
+      [1, 0],
+      [1, 0],
+    ], // the way it leans, in the plane
     eye: null,
     t: null,
     page: paperCurve(paper),
@@ -226,9 +230,10 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     // takes in what is in view, so a wall looked at is lit as a wall is.
     // A candle carried (rooms.md §3b): standing at `at` (its foot, room m; null: back where it
     // was made) and leaning `tilt` degrees. Its light comes from there (the room's light settles anew).
-    placeCandle(which, at, tilt = 0) {
+    placeCandle(which, at, tilt = 0, way = [1, 0]) {
       S.candleAt[which] = at ? [...at] : null;
       S.candleTilt[which] = tilt;
+      S.candleWay[which] = way;
       for (const fn of S.listeners) fn();
     },
     // The room's candles as the law has regrown them from its chain (room/together.js):
@@ -276,9 +281,19 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         const lit = !override && (S.candles ? !!c.lit : dark);
         const st = candleState(c, clock, { which, lit });
         const foot = S.candleAt[which] ?? S.geom.candles[which];
-        const tilt = S.candleTilt[which] ?? 0;
+        const tilt = S.candleTilt[which] ?? 0,
+          way = S.candleWay[which] ?? [1, 0];
         const a = (tilt * Math.PI) / 180; // (leaning, its flame is where its wick is)
-        return { ...st, which, foot, tilt, pos: [foot[0] + Math.sin(a) * st.flameAt, foot[1], foot[2] + Math.cos(a) * st.flameAt], I: flameLight(st), lit: lit && !st.spent };
+        return {
+          ...st,
+          which,
+          foot,
+          tilt,
+          way,
+          pos: [foot[0] + Math.sin(a) * st.flameAt * way[0], foot[1] + Math.sin(a) * st.flameAt * way[1], foot[2] + Math.cos(a) * st.flameAt],
+          I: flameLight(st),
+          lit: lit && !st.spent,
+        };
       });
       // the room's air: the flames' heat and smoke, the window; its soot's haze (scene only)
       S.air ??= createRoomAir(S.geom);

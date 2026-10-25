@@ -27,7 +27,8 @@
 // Integers throughout (µg, nJ, mK); the tilt by the law's own sine table.
 //
 //   newCandle() → state     stepCandle(state, { lit, deg }) → [{ m (µg), T (mK above the air), upright }]
-//   heightOf(state) (m)     liquidOf(state) (µg)     massOf(state) (µg)     rimPoint(state, foot, deg)
+//   heightOf(state) (m)     liquidOf(state) (µg)     massOf(state) (µg)     rimPoint(state, foot, deg, way)
+//   (way: [ux, uy], the way it leans in the plane: toward +x unless said)
 //   flameOf(state) → { fed (0..1), burntS }: what the drawn flame reads (scene/light/candle.js)
 
 import { MATTER, AIR } from './matter.js';
@@ -404,9 +405,10 @@ function run(cd, deg) {
 
 // Where its rim's lowest point is, on the candle standing at `foot` (room m) tilted `deg` toward
 // +x: the top of its outer ring on that side (its own frame turned by the law's sine table).
-export function rimPoint(cd, foot, deg) {
+export function rimPoint(cd, foot, deg, way = [1, 0]) {
   const zc = (topOf(cd, NR - 1) / SUB) * DR;
   const cos = COSSIN_Q14[2 * deg] / 16384,
     sin = COSSIN_Q14[2 * deg + 1] / 16384;
-  return [foot[0] + CANDLE.radius * cos + zc * sin, foot[1], foot[2] - CANDLE.radius * sin + zc * cos].map((v) => Math.round(v * 1000) / 1000);
+  const out = CANDLE.radius * cos + zc * sin; // (how far out the way it leans)
+  return [foot[0] + out * way[0], foot[1] + out * way[1], foot[2] - CANDLE.radius * sin + zc * cos].map((v) => Math.round(v * 1000) / 1000);
 }

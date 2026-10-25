@@ -155,7 +155,7 @@ export const PANE = 0.004; // the window's glass, this thick (m)
 export const HOLDER = { radius: 0.045, height: 0.015 };
 // The stamper (rooms.md §3b): its brass face's radius and its wooden handle's height (m), and where it
 // lies when the room is made with it: left of the page, toward the writer (clear of the candle's holder).
-export const STAMPER = { face: 0.015, handle: 0.07 };
+export const STAMPER = { face: 0.015, handle: 0.07, grip: 0.022 }; // (grip: its handle's radius)
 export const stamperRestOf = (geom) => [geom.pageRect.x0 - 0.05, geom.pageRect.y0 + 0.03, geom.table.top];
 // The pens (rooms.md §3c; law/room.js PENS: a plain pen, a flex nib, a broad nib): a wooden body and a
 // nib of brass, each lying right of the page toward the writer, side by side, its nib to the right

@@ -6,8 +6,11 @@
 //
 //   act    { v: 2, kind: 'room', room: <owner's key>, by: <key>, k, act, thing, ... }
 //            act 'light' | 'out'   thing: a candle
-//            act 'place'           thing, to: [x, y, z] (mm, room: where it rests) | null (held: in by's hand)
+//            act 'place'           thing, to: [x, y, z] (mm, room: where the hand let it go; it falls from there
+//                                  until it rests: law/bodies.js) | null (held: in by's hand)
 //            act 'tilt'            thing: the candle in by's hand, pos: [x, y, z] (mm: its foot), deg (0..90, toward +x)
+//            act 'carry'           thing: in by's hand, pos: [x, y, z] (mm: its foot): where the hand has it as it
+//                                  goes, coarse as a tilt is (isTiltAct): what it meets on the way it pushes (law/bodies.js)
 //            act 'open' | 'shut'   thing: the window (its sash: world.md Phase 3, what comes in through it),
 //                                  its shutters, or the door (outside.md Phase 4: shut, each is a wall)
 //            act 'set'             thing: a pen, set: its settings (its facts: one-world.md, the panel for the pen
@@ -34,7 +37,7 @@ export const OPENINGS = ['window', 'shutters', 'door'];
 export const OPEN_AT_FIRST = Object.freeze({ window: false, shutters: true, door: false });
 export const openNow = (things, thing) => things?.[thing]?.open ?? OPEN_AT_FIRST[thing];
 export const THINGS = [...CANDLES, ...PENS, 'jar', 'stamper', ...OPENINGS];
-export const ACTS = ['light', 'out', 'place', 'tilt', 'set', 'open', 'shut'];
+export const ACTS = ['light', 'out', 'place', 'tilt', 'carry', 'set', 'open', 'shut'];
 export const TILT_MAX = 90;
 export const TILT_STEP = 5; // degrees: a tilt act only past this turn or a step moved (being.js: as the head's)
 // One world, one sun, one clock (rooms.md §1b): Pacific. Night is the sun down by it (law/sun.js:
@@ -56,6 +59,7 @@ export function makeRoomAct({ sk, pk, room, k, act, thing, to, pos, deg, set }) 
   const body = { v: 2, kind: 'room', room, by: b64url(pk), k, act, thing };
   if (act === 'place') body.to = to === null ? null : to.map(mm);
   if (act === 'set') body.set = set;
+  if (act === 'carry') body.pos = pos.map(mm);
   if (act === 'tilt') {
     body.pos = pos.map(mm);
     body.deg = Math.max(0, Math.min(TILT_MAX, Math.round(deg)));
@@ -72,6 +76,7 @@ export function checkRoomAct(body) {
     out: 'act,by,k,kind,room,thing,v',
     place: 'act,by,k,kind,room,thing,to,v',
     tilt: 'act,by,deg,k,kind,pos,room,thing,v',
+    carry: 'act,by,k,kind,pos,room,thing,v',
     set: 'act,by,k,kind,room,set,thing,v',
     open: 'act,by,k,kind,room,thing,v',
     shut: 'act,by,k,kind,room,thing,v',
@@ -83,6 +88,7 @@ export function checkRoomAct(body) {
   if ((body.act === 'open' || body.act === 'shut') !== OPENINGS.includes(body.thing)) throw bad('only a window, its shutters or a door is opened or shut, and they are only opened or shut');
   if (body.act === 'place' && body.to !== null && !inRoom(body.to)) throw bad('not a place in the room');
   if (body.act === 'tilt' && (!inRoom(body.pos) || !Number.isInteger(body.deg) || body.deg < 0 || body.deg > TILT_MAX)) throw bad('a malformed tilt');
+  if (body.act === 'carry' && (OPENINGS.includes(body.thing) || !inRoom(body.pos))) throw bad('a malformed carry');
   if (body.act === 'set') {
     if (!PENS.includes(body.thing)) throw bad('only a pen is set');
     checkPenSet(NIB_OF[body.thing], body.set);

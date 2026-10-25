@@ -662,6 +662,19 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     Object.assign(gpu.objectMaterial(lights, { kind: KIND_OF[matter], seed: thing ? thingSeedOf(thing) : 0, pair: pairOf(matter), shape, webgpu: own }), { matter, thing });
   const objectMats = [];
   const objectMeshes = new Map(); // id → mesh (a holder goes where its candle is carried)
+  // a thing leaning `lean` (radians) the way `way` ([ux, uy]) leans: a turn about the plane's line across that way
+  const leanOf = (way, lean) => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(-(way?.[1] ?? 0), way?.[0] ?? 1, 0), lean);
+  // a part of a thing `along` up its length from its foot: standing, straight up; lying the way `lying` goes, along
+  // the floor (its side, `r` round, on what holds it)
+  const standOrLie = (mesh, foot, along, lying, r) => {
+    if (!lying) {
+      mesh.quaternion.identity();
+      mesh.position.set(foot[0], foot[1], foot[2] + along);
+      return;
+    }
+    mesh.quaternion.copy(leanOf(lying, Math.PI / 2));
+    mesh.position.set(foot[0] + lying[0] * along, foot[1] + lying[1] * along, foot[2] + r);
+  };
   for (const o of GEOM.objects) {
     const mat = thingMat(o.matter, o.id, o.box ? 'box' : 'round');
     objectMats.push(mat);
@@ -1343,19 +1356,21 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         const top = foot[2] + fl.height * PX_PER_M;
         const wickH = (fl.wick / 1000) * PX_PER_M;
         const { wax, wick, flame } = candles[i];
-        // carried, it leans with the hand (rooms.md §3b), its holder under it
+        // carried, it leans with the hand (rooms.md §3b), or lies the way it fell, its holder under it
         const lean = ((fl.tilt ?? 0) * Math.PI) / 180;
+        const [ux, uy] = fl.way ?? [1, 0];
+        const turn = leanOf(fl.way, lean);
         const up = top - foot[2];
         wax.position.set(foot[0], foot[1], foot[2]);
-        wax.rotation.set(0, lean, 0);
+        wax.quaternion.copy(turn);
         wax.scale.set(r, r, Math.max(1, up));
-        wick.position.set(foot[0] + Math.sin(lean) * up, foot[1], foot[2] + Math.cos(lean) * up);
-        wick.rotation.set(0, lean, 0);
+        wick.position.set(foot[0] + Math.sin(lean) * up * ux, foot[1] + Math.sin(lean) * up * uy, foot[2] + Math.cos(lean) * up);
+        wick.quaternion.copy(turn);
         wick.scale.set(r * 0.06, r * 0.06, wickH);
         const holder = objectMeshes.get(`holder-${i}`);
         if (holder) {
           holder.position.set(fl.foot[0], fl.foot[1], fl.foot[2] + (holder.scale.z || 0) / 2);
-          holder.rotation.set(0, lean, 0);
+          holder.quaternion.copy(turn);
         }
         flame.visible = fl.lit;
         const fh = fl.flameSize * PX_PER_M;
@@ -1442,24 +1457,25 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       for (const [id, one] of pens) drawPen(one, all?.[id] ?? null);
     },
     // The jar (rooms.md §3c), room m: its foot [x, y, z] (in the hand, or where it stands); null: not drawn.
-    setJar(at) {
+    // lying: the way it lies (law/bodies.js), or null standing.
+    setJar(at, lying = null) {
       jar.visible = !!at;
       if (!at) return;
       jar.scale.set(JAR.radius, JAR.radius, JAR.height);
-      jar.position.set(at[0], at[1], at[2] + JAR.height / 2);
+      standOrLie(jar, at, JAR.height / 2, lying, JAR.radius);
       lightHere([jar], jar.position.toArray());
     },
 
     // The stamper (rooms.md §3b), room m: its face's foot [x, y, z] (in the hand, or where it lies); null: not drawn.
-    setStamper(at) {
+    setStamper(at, lying = null) {
       stamper.visible = !!at;
       if (!at) return;
       const [x, y, z] = at;
       const faceH = 0.006;
       stamperFace.scale.set(STAMPER.face, STAMPER.face, faceH);
-      stamperFace.position.set(x, y, z + faceH / 2);
-      stamperHandle.scale.set(0.022, 0.022, STAMPER.handle - faceH);
-      stamperHandle.position.set(x, y, z + faceH + (STAMPER.handle - faceH) / 2);
+      standOrLie(stamperFace, at, faceH / 2, lying, STAMPER.grip);
+      stamperHandle.scale.set(STAMPER.grip, STAMPER.grip, STAMPER.handle - faceH);
+      standOrLie(stamperHandle, at, faceH + (STAMPER.handle - faceH) / 2, lying, STAMPER.grip);
       lightHere([stamperHandle, stamperFace], [x, y, z + STAMPER.handle / 2]);
     },
     // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], their cloth's colour.

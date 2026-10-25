@@ -5,6 +5,9 @@
 
 import { landing } from './drops.js';
 import { PX_PER_M } from '../scene/light/index.js';
+import { HOLDER, STAMPER, PEN, JAR, stamperRestOf, penRestOf, jarRestOf } from '../scene/light/room.js';
+import { CANDLE } from 'penpals-law/candle';
+import { PENS } from 'penpals-law/room';
 
 export const SHARED_PAGE = { width: 800, height: 600 }; // page units: a shared sheet
 const GAP = 60; // page units between the table's sheets and the page
@@ -43,11 +46,32 @@ export const originIn = (geom, [pageW, pageH]) => {
   return [(r.x0 + r.x1) / 2 - pageW / 2 / PX_PER_M, (r.y0 + r.y1) / 2 + pageH / 2 / PX_PER_M, geom.pageOrigin[2]];
 };
 
+// The room's things as bodies (law/bodies.js): the table's top and the floor (wood), each thing's shape (an
+// upright cylinder as wide and as tall as it is drawn: a candle in its holder, the stamper by its handle, the
+// jar, each pen lying flat) and its matter, and where the room was made with each.
+export function bodiesContext(geom) {
+  const t = geom.table;
+  const candle = { r: HOLDER.radius, h: HOLDER.height + CANDLE.length, matter: 'metal' };
+  const pen = { r: PEN.thick / 2, h: PEN.thick, matter: 'wood' };
+  return {
+    room: { table: { x0: t.x0, x1: t.x1, y0: t.y0, y1: t.y1, top: t.top, matter: 'wood' }, floor: 'wood' },
+    shapes: {
+      'candle-0': candle,
+      'candle-1': candle,
+      stamper: { r: STAMPER.grip, h: STAMPER.handle, matter: 'wood' },
+      jar: { r: JAR.radius, h: JAR.height, matter: 'glass' },
+      ...Object.fromEntries(PENS.map((p) => [p, pen])),
+    },
+    start: { 'candle-0': geom.candles[0], 'candle-1': geom.candles[1], stamper: stamperRestOf(geom), jar: jarRestOf(geom), ...Object.fromEntries(PENS.map((p, k) => [p, penRestOf(geom, k)])) },
+  };
+}
+
 // What the law needs to regrow a room's drips (law/wax.js): what is under a point, given the
-// sheets lying on the table then.
+// sheets lying on the table then; and where its candles are, as its bodies (bodiesContext).
 export function waxContext({ geom, page }) {
   const origin = originIn(geom, page);
   return {
+    bodies: bodiesContext(geom),
     landing: (p, lying) => landing(geom, p, { origin, sheets: lying.map((s) => ({ sheet: s.sheet, origin: slotOf(s.slot, page[0]), size: [SHARED_PAGE.width, SHARED_PAGE.height] })) }),
   };
 }
