@@ -77,6 +77,13 @@ import { curves, SUN_RADIUS, surface as grown } from './light/index.js';
 export { WebGPURenderer, ClippingGroup } from 'three/webgpu';
 
 const at = (t, q) => t.sample(q).level(0);
+// The one row order. Every texture here holds its rows top down, row 0 at the
+// top (page y runs down): the DataTextures as they are filled (flipY false), and
+// the targets a pass draws into as three samples them on both backends (v = 0
+// the row drawn at the top of the view). Every plane here (a chunk's grid, the
+// bake quad, a mark's piece, the cut) carries uv.y up, so its point in its
+// texture is (u, 1 − v).
+const down = () => vec2(uv().x, uv().y.oneMinus());
 export const RESTS = 16; // sheets whose shadows fall on the table (or on the page they lie on)
 
 // A texture smoothly between its cells (a cubic B-spline, from four bilinear
@@ -360,7 +367,7 @@ export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
   m.colorNode = Fn(() => {
     const ht = grower(webgpu)({ kind: int(kind), m: seedU, pos: attribute('cellPos', 'vec2'), foot: footAt(L) });
     const t = clamp(ht.y.div(255), 0, 1).toVar();
-    const ink4 = at(inkTex, uv()).toVar();
+    const ink4 = at(inkTex, down()).toVar();
     const a = log(max(mix(vec3(1), ink4.rgb, ink4.a), vec3(1 / 512))).negate(); // as a chunk takes its colour (colour to alpha over white)
     const E = [0, 1, 2, 3].map((g) => attribute(`amb${g}`, 'vec4'));
     const V = normalize(cameraPosition.sub(positionWorld));
@@ -432,8 +439,8 @@ function chunkNodes(K, c = null) {
     C: each(texture(K.blank.color), (c) => c.colorTex),
     D: each(texture(K.blank.byte), (c) => c.detailTex),
     B: each(texture(K.blank.byte), (c) => c.bandTex),
-    SF: each(texture(K.blank.half), (c) => c.surfRT.texture),
-    SH: each(texture(K.blank.rgba), (c) => c.shadeRT.texture),
+    SF: each(texture(K.blank.surface), (c) => c.surfRT.texture), // (targets from the start: engine.js blank)
+    SH: each(texture(K.blank.shade), (c) => c.shadeRT.texture),
     G: texture(K.generic),
     realDetail: each(uniform(0), (c) => c.realDetail),
     cellPx: each(uniform(1), (c) => c.cellPx),
@@ -457,6 +464,24 @@ function bakeMaterial(fn) {
   return m;
 }
 
+// --- the check: is the relief under the ink? ---
+
+// A chunk's raw height (the facts' top), its baked surface (what the relief,
+// the normals and the shade are drawn from) and its ink's alpha, each sampled
+// exactly as the chunk is drawn (the same nodes, the same coordinates), into a
+// target the engine reads back (engine.js reliefCheck).
+export function alignMaterial(K, c = null) {
+  const u = chunkNodes(K, c);
+  return bakeMaterial(
+    Fn(() => {
+      // over the chunk's own cells (CHUNK × CHUNK: a row a 256-byte multiple, as a read back wants),
+      // at the very points the chunk samples them (the bakes and the drawing take the same row order)
+      const q = down().mul(K.CHUNK).add(K.APRON).div(K.TEXN).toVar();
+      return vec4(at(u.H, q).r, at(u.SF, q).r, at(u.C, q).a, at(u.SH, q).r);
+    })(),
+  );
+}
+
 // --- baked ---
 
 // The surface: (drawn height in drops, normal x, normal y, openness).
@@ -467,7 +492,7 @@ export function surfaceBake(L, K, c = null) {
   const hPx = (q) => at(u.H, q).r.mul(L.dropPx).add(detail(q).mul(DETAIL_PX)); // height, page px
   return bakeMaterial(
     Fn(() => {
-      const q = uv().toVar();
+      const q = down().toVar();
       // a groove is smooth even where the nib pressed unevenly cell by cell: 3 × 3 cells
       const sum = float(0).toVar();
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) sum.addAssign(at(u.H, q.add(vec2(dx * texel, dy * texel))).r);
@@ -529,7 +554,7 @@ export function shadeBake(L, K, c = null) {
   };
   return bakeMaterial(
     Fn(() => {
-      const q = uv().toVar();
+      const q = down().toVar();
       const h0 = hPx(q).toVar();
       // where this cell is in the world (for the candles, which are points)
       const core = q.mul(K.TEXN).sub(K.APRON).div(K.CHUNK);
@@ -547,7 +572,7 @@ export function shadeBake(L, K, c = null) {
 export function chunkMaterial(L, K, c = null) {
   const m = new MeshBasicNodeMaterial();
   const u = chunkNodes(K, c);
-  const core = vec2(uv().x, uv().y.oneMinus());
+  const core = down();
   const toTex = (k) => k.mul(K.CHUNK).add(K.APRON).div(K.TEXN);
   m.positionNode = Fn(() => vec3(positionLocal.x, positionLocal.y, at(u.SF, toTex(core)).r.mul(L.dropPx)))();
   m.colorNode = Fn(() => {
@@ -586,13 +611,20 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
   const d = 3 / 256; // three cells of the grain
   const g = (q) => at(G, q).r.mul(DETAIL_PX);
   m.colorNode = Fn(() => {
-    const q = uv().mul(detailScale).toVar();
+    const q = down().mul(detailScale).toVar();
     const gx = g(q.add(vec2(d, 0))).sub(g(q.sub(vec2(d, 0))));
     const gy = g(q.add(vec2(0, d))).sub(g(q.sub(vec2(0, d))));
-    const n = normalize(vec3(gx.negate().div(cellPx.mul(6)), gy.negate().div(cellPx.mul(6)), 1)).toVar();
+    const n = normalize(vec3(gx.negate().div(cellPx.mul(6)), gy.div(cellPx.mul(6)), 1)).toVar(); // (page y down, world y up: as the surface's)
     const V = normalize(cameraPosition.sub(positionWorld));
     return spectral(plainly(L.paper), n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), float(0), V, L, null);
   })();
+  return m;
+}
+
+// The cut's picture (the side view, law/v2/look.js), rows top down as it comes.
+export function cutMaterial(picture) {
+  const m = new MeshBasicNodeMaterial({ transparent: true, side: THREE.DoubleSide });
+  m.colorNode = texture(picture, down());
   return m;
 }
 

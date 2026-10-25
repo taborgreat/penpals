@@ -17,7 +17,8 @@ const LIFT = 0.0002; // m: a piece is drawn this far off its surface (and nudged
 const KIND = { plaster: grown.PLASTER, floor: grown.PLANKS, table: grown.BOARD };
 
 // The corners of a piece of a mark: where on its surface (room m, lifted), in
-// the surface's own cells, in its texture, and in the surface's own u, v (m).
+// the surface's own cells, in its texture (uv.y up, as every plane's: its row dy
+// at 1 − v, nodes.js down), and in the surface's own u, v (m).
 export function pieceCorners(geom, mk, x0, y0, w, h) {
   const s = geom.surfaces[mk.si];
   const [bx, by] = mk.box;
@@ -32,7 +33,7 @@ export function pieceCorners(geom, mk, x0, y0, w, h) {
     const d = [0, 1, 2].map((c) => on[c] - s.origin[c]);
     const u = d[0] * s.u[0] + d[1] * s.u[1] + d[2] * s.u[2],
       v = d[0] * s.v[0] + d[1] * s.v[1] + d[2] * s.v[2];
-    return { pos: toRoom(mk.frame, at, LIFT), on, cell: [u / grown.CELL_M, v / grown.CELL_M], uv: [dx / MARK_CHUNK, dy / MARK_CHUNK], surf: [u, v] };
+    return { pos: toRoom(mk.frame, at, LIFT), on, cell: [u / grown.CELL_M, v / grown.CELL_M], uv: [dx / MARK_CHUNK, 1 - dy / MARK_CHUNK], surf: [u, v] };
   });
 }
 

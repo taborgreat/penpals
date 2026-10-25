@@ -49,6 +49,9 @@ const MAX_RECTS = 64; // live rectangles a chunk queues before it is sent whole 
 // chunks baked.
 export const stats = { frames: 0, renderMs: 0, uploadBytes: 0, bakes: 0, chunks: 0, prepareMs: 0, mainMs: 0, tiles: 0, tilesMs: 0 };
 globalThis.__sceneStats = stats;
+// The views on the page (for the checks: e2e and the lab pages call reliefCheck).
+const allViews = new Set();
+globalThis.__sceneViews = allViews;
 const SYNC_PX = new Uint8Array(4);
 
 const HALF_ZERO = toHalf(0);
@@ -142,22 +145,31 @@ const colorTex = (data, w, h) => {
   return t;
 };
 const byteTex = (data, w, h) => linear(new THREE.DataTexture(data, w, h, THREE.RedFormat, THREE.UnsignedByteType));
-const bakeTarget = (type) => {
-  const rt = new THREE.RenderTarget(TEXN, TEXN, { type, depthBuffer: false, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+const bakeTarget = (type, n = TEXN) => {
+  const rt = new THREE.RenderTarget(n, n, { type, depthBuffer: false, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
   own(rt.texture);
   return rt;
 };
 
 // Stand-ins of each texture kind, for the shared materials before a chunk gives its own.
+// The baked kinds stand in with targets: on WebGL2 three reads a target with its
+// rows turned over (to WebGPU's order, the one row order here: nodes.js down), by
+// whether the texture a slot held when it last looked was a target; a slot
+// started on a DataTexture, or on the same stand-in as another slot, keeps the
+// wrong answer once the chunks' own come in, and the relief lies mirrored under
+// the ink.
 let blanks = null;
 function blank() {
-  blanks ??= {
+  if (blanks) return blanks;
+  blanks = {
     half: halfTex(new Uint16Array(4), 1, 1),
     color: colorTex(new Uint8Array(4), 1, 1),
     byte: byteTex(new Uint8Array(1), 1, 1),
     rgba: linear(new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType)),
   };
   for (const t of Object.values(blanks)) t.needsUpdate = true;
+  blanks.surface = bakeTarget(THREE.HalfFloatType, 1).texture;
+  blanks.shade = bakeTarget(THREE.UnsignedByteType, 1).texture;
   return blanks;
 }
 
@@ -697,7 +709,85 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     stats.bakes++;
   }
 
+  // The check (the relief under the ink): for every chunk drawn, its raw heights,
+  // its baked surface and its ink, sampled as the chunk samples them and read
+  // back. The surface is the heights' mean over 3 × 3 cells, so laid exactly on
+  // them it matches that mean taken here (r ≈ 1); moved by a cell it matches
+  // worse, upside down not at all. → [{ sheet, cx, cy, inked (texels), asIs,
+  // mirrored (the heights' mean against the surface: correlations), best
+  // ([dx, dy, r]: the move within 3 cells that matches best), ink, inkMirrored
+  // (the ink's alpha against the surface: a groove under the ink is as much its
+  // own as a ridge, so its size counts, not its sign) }], a correlation null
+  // where a side is flat.
+  let alignRT = null;
+  const aligns = new Map();
+  async function reliefCheck() {
+    alignRT ??= new THREE.RenderTarget(CHUNK, CHUNK, { type: THREE.FloatType, depthBuffer: false, generateMipmaps: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+    const out = [];
+    const M = 3; // the farthest move tried (and the cells kept clear of the edge for it)
+    for (const s of sheets.values()) {
+      for (const c of s.chunks.values()) {
+        if (!c.mesh.visible) continue;
+        let m = own ? c.mats.align : aligns.get('shared');
+        if (!m) {
+          m = gpu.alignMaterial(K, own ? c : null);
+          if (own) c.mats.align = m;
+          else aligns.set('shared', m);
+        }
+        bakeQuad.material = m;
+        bakeQuad.userData.c = c;
+        renderer.setRenderTarget(alignRT);
+        renderer.render(bakeScene, bakeCam);
+        renderer.setRenderTarget(null);
+        const px = await renderer.readRenderTargetPixelsAsync(alignRT, 0, 0, CHUNK, CHUNK);
+        const at = (x, y, k) => px[4 * (y * CHUNK + x) + k];
+        const mean = (x, y) => {
+          let t = 0;
+          for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) t += at(x + i, y + j, 0);
+          return t / 9;
+        };
+        // a(x, y) against the surface at (x + dx, y + dy), or at the mirrored row
+        const corr = (a, flip, dx = 0, dy = 0) => {
+          let n = 0,
+            sa = 0,
+            sb = 0,
+            saa = 0,
+            sbb = 0,
+            sab = 0;
+          for (let y = M + 1; y < CHUNK - M - 1; y++) {
+            for (let x = M + 1; x < CHUNK - M - 1; x++) {
+              const p = a(x, y),
+                q = at(x + dx, flip ? CHUNK - 1 - y : y + dy, 1);
+              n++;
+              sa += p;
+              sb += q;
+              saa += p * p;
+              sbb += q * q;
+              sab += p * q;
+            }
+          }
+          const va = saa / n - (sa / n) ** 2,
+            vb = sbb / n - (sb / n) ** 2;
+          return va > 1e-12 && vb > 1e-12 ? (sab / n - (sa / n) * (sb / n)) / Math.sqrt(va * vb) : null;
+        };
+        const ink = (x, y) => at(x, y, 2);
+        let inked = 0;
+        for (let k = 0; k < CHUNK * CHUNK; k++) if (px[4 * k + 2] > 0.1) inked++;
+        let best = [0, 0, -2];
+        for (let dy = -M; dy <= M; dy++) {
+          for (let dx = -M; dx <= M; dx++) {
+            const r = corr(mean, false, dx, dy) ?? -2;
+            if (r > best[2]) best = [dx, dy, r];
+          }
+        }
+        out.push({ sheet: s.id, cx: c.cx, cy: c.cy, inked, asIs: corr(mean, false), mirrored: corr(mean, true), best, ink: corr(ink, false), inkMirrored: corr(ink, true) });
+      }
+    }
+    return out;
+  }
+
   const view = {
+    reliefCheck,
     // A sheet: its cells (x0, y0, w, h in its own cell frame), shown at `origin`
     // (page px of cell x0, y0) with `cellPx` page px a cell.
     setSheet(id, { x0, y0, w, h, origin, cellPx }) {
@@ -947,7 +1037,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setCut(cut) {
       if (section) {
         scene.remove(section);
-        section.material.map?.dispose();
+        section.userData.picture.dispose();
         section.material.dispose();
         section.geometry.dispose();
         section = null;
@@ -962,16 +1052,14 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       const normal = new THREE.Vector3(dy / len, dx / len, 0);
       clip.setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(a[0], -a[1], 0));
       if (cut.image) {
-        // rows bottom up, as a texture has them
         const { width: iw, height: ih, rgba } = cut.image;
-        const rows = new Uint8Array(rgba.length);
-        for (let y = 0; y < ih; y++) rows.set(rgba.subarray(y * iw * 4, (y + 1) * iw * 4), (ih - 1 - y) * iw * 4);
-        const tex = new THREE.DataTexture(rows, iw, ih, THREE.RGBAFormat);
+        const tex = new THREE.DataTexture(new Uint8Array(rgba), iw, ih, THREE.RGBAFormat);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.needsUpdate = true;
         const hPx = (ih / iw) * len;
         const geo = new THREE.PlaneGeometry(len, hPx);
-        section = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }));
+        section = new THREE.Mesh(geo, gpu.cutMaterial(tex));
+        section.userData.picture = tex;
         section.position.set((a[0] + b[0]) / 2, -(a[1] + b[1]) / 2, -SLAB_PX + hPx / 2 - hPx * 0.55);
         section.rotation.set(Math.PI / 2, 0, -Math.atan2(dy, dx), 'ZXY');
         scene.add(section);
@@ -1116,6 +1204,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       view.setGround(null);
       view.setCut(null);
       shared.views.delete(view);
+      allViews.delete(view);
       settleDirect();
       bakeQuad.geometry.dispose();
       for (const m of Object.values(mats)) m.dispose();
@@ -1127,6 +1216,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       baked.surface.dispose();
       baked.shade.dispose();
       if (own) for (const m of Object.values(stand.mats)) m.dispose();
+      alignRT?.dispose();
+      for (const m of aligns.values()) m.dispose();
     },
     get camera() {
       return cam3;
@@ -1135,6 +1226,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     invalidate,
   };
   shared.views.add(view);
+  allViews.add(view);
   settleDirect();
   return view;
 }

@@ -61,6 +61,7 @@ npm run check:browsers -w law             # the law byte-identical in Chromium, 
 node frontend/e2e/flow.mjs --dev --no-webgl   # the same flow with WebGL off: the flat look, writing in 2D
 node frontend/e2e/flow.mjs --dev --webgpu     # the full Chromium on this machine's GPU: the scene drawn with WebGPU
 npm run build -w frontend && node frontend/e2e/flow.mjs   # the whole site in Chromium, by hand-like input
+node frontend/e2e/relief.mjs [--webgpu]   # a "/" on the pad: its relief lies exactly under its ink, every chunk, every exaggeration
 node backend/scripts/fsck.js [--regrow]   # the data directory, read-only
 node law/bin/verify.js <file.book | proof.json> [--json]
 ```
