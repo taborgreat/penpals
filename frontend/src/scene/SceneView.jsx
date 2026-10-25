@@ -830,7 +830,8 @@ const SceneView = forwardRef(function SceneView(
           carrying.dip(); // the dip pen's nib into the jar
           return;
         }
-        if (id !== null) {
+        if (id !== null && !penMode) {
+          // (with a pen in the hand a click writes: things are taken up with the hand free, or with E)
           if (carrying.pick(id) === 'pen') setHand(false); // a pen taken up: it is the pen in the hand
           return;
         }
