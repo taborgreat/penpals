@@ -51,6 +51,10 @@ import { sightOf } from './sight.js';
 //   tableWriter { sheets: [{ sheet, origin: [x, y], size: [w, h] }] (page px), down(sheet, p, ev, type),
 //               move(p, ev), up(p, ev), cancel() }: writing on shared sheets on the table (rooms.md §6),
 //               p in that sheet's own units
+//   hand        { holding, pickables: [{ id, at: [x, y, z] (its foot, room m), r, h }], pick(id),
+//               hover(at), down(at), tiltBy(degrees) }: a thing in the hand (rooms.md §3b): a click on
+//               a pickable picks it up; held, it follows the pointer over the table (at: the point
+//               there, room m), E held makes the mouse tilt it, a click sets it down
 //   focus       { at: [x, y] (page px), size, n }: the eye goes to that place on the table
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
@@ -118,6 +122,7 @@ const SceneView = forwardRef(function SceneView(
     onPose = null,
     tableWriter = null,
     focus = null,
+    hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
   },
   ref,
 ) {
@@ -670,12 +675,44 @@ const SceneView = forwardRef(function SceneView(
     return { az: (fx - 0.5) * 220, el: Math.max(2, Math.min(88, (1 - fy) * 90)) };
   };
 
+  // The room point the pointer is over on the table's plane (the page's), room m.
+  const roomPointOf = (e) => {
+    const p = pageOf(e);
+    return p ? pageToRoom([p.x, p.y, 0], origin()) : null;
+  };
+  // A thing to pick up under the pointer: the nearest whose upright (its foot up h, r round) the ray passes.
+  const pickableAt = (e) => {
+    if (!carrying?.pickables?.length) return null;
+    const { origin: o, dir } = roomRay(e);
+    let best = null;
+    for (const t of carrying.pickables) {
+      const b = [t.at[0] - t.r, t.at[1] - t.r, t.at[2], t.at[0] + t.r, t.at[1] + t.r, t.at[2] + t.h];
+      const d = rayBox(o, dir, b);
+      if (d !== null && (!best || d < best.d)) best = { d, id: t.id };
+    }
+    if (!best) return null;
+    const wall = roomHit(GEOM, o, dir);
+    return wall && wall.t < best.d ? null : best.id; // something stands in front of it
+  };
   const onPointerDown = (e) => {
     const c = canvasRef.current;
     c.setPointerCapture(e.pointerId);
     c.focus({ preventScroll: true }); // (the keys: fly, H)
     S.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     S.press = { x: e.clientX, y: e.clientY };
+    if (carrying && (e.button === 0 || e.pointerType !== 'mouse')) {
+      // the hand: holding something, a click sets it down; else a click on a thing picks it up
+      if (carrying.holding) {
+        const at = roomPointOf(e);
+        if (at && carrying.down(at)) return;
+      } else {
+        const id = pickableAt(e);
+        if (id !== null) {
+          carrying.pick(id);
+          return;
+        }
+      }
+    }
     if (tool === 'light' || e.altKey) {
       S.drag = { kind: 'light' };
       S.override = lightFromPointer(e);
@@ -757,6 +794,16 @@ const SceneView = forwardRef(function SceneView(
   const onPointerMove = (e) => {
     const p0 = S.pointers.get(e.pointerId);
     if (p0) S.pointers.set(e.pointerId, { ...p0, x: e.clientX, y: e.clientY });
+    if (carrying?.holding && !S.drag) {
+      // the thing in the hand: E held, the mouse tilts it; else it follows the pointer
+      if (S.tilting) carrying.tiltBy((e.clientX - (S.handX ?? e.clientX)) * 0.4);
+      else {
+        const at = roomPointOf(e);
+        if (at) carrying.hover(at);
+      }
+      S.handX = e.clientX;
+      schedule();
+    }
     const d = S.drag;
     if (!d) return;
     if (d.kind === 'light') {
@@ -948,6 +995,12 @@ const SceneView = forwardRef(function SceneView(
   const onKeyDown = (e) => {
     if (mode !== '3d') return;
     const k = e.key.toLowerCase();
+    if (k === 'e' && carrying?.holding) {
+      // E held: the mouse tilts what the hand holds (rooms.md §3b), and nothing else moves
+      e.preventDefault();
+      S.tilting = true;
+      return;
+    }
     if (k === 'l' && !fixed) {
       look(!S.pose);
       return;
@@ -1006,6 +1059,7 @@ const SceneView = forwardRef(function SceneView(
 
   const onKeyUp = (e) => {
     S.keys.delete(e.key.toLowerCase());
+    if (e.key.toLowerCase() === 'e') S.tilting = false;
   };
 
   // wheel listeners must not be passive to stop the page scrolling

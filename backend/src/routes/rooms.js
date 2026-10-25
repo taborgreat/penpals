@@ -3,7 +3,7 @@ import { requireAuth } from '../auth.js';
 import { httpError } from '../files.js';
 import { findByName, findByKey, getAccount } from '../store/accounts.js';
 import { canSeeProfile, hasBlocked } from '../social.js';
-import { join, part, move, beingsIn } from '../store/rooms.js';
+import { join, part, move, beingsIn, place, checkThing } from '../store/rooms.js';
 import { createShared, stamp, sheetOf, onTable, viewOf, onShared, ownedBy } from '../store/shared.js';
 import { being as B } from 'penpals-law';
 
@@ -12,6 +12,7 @@ import { being as B } from 'penpals-law';
 //                                       how they move ('here', 'being'), the shared sheets on
 //                                       its owner's table and their acts as stamped ('table', 'shared')
 //   POST /api/rooms/:name/motion       { pose }: a coarse motion act (light/roomCamera, law/being.js)
+//   POST /api/rooms/:name/place        { thing, at }: a thing picked up (at null) or set down (rooms.md §3b, §3c)
 //   GET  /api/rooms/:name/table        the shared sheets lying on its owner's table
 //   POST /api/shared                   { birth, seal, open }: a new shared sheet, on your table
 //   GET  /api/shared/mine              your shared sheets, wherever they lie
@@ -77,6 +78,15 @@ roomsRouter.post('/:name/motion', requireAuth, json, async (req, res) => {
   if (!B.checkPose(pose)) throw httpError(400, 'bad_pose', 'That is not a pose in this room.');
   const line = await move(owner.id, req.user.id, pose);
   res.json({ stamped: !!line, n: line?.n ?? null });
+});
+
+roomsRouter.post('/:name/place', requireAuth, json, async (req, res) => {
+  const owner = roomOf(req);
+  const { thing, at } = req.body ?? {};
+  if (!checkThing(thing, at)) throw httpError(400, 'bad_thing', 'That is not a thing in this room, or not a place in it.');
+  const line = await place(owner.id, req.user.id, { thing, at });
+  if (!line) throw httpError(409, 'not_yours', 'You are not in the room, or someone else is holding it.');
+  res.json({ n: line.n });
 });
 
 roomsRouter.get('/:name/table', (req, res) => {

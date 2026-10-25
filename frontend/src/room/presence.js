@@ -14,6 +14,32 @@ import { GEOM } from '../scene/light.js';
 import { roomCamera } from '../scene/light/index.js';
 
 export const GLIDE_MS = 220; // others glide between their acts this long
+
+// Where the room's things are (rooms.md §3b, §3c: the candles, the pen), as its stream
+// tells it: { [thing]: { at: [x, y, z] | null (held), by } }, by room. useThings(name)
+// follows it; placeThing picks one up (at null) or sets it down.
+const things = new Map(); // room name → { now, listeners }
+const thingsIn = (name) => {
+  let t = things.get(name);
+  if (!t) things.set(name, (t = { now: {}, listeners: new Set() }));
+  return t;
+};
+function setThings(name, f) {
+  const t = thingsIn(name);
+  t.now = f(t.now);
+  for (const fn of t.listeners) fn(t.now);
+}
+export function useThings(name) {
+  const [now, setNow] = useState(() => thingsIn(name).now);
+  useEffect(() => {
+    const t = thingsIn(name);
+    setNow(t.now);
+    t.listeners.add(setNow);
+    return () => t.listeners.delete(setNow);
+  }, [name]);
+  return now;
+}
+export const placeThing = (name, thing, at) => api.post(`/api/rooms/${encodeURIComponent(name)}/place`, { thing, at });
 const SEAT_X = [0, -0.45, 0.45, -0.9, 0.9]; // m from the middle seat (the owner's), along the table
 
 // The i-th seat's eye (room m): 0 the owner's, in front of the page; then either side, then a row behind.
@@ -69,8 +95,10 @@ export function useRoom(name, { seat = 0 } = {}) {
     const listen = () => {
       on('here', (d) => {
         setBody(!!d.body);
+        setThings(name, () => d.things ?? {});
         setBeings(new Map(d.beings.map((b) => [b.name, { name: b.name, from: b.pose, to: b.pose, t0: performance.now() }])));
       });
+      on('thing', (d) => setThings(name, (t) => ({ ...t, [d.thing]: { at: d.at, by: d.by } })));
       on('being', (d) => {
         if (d.kind === 'leave')
           setBeings((m) => {

@@ -24,8 +24,8 @@ let room = null;
 // Each candle's flame at unit strength (flicker scales it), standing where its
 // burn has brought it down to.
 export function flamesOf(room, candles = []) {
-  return candles.map(({ litMs = 0, which = 0, generation = 0 }) => {
-    const spot = room.candles[which] ?? room.candles[0];
+  return candles.map(({ litMs = 0, which = 0, generation = 0, at = null }) => {
+    const spot = at ?? room.candles[which] ?? room.candles[0]; // (carried: where it stands now)
     const s = candleState(litMs, 0, { which, generation });
     const unit = { ...s, intensity: s.spent ? 0 : 1 };
     return { pos: [spot[0], spot[1], spot[2] + s.flameAt], intensity: flameLight(unit), scale: s.intensity };

@@ -378,6 +378,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   const box = new THREE.BoxGeometry(1, 1, 1);
   const disc = new THREE.CylinderGeometry(1, 1, 1, 32).rotateX(Math.PI / 2);
   const objectMats = [];
+  const objectMeshes = new Map(); // id → mesh (a holder goes where its candle is carried)
   for (const o of GEOM.objects) {
     const brass = o.matter === 'brass';
     const mat = gpu.objectMaterial(
@@ -387,6 +388,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     mat.matter = o.matter;
     objectMats.push(mat);
     const mesh = new THREE.Mesh(o.box ? box : disc, mat);
+    objectMeshes.set(o.id, mesh);
     if (o.box) {
       const [x0, y0, z0, x1, y1, z1] = o.box;
       mesh.scale.set(x1 - x0, y1 - y0, z1 - z0);
@@ -925,10 +927,20 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         const top = foot[2] + fl.height * PX_PER_M;
         const wickH = (fl.wick / 1000) * PX_PER_M;
         const { wax, wick, flame } = candles[i];
+        // carried, it leans with the hand (rooms.md §3b), its holder under it
+        const lean = ((fl.tilt ?? 0) * Math.PI) / 180;
+        const up = top - foot[2];
         wax.position.set(foot[0], foot[1], foot[2]);
-        wax.scale.set(r, r, Math.max(1, top - foot[2]));
-        wick.position.set(foot[0], foot[1], top);
+        wax.rotation.set(0, lean, 0);
+        wax.scale.set(r, r, Math.max(1, up));
+        wick.position.set(foot[0] + Math.sin(lean) * up, foot[1], foot[2] + Math.cos(lean) * up);
+        wick.rotation.set(0, lean, 0);
         wick.scale.set(r * 0.06, r * 0.06, wickH);
+        const holder = objectMeshes.get(`holder-${i}`);
+        if (holder) {
+          holder.position.set(fl.foot[0], fl.foot[1], fl.foot[2] + (holder.scale.z || 0) / 2);
+          holder.rotation.set(0, lean, 0);
+        }
         flame.visible = fl.lit;
         const fh = fl.flameSize * PX_PER_M;
         flame.position.set(at[0], at[1], at[2] - fh * 0.32);

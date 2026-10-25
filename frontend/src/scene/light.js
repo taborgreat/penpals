@@ -148,6 +148,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
     parts: null, // { key, day: page N, flames: [page N], unit: [flame N at unit strength] }
     asked: null, // the key being settled
     candles: candles ?? [newCandle(), newCandle()],
+    candleAt: [null, null], // where a candle stands when it has been carried (rooms.md §3b): its foot, room m
+    candleTilt: [0, 0], // how far a held candle leans (degrees, toward +x)
     eye: null,
     t: null,
     page: paperCurve(paper),
@@ -160,7 +162,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
   function request(key, sun) {
     if (!settle || !S.room || S.asked === key) return;
     S.asked = key;
-    settle({ sun: sun.el > -6 ? { az: sun.az, el: sun.el } : null, present: true, direct: true, candles: S.candles.map((c, which) => ({ ...c, which })) }).then(
+    settle({ sun: sun.el > -6 ? { az: sun.az, el: sun.el } : null, present: true, direct: true, candles: S.candles.map((c, which) => ({ ...c, which, at: S.candleAt[which] ?? undefined })) }).then(
       (r) => {
         if (S.asked !== key) return; // a newer one is coming
         S.parts = { key, day: r.day, flames: r.flames, sunDirect: r.sunDirect, flameDirect: r.flameDirect };
@@ -196,6 +198,13 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
     // color 0 luminance only..1 }; the eye ramps there by its own reactions);
     // gaze: the patch of the room the eye is on (Look), else the page: the eye
     // takes in what is in view, so a wall looked at is lit as a wall is.
+    // A candle carried (rooms.md §3b): standing at `at` (its foot, room m; null: back where it
+    // was made) and leaning `tilt` degrees. Its light comes from there (the room's light settles anew).
+    placeCandle(which, at, tilt = 0) {
+      S.candleAt[which] = at ? [...at] : null;
+      S.candleTilt[which] = tilt;
+      for (const fn of S.listeners) fn();
+    },
     // The candle's melt pool as its burning has made it (rooms.md §3b): { litMs (this burning, or
     // the last), outMs (since it went out; 0 while it burns) }, for law/wax.js poolOf.
     pool(now = performance.now()) {
@@ -221,11 +230,13 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
       const clock = date.getTime() / 1000;
       const flames = S.candles.map((c, which) => {
         const st = candleState(c.litMs, clock, { which, generation: c.generation, lit });
-        const foot = S.geom.candles[which];
-        return { ...st, which, foot, pos: [foot[0], foot[1], foot[2] + st.flameAt], I: flameLight(st), lit: lit && !st.spent };
+        const foot = S.candleAt[which] ?? S.geom.candles[which];
+        const tilt = S.candleTilt[which] ?? 0;
+        const a = (tilt * Math.PI) / 180; // (leaning, its flame is where its wick is)
+        return { ...st, which, foot, tilt, pos: [foot[0] + Math.sin(a) * st.flameAt, foot[1], foot[2] + Math.cos(a) * st.flameAt], I: flameLight(st), lit: lit && !st.spent };
       });
       // the room's light at the page, less what comes straight from the sun and the flames (drawn per pixel)
-      const key = [Math.round(place.az * 2), Math.round(place.el * 2), ...flames.map((f) => Math.round(f.height * 2000)), lit ? 1 : 0].join();
+      const key = [Math.round(place.az * 2), Math.round(place.el * 2), ...flames.map((f) => [Math.round(f.height * 2000), ...f.pos.map((v) => Math.round(v * 200))].join(':')), lit ? 1 : 0].join();
       if (!S.parts || S.parts.key !== key) request(key, sun);
       // each patch's ambient light now (its flames at their strength now), and all that reaches the page
       const n = S.geom.patches.length;

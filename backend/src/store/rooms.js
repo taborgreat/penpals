@@ -4,6 +4,9 @@
 // going and their coarse motion are acts, stamped here in arrival order and
 // appended to the room's own chain (data/users/<owner>/room.chain):
 //   { n, at, by: <username>, kind: 'enter' | 'leave' | 'move', pose? }
+// Picking up and setting down the room's things (rooms.md §3b, §3c: the candles,
+// the pen) are acts too: { by, kind: 'place', thing, at: [x, y, z] (room m: where it
+// rests) | null (held, by `by`) }; where each is now is read from the chain.
 // The eye's own state is never sent, so never kept. What the room's people see
 // of each other comes to them on the room's stream (routes/rooms.js).
 
@@ -13,15 +16,23 @@ import { userDir } from './accounts.js';
 import { being as B } from 'penpals-law';
 
 export const MAX_BEINGS = 8; // how many may be in a room at once (Tabor's to set)
-const rooms = new Map(); // ownerId → { clients: Set(client), beings: Map(userId → { name, pose, at, links }), n }
+export const THINGS = ['candle-0', 'candle-1', 'pen']; // what can be picked up and set down
+const ROOM_M = [3.048, 3.353, 2.438]; // (law/being.js checkPose's room)
+const rooms = new Map(); // ownerId → { clients: Set(client), beings: Map(userId → { name, pose, at, links }), things, n }
+// Where each thing is, from the room's chain: { [thing]: { at, by } } (at null: held by `by`).
+const thingsOf = (lines) => {
+  const out = {};
+  for (const l of lines) if (l.kind === 'place') out[l.thing] = { at: l.at, by: l.by };
+  return out;
+};
 const roomFile = (ownerId) => path.join(userDir(ownerId), 'room.chain');
 
 async function roomOf(ownerId) {
   let r = rooms.get(ownerId);
   if (!r) {
-    const lines = await readLines(roomFile(ownerId));
-    const last = lines.length ? JSON.parse(lines[lines.length - 1]) : null;
-    r = { clients: new Set(), beings: new Map(), n: last?.n ?? 0 };
+    const lines = (await readLines(roomFile(ownerId))).map((l) => JSON.parse(l));
+    const last = lines.length ? lines[lines.length - 1] : null;
+    r = { clients: new Set(), beings: new Map(), things: thingsOf(lines), n: last?.n ?? 0 };
     rooms.set(ownerId, r);
   }
   return r;
@@ -60,7 +71,7 @@ export async function join(ownerId, client) {
   }
   client.body = body;
   // what is here now
-  send(client, 'here', { beings: [...r.beings.values()].filter((b) => b.name !== client.name).map((b) => ({ name: b.name, pose: b.pose })), body });
+  send(client, 'here', { beings: [...r.beings.values()].filter((b) => b.name !== client.name).map((b) => ({ name: b.name, pose: b.pose })), body, things: r.things });
   return r;
 }
 
@@ -93,6 +104,23 @@ export async function move(ownerId, userId, pose) {
   tellAll(r, 'being', { kind: 'move', name: b.name, pose: b.pose });
   return line;
 }
+
+// A being picks a thing up (at null) or sets it down where it comes to rest (at: [x, y, z],
+// room m). → the stamped act, or null (not in the room).
+export async function place(ownerId, userId, { thing, at }) {
+  const r = rooms.get(ownerId);
+  const b = r?.beings.get(userId);
+  if (!b) return null;
+  const was = r.things[thing];
+  if (was && was.at === null && was.by !== b.name) return null; // someone else is holding it
+  const where = at === null ? null : at.map((v) => Math.round(v * 1000) / 1000);
+  const line = await record(ownerId, r, { by: b.name, kind: 'place', thing, at: where });
+  r.things[thing] = { at: where, by: b.name };
+  tellAll(r, 'thing', { thing, at: where, by: b.name });
+  return line;
+}
+export const checkThing = (thing, at) =>
+  THINGS.includes(thing) && (at === null || (Array.isArray(at) && at.length === 3 && at.every((v, k) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= ROOM_M[k] * 2)));
 
 // Anything for everyone watching a room (a shared sheet's act, a sheet laid on its table).
 export function tellRoom(ownerId, event, data) {
