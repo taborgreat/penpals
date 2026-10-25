@@ -18,9 +18,15 @@ export function rgbOf(hex) {
 
 // settings: { nib: 'pen' | 'flex' | 'broad', size?, hairline?, maxWidth?, angle? } (Pad's nibSettings())
 // spatter: 0..15 on a law 2 sheet; left out (undefined) on law 1 sheets, whose acts have no such field.
-export function lawPen(settings, color, flow = FLOW_DEFAULT, spatter = undefined) {
+// dip: a dip pen (rooms.md §3c, law 3): { well (its reservoir, 1..15), n (how many times it has
+// been dipped) }. A pen act that carries its well is a dip: the reservoir full again.
+export function lawPen(settings, color, flow = FLOW_DEFAULT, spatter = undefined, dip = null) {
   const pen = nibPen(settings, rgbOf(color), Math.min(15, Math.max(0, Math.round(flow))));
   if (spatter !== undefined) pen.spatter = Math.min(15, Math.max(0, Math.round(spatter)));
+  if (dip) {
+    pen.well = dip.well;
+    pen.dip = dip.n; // (not recorded: a new dip is a new pen act, and that act is the dip)
+  }
   return pen;
 }
 

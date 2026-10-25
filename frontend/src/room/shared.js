@@ -20,8 +20,9 @@ import { api } from '../api.js';
 export const SHARED_PAGE = { width: 800, height: 600 }; // page units: a shared sheet
 export const STAMP_MS = 8000; // an act unstamped this long is withdrawn (Tabor's to set)
 export const SEAL_CELL = 2; // paper cells a stamper's face pixel presses: 32 of them about 5 mm (Tabor's to set)
-// A drip from the candle tilted past its pool's lip (Tabor's to set: how fast the pool forms, how far to tilt)
-export const DRIP = { amt: 400000, heat: 220, every: 350 };
+// A candle held over a sheet and tilted drips this often (how much, and how hot: law/wax.js, from its pool and the tilt)
+export const DRIP_EVERY = 350;
+export const TILT_DEG = 60; // E held: the candle tilted this far (rooms.md §3b)
 const GAP = 60; // page units between the table's sheets and the page
 
 // Where the i-th shared sheet lies on the table, in the frame of a page `pageW`

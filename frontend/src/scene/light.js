@@ -196,6 +196,12 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
     // color 0 luminance only..1 }; the eye ramps there by its own reactions);
     // gaze: the patch of the room the eye is on (Look), else the page: the eye
     // takes in what is in view, so a wall looked at is lit as a wall is.
+    // The candle's melt pool as its burning has made it (rooms.md §3b): { litMs (this burning, or
+    // the last), outMs (since it went out; 0 while it burns) }, for law/wax.js poolOf.
+    pool(now = performance.now()) {
+      if (S.litSince === undefined) return { litMs: 0, outMs: 0 };
+      return S.burning ? { litMs: now - S.litSince, outMs: 0 } : { litMs: (S.outSince ?? now) - S.litSince, outMs: now - (S.outSince ?? now) };
+    },
     at({ now, date, override = null, present = true, eye = { lids: 1, color: 1 }, gaze = null }) {
       const dt = S.t === null ? 0 : Math.min(1, Math.max(0, (now - S.t) / 1000));
       S.t = now;
@@ -204,6 +210,10 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
       sun.E = sunLight(place.el).map((v, b) => v * MATTER_GLASS[b]); // through the glass, normal to the beam
       // the candles: burning only at night while someone is here; their flames shiver by the hour's clock
       const lit = !override && candleLit({ sunEl: place.el, present });
+      // this burning, and how long since it went out (the melt pool: law/wax.js poolOf)
+      if (lit && !S.burning) S.litSince = now;
+      if (!lit && S.burning) S.outSince = now;
+      S.burning = lit;
       if (lit && dt > 0) {
         S.candles = S.candles.map((c, which) => burn(c, dt * 1000, true, { which }));
         keep(S.candles);

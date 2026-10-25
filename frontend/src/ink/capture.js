@@ -350,4 +350,6 @@ const samePen = (a, b) =>
   a.rgb[0] === b.rgb[0] &&
   a.rgb[1] === b.rgb[1] &&
   a.rgb[2] === b.rgb[2] &&
-  a.spatter === b.spatter;
+  a.spatter === b.spatter &&
+  a.well === b.well &&
+  a.dip === b.dip; // (dipped again: a new pen act, its well full)

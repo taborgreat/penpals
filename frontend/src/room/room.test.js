@@ -179,3 +179,22 @@ test("each space keeps its own time: the room's sun is placed by its own clock",
   assert.ok(day.sun.el > 60 && night.sun.el < 0, 'noon in one room, night in the other, at once');
   assert.equal(zoned(instant, 'Not/AZone'), instant, "a zone the clock cannot use: the viewer's own");
 });
+
+test('a dip pen (rooms.md §3c): only a dip puts its well in the record; between dips its nib draws on what is left', async () => {
+  const { lawPen } = await import('../ink/pens.js');
+  const L3 = lawOf(3);
+  const cap = createCapture({ pen: lawPen({ nib: 'pen', size: 10 }, '#203040', 9, undefined, { well: 2, n: 0 }) });
+  const line = (y, t0) => {
+    cap.down({ x: 10, y }, { timeStamp: t0, pressure: 0.5 }, 'mouse');
+    for (let i = 1; i <= 20; i++) cap.move({ x: 10 + i * 4, y }, { timeStamp: t0 + i * 10, pressure: 0.5 });
+    cap.up({ x: 90, y }, { timeStamp: t0 + 220, pressure: 0.5 });
+  };
+  line(10, 1000);
+  line(30, 2000); // not dipped
+  cap.setPen(lawPen({ nib: 'pen', size: 10 }, '#203040', 9, undefined, { well: 2, n: 1 })); // dipped again
+  line(50, 3000);
+  const rec = L3.decodeCanonical(strokesToActs(cap.strokes, null));
+  const wells = rec.strokes.map((s) => s.pens.map((p) => p.well ?? null));
+  assert.deepEqual(wells, [[2], [], [2]], 'the first stroke and the one after the dip carry it');
+  assert.equal(rec.format, 3);
+});

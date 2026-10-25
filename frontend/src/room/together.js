@@ -13,7 +13,12 @@
 //     useTool('pen' | 'wax'), stamperFor(name), breakSeal(view, n) }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, seatOf } from './presence.js';
-import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE, DRIP } from './shared.js';
+import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE, DRIP_EVERY, TILT_DEG } from './shared.js';
+import { wax as WX } from 'penpals-law';
+import { theLight } from '../scene/light.js';
+
+// The room's candle's melt pool now (law/wax.js): its liquid, 0..POOL_MAX.
+const poolNow = () => WX.poolOf(theLight().pool());
 
 // The seals pressed into a sheet, in its order: [{ n, for (key), name, took, broken, at: { x, y } }]
 // (took: the sheet grown to that press, its i-th seal; until then, not yet).
@@ -41,6 +46,35 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
   const [tool, setTool] = useState('pen'); // 'pen' | 'wax' | { seal: { name, key, w, h, face } }
   const toolRef = useRef(tool);
   toolRef.current = tool;
+  // the candle in hand (rooms.md §3b): E held tilts it; its pool, as its burning has made it
+  const [candle, setCandle] = useState({ pool: 0, tilt: 0 });
+  const tiltRef = useRef(0);
+  useEffect(() => {
+    if (tool !== 'wax') {
+      tiltRef.current = 0;
+      return undefined;
+    }
+    const isE = (e) => e.key?.toLowerCase() === 'e' && !e.target.closest?.('input, textarea, select');
+    const down = (e) => {
+      if (!isE(e)) return;
+      e.stopPropagation(); // (the candle's, not the view's)
+      e.preventDefault();
+      tiltRef.current = TILT_DEG;
+    };
+    const up = (e) => {
+      if (!isE(e)) return;
+      e.stopPropagation();
+      tiltRef.current = 0;
+    };
+    window.addEventListener('keydown', down, true);
+    window.addEventListener('keyup', up, true);
+    const look = setInterval(() => setCandle((c) => (c.pool === poolNow() && c.tilt === tiltRef.current ? c : { pool: poolNow(), tilt: tiltRef.current })), 250);
+    return () => {
+      window.removeEventListener('keydown', down, true);
+      window.removeEventListener('keyup', up, true);
+      clearInterval(look);
+    };
+  }, [tool]);
   const placed = useMemo(
     () =>
       sheets.map((view, i) => {
@@ -126,10 +160,14 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
               if (!w) return false;
               const t = toolRef.current;
               if (t === 'wax') {
-                // the candle held over the sheet, tilted past its pool's lip: a drip now, and every DRIP.every while held
+                // the candle held over the sheet: tilted past its pool's lip (E), it drips, as much and as hot as its pool gives
                 const held = { w, q };
-                w.drip(q, DRIP);
-                held.timer = setInterval(() => held.w.drip(held.q, DRIP), DRIP.every);
+                const drip = () => {
+                  const d = WX.dripOf(poolNow(), tiltRef.current);
+                  if (d) held.w.drip(held.q, d);
+                };
+                drip();
+                held.timer = setInterval(drip, DRIP_EVERY);
                 active.current = { wax: held };
                 return true;
               }
@@ -223,6 +261,7 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
     notice,
     clearNotice: () => setNotice(null),
     tool,
+    candle,
     ...actions,
     scene,
   };

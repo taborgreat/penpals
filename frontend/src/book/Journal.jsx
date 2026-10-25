@@ -493,10 +493,13 @@ function WritePanel({ family, onPlace }) {
   return <KeyGate signedOut={<p className="muted">Sign in to write.</p>}>{(key) => <WriteSheet key={key.publicKey} writer={key} family={family} onPlace={onPlace} />}</KeyGate>;
 }
 
+// A dip pen's reservoir (law 3: rooms.md §3c): this many well levels (Tabor's to set).
+const DIP_WELL = 2;
 function WriteSheet({ writer, family, onPlace }) {
   const [n, setN] = useState(0);
-  const sheet = useMemo(() => newSheet(writer), [writer, n]); // eslint-disable-line react-hooks/exhaustive-deps
-  const ink = useLiveInk({ paperKey: sheet.paperKey, family, size: WRITE_PAD }, sheet.sheet);
+  const [dip, setDip] = useState(false); // a fountain pen (never runs dry), or a dip pen and the ink jar
+  const sheet = useMemo(() => newSheet(writer), [writer, n, dip]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ink = useLiveInk({ paperKey: sheet.paperKey, family, size: WRITE_PAD, ...(dip ? { law: 3 } : {}) }, sheet.sheet);
   const [color, setColor] = useState(INK_COLORS[0].hex);
   const [strokes, setStrokes] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -525,6 +528,9 @@ function WriteSheet({ writer, family, onPlace }) {
           <span>Ink</span>
           <InkWell value={color} onChange={setColor} />
         </span>
+        <label className="field" title="A fountain pen keeps its own ink; a dip pen draws from the jar and its line fades until you dip again">
+          <input type="checkbox" checked={dip} disabled={strokes > 0} onChange={(e) => setDip(e.target.checked)} /> Dip pen
+        </label>
         <span className="spacer" />
         <button type="button" className="primary" disabled={!strokes || busy} onClick={put}>
           {busy ? 'Sealing…' : 'Place on page'}
@@ -537,6 +543,7 @@ function WriteSheet({ writer, family, onPlace }) {
           size={WRITE_PAD}
           inkColor={color}
           onChange={setStrokes}
+          dipPen={dip ? { well: DIP_WELL } : null}
           hint="Write anything: a word, a sentence, a drawing. Colours mix while wet; the water brush wets dry ink again. Then place it on the page."
         />
       )}

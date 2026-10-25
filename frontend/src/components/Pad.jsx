@@ -65,7 +65,9 @@ export default function Pad({
   onWritten = null,
   chase: allowChase = null,
   prompt = null,
+  dipPen = null, // { well }: a dip pen and its ink jar (rooms.md §3c, a law-3 sheet)
 }) {
+  const [dips, setDips] = useState(0); // times dipped in the jar (the first: before the first stroke)
   const [nib, setNib] = useState('flex');
   const [penSize, setPenSize] = useState('medium');
   const [flex, setFlex] = useState({ ...FLEX_PRESETS.copperplate });
@@ -240,8 +242,8 @@ export default function Pad({
   // nib under a mouse or finger gets its thick and thin from the slant (capture.js).
   const spatter = ink.law >= 2 ? (spatterSet ?? SPATTER_DEFAULT[nib]) : undefined;
   useEffect(() => {
-    ink.setPen(lawPen(nibSettings(), inkColor, flow, spatter));
-  }, [ink, nibSettings, inkColor, flow, spatter]);
+    ink.setPen(lawPen(nibSettings(), inkColor, flow, spatter, dipPen ? { well: dipPen.well, n: dips } : null));
+  }, [ink, nibSettings, inkColor, flow, spatter, dipPen, dips]);
   useEffect(() => {
     ink.capture.setFlex(nib === 'flex' ? { slant: flex.slant, swell: flex.swell, hold: ink.law >= 2 } : null);
   }, [ink, nib, flex.slant, flex.swell]);
@@ -525,6 +527,11 @@ export default function Pad({
   return (
     <div className={compact ? 'pad compact' : 'pad'}>
       <div className="pad-tools">
+        {dipPen && (
+          <button type="button" className="dip" onClick={() => setDips((d) => d + 1)} title="Lower the nib into the jar: its reservoir full again (the line fades as it empties)">
+            Dip in the jar
+          </button>
+        )}
         <div className="field">
           <span>Nib</span>
           <div className="nib-picker" role="group" aria-label="Nib">

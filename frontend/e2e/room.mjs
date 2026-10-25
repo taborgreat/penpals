@@ -479,7 +479,33 @@ try {
   if (home?.on !== 'tabor') throw new Error(`the sheet is not home: ${home?.on}`);
   console.log("   back on tabor's table; gone from bo's");
 
-  step("seals: tabor drips warm wax on it, presses bo's seal in; bo writes on it at tabor's table; tabor breaks it");
+  step("seals: tabor's candle burns, he tilts it over the sheet and drips its wax, presses bo's seal in; bo writes on it at tabor's table; tabor breaks it");
+  // the candles burn at night (rooms.md §1b): tabor's room keeps a clock where it is night now
+  const zones = [
+    'Pacific/Kiritimati',
+    'Pacific/Auckland',
+    'Asia/Tokyo',
+    'Asia/Shanghai',
+    'Asia/Kolkata',
+    'Asia/Dubai',
+    'Europe/Moscow',
+    'Europe/Berlin',
+    'Europe/London',
+    'Atlantic/Azores',
+    'America/Sao_Paulo',
+    'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Los_Angeles',
+    'America/Anchorage',
+    'Pacific/Honolulu',
+    'Pacific/Pago_Pago',
+  ];
+  const hourIn = (z) => Number(new Intl.DateTimeFormat('en-US', { timeZone: z, hour: 'numeric', hour12: false }).format(new Date())) % 24;
+  const night = zones.find((z) => hourIn(z) >= 22 || hourIn(z) <= 3);
+  const clock = await page.request.post(`${base}/api/social/time`, { headers: { origin: base }, data: { timeZone: night } });
+  if (clock.status() !== 200) throw new Error(`the room's clock: ${clock.status()}`);
+  console.log(`   the room's clock: ${night}, ${hourIn(night)} o'clock`);
   await page.goto(`${base}/u/tabor`);
   await page.getByRole('button', { name: 'Preview' }).click();
   await page.locator(`${scene}[data-gpu]`).waitFor({ timeout: 60000 });
@@ -500,17 +526,27 @@ try {
   const plain = await onScreen(page, scene, pixels);
   // the candle, held down over the sheet: tilted, it drips while held (a small circle: a pool)
   await bar(page).getByRole('button', { name: 'Candle' }).click();
+  // the candle has been burning: its pool melts (law/wax.js)
+  let pool = 0;
+  for (const end = Date.now() + 150000; Date.now() < end && pool < 700;) {
+    await page.waitForTimeout(1000);
+    pool = Number(await bar(page).locator('.candle').getAttribute('data-pool'));
+  }
+  console.log(`   the candle's pool: ${Math.round((100 * pool) / 1024)}% melted`);
+  if (pool < 700) throw new Error('the candle did not melt a pool');
   const dripAnswers = [];
   page.on('response', (r) => r.url().includes('/acts') && r.request().method() === 'POST' && dripAnswers.push(r.status()));
   const linesBefore = (await (await page.request.get(`${base}/api/shared/${sheetId}`)).json()).lines.length;
   at = await middle();
   await page.mouse.move(at[0] + 12, at[1]);
   await page.mouse.down();
+  await page.keyboard.down('e'); // tilted past its lip
   for (let i = 0; i <= 40; i++) {
     const a = (i / 40) * 2 * Math.PI;
     await page.mouse.move(at[0] + 12 * Math.cos(a), at[1] + 12 * Math.sin(a));
     await page.waitForTimeout(80);
   }
+  await page.keyboard.up('e');
   await page.mouse.up();
   let drips = 0;
   for (const end = Date.now() + 10000; Date.now() < end && drips < 6;) {
