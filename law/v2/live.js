@@ -19,7 +19,7 @@ import { settledCells, boxOf, factsDigest, GN } from './look.js';
 import { TILE, TICK_MS, P_NONE, SCALE_ONE, W_SAT, W_WET, GALL_FRESH, TORN, DENT_SHIFT, DEPTH_SHIFT, THICK, WEAR_SHIFT, DENT_Z, FILM_Q } from './constants.js';
 import { EXP8 } from '../v1/tables.js';
 import { floorDiv } from '../v1/int.js';
-import { penTimeline } from './acts.js';
+import { penTimeline, samePen } from './acts.js';
 import { livePoints } from '../v1/live.js';
 
 export { livePoints };
@@ -94,16 +94,25 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
   const shownH = new Map();
   const done = [];
   let cur = null;
+  // A dip pen dips where its sealed record will (sim.js grow: at each pen act, which carries its
+  // well): mid-stroke, every pen act; at a stroke's start, a pen not the one before it (capture.js
+  // strokesToActs), unless the caller says (`act`: playback knows its record's pen acts).
+  let carried = null;
+  const setPen = (pen, act = !(carried && samePen(pen, carried))) => {
+    sim.setPen(pen);
+    if (act && pen.well !== undefined) sim.dip(pen.well);
+    carried = pen;
+  };
 
   const feedStroke = (s) => {
-    sim.setPen(s.pens[0][1]);
+    setPen(s.pens[0][1], s.dipAt0);
     const p = (pt) => (s.hasP ? pt.p : P_NONE);
     sim.strokeStart(s.points[0].x, s.points[0].y, s.points[0].t, p(s.points[0]));
     let k = 0;
     for (let i = 1; i < s.points.length; i++) {
       while (k + 1 < s.pens.length && s.pens[k + 1][0] <= i - 1) {
         k++;
-        sim.setPen(s.pens[k][1]);
+        setPen(s.pens[k][1], true);
       }
       const pt = s.points[i];
       sim.act(pt.x, pt.y, pt.t, p(pt));
@@ -112,7 +121,7 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
   };
 
   return {
-    down(pt, pen, hasP) {
+    down(pt, pen, hasP, act) {
       if (cur) throw new Error('down while a stroke is open');
       const snap = keep > 0 ? sim.snapshot() : null;
       const kept = done.filter((s) => s.snap);
@@ -120,8 +129,9 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
         sim.forget(kept[0].snap);
         kept[0].snap = null;
       }
-      cur = { hasP, points: [pt], pens: [[0, pen]], snap };
-      sim.setPen(pen);
+      const dipAt0 = act ?? !(carried && samePen(pen, carried));
+      cur = { hasP, points: [pt], pens: [[0, pen]], snap, dipAt0 };
+      setPen(pen, dipAt0);
       sim.strokeStart(pt.x, pt.y, pt.t, hasP ? pt.p : P_NONE);
     },
     point(pt) {
@@ -130,7 +140,7 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
     },
     pen(pen) {
       cur.pens.push([cur.points.length - 1, pen]);
-      sim.setPen(pen);
+      setPen(pen, true);
     },
     up() {
       sim.endStroke();
@@ -148,9 +158,11 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
       if (s.snap) sim.restore(s.snap);
       else {
         sim = createSim({ paperKey, family, track: true, law });
+        carried = null;
         for (const d of done) feedStroke(d);
         for (const key of shown.keys()) sim.redraw(...key.split(',').map(Number));
       }
+      carried = done.at(-1)?.pens.at(-1)[1] ?? null;
       return true;
     },
     get strokes() {
@@ -161,6 +173,12 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
     },
     get wet() {
       return sim.wetCells > 0;
+    },
+    get reservoir() {
+      return sim.reservoir;
+    },
+    get splat() {
+      return sim.splat;
     },
     get activeTiles() {
       return sim.activeTiles;
@@ -262,7 +280,7 @@ export function createPlayback({ actsBytes, rec, paperKey, family }) {
         const s = strokes[si];
         if (!open) {
           if (s.points[0].t > ms) break;
-          live.down(s.points[0], s.pens[0][1], s.hasP);
+          live.down(s.points[0], s.pens[0][1], s.hasP, s.pens[0][1] !== strokes[si - 1]?.pens.at(-1)[1]);
           open = true;
           pi = 1;
           k = 0;

@@ -84,6 +84,8 @@ export function createWallInk({ writer, family: surfaceFamily, matter, surface, 
       return ink.strokes;
     },
     undo: () => ink.undo(),
+    // the nib as its ink has it now, on this surface's matter (heard: sound/pen.js penHand)
+    nib: () => ({ pen: ink.capture.pen, on: matter ?? 'paper', ...ink.nib }),
     setColor: (hex) => ink.setPen(lawPen(nib, hex, undefined, SPATTER_DEFAULT.pen)),
     // Settle, seal and lay it on the surface: addInk(line, seed, place) (book/useBook.js).
     async place(addInk) {

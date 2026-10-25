@@ -14,7 +14,8 @@
 // picked up. The ink jar too: carried and set down like the stamper.
 // The stamper (rooms.md §3b, the second thing on the table) too: picked up (a click on it),
 // carried, its face set in its panel (one-world.md), pressed with a click on a shared sheet,
-// set down (E) where it falls onto what is under it.
+// set down (E) where it falls onto what is under it. The window is opened and shut (E at it: world.md
+// Phase 3, what comes in through it): an act too.
 //   pens: { held (the pen id in the hand), hold(id) } (components/PenPanel.jsx usePens)
 // → { hand (SceneView's hand prop), held: () => { thing, which, at, tilt } | null }
 
@@ -157,6 +158,9 @@ export function useCarry({ name, me, key = null, room = null, page, sheets = [],
       penUp() {
         placeThing(penHeld, null);
       },
+      // the window: open or shut (its last open or shut act), and opened or shut
+      windowOpen: !!things.window?.open,
+      openWindow: (open) => act({ act: open ? 'open' : 'shut', thing: 'window' }),
       down(p) {
         const h = held.current;
         if (!h) return false;

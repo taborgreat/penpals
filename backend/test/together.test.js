@@ -324,3 +324,22 @@ test("pens: a pen's settings are its facts: set only by the hand holding it, tol
   assert.deepEqual(here.data.things['pen-flex'], { at: [1.7, 2.8, 0.74], by: 'ana', set: FLEX }, 'where it lies, as it is set');
   back.close();
 });
+
+test('the window: opened and shut by acts (anyone in the room), told to everyone, kept when the room sleeps', async () => {
+  const host = await stream(ana, 'ana');
+  await host.until('here');
+  const guest = await stream(bo, 'ana');
+  await guest.until('here');
+  const win = (p, act) => doIn(p, ana, roomAct(p, ana, { act, thing: 'window' }));
+  assert.equal((await win(ana, 'shut')).status, 409, 'it is shut already');
+  assert.equal((await win(bo, 'open')).status, 200, 'bo opens it');
+  assert.equal((await host.until('thing', (d) => d.thing === 'window')).data.open, true, 'ana is told');
+  assert.equal((await win(ana, 'open')).status, 409, 'open already');
+  assert.throws(() => roomAct(ana, ana, { act: 'open', thing: 'candle-0' }), /only a window/, 'a candle is not opened');
+  host.close();
+  guest.close();
+  await settle(rooms.LINGER_MS + 200);
+  const back = await stream(bo, 'ana');
+  assert.equal((await back.until('here')).data.things.window.open, true, 'still open');
+  back.close();
+});

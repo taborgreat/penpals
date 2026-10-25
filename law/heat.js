@@ -36,7 +36,16 @@
 //   Beyond   past the grid's edge is the rest of the world at the room's air: heat
 //            crosses each edge face as it would into that air. An open grid (a
 //            place under the sky, or a test's box) lets warm air rise out of its top,
-//            fresh air coming in under it; what leaves is counted (vented).
+//            fresh air coming in under it; what leaves is counted (vented). An opening in
+//            its side (an open window, a door: world.md 3b) is the outside air at its own
+//            heat: an air cell at it warmer than the outside goes out through it, smoke and
+//            all, and the outside air comes in in its place (colder, it sinks: the room's warm
+//            air leaves at the top of the opening, the outside's comes in at its foot).
+//   Settling smoke's grains fall through the air at their settling speed (Stokes: their size
+//            and weight against the air's drag, slipping between its molecules) and stick
+//            where they meet a face: falling onto it, or crossing the air's film to it as
+//            they wander (Stokes–Einstein over the film's depth, the depth that gives the air
+//            its film). So smoke thins. (settle(seconds): the caller's step for it.)
 //   Sleep    only cells warmer or cooler than the air, burning, or carrying smoke
 //            compute, with what they touch; a cold, still room costs nothing. A cell within
 //            a kelvin of the air (the grain this rule keeps heat to) sleeps, keeping its heat,
@@ -47,13 +56,16 @@
 // is IEEE's, the same everywhere); deltas gathered over a step and then applied, cells
 // visited in index order.
 //
-//   createHeat({ size: [nx, ny, nz], dx (m), dt (s), cellAt: (x, y, z) => matter name | [name, fill] | null (air) })
+//   createHeat({ size: [nx, ny, nz], dx (m), dt (s), cellAt: (x, y, z) => matter name | [name, fill] | null (air),
+//                opening?: (x, y, z, k) => whether the edge face beyond (k: up, +x, −x, +y, −y, down) is open })
 //     (fill: the share of the cell it fills, the rest air: a sheet, a wick, a thin dish)
 //     (dt: about the time warm air takes to rise a cell, dx over its buoyant speed: the caller's grain)
-//     → { step(), heat(i, nJ), at(x, y, z), index(x, y, z), total(), cells, peak, burnt, steps }
+//     → { step(), heat(i, nJ), smokeIn(i, µg), outside(mK), openings(opening), settle(s), at(x, y, z), index(x, y, z), total(),
+//         cells, peak, burnt, vented, settled, steps }
 
 import { ROWS, MATTER, ORDER, idOf, AIR as ROOM } from './matter.js';
 import { floorDiv } from './v1/int.js';
+import { exp } from './dmath.js';
 
 export const AIR_ID = idOf('air');
 const KELVIN = 1000; // mK: the grain the rule keeps heat to (closer to the air than this, a cell sleeps)
@@ -84,7 +96,28 @@ export function heatOf(row, m, T) {
   return floorDiv(C * T, 1000) + (molten ? m * row.heat.fuses : 0);
 }
 
-export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = false }) {
+// How fast smoke's grains settle and how fast they cross the air's film to a face (m/s), from the
+// smoke's grains and the air's row: Stokes' drag with Cunningham's slip (the grains are about as
+// small as the air's own mean free path), Stokes–Einstein's wandering, the film's depth from the
+// air's conducting and its film.
+const BOLTZMANN = 1.380649e-23,
+  GAS = 8.314462618,
+  ATM = 101325,
+  G = 9.81;
+export function grainSpeeds(smoke = MATTER.smoke, air = MATTER.air) {
+  const g = smoke.grains;
+  const T = ROOM.temp + 273.15;
+  const mu = air.viscous * 1e-9; // Pa·s
+  const free = (mu / ATM) * Math.sqrt((Math.PI * GAS * T) / (2 * (air.molar / 1000))); // the air's mean free path, m
+  const d = g.size * 1e-9;
+  const slip = 1 + ((2 * free) / d) * (1.257 + 0.4 * exp((-1.1 * d) / (2 * free)));
+  const falls = (g.density * d * d * G * slip) / (18 * mu);
+  const wanders = (BOLTZMANN * T * slip) / (3 * Math.PI * mu * d); // m²/s
+  const film = air.heat.conducts / 1000 / ROOM.film; // m: the air's film's depth
+  return { falls, sticks: wanders / film };
+}
+
+export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = false, opening = null }) {
   const N = nx * ny * nz;
   const A = dx * dx,
     V = dx * dx * dx;
@@ -111,6 +144,26 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         m[i] = name === 'air' ? AIR_MU : Math.max(1, Math.round(muOf(MATTER[name]) * fill));
       }
   const isAir = (i) => mat[i] === AIR_ID;
+  // the cells with a face open to the outside (an open window, a door), and the outside's heat (mK)
+  let openCells = [];
+  const isOpen = new Uint8Array(N); // (a bit a face: k)
+  function openings(fn) {
+    isOpen.fill(0);
+    openCells = [];
+    if (!fn) return;
+    for (let z = 0; z < nz; z++)
+      for (let y = 0; y < ny; y++)
+        for (let x = 0; x < nx; x++) {
+          if (x && y && z && x < nx - 1 && y < ny - 1 && z < nz - 1) continue;
+          const i = index(x, y, z);
+          [z === nz - 1, x === nx - 1, x === 0, y === ny - 1, y === 0, z === 0].forEach((edge, k) => {
+            if (edge && fn(x, y, z, k)) isOpen[i] |= 1 << k;
+          });
+          if (isOpen[i]) openCells.push(i);
+        }
+  }
+  openings(opening);
+  let outsideT = 0;
   // its neighbours, in a fixed order: up, +x, -x, +y, -y, down (-1: past the edge)
   const nb = (i, k) => {
     switch (k) {
@@ -205,6 +258,7 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
   const poresHold = (i, liquid) => floorDiv(m[i] * ROWS[mat[i]].pores * liquid.density, ROWS[mat[i]].density * 1000);
   const burnt = { mass: 0, smoke: 0, residue: 0 };
   const vented = { smoke: 0, heat: 0, light: 0 }; // what rose (or shone) out of the grid
+  const settled = { smoke: 0 }; // smoke's grains stuck to the faces they met
   // how many of a cell's faces are the grid's edge
   const edges = (i) => {
     const x = i % nx,
@@ -217,6 +271,8 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     dP = new Float64Array(N);
 
   function step() {
+    // the air at an opening is awake while it is not at the outside's heat
+    for (const i of openCells) if (isAir(i) && Math.abs(tOf(i) - outsideT) >= KELVIN) awake.add(i);
     const live = Int32Array.from(awake).sort();
     for (const i of live) isAwake[i] = 1;
     const touchedList = [];
@@ -420,6 +476,17 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     for (const i of warm) {
       if (moved.has(i)) continue;
       const up = i + LAYER;
+      if (isOpen[i] && tOf(i) > outsideT) {
+        // out through the opening: it goes, and the outside's air comes in in its place
+        vented.smoke += smoke[i];
+        vented.heat += E[i];
+        smoke[i] = 0;
+        spent[i] = 0;
+        E[i] = heatOf(MATTER.air, m[i], outsideT);
+        stamp[i] = -1;
+        moved.add(i);
+        continue;
+      }
       if (open && up >= N && tOf(i) > 0) {
         // out of an open grid's top: it goes, and the room's air comes in under it
         vented.smoke += smoke[i];
@@ -482,10 +549,58 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     }
   }
 
+  // Smoke's grains settling for `seconds`: falling a cell's share of the way down, onto what is under
+  // it where that is not air; crossing the film to each face it touches (the grid's edges are faces).
+  const speeds = grainSpeeds();
+  function settle(seconds) {
+    const Q = 65536;
+    const fall = Math.min(Q, Math.round(((speeds.falls * seconds) / dx) * Q)),
+      stick = Math.min(Q, Math.round(((speeds.sticks * seconds) / dx) * Q));
+    let stuck = 0;
+    for (let i = 0; i < N; i++) {
+      if (!(smoke[i] > 0)) continue;
+      let faces = 0;
+      for (let k = 0; k < 6; k++) {
+        const j = nb(i, k);
+        if (j < 0 ? !(isOpen[i] & (1 << k)) : !isAir(j)) faces++;
+      }
+      const s0 = smoke[i];
+      const onto = Math.min(s0, floorDiv(s0 * Math.min(Q, faces * stick), Q));
+      const down = Math.min(s0 - onto, floorDiv(s0 * fall, Q));
+      const below = nb(i, 5);
+      dS[i] -= onto + down;
+      if (below >= 0 && isAir(below)) dS[below] += down;
+      else if (below < 0 && isOpen[i] & 32)
+        vented.smoke += down; // (out through an opening under it)
+      else stuck += down;
+      stuck += onto;
+    }
+    for (let i = 0; i < N; i++)
+      if (dS[i]) {
+        smoke[i] = Math.max(0, smoke[i] + dS[i]);
+        dS[i] = 0;
+      }
+    settled.smoke += stuck;
+    return stuck;
+  }
+
   const nameOf = (i) => ORDER[mat[i]];
   return {
     step,
     index,
+    settle,
+    // the openings now (a window opened or shut): opening(x, y, z, k) as createHeat's
+    openings,
+    // a flame's smoke into an air cell (µg: what it burnt), with the flame's heat (heat())
+    smokeIn(i, ug) {
+      smoke[i] += ug;
+      burnt.smoke += ug;
+      awake.add(i);
+    },
+    // the outside air's heat (mK above the room's): what the openings let in
+    outside(mK) {
+      outsideT = mK;
+    },
     // heat put into a cell (nJ): a flame against it, light it drank
     heat(i, nJ) {
       E[i] += nJ;
@@ -537,6 +652,7 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     peak,
     burnt,
     vented,
+    settled,
     get awake() {
       return awake.size;
     },

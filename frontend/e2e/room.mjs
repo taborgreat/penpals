@@ -304,10 +304,28 @@ try {
   // standing, the head turned to the candle: a click takes it up; turned to where the hand holds it over the sheet
   await standUp(page);
   await page.evaluate((p) => globalThis.__sceneLook.at([p[0] - 0.3, p[1] - 0.4, 1.4]), foot);
-  await page.evaluate((p) => globalThis.__sceneLook.aim(p), [foot[0], foot[1], foot[2] + 0.1]);
-  await page.waitForTimeout(800);
-  await page.mouse.click(...mid);
-  await panel(page, 'A candle in your hand').waitFor({ timeout: 10000 });
+  // (walking, the body settles under its weight after it is put there: the head is turned to the candle
+  // from where it came to rest, again before each try)
+  for (let tries = 0; ; tries++) {
+    await page.waitForTimeout(800);
+    await page.evaluate((p) => globalThis.__sceneLook.aim(p), [foot[0], foot[1], foot[2] + 0.1]);
+    await page.waitForTimeout(300);
+    await page.mouse.click(...mid);
+    if (
+      await panel(page, 'A candle in your hand')
+        .waitFor({ timeout: 4000 })
+        .then(
+          () => true,
+          () => false,
+        )
+    )
+      break;
+    if (tries === 3) {
+      if (process.env.ROOM_SHOT) await page.screenshot({ path: process.env.ROOM_SHOT });
+      throw new Error('the candle was not taken up');
+    }
+    console.log('   (the click took nothing: again)');
+  }
   await page.evaluate((p) => globalThis.__sceneLook.aim(p), handM);
   await page.waitForTimeout(800);
   await page.mouse.move(mid[0] + 2, mid[1]);

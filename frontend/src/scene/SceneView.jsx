@@ -5,13 +5,18 @@ import { groundOf } from './ground.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
 import { theLight, originOf, withinRoom, returnTo, sunAt, worldClock, GEOM } from './light.js';
 import { roomCamera, hit as roomHit, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
-import { surfaceFrame, fromRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
+import { surfaceFrame, fromRoom, toRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
 import { poseNow } from '../room/presence.js';
 import { lawPen, lineWidthPx } from '../ink/pens.js';
 import { PEN_SIZES } from '../ink/nibs.js';
 import { shelfLayout, rayBox } from './shelf.js';
-import { penRestOf } from './light/room.js';
+import { penRestOf, JAR } from './light/room.js';
+import { hear, earAt, roomIs, spaceIs, startSound, now as soundNow } from '../sound/index.js';
+import { BAR } from '../sound/music.js';
+import { penHand, recordSounds, dipTap } from '../sound/pen.js';
+import { acoustics } from '../sound/room.js';
+import { crackles } from '../sound/candle.js';
 import { RULED, RULE_ABS } from '../book/ruled.js';
 import { isPhone } from './support.js';
 import { sightOf } from './sight.js';
@@ -55,6 +60,10 @@ import * as WK from './keys.js';
 //   tableWriter { sheets: [{ sheet, origin: [x, y], size: [w, h] }] (page px), down(sheet, p, ev, type),
 //               move(p, ev), up(p, ev), cancel() }: writing on shared sheets on the table (rooms.md §6),
 //               p in that sheet's own units
+//   space       whose space this is (its owner's key): the music of its matter is in its key (world.md 3c)
+//   heard       { on(fn) }: others' strokes as they come, fn({ origin (the sheet's, page px), rec, seed }):
+//               each heard from where it was written (world.md Phase 2). Writers' nib?() (the pen, the
+//               matter it is on, its ink's reservoir and drops thrown) is how your own pen is heard
 //   hand        { holding, pickables: [{ id, at: [x, y, z] (its foot, room m), r, h }], pick(id),
 //               hover(at), down(at), tiltBy(degrees) }: a thing in the hand (rooms.md §3b): a click on
 //               a pickable picks it up; held, it follows the pointer over the table (at: the point
@@ -62,8 +71,9 @@ import * as WK from './keys.js';
 //   focus       { at: [x, y] (page px), size, n }: the eye goes to that place on the table
 //   world       the being in the world (one-world.md, outside.md Part 3, scene/keys.js): seated at
 //               the table, W A S D stand up and walk, Space jumps (twice: flies), Shift crouches or
-//               lowers, a drag turns the head, the scroll is the eye's zoom, E picks up, sets down
-//               and sits at the chair (held, it tilts what is in the hand); no tools over the view
+//               lowers, a drag turns the head, the scroll is the eye's zoom, E picks up, sets down,
+//               opens and shuts the window and sits at the chair (held, it tilts what is in the
+//               hand); no tools over the view
 //   sheetHand   the world: { items: [{ id, sheet (its scene sheet), rect: [x0, y0, x1, y1] (page px) }], held, pick(id, p), down(p) }:
 //               writing on the page that E picks up (the topmost under the pointer) and sets down
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
@@ -137,6 +147,8 @@ const SceneView = forwardRef(function SceneView(
     beings = null,
     onPose = null,
     tableWriter = null,
+    heard = null,
+    space = null,
     focus = null,
     hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
     sheetHand = null,
@@ -361,6 +373,7 @@ const SceneView = forwardRef(function SceneView(
     }
     // your head (room m): the camera, for you (the eye's zoom aside, which only you see)
     const head = cam.mode === '2d' ? null : (headNow() ?? poseOfCam(cam));
+    if (head) earAt(head); // (the ears are on it: world.md)
     // the others here, each where its glide has it now (one whose head yours is in is not seen)
     let gliding = false;
     if (S.beings?.length || S.beingsOn) {
@@ -375,6 +388,13 @@ const SceneView = forwardRef(function SceneView(
     }
     const light = currentLight(now);
     S.view.setLight(light, originOf(page[0], page[1]));
+    // the candles crackle as they burn (world.md Phase 3): heard a bar ahead (Phase 3c: each placed on
+    // the pulse, which may bring it half a leaf sooner), what falls since the frame before (a gap
+    // longer than the flicker's frames is time not drawn: nothing in it is heard)
+    const worldS = worldClock(new Date()).getTime() / 1000;
+    if (S.heardTo !== undefined && worldS - S.heardTo < (2 * FLICKER_MS) / 1000)
+      for (const f of light.flames) for (const e of crackles(f, S.heardTo + BAR, worldS + BAR)) hear({ ...e, t: e.t - worldS + soundNow() });
+    S.heardTo = worldS;
     // the resolution: capped; lower while moving and for the flicker alone (full again once still)
     const moving = !!S.anim || now < S.moveUntil || S.drag?.kind === 'orbit' || S.drag?.kind === 'pan' || S.drag?.kind === 'two';
     if (!S.flickerOnly) S.lastFull = now;
@@ -782,9 +802,44 @@ const SceneView = forwardRef(function SceneView(
     const w = writer?.widthAt ?? tableWriter?.widthAt ?? ((q) => lineWidthPx(PLAIN_PEN, q));
     const pressure = down ? Math.round(255 * (ev?.pressure > 0 ? ev.pressure : 0.5)) : 0;
     const nib = pageToRoom([p.x, p.y, 0], origin());
+    penHeard(down ? 'on' : 'up', S.drag?.kind === 'table' ? tableWriter : writer, p, nib, ev);
     if (!down) nib[2] += LIFT_M;
     S.pen = { nib, spread: w(pressure) / PX_PER_M, across: (writer?.across ?? tableWriter?.across)?.() ?? 0 };
   };
+  // The pen heard (world.md Phase 2): its acts as they come, from the nib (room m), as the writer's
+  // ink has it (by.nib(): the pen, the matter, the reservoir, the drops thrown). 'on': down, or on.
+  const penHeard = (phase, by, p, nib, ev) => {
+    S.penSound ??= penHand(hear);
+    const t = ev?.timeStamp ?? performance.now();
+    const q = { x: p.x, y: p.y, t, p: ev?.pressure > 0 ? ev.pressure : 0.5 };
+    if (phase === 'up') S.penSound.up(q, nib, t / 1000);
+    else S.penSound[S.penOn ? 'move' : 'down'](q, nib, t / 1000, by?.nib?.() ?? {});
+    S.penOn = phase !== 'up';
+  };
+  const surfaceNib = (surface, p) => toRoom(surfaceFrame(GEOM, surface), [p.x, p.y]);
+  // a dip pen's nib knocking the jar's glass as it goes in
+  const dipHeard = () => {
+    const foot = carrying?.jarAt?.();
+    if (foot) hear(dipTap([foot[0], foot[1], foot[2] + JAR.height], soundNow(), JAR, (S.dips = (S.dips ?? 0) + 1)));
+  };
+  // the room the ear is in: its size and faces, the window open or shut (world.md Phase 3)
+  useEffect(() => spaceIs(space), [space]);
+  const windowOpen = !!carrying?.windowOpen;
+  useEffect(() => roomIs(acoustics(GEOM, { open: windowOpen })), [windowOpen]);
+  // the window under the pointer (E opens it, or shuts it)
+  const windowAt = (e) => {
+    if (!e || !carrying?.openWindow) return false;
+    const { origin: o, dir } = roomRay(e);
+    return roomHit(GEOM, o, dir)?.opening !== undefined;
+  };
+  useEffect(
+    () =>
+      heard?.on(({ origin: o, rec, seed }) => {
+        const at = (x, y) => pageToRoom([o[0] + x, o[1] + y, 0], origin());
+        for (const e of recordSounds(rec, { at, seed, t0: soundNow() - rec.strokes[0].t[0] / 1000 })) hear(e);
+      }),
+    [heard], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   // The room point the pointer is over on the table's plane (the page's), room m.
   const roomPointOf = (e) => {
     const p = pageOf(e);
@@ -805,6 +860,7 @@ const SceneView = forwardRef(function SceneView(
     return wall && wall.t < best.d ? null : best.id; // something stands in front of it
   };
   const onPointerDown = (e) => {
+    startSound(); // (a gesture: the page may play sound from now on)
     const c = canvasRef.current;
     c.setPointerCapture(e.pointerId);
     c.focus({ preventScroll: true }); // (the keys: fly, H)
@@ -828,6 +884,7 @@ const SceneView = forwardRef(function SceneView(
         const id = pickableAt(e);
         if (id === 'jar' && penMode && carrying.penDips) {
           carrying.dip(); // the dip pen's nib into the jar
+          dipHeard();
           return;
         }
         if (id !== null && !penMode) {
@@ -877,6 +934,7 @@ const SceneView = forwardRef(function SceneView(
       if (at) {
         S.drag = { kind: 'wall', surface: at.surface, last: at.p };
         wallWriter.down(at.surface, at.p, e.nativeEvent, e.pointerType);
+        penHeard('on', wallWriter, at.p, surfaceNib(at.surface, at.p), e.nativeEvent);
         return;
       }
       S.drag = { kind: 'turn', x: e.clientX, y: e.clientY };
@@ -969,6 +1027,7 @@ const SceneView = forwardRef(function SceneView(
         if (onPage(onto)) {
           // across the table onto the page: the line goes on, in the paper now
           wallWriter.up(d.last, ev);
+          penHeard('up', wallWriter, d.last, surfaceNib(d.surface, d.last), ev);
           writer.penDown?.(S.shown ?? S.cam);
           S.drag = { kind: 'write', last: onto, type: d.type };
           writer.down(onto, ev, d.type);
@@ -979,10 +1038,12 @@ const SceneView = forwardRef(function SceneView(
         if (!at) {
           // off the surface (or too grazing): the stroke ends there
           wallWriter.up(d.last, ev);
+          penHeard('up', wallWriter, d.last, surfaceNib(d.surface, d.last), ev);
           S.drag = null;
           break;
         }
         wallWriter.move(at.p, ev);
+        penHeard('on', wallWriter, at.p, surfaceNib(d.surface, at.p), ev);
         d.last = at.p;
       }
     } else if (d.kind === 'table') {
@@ -992,6 +1053,7 @@ const SceneView = forwardRef(function SceneView(
         if (!inSheet(d.on, p)) {
           // off the sheet: the stroke ends at its edge
           tableWriter.up(d.last, ev);
+          penAt({ x: d.last.x + d.on.origin[0], y: d.last.y + d.on.origin[1] }, ev, false);
           S.drag = null;
           break;
         }
@@ -1014,9 +1076,13 @@ const SceneView = forwardRef(function SceneView(
           // off the page's edge: the line goes on onto the table, where the wood drinks it by its own
           // row (one-matter.md Phase 3); with no table to write on, the stroke ends at the edge
           writer.up(d.last, ev);
+          penAt(d.last, ev, false);
           const desk = wallWriter ? surfaceAt(ev, 'table') : null;
           S.drag = desk ? { kind: 'wall', surface: 'table', last: desk.p, type: d.type ?? e.pointerType } : null;
-          if (desk) wallWriter.down('table', desk.p, ev, d.type ?? e.pointerType);
+          if (desk) {
+            wallWriter.down('table', desk.p, ev, d.type ?? e.pointerType);
+            penHeard('on', wallWriter, desk.p, surfaceNib('table', desk.p), ev);
+          }
           break;
         }
         writer.move(p, ev);
@@ -1117,6 +1183,7 @@ const SceneView = forwardRef(function SceneView(
         tableWriter.up(inSheet(d.on, p) ? { x: p.x - d.on.origin[0], y: p.y - d.on.origin[1] } : d.last, e.nativeEvent);
       }
     } else if (d.kind === 'wall') {
+      penHeard('up', wallWriter, d.last, surfaceNib(d.surface, d.last), e.nativeEvent);
       if (e.type === 'pointercancel') wallWriter.cancel();
       else wallWriter.up(surfaceAt(e, d.surface)?.p ?? d.last, e.nativeEvent);
     } else if (d.kind === 'write') {
@@ -1202,7 +1269,10 @@ const SceneView = forwardRef(function SceneView(
         return;
       }
       const id = S.lastPointer ? pickableAt(S.lastPointer) : null; // the thing under the pointer, picked up
-      if (id === 'jar' && penMode && carrying.penDips) return carrying.dip();
+      if (id === 'jar' && penMode && carrying.penDips) {
+        carrying.dip();
+        return dipHeard();
+      }
       if (id !== null) {
         if (carrying.pick(id) === 'pen') setHand(false);
         return;
@@ -1212,7 +1282,8 @@ const SceneView = forwardRef(function SceneView(
         sheetHand.pick(it.id, p);
         S.view?.liftSheet(it.sheet, [0, 0], HAND_PX);
         schedule();
-      } else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit
+      } else if (windowAt(S.lastPointer)) carrying.openWindow(!carrying.windowOpen);
+      else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit
       return;
     }
     if (k === 'h' && canPen) {
@@ -1251,6 +1322,7 @@ const SceneView = forwardRef(function SceneView(
   };
 
   const onKeyDown = (e) => {
+    startSound(); // (a gesture: the page may play sound from now on)
     if (mode !== '3d') return;
     if (world) return worldKeyDown(e);
     const k = e.key.toLowerCase();

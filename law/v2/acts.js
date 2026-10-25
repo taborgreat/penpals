@@ -41,6 +41,10 @@ const MAGIC = [0x50, 0x4e, 0x4b, 0x41]; // 'PNKA'
 export const PEN_FULL = 0x3f;
 export const PEN_KEYS = ['nib', 'size', 'flex', 'flow', 'rgb', 'angle', 'spatter', 'well'];
 export const SPATTER_MAX = 15;
+// Two pens the same: a stroke begun with the pen before it carries no pen act (frontend capture.js
+// strokesToActs; live.js dips where the record will). `dip` (how often a dip pen has been dipped) is
+// not recorded: dipped again, the same fields are a new pen act, its well full.
+export const samePen = (a, b) => a === b || (PEN_KEYS.every((k) => (k === 'rgb' ? a.rgb.every((c, i) => c === b.rgb[i]) : a[k] === b[k])) && a.dip === b.dip);
 const SPATTER = 0x40;
 const WELL = 0x80;
 export const MARK_KINDS = ['drip', 'press', 'break', 'pour'];

@@ -46,3 +46,13 @@ test('night is the one sun down: a summer evening at eight is still day, a winte
   assert.equal(R.isNight(Date.parse('2026-06-21T19:00:00Z')), false, 'noon');
   assert.equal(R.isNight(Date.parse('2026-06-21T09:00:00Z')), true, '2 am');
 });
+
+test('the window is opened and shut by acts; nothing else is, and it is nothing else', () => {
+  const act = (k, a, thing) => R.makeRoomAct({ sk: ana.sk, pk: ana.pk, room: ROOM, k, act: a, thing });
+  assert.ok(R.THINGS.includes('window'));
+  assert.ok(R.verifyRoomActSeal(act(1, 'open', 'window').act, act(1, 'open', 'window').seal));
+  act(2, 'shut', 'window');
+  assert.throws(() => act(3, 'open', 'candle-0'), /only a window/);
+  assert.throws(() => act(3, 'light', 'window'), /candle|window/);
+  assert.throws(() => R.makeRoomAct({ sk: ana.sk, pk: ana.pk, room: ROOM, k: 3, act: 'place', thing: 'window', to: null }), /window/);
+});

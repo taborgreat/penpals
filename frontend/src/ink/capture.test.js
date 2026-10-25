@@ -75,7 +75,7 @@ import { lawOf, CURRENT } from 'penpals-law/laws';
 
 // the device writes under the current law
 const { createLive } = lawOf(CURRENT);
-import { settle } from 'penpals-law/record';
+import { settle, settleOn } from 'penpals-law/record';
 import { paperKeyOf } from 'penpals-law/keys';
 import { b64url } from 'penpals-law/tags';
 
@@ -145,6 +145,46 @@ test('the live sheet, fed as points become final, settles exactly as the encoded
   const done = live.finish(acts);
   assert.equal(b64url(done.facts), b64url(batch.facts));
   assert.deepEqual(done.box, batch.box);
+});
+
+test('a dip pen, live: it runs dry and is dipped again where its sealed record does, undo and all', () => {
+  let clock = 0;
+  const dipped = (n) => ({ ...PEN, size: 60, flow: 15, well: 2, dip: n });
+  const cap = createCapture({ now: () => clock, pen: dipped(1), live: true });
+  const L = lawOf(3);
+  const live = L.createLive({ paperKey: paperKeyOf(SEED), family: FAMILY });
+  let t = 1000;
+  const stroke = (y, n = 40) => {
+    cap.down({ x: 40, y }, ev(t));
+    for (let i = 1; i <= n; i++) {
+      t += 8;
+      clock = t;
+      cap.move({ x: 40 + i * 3, y }, ev(t));
+      if (i % 5 === 0) applyOps(live, cap.drain());
+    }
+    t += 9;
+    cap.up(null, ev(t));
+    applyOps(live, cap.drain());
+    t += 200;
+  };
+  const left = [];
+  for (let k = 0; k < 4; k++) {
+    stroke(60 + k * 10);
+    left.push(live.reservoir);
+  }
+  assert.ok(left[3] < left[0], `the reservoir runs down: ${left.map((x) => x.toFixed(2))}`);
+  cap.setPen(dipped(2)); // into the jar
+  stroke(110);
+  assert.ok(live.reservoir > left[3], 'dipped again: full');
+  assert.ok(cap.undo());
+  applyOps(live, cap.drain());
+  // (the last stroke's last tick is laid lazily, at the next snapshot: a hair below the reading after it)
+  assert.ok(live.reservoir <= left[3] && live.reservoir > left[3] * 0.9, `the dip and its stroke taken back: as it was (${live.reservoir})`);
+  stroke(120);
+  const acts = cap.acts();
+  const batch = settleOn(acts, paperKeyOf(SEED), FAMILY, 64, 3);
+  const done = live.finish(acts);
+  assert.equal(b64url(done.facts), b64url(batch.facts), 'the live sheet is the sealed one');
 });
 
 test('a final point never changes; a promise moves a later pen-down after it', () => {

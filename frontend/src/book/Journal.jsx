@@ -244,6 +244,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
             move: (p, ev) => wallRef.current?.pen.move(p, ev),
             up: (p, ev) => wallRef.current?.pen.up(p, ev),
             cancel: () => wallRef.current?.pen.cancel(),
+            nib: () => wallRef.current?.nib() ?? null,
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -291,8 +292,9 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       paperWriter: fresh.writer,
       sheetHand,
       world,
+      space: book.key ?? null, // whose space (world.md 3c: its key, its music)
     }),
-    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, sheetHand, world],
+    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, sheetHand, world, book.key],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;

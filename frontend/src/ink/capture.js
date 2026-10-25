@@ -27,7 +27,7 @@
 // quantizer over the same points, so the live sheet and the sealed record are
 // fed the very same acts.
 
-import { encodeActs } from 'penpals-law/v2/acts'; // law 2's PNKA: law 1's bytes exactly, unless a pen sets spatter
+import { encodeActs, samePen } from 'penpals-law/v2/acts'; // law 2's PNKA: law 1's bytes exactly, unless a pen sets spatter
 
 // A still flex nib (mouse, thumb) opens its tines: full pressure after about
 // 1 / HOLD_RAMP ms of holding (Tabor's to rule). A held pen repeats its point
@@ -340,16 +340,3 @@ export function strokesToActs(list, pen, { margin = 2 } = {}) {
   });
   return encodeActs({ orgX, orgY, strokes: out });
 }
-
-const samePen = (a, b) =>
-  a.nib === b.nib &&
-  a.size === b.size &&
-  a.flex === b.flex &&
-  a.flow === b.flow &&
-  a.angle === b.angle &&
-  a.rgb[0] === b.rgb[0] &&
-  a.rgb[1] === b.rgb[1] &&
-  a.rgb[2] === b.rgb[2] &&
-  a.spatter === b.spatter &&
-  a.well === b.well &&
-  a.dip === b.dip; // (dipped again: a new pen act, its well full)

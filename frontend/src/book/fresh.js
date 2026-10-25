@@ -37,6 +37,11 @@ export function sheetPen(now, pen) {
   return {
     widthAt: (p) => (now().ink ? pen.widthAt(now().ink.law)(p) : 0),
     across: () => (pen.nib === 'broad' ? pen.angle : 0),
+    // the nib as its ink has it now (heard: sound/pen.js penHand)
+    nib() {
+      const { ink } = now();
+      return ink ? { pen: ink.capture.pen, on: 'paper', ...ink.nib } : null;
+    },
     down(p, ev, type) {
       const { ink, paper: s } = now();
       const q = at(p);

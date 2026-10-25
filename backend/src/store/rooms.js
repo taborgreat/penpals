@@ -42,6 +42,7 @@ function stateOf(lines) {
     counted.add(`${a.by}.${a.k}`);
     if (a.act === 'place') things[a.thing] = { ...things[a.thing], at: a.to === null ? null : metres(a.to), by: nameOf(a.by) };
     if (a.act === 'set') things[a.thing] = { ...things[a.thing], set: a.set };
+    if (a.act === 'open' || a.act === 'shut') things[a.thing] = { ...things[a.thing], open: a.act === 'open' };
     if (a.act === 'light' || a.act === 'out') lit[a.thing] = a.act === 'light';
   }
   return { things, lit, counted };
@@ -164,12 +165,14 @@ export async function act(ownerId, userId, owner, { act: a, seal } = {}) {
   if (a.act === 'set' && (!held || held.at !== null || held.by !== b.name)) return { why: 'Only the one holding a pen sets it.', status: 409 };
   if (a.act === 'light' && r.lit[a.thing]) return { why: 'It is lit already.', status: 409 };
   if (a.act === 'out' && !r.lit[a.thing]) return { why: 'It is out already.', status: 409 };
+  if ((a.act === 'open' || a.act === 'shut') && !!r.things[a.thing]?.open === (a.act === 'open')) return { why: a.act === 'open' ? 'It is open already.' : 'It is shut already.', status: 409 };
   r.counted.add(count);
   if (a.act === 'place') r.things[a.thing] = { ...r.things[a.thing], at: a.to === null ? null : metres(a.to), by: b.name };
   if (a.act === 'set') r.things[a.thing] = { ...r.things[a.thing], set: a.set };
+  if (a.act === 'open' || a.act === 'shut') r.things[a.thing] = { ...r.things[a.thing], open: a.act === 'open' };
   if (a.act === 'light' || a.act === 'out') r.lit[a.thing] = a.act === 'light';
   const line = await record(ownerId, r, { act: a, seal });
-  if (a.act === 'place' || a.act === 'set') tellAll(r, 'thing', { thing: a.thing, ...r.things[a.thing] });
+  if (a.act === 'place' || a.act === 'set' || a.act === 'open' || a.act === 'shut') tellAll(r, 'thing', { thing: a.thing, ...r.things[a.thing] });
   return { line };
 }
 

@@ -1657,7 +1657,11 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   function snapshot() {
     if (inStroke) throw new Error('snapshot while the pen is down');
     if (batch) flushTick();
-    const j = { saved: [], has: new Set(), counters: { now, wetCells, hotCells, everWet, work, lastT, pen, carry, travel, strokeNo, lost: { ...lost }, splat: { ...splat }, put: { ...put } } };
+    const j = {
+      saved: [],
+      has: new Set(),
+      counters: { now, wetCells, hotCells, everWet, work, lastT, pen, carry, travel, strokeNo, well, wellCap, lost: { ...lost }, splat: { ...splat }, put: { ...put } },
+    };
     journals.push(j);
     return j;
   }
@@ -1728,7 +1732,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       if (dirty) dirty.add(t);
     }
     batch = null;
-    ({ now, wetCells, hotCells, everWet, work, lastT, carry, travel, strokeNo } = snap.counters);
+    ({ now, wetCells, hotCells, everWet, work, lastT, carry, travel, strokeNo, well, wellCap } = snap.counters);
     Object.assign(lost, snap.counters.lost);
     Object.assign(splat, snap.counters.splat);
     Object.assign(put, snap.counters.put);
@@ -1789,6 +1793,10 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     },
     get splat() {
       return { ...splat };
+    },
+    // what is left in a dipped nib's reservoir, of its fill (a pen not dipped never runs dry): the scene's
+    get reservoir() {
+      return wellCap ? well / wellCap : 1;
     },
     tiles: () => tiles.values(),
     getTile,

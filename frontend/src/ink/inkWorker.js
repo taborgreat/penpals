@@ -16,7 +16,8 @@
 //                                                 scene's field (law/v2/scene.js) and the paper's own detail
 //   { type: 'scene', on }                         the sheet being written: tiles carry heights from now on
 //   { type: 'liveMoments', id, acts }             the sheet being written, its moments (law 2): when each cell's ink went down
-// Out: { type: 'tiles', tiles: [{ tx, ty, rgba }] } (and 'reset'), replies by id.
+// Out: { type: 'tiles', tiles: [{ tx, ty, rgba }], nib? } (and 'reset'), replies by id. nib (with each
+// batch's answer): { reservoir (what is left in a dipped nib, of its fill), drops, W (thrown so far) }.
 import { lawOf, CURRENT } from 'penpals-law/laws';
 import { paperDetail } from 'penpals-law/v2/scene';
 import { halves } from '../scene/half.js';
@@ -67,7 +68,8 @@ onmessage = ({ data: m }) => {
     } else if (m.type === 'ops') {
       for (const o of m.ops) apply(o);
       const tiles = out(live.changed({ heights: sheet.scene }));
-      postMessage({ type: 'tiles', tiles, ack: true }, handed(tiles)); // always answered: the main thread sends the next batch only then
+      const nib = { reservoir: live.reservoir ?? 1, drops: live.splat?.drops ?? 0, W: live.splat?.W ?? 0 }; // (law 1 has neither)
+      postMessage({ type: 'tiles', tiles, ack: true, nib }, handed(tiles)); // always answered: the main thread sends the next batch only then
     } else if (m.type === 'advance') {
       live.advanceTo(m.ms);
       postTiles(live.changed({ heights: sheet.scene }));

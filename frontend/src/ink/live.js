@@ -14,6 +14,7 @@
 //   ink.scene(on)      tiles carry their height field (the scene); ink.onTiles(fn) gets each batch,
 //                      ink.tiles() all tiles so far: [{ tx, ty, rgba, hf? }]
 //   ink.play(canvas)   → { duration, play(onDone), stop() }: the sheet written out again, physics and all
+//   ink.nib            { reservoir (what is left in a dipped nib, of its fill: 1 never dipped), drops, W (thrown: law drops of water) }
 //   ink.destroy()
 
 import { createCapture } from './capture.js';
@@ -45,6 +46,7 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
   let lastAdvanceAt = 0;
   let dead = false;
   let error = null;
+  let nib = { reservoir: 1, drops: 0, W: 0 };
 
   const notify = () => {
     for (const fn of listeners) fn();
@@ -63,6 +65,7 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
   worker.onmessage = ({ data: m }) => {
     if (m.type === 'tiles') {
       if (m.ack) opsInFlight = false;
+      if (m.nib) nib = m.nib;
       if (m.tiles.length) {
         paint(ctx, m.tiles);
         for (const t of m.tiles) tileStore.set(`${t.tx},${t.ty}`, t);
@@ -142,6 +145,9 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
     },
     get error() {
       return error;
+    },
+    get nib() {
+      return nib;
     },
     onChange(fn) {
       listeners.add(fn);

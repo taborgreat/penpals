@@ -11,7 +11,8 @@
 // chain too (its lay lines: room/table.js).
 //
 // → { others, report, body, sheets: [{ view, slot, field, mayWrite, seals }], scene: { sheets,
-//     tableWriter, beings, onPose, focus }, candles (law/wax.js createRoomWax: candle(which) →
+//     tableWriter, beings, onPose, focus, heard: { on(fn) }: others' strokes as they come, fn({ origin
+//     (its sheet's slot), rec (decoded), seed }) }, candles (law/wax.js createRoomWax: candle(which) →
 //     { cd, lit, holder, pos, deg }, as far as at()), mine (your shared sheets, wherever they lie), tool,
 //     notice, clearNotice, share(family), layOn(view, name), takeBack(view), lift(view), lookAt(view),
 //     useTool('pen'), stamperFor(name), breakSeal(view, n) }
@@ -19,7 +20,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, useRoomLines, seatOf, roomAct } from './presence.js';
 import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE } from './shared.js';
 import { lyingOn, waxContext } from './table.js';
-import { wax as WX, room as R, candle as C } from 'penpals-law';
+import { wax as WX, room as R, candle as C, shared as SH, fromB64url } from 'penpals-law';
+import { lawOf } from 'penpals-law/laws';
 import { GEOM, theLight } from '../scene/light.js';
 
 // The seals pressed into a sheet, in its order: [{ n, for (key), name, took, broken, at: { x, y } }]
@@ -135,6 +137,31 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   useEffect(() => {
     for (const p of placed) writers.get(p.view.sheet)?.settled(p.view.lines, p.grown);
   }, [placed, writers]);
+  // others' strokes as they come (world.md Phase 2: each writer's pen heard from where it wrote, as
+  // it was written); what lay there when you came is not heard
+  const listeners = useRef(new Set());
+  const heardTo = useRef(new Map()); // sheet → its lines heard so far
+  useEffect(() => {
+    for (const p of placed) {
+      const was = heardTo.current.get(p.view.sheet);
+      heardTo.current.set(p.view.sheet, p.view.lines.length);
+      if (was === undefined || !listeners.current.size) continue;
+      for (const l of p.view.lines.slice(was)) {
+        if (l.act.act !== 'stroke' || l.act.by === myKey) continue;
+        const rec = lawOf(SH.SHARED_LAW).decodeCanonical(fromB64url(l.act.stroke));
+        for (const fn of listeners.current) fn({ origin: p.slot, rec, seed: l.n });
+      }
+    }
+  }, [placed, myKey]);
+  const heard = useMemo(
+    () => ({
+      on(fn) {
+        listeners.current.add(fn);
+        return () => listeners.current.delete(fn);
+      },
+    }),
+    [],
+  );
 
   const writerFor = useCallback(
     (sheet) => {
@@ -205,6 +232,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
               active.current?.pen?.cancel();
               active.current = null;
             },
+            nib: () => active.current?.nib() ?? null,
           }
         : null,
     [rects, writerFor], // (the sheets you may write on, by place: not every act on them)
@@ -306,7 +334,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     };
   }, [name, body, key, roomKey]);
 
-  const scene = useMemo(() => ({ sheets: sceneSheets, tableWriter, beings: others, onPose: report, focus }), [sceneSheets, tableWriter, others, report, focus]);
+  const scene = useMemo(() => ({ sheets: sceneSheets, tableWriter, beings: others, onPose: report, focus, heard }), [sceneSheets, tableWriter, others, report, focus, heard]);
   return {
     others,
     report,

@@ -147,6 +147,8 @@ export function createSharedWriter({ key, view, color, onNotice = () => {} }) {
   return {
     sheet: view.sheet,
     live,
+    // the nib as its ink has it now (heard: sound/pen.js penHand)
+    nib: () => ({ pen: live.capture.pen, on: 'paper', ...live.nib }),
     pen: {
       down(q, ev, type) {
         if (!inside(q)) return false;

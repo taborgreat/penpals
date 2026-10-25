@@ -7,6 +7,8 @@
 //   strength  N/mm² (how far it bends or pulls before it breaks)
 //   stiffness N/mm² (how hard it resists stretching: stretched past strength/stiffness, it cracks)
 //   rots      days for half of it to break down into dirt where it lies
+//   poisson   ‰: how much it narrows as it is stretched (with its stiffness, how a shell of it bends)
+//   loss      ‰ of its bending's energy it turns to heat a cycle (how long it rings: Q = 1000 / loss)
 //   friction  ×1000 (how much it resists sliding against another matter)
 //   heat      { holds (J/(kg·K)), conducts (mW/(m·K)), melts, boils, burns (°C) | null,
 //               fuses (J/kg the melting takes and the setting gives back), releases (J/kg its
@@ -28,6 +30,14 @@
 //   tension   mN/m (a liquid's surface: how high it stands at a dry edge before it runs over)
 //   light     its curve in light-waves (its colour: what it refuses to drink)
 //   ior       ×1000, its refractive index (its shine: matter-fixes §5); null for a metal
+//   sound     ‰ of the sound reaching its face it drinks, by octave (31 Hz .. 16 kHz: world.md's ten
+//             bands; Sabine's coefficients, the low and high ends as the nearest measured octave)
+//   molar     g/mol (a gas's: with its heat, how fast sound runs through it)
+//   viscous   nPa·s (a gas's: how it drags on what moves through it, as smoke's grains settling)
+//   soot      ppm of what burns that leaves as soot (the grains in its smoke that darken the air)
+//   grains    { size (nm), density (kg/m³), ior, absorbs (×1000: the real and imaginary parts of their
+//             refractive index) }: the solid grains a smoke carries (how they settle, stick and
+//             drink light)
 // Paper's ink row is today's paper exactly (law/v1/constants.js, v2/constants.js): the ink law
 // reads its own constants for paper, and the table says what they are. Approximate real values
 // otherwise (matter.md: the table is the only place these numbers live).
@@ -54,7 +64,7 @@ const PAPER_INK = Object.freeze({
 });
 
 export const MATTER = Object.freeze({
-  air: { density: 1, hardness: 0, strength: 0, friction: 0, heat: { holds: 1005, conducts: 26, melts: null, boils: null, burns: null }, light: 'air', ior: 1000 }, // feeds fire; carries heat and smoke
+  air: { density: 1, hardness: 0, strength: 0, friction: 0, heat: { holds: 1005, conducts: 26, melts: null, boils: null, burns: null }, light: 'air', ior: 1000, molar: 28.97, viscous: 18100 }, // feeds fire; carries heat, smoke and sound
   water: {
     density: 1000,
     hardness: 0,
@@ -64,6 +74,7 @@ export const MATTER = Object.freeze({
     becomes: { boiled: 'steam', frozen: 'ice' },
     tension: 72,
     light: 'water',
+    sound: [10, 10, 10, 10, 10, 15, 20, 20, 20, 20],
     ior: 1333,
   }, // ink's carrier
   ink: {
@@ -86,6 +97,7 @@ export const MATTER = Object.freeze({
     becomes: { burnt: 'ash' },
     ink: PAPER_INK,
     light: 'paper',
+    sound: [20, 20, 20, 20, 30, 40, 50, 50, 50, 50],
     ior: 1500,
   },
   wood: {
@@ -98,6 +110,7 @@ export const MATTER = Object.freeze({
     becomes: { burnt: 'char' },
     ink: { drinks: 1, wets: 1000, cap: 120, capStep: 6, capMin: 60, capMax: 200, thirst: 3, rough: 8, fibers: 'grain', fiber: 3 },
     light: 'table',
+    sound: [150, 150, 150, 110, 100, 70, 60, 70, 70, 70],
     ior: 1540,
   }, // oak: table, floor, shelf, sticks, trees
   wax: {
@@ -107,9 +120,11 @@ export const MATTER = Object.freeze({
     friction: 300,
     heat: { holds: 2140, conducts: 250, melts: 60, softens: 45, boils: 370, burns: 250, fuses: 200000, releases: 44000000, burnRate: 30, leaves: 0, air: 15, shines: 300 },
     becomes: { burnt: 'smoke' },
+    soot: 50,
     tension: 30,
     ink: { drinks: 0, wets: 125, hold: 600, thirst: 0, rough: 1, fibers: null },
     light: 'wax',
+    sound: [20, 20, 20, 20, 30, 30, 40, 40, 40, 40],
     ior: 1440,
   }, // paraffin: the candle's body and fuel
   wick: {
@@ -132,6 +147,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 1000, conducts: 400, melts: null, boils: null, burns: null },
     ink: { drinks: 1, wets: 1000, cap: 300, capStep: 12, capMin: 200, capMax: 420, thirst: 15, rough: 12, fibers: null },
     light: 'plaster',
+    sound: [13, 13, 13, 15, 20, 30, 40, 50, 50, 50],
     ior: 1520,
   }, // walls: cracks and crumbles when very hot
   metal: {
@@ -143,6 +159,7 @@ export const MATTER = Object.freeze({
     becomes: { melted: 'metal' },
     ink: { drinks: 0, wets: 500, hold: 200, thirst: 0, rough: 1, fibers: null },
     light: 'brass',
+    sound: [10, 10, 10, 10, 10, 15, 20, 20, 20, 20],
     ior: null,
   }, // one metal for now: the candle's holder, the nib; found in rocks
   stone: {
@@ -153,6 +170,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 790, conducts: 2800, melts: 1200, boils: null, burns: null, fuses: 400000 },
     ink: { drinks: 1, wets: 1000, cap: 20, capStep: 2, capMin: 8, capMax: 40, thirst: 1, rough: 16, fibers: null },
     light: 'plaster',
+    sound: [10, 10, 10, 10, 15, 20, 20, 20, 20, 20],
     ior: 1540,
   }, // rocks: hard, brittle in pulling; holds metal
   chalk: { density: 2100, hardness: 2, strength: 3, friction: 550, heat: { holds: 900, conducts: 900, melts: null, boils: null, burns: null }, light: 'plaster', ior: 1600 }, // a soft stone
@@ -160,10 +178,14 @@ export const MATTER = Object.freeze({
     density: 2500,
     hardness: 6,
     strength: 40,
+    stiffness: 70000,
+    poisson: 220,
+    loss: 1,
     friction: 900,
     heat: { holds: 840, conducts: 1000, melts: 1400, boils: null, burns: null },
     ink: { drinks: 0, wets: 800, hold: 300, thirst: 0, rough: 0, fibers: null },
     light: 'glass',
+    sound: [350, 350, 350, 250, 180, 120, 70, 40, 40, 40],
     ior: 1500,
   },
   dirt: {
@@ -174,6 +196,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 800, conducts: 500, melts: null, boils: null, burns: null },
     ink: { drinks: 1, wets: 1000, cap: 400, capStep: 20, capMin: 250, capMax: 560, thirst: 12, rough: 20, fibers: null },
     light: 'floor',
+    sound: [150, 150, 150, 250, 400, 550, 600, 600, 600, 600],
     ior: 1500,
   },
   clay: {
@@ -206,6 +229,7 @@ export const MATTER = Object.freeze({
     becomes: { burnt: 'ash' },
     ink: { drinks: 0, wets: 300, hold: 400, thirst: 0, rough: 4, fibers: null },
     light: 'grass',
+    sound: [110, 110, 110, 260, 600, 690, 920, 990, 990, 990],
     ior: 1450,
   }, // waxy blades: ink beads off them
   bark: {
@@ -217,6 +241,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 1500, conducts: 120, melts: null, boils: null, burns: 280, releases: 17000000, burnRate: 12, leaves: 250, air: 6, shines: 300 },
     becomes: { burnt: 'char' },
     light: 'table',
+    sound: [100, 100, 100, 110, 100, 80, 80, 90, 90, 90],
     ior: 1540,
   },
   leaf: {
@@ -228,6 +253,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 3500, conducts: 300, melts: null, boils: null, burns: 250, releases: 15000000, burnRate: 20, leaves: 50, air: 5, shines: 250 },
     becomes: { burnt: 'ash', rotted: 'dirt' },
     light: 'leaf',
+    sound: [30, 30, 30, 60, 110, 170, 270, 310, 310, 310],
     ior: 1450,
   },
   fiber: {
@@ -238,6 +264,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 1300, conducts: 60, melts: null, boils: null, burns: 250, releases: 16000000, burnRate: 15, leaves: 20, air: 5, shines: 300 },
     becomes: { burnt: 'ash' },
     light: 'paper',
+    sound: [70, 70, 70, 310, 490, 750, 700, 600, 600, 600],
     ior: 1500,
   }, // a string's (bark fiber, linen), cloth
   skin: {
@@ -248,6 +275,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 3500, conducts: 370, melts: null, boils: null, burns: 300, releases: 20000000, burnRate: 5, leaves: 100, air: 8, shines: 300 },
     becomes: { burnt: 'char' },
     light: 'skin',
+    sound: [250, 250, 250, 350, 420, 460, 500, 500, 500, 500],
     ior: 1440,
   }, // a being's (outside.md Part 4)
   char: {
@@ -271,7 +299,16 @@ export const MATTER = Object.freeze({
     light: 'ash',
     ior: 1500,
   }, // what is left when nothing more burns
-  smoke: { density: 1, hardness: 0, strength: 0, friction: 0, heat: { holds: 1100, conducts: 30, melts: null, boils: null, burns: null }, light: 'smoke', ior: 1000 }, // thin hot matter: scatters light; rises, cools, thins
+  smoke: {
+    density: 1,
+    hardness: 0,
+    strength: 0,
+    friction: 0,
+    heat: { holds: 1100, conducts: 30, melts: null, boils: null, burns: null },
+    light: 'smoke',
+    ior: 1000,
+    grains: { size: 100, density: 1800, ior: 1950, absorbs: 790 },
+  }, // thin hot matter: scatters light; rises, cools, thins
 });
 
 // Matter by number (a cell's), in a fixed order: a cell's matter is its index here. Never reordered.
