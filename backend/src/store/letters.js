@@ -90,16 +90,6 @@ export function updateLetter(id, change) {
   });
 }
 
-export function deleteLetter(id) {
-  return serial(`letter:${id}`, async () => {
-    const meta = index.get(id);
-    index.delete(id);
-    if (meta?.sheet) sheets.get(meta.senderId)?.delete(meta.sheet);
-    await fs.rm(metaPath(id), { force: true }); // first: from here on it is not a letter
-    await fs.rm(dirOf(id), { recursive: true, force: true });
-  });
-}
-
 export const exists = (id) => index.has(id);
 
 // Dates are stored as ISO strings.

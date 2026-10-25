@@ -174,10 +174,11 @@ test("visiting: others read the walls (the scene of a closed sheet), as the prof
   const ink = res.data.ink;
   assert.equal((await app.bo.get(`/api/books/ana/look/${ink}?mode=scene&s=64`)).status, 200, 'a visitor reads the wall');
   assert.equal((await app.bo.get(`/api/books/ana/look/${ink}?s=64`)).status, 200);
-  // a private room: only friends may come in
+  // a private room: only its owner comes in (there are no friends: one-world.md)
   assert.equal((await app.ana.post('/api/social/private', { private: true })).status, 200);
   const stranger = client(app.base);
   assert.notEqual((await stranger.get(`/api/books/ana/look/${ink}?s=64`)).status, 200, 'a stranger cannot read the walls of a private room');
+  assert.notEqual((await app.bo.get(`/api/books/ana/look/${ink}?s=64`)).status, 200, 'nor anyone else');
   assert.equal((await app.ana.post('/api/social/private', { private: false })).status, 200);
   assert.equal((await stranger.get(`/api/books/ana/look/${ink}?s=64`)).status, 200);
 });

@@ -9,24 +9,8 @@ import { httpError } from '../files.js';
 import { requireAuth } from '../auth.js';
 import { findByName, getAccount, updateAccount } from '../store/accounts.js';
 import { sheetUsedInBook } from '../store/books.js';
-import {
-  allLetters,
-  at,
-  createLetter,
-  deleteLetter,
-  getLetter,
-  inMail,
-  inkPath,
-  savedCount,
-  strokesPath,
-  updateLetter,
-  readLine,
-  readSeed,
-  lookDir,
-  exists,
-  sheetUsedInLetters,
-} from '../store/letters.js';
-import { blockedEitherWay, blockedIds, canSeeProfile, hasBlocked, relation } from '../social.js';
+import { allLetters, at, createLetter, getLetter, inMail, inkPath, savedCount, strokesPath, updateLetter, readLine, readSeed, lookDir, exists, sheetUsedInLetters } from '../store/letters.js';
+import { canSeeProfile } from '../social.js';
 import { take, ipKey } from '../limits.js';
 import { confirmFacts, settleOnServer, decodeField, viewOf } from '../services.js';
 import { countView } from '../store/exposure.js';
@@ -104,8 +88,6 @@ export function letterJsonOf(l, viewer) {
     saveCount: l.savedBy.length,
     savedByMe: !!me && l.savedBy.some((s) => s.userId === me),
     isMine: !!me && l.senderId === me,
-    upvotes: l.upvotes.length,
-    upvotedByMe: !!me && l.upvotes.includes(me),
     lineUrl: `/api/letters/${l.id}/line`,
     lookUrl: l.kind === 'pad' ? `/api/letters/${l.id}/look` : null,
     inkUrl: l.kind === 'photo' ? `/api/letters/${l.id}/ink` : null,
@@ -122,7 +104,6 @@ function canView(letter, user, now = Date.now()) {
   if (me && letter.recipientId === me && at(letter.expiresAt) > now) return true;
   if (me && letter.senderId === me && letter.savedBy.some((s) => s.userId === me)) return true;
   if (!letter.savedBy.length) return false;
-  if (me && letter.senderId !== me && blockedEitherWay(me, letter.senderId)) return false;
   return letter.savedBy.some((s) => {
     const keeper = getAccount(s.userId);
     return keeper && canSeeProfile(me, keeper);
@@ -135,17 +116,9 @@ function findLetter(req) {
   return letter;
 }
 
-async function deleteIfOrphan(id) {
-  const l = getLetter(id);
-  if (!l || l.savedBy.length || inMail(l)) return;
-  await deleteLetter(id);
-}
-
 function sendRefusal(me, recipient) {
   if (recipient.id === me.id) return httpError(400, 'self', 'You cannot write to yourself.');
-  if (hasBlocked(getAccount(me.id), recipient.id)) return httpError(403, 'blocked', 'You have blocked this scripter.');
-  if (hasBlocked(recipient, me.id)) return httpError(404, 'no_such_name', 'No such scripter.');
-  if (recipient.private && relation(me.id, recipient.id) !== 'friends') return httpError(403, 'friends_only', 'Only their friends can write to them.');
+  if (!canSeeProfile(me.id, recipient)) return httpError(403, 'private', 'Their house is private.');
   return null;
 }
 
@@ -200,7 +173,6 @@ function baseMeta(req, { kind, sheet, recipient, room, now, background, playable
     playable: playable !== false && playable !== '0' && playable !== 'false',
     createdAt: stamp,
     savedBy: room ? [{ userId: req.user.id, at: stamp }] : [],
-    upvotes: [],
     openedAt: null,
     ...(recipient ? delivery(recipient, now) : { recipientId: null, to: null, sentAt: null, expiresAt: null }),
   };
@@ -290,9 +262,8 @@ lettersRouter.post('/photo', requireAuth, upload, async (req, res) => {
 });
 
 lettersRouter.get('/inbox', requireAuth, (req, res) => {
-  const hidden = new Set(blockedIds(req.user.id));
   const list = allLetters()
-    .filter((l) => l.recipientId === req.user.id && !hidden.has(l.senderId) && inMail(l))
+    .filter((l) => l.recipientId === req.user.id && inMail(l))
     .sort((a, b) => at(b.sentAt) - at(a.sentAt));
   res.json({ letters: list.map((l) => letterJsonOf(l, req.user)) });
 });
@@ -302,15 +273,6 @@ lettersRouter.get('/sent', requireAuth, (req, res) => {
     .filter((l) => l.senderId === req.user.id && l.sentAt)
     .sort((a, b) => at(b.sentAt) - at(a.sentAt))
     .slice(0, 20);
-  res.json({ letters: list.map((l) => letterJsonOf(l, req.user)) });
-});
-
-lettersRouter.get('/top', (req, res) => {
-  const list = allLetters()
-    .filter((l) => l.savedBy.length && l.upvotes.length)
-    .sort((a, b) => b.upvotes.length - a.upvotes.length || at(b.createdAt) - at(a.createdAt))
-    .filter((l) => canView(l, req.user))
-    .slice(0, 10);
   res.json({ letters: list.map((l) => letterJsonOf(l, req.user)) });
 });
 
@@ -498,18 +460,5 @@ lettersRouter.delete('/:id/save', requireAuth, async (req, res) => {
     l.savedBy = l.savedBy.filter((s) => s.userId !== me);
     return l.savedBy.length !== before;
   });
-  await deleteIfOrphan(req.params.id);
   res.json({ ok: true, savedCount: savedCount(me) });
-});
-
-lettersRouter.post('/:id/upvote', requireAuth, async (req, res) => {
-  const letter = findLetter(req);
-  const me = req.user.id;
-  if (letter.senderId === me) throw httpError(400, 'own_letter', 'You cannot upvote your own letter.');
-  if (!letter.savedBy.length) throw httpError(400, 'not_kept', 'Only letters kept on a profile can be upvoted.');
-  if (!canView(letter, req.user)) throw httpError(403, 'not_yours', 'Not your letter.');
-  const updated = await updateLetter(letter.id, (l) => {
-    l.upvotes = l.upvotes.includes(me) ? l.upvotes.filter((id) => id !== me) : [...l.upvotes, me];
-  });
-  res.json({ upvotes: updated.upvotes.length, upvotedByMe: updated.upvotes.includes(me) });
 });

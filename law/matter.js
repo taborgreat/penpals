@@ -13,7 +13,8 @@
 //               burning gives), softens (°C: a solid that gives under a press, as warm wax does),
 //               hardens (°C: what heat makes lastingly hard, as fired clay), burnRate (g/(m²·s): how
 //               fast it burns over the face it shows the air), leaves (‰ of what burns left as its
-//               residue: char, ash), air (kg of air a kg of it burns with) } (the heat rule)
+//               residue: char, ash), air (kg of air a kg of it burns with), shines (‰ of its
+//               flame's heat that leaves as light: a sooty flame's glow) } (the heat rule)
 //   becomes   what it turns into: { burnt, melted, boiled, frozen, fired } (names in this table)
 //   ink       how it takes a liquid, as the ink law reads it (law/v2/sim.js, law/grow.js):
 //               drinks   its pores open to its face (0: it drinks nothing: a liquid stands on it)
@@ -81,7 +82,7 @@ export const MATTER = Object.freeze({
     hardness: 1,
     strength: 30,
     friction: 500,
-    heat: { holds: 1340, conducts: 50, melts: null, boils: null, burns: 233, releases: 16000000, burnRate: 15, leaves: 10, air: 5 },
+    heat: { holds: 1340, conducts: 50, melts: null, boils: null, burns: 233, releases: 16000000, burnRate: 15, leaves: 10, air: 5, shines: 300 },
     becomes: { burnt: 'ash' },
     ink: PAPER_INK,
     light: 'paper',
@@ -93,7 +94,7 @@ export const MATTER = Object.freeze({
     strength: 90,
     stiffness: 11000,
     friction: 450,
-    heat: { holds: 2000, conducts: 160, melts: null, boils: null, burns: 300, releases: 18000000, burnRate: 10, leaves: 250, air: 6 },
+    heat: { holds: 2000, conducts: 160, melts: null, boils: null, burns: 300, releases: 18000000, burnRate: 10, leaves: 250, air: 6, shines: 300 },
     becomes: { burnt: 'char' },
     ink: { drinks: 1, wets: 1000, cap: 120, capStep: 6, capMin: 60, capMax: 200, thirst: 3, rough: 8, fibers: 'grain', fiber: 3 },
     light: 'table',
@@ -104,7 +105,7 @@ export const MATTER = Object.freeze({
     hardness: 1,
     strength: 2,
     friction: 300,
-    heat: { holds: 2140, conducts: 250, melts: 60, softens: 45, boils: 370, burns: 250, fuses: 200000, releases: 44000000, burnRate: 30, leaves: 0, air: 15 },
+    heat: { holds: 2140, conducts: 250, melts: 60, softens: 45, boils: 370, burns: 250, fuses: 200000, releases: 44000000, burnRate: 30, leaves: 0, air: 15, shines: 300 },
     becomes: { burnt: 'smoke' },
     tension: 30,
     ink: { drinks: 0, wets: 125, hold: 600, thirst: 0, rough: 1, fibers: null },
@@ -116,7 +117,7 @@ export const MATTER = Object.freeze({
     hardness: 1,
     strength: 300,
     friction: 500,
-    heat: { holds: 1300, conducts: 60, melts: null, boils: null, burns: 250, releases: 16000000, burnRate: 15, leaves: 20, air: 5 },
+    heat: { holds: 1300, conducts: 60, melts: null, boils: null, burns: 250, releases: 16000000, burnRate: 15, leaves: 20, air: 5, shines: 300 },
     becomes: { burnt: 'ash' },
     draws: 2000,
     pores: 500,
@@ -201,7 +202,7 @@ export const MATTER = Object.freeze({
     hardness: 1,
     strength: 10,
     friction: 500,
-    heat: { holds: 3500, conducts: 300, melts: null, boils: null, burns: 260, releases: 15000000, burnRate: 30, leaves: 50, air: 5 },
+    heat: { holds: 3500, conducts: 300, melts: null, boils: null, burns: 260, releases: 15000000, burnRate: 30, leaves: 50, air: 5, shines: 250 },
     becomes: { burnt: 'ash' },
     ink: { drinks: 0, wets: 300, hold: 400, thirst: 0, rough: 4, fibers: null },
     light: 'grass',
@@ -213,7 +214,7 @@ export const MATTER = Object.freeze({
     strength: 20,
     stiffness: 300,
     friction: 650,
-    heat: { holds: 1500, conducts: 120, melts: null, boils: null, burns: 280, releases: 17000000, burnRate: 12, leaves: 250, air: 6 },
+    heat: { holds: 1500, conducts: 120, melts: null, boils: null, burns: 280, releases: 17000000, burnRate: 12, leaves: 250, air: 6, shines: 300 },
     becomes: { burnt: 'char' },
     light: 'table',
     ior: 1540,
@@ -224,7 +225,7 @@ export const MATTER = Object.freeze({
     strength: 5,
     friction: 400,
     rots: 400,
-    heat: { holds: 3500, conducts: 300, melts: null, boils: null, burns: 250, releases: 15000000, burnRate: 20, leaves: 50, air: 5 },
+    heat: { holds: 3500, conducts: 300, melts: null, boils: null, burns: 250, releases: 15000000, burnRate: 20, leaves: 50, air: 5, shines: 250 },
     becomes: { burnt: 'ash', rotted: 'dirt' },
     light: 'leaf',
     ior: 1450,
@@ -234,7 +235,7 @@ export const MATTER = Object.freeze({
     hardness: 1,
     strength: 400,
     friction: 500,
-    heat: { holds: 1300, conducts: 60, melts: null, boils: null, burns: 250, releases: 16000000, burnRate: 15, leaves: 20, air: 5 },
+    heat: { holds: 1300, conducts: 60, melts: null, boils: null, burns: 250, releases: 16000000, burnRate: 15, leaves: 20, air: 5, shines: 300 },
     becomes: { burnt: 'ash' },
     light: 'paper',
     ior: 1500,
@@ -244,7 +245,7 @@ export const MATTER = Object.freeze({
     hardness: 1,
     strength: 20,
     friction: 600,
-    heat: { holds: 3500, conducts: 370, melts: null, boils: null, burns: 300, releases: 20000000, burnRate: 5, leaves: 100, air: 8 },
+    heat: { holds: 3500, conducts: 370, melts: null, boils: null, burns: 300, releases: 20000000, burnRate: 5, leaves: 100, air: 8, shines: 300 },
     becomes: { burnt: 'char' },
     light: 'skin',
     ior: 1440,

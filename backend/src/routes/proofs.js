@@ -4,7 +4,6 @@ import { config } from '../config.js';
 import { httpError, writeAtomic } from '../files.js';
 import { requireAuth } from '../auth.js';
 import { findByName, getAccount } from '../store/accounts.js';
-import { blockedEitherWay } from '../social.js';
 import { take } from '../limits.js';
 import { confirmFacts, settleOnServer } from '../services.js';
 import { createProof, getProof, pendingFor, askedBy, answerProof, bundleOf, proofLookPath } from '../store/proofs.js';
@@ -31,7 +30,7 @@ const view = (p, me) => ({
 proofsRouter.post('/', requireAuth, smallJson, async (req, res) => {
   take('proofsUser', req.user.id);
   const to = findByName(String(req.body?.to ?? ''));
-  if (!to || blockedEitherWay(req.user.id, to.id)) throw httpError(404, 'no_such_name', 'No such scripter.');
+  if (!to) throw httpError(404, 'no_such_name', 'No such scripter.');
   if (to.id === req.user.id) throw httpError(400, 'self', 'Ask someone else.');
   const p = await createProof({ from: getAccount(req.user.id), to });
   res.status(201).json({ proof: view(p, req.user.id) });

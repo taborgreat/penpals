@@ -1,23 +1,14 @@
 import { config } from './config.js';
-import { allLetters, at, deleteLetter } from './store/letters.js';
 import { deleteExpiredSessions } from './store/sessions.js';
 import { sweepNonces } from './store/nonces.js';
 import { sweepHeld } from './store/unlock.js';
 import { sweepProofs } from './store/proofs.js';
 
-// The server is a postman, not an archive: once nobody keeps a letter and it is
-// no longer in the mail (expired, or never sent), the letter and its ink go.
-export async function deleteExpiredLetters(now = Date.now()) {
-  const expired = allLetters().filter((l) => !l.savedBy.length && (!l.recipientId || at(l.expiresAt) <= now));
-  for (const l of expired) await deleteLetter(l.id);
-  return expired.length;
-}
-
+// The sweeps of what is not the world: sessions, nonces, held unlocks, proofs. A letter is matter
+// (one-matter.md Phase 4: nothing is deleted); no timer takes it away.
 export function startCleanup() {
   const run = async () => {
     try {
-      const n = await deleteExpiredLetters();
-      if (n) console.log(`[cleanup] deleted ${n} expired letter(s)`);
       await deleteExpiredSessions();
       sweepNonces();
       sweepHeld();

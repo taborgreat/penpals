@@ -2,22 +2,17 @@ import { Router } from 'express';
 import { httpError } from '../files.js';
 import { findByName, getAccount } from '../store/accounts.js';
 import { getSkeleton, inkLine } from '../store/books.js';
-import { hasBlocked } from '../social.js';
 import { take, ipKey } from '../limits.js';
 import { sendLook } from './books.js';
 import { sealFaceOf } from '../store/shared.js';
 
 // Signatures: each scripter's name in their own hand, open from birth (anyone
 // can check it offline), standing in for @name around the site. Shown to
-// everyone except across a block (either way): a private profile still has a
-// signed name.
+// everyone: a private profile still has a signed name.
 export const signaturesRouter = Router();
 const MAX_NAMES = 100;
 
-function visibleTo(viewerId, account) {
-  if (!viewerId || viewerId === account.id) return true;
-  return !hasBlocked(account, viewerId) && !hasBlocked(getAccount(viewerId), account.id);
-}
+const visibleTo = () => true;
 
 // ?names=ana,bo → { signatures: { ana: { ink, line, box, look } | null, bo: null } }
 signaturesRouter.get('/', async (req, res) => {

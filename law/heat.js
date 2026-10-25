@@ -13,29 +13,42 @@
 //            burning's heat, as much as keeps the cell at its ignition heat goes back
 //            into it, and the rest into the air at its faces (the flame), the air it
 //            burnt with spent; what is left
-//            of it is its residue (char, ash), the rest smoke. The hot air heats its
-//            neighbours, which may cross their own thresholds. No fire code: a cell
+//            of it is its residue (char, ash), the rest smoke. Of the flame's heat, its
+//            fuel's `shines` share leaves as light (a sooty flame glows): straight out every
+//            way alike (its 26 neighbours' ways) until it lands on matter, which takes it as
+//            heat; the rest heats the air.
+//            The hot air heats its neighbours, which may cross their own thresholds. No fire code: a cell
 //            burns because it is hot enough and has air, and stops when its fuel is
 //            gone.
 //   Air      warm air is lighter and rises: an air cell warmer than the air cell
-//            above it changes places with it (a cell a step: the step is the time
-//            warm air takes to rise a cell); held under a ceiling, it slides aside
-//            into the coolest air beside it. Smoke and spent air go with their air.
+//            above it rises into its place (a cell a step: the step is the time warm
+//            air takes to rise a cell), the coolest air beside it coming in under it and
+//            the air it pushed up going down there (a turn of the air: so a flame draws
+//            fresh air in at its foot); held under a ceiling, it slides aside into the
+//            coolest air beside it. Smoke and spent air go with their air.
 //            Between air cells heat also goes by the air's own conductivity.
+//   Wicking  a porous matter (its row `draws`, with `pores`) touching a liquid takes it up into
+//            its pores, as fast as it draws and as much as its pores hold, the liquid's heat
+//            with it, and passes it on to the drier pores beside it while it is liquid; soaked, it warms as both together, and what it holds burns before it
+//            does (as the liquid's row: a wet wick does not burn, its oil does). So a candle's
+//            flame is as big as its wick draws, and goes on where its wick meets melted wax.
 //   Falling  a liquid cell, or loose residue, with air beneath falls until it rests.
 //   Beyond   past the grid's edge is the rest of the world at the room's air: heat
 //            crosses each edge face as it would into that air. An open grid (a
 //            place under the sky, or a test's box) lets warm air rise out of its top,
 //            fresh air coming in under it; what leaves is counted (vented).
 //   Sleep    only cells warmer or cooler than the air, burning, or carrying smoke
-//            compute, with what they touch; a cold, still room costs nothing.
+//            compute, with what they touch; a cold, still room costs nothing. A cell within
+//            a kelvin of the air (the grain this rule keeps heat to) sleeps, keeping its heat,
+//            until a neighbour's heat wakes it.
 //
 // Units: mass µg, heat nJ (1 J/(kg·K) = 1 nJ/(µg·K)), temperature mK above the air.
 // Integers throughout (held in doubles below 2^53; the buoyant speed's square root
 // is IEEE's, the same everywhere); deltas gathered over a step and then applied, cells
 // visited in index order.
 //
-//   createHeat({ size: [nx, ny, nz], dx (m), dt (s), cellAt: (x, y, z) => matter name | null (air) })
+//   createHeat({ size: [nx, ny, nz], dx (m), dt (s), cellAt: (x, y, z) => matter name | [name, fill] | null (air) })
+//     (fill: the share of the cell it fills, the rest air: a sheet, a wick, a thin dish)
 //     (dt: about the time warm air takes to rise a cell, dx over its buoyant speed: the caller's grain)
 //     → { step(), heat(i, nJ), at(x, y, z), index(x, y, z), total(), cells, peak, burnt, steps }
 
@@ -43,6 +56,10 @@ import { ROWS, MATTER, ORDER, idOf, AIR as ROOM } from './matter.js';
 import { floorDiv } from './v1/int.js';
 
 export const AIR_ID = idOf('air');
+const KELVIN = 1000; // mK: the grain the rule keeps heat to (closer to the air than this, a cell sleeps)
+// the 26 ways out of a cell (through its faces, edges and corners), up first
+const WAYS = [];
+for (const sz of [1, 0, -1]) for (const sy of [1, 0, -1]) for (const sx of [1, 0, -1]) if (sx || sy || sz) WAYS.push([sx, sy, sz]);
 const meltsOf = (row) => row.heat.melts !== null && row.heat.melts !== undefined && !!row.heat.fuses;
 const burnsOf = (row) => row.heat.burns !== null && row.heat.burns !== undefined && !!row.heat.releases;
 
@@ -78,6 +95,8 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     smoke = new Float64Array(N), // µg of smoke in an air cell (what burnt, gone up)
     spent = new Float64Array(N), // µg of an air cell's air already burnt with
     residue = new Float64Array(N), // µg a burning cell leaves, gathering
+    held = new Float64Array(N), // µg of liquid in a porous cell's pores
+    heldMat = new Uint8Array(N), // and of what
     peak = new Float64Array(N); // each cell's hottest (mK)
   const index = (x, y, z) => (z * ny + y) * nx + x;
   const muOf = (row) => Math.round(row.density * V * 1e9); // µg in a whole cell of it
@@ -86,24 +105,36 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     for (let y = 0; y < ny; y++)
       for (let x = 0; x < nx; x++) {
         const i = index(x, y, z);
-        const name = cellAt(x, y, z) ?? 'air';
+        const c = cellAt(x, y, z) ?? 'air';
+        const [name, fill] = Array.isArray(c) ? c : [c, 1];
         mat[i] = idOf(name);
-        m[i] = muOf(MATTER[name]);
+        m[i] = name === 'air' ? AIR_MU : Math.max(1, Math.round(muOf(MATTER[name]) * fill));
       }
   const isAir = (i) => mat[i] === AIR_ID;
   // its neighbours, in a fixed order: up, +x, -x, +y, -y, down (-1: past the edge)
-  const around = (i) => {
-    const x = i % nx,
-      y = floorDiv(i, nx) % ny,
-      z = floorDiv(i, LAYER);
-    return [z + 1 < nz ? i + LAYER : -1, x + 1 < nx ? i + 1 : -1, x > 0 ? i - 1 : -1, y + 1 < ny ? i + nx : -1, y > 0 ? i - nx : -1, z > 0 ? i - LAYER : -1];
+  const nb = (i, k) => {
+    switch (k) {
+      case 0:
+        return i + LAYER < N ? i + LAYER : -1;
+      case 1:
+        return (i % nx) + 1 < nx ? i + 1 : -1;
+      case 2:
+        return i % nx > 0 ? i - 1 : -1;
+      case 3:
+        return (floorDiv(i, nx) % ny) + 1 < ny ? i + nx : -1;
+      case 4:
+        return floorDiv(i, nx) % ny > 0 ? i - nx : -1;
+      default:
+        return i >= LAYER ? i - LAYER : -1;
+    }
   };
+  const around = (i) => [nb(i, 0), nb(i, 1), nb(i, 2), nb(i, 3), nb(i, 4), nb(i, 5)];
   // conductances, nJ per mK a step, by the pair of matters (the air's film where one is air)
-  const conduct = new Map();
+  const conduct = new Float64Array(256 * 256).fill(-1);
   function gOf(a, b) {
     const key = a * 256 + b;
-    let g = conduct.get(key);
-    if (g !== undefined) return g;
+    let g = conduct[key];
+    if (g >= 0) return g;
     let W; // W/K across a face
     if (a === AIR_ID && b === AIR_ID) W = (ROWS[a].heat.conducts / 1000) * (A / dx);
     else if (a === AIR_ID || b === AIR_ID) W = ROOM.film * A;
@@ -113,27 +144,67 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       W = ((2 * ka * kb) / (ka + kb)) * (A / dx);
     }
     g = Math.round(W * dt * 1e6);
-    conduct.set(key, g);
+    conduct[key] = g;
     return g;
   }
   // stability: a cell gives at most an eighth of what it holds a mK, a step, across one face
-  const capMK = (i) => floorDiv(m[i] * ROWS[mat[i]].heat.holds, 8000);
+  const capMK = (i) => (stamp[i] === steps ? capC[i] : (tOf(i), capC[i]));
 
   // the cells awake (and so computing), and a step's temperatures
   const awake = new Set();
+  const isAwake = new Uint8Array(N),
+    isTouched = new Uint8Array(N),
+    isMoved = new Uint8Array(N);
   const Tc = new Float64Array(N),
     Lc = new Int32Array(N),
+    capC = new Float64Array(N),
     stamp = new Int32Array(N).fill(-1);
   let steps = 0;
   const tOf = (i) => {
     if (stamp[i] !== steps) {
-      [Tc[i], Lc[i]] = phaseOf(ROWS[mat[i]], m[i], E[i]);
+      if (held[i] > 0) {
+        // soaked: it and what it holds warm together (what it holds stays liquid)
+        Tc[i] = floorDiv(E[i] * 1000, m[i] * ROWS[mat[i]].heat.holds + held[i] * ROWS[heldMat[i]].heat.holds);
+        Lc[i] = 0;
+      } else phaseInto(ROWS[mat[i]], m[i], E[i], i);
+      capC[i] = floorDiv(m[i] * ROWS[mat[i]].heat.holds, 8000);
       stamp[i] = steps;
     }
     return Tc[i];
   };
+  // phaseOf, into this step's temperatures (no arrays: it runs for every cell every step)
+  function phaseInto(row, mi, Ei, i) {
+    if (mi <= 0) {
+      Tc[i] = 0;
+      Lc[i] = 0;
+      return;
+    }
+    const C = mi * row.heat.holds;
+    if (!meltsOf(row)) {
+      Tc[i] = floorDiv(Ei * 1000, C);
+      Lc[i] = 0;
+      return;
+    }
+    const MELT = (row.heat.melts - ROOM.temp) * 1000;
+    const Es = floorDiv(C * MELT, 1000);
+    if (Ei <= Es) {
+      Tc[i] = floorDiv(Ei * 1000, C);
+      Lc[i] = 0;
+      return;
+    }
+    const Lm = mi * row.heat.fuses;
+    if (Ei <= Es + Lm) {
+      Tc[i] = MELT;
+      Lc[i] = floorDiv((Ei - Es) * 65536, Lm);
+      return;
+    }
+    Tc[i] = MELT + floorDiv((Ei - Es - Lm) * 1000, C);
+    Lc[i] = 65536;
+  }
+  // how much liquid a porous cell's pores hold (µg) of a liquid row
+  const poresHold = (i, liquid) => floorDiv(m[i] * ROWS[mat[i]].pores * liquid.density, ROWS[mat[i]].density * 1000);
   const burnt = { mass: 0, smoke: 0, residue: 0 };
-  const vented = { smoke: 0, heat: 0 }; // what rose out of an open grid
+  const vented = { smoke: 0, heat: 0, light: 0 }; // what rose (or shone) out of the grid
   // how many of a cell's faces are the grid's edge
   const edges = (i) => {
     const x = i % nx,
@@ -146,19 +217,29 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     dP = new Float64Array(N);
 
   function step() {
-    const live = [...awake].sort((a, b) => a - b);
-    const touched = new Set(live);
+    const live = Int32Array.from(awake).sort();
+    for (const i of live) isAwake[i] = 1;
+    const touchedList = [];
+    const touched = {
+      add(i) {
+        if (!isTouched[i]) {
+          isTouched[i] = 1;
+          touchedList.push(i);
+        }
+      },
+    };
+    for (const i of live) touched.add(i);
     const add = (i, q) => {
       dE[i] += q;
       touched.add(i);
     };
     // heat across each face of an awake cell (a pair of awake cells once, from the lower)
     for (const i of live) {
-      const nb = around(i);
       for (let k = 0; k < 6; k++) {
-        const j = nb[k];
-        if (j < 0 || (awake.has(j) && j < i)) continue;
-        const [lo, hi] = i < j ? [i, j] : [j, i];
+        const j = nb(i, k);
+        if (j < 0 || (isAwake[j] && j < i)) continue;
+        const lo = i < j ? i : j,
+          hi = i < j ? j : i;
         const d = tOf(lo) - tOf(hi);
         if (d === 0) continue;
         const g = Math.min(gOf(mat[lo], mat[hi]), capMK(lo), capMK(hi));
@@ -173,14 +254,62 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       const g = Math.min(gOf(mat[i], AIR_ID), capMK(i));
       add(i, -e * g * tOf(i));
     }
-    // fire: a burnable cell past its ignition heat with air at its faces breaks apart
+    // wicking: a porous cell takes up the liquid it touches
     for (const i of live) {
       const row = ROWS[mat[i]];
-      if (!burnsOf(row) || m[i] <= 0 || tOf(i) < (row.heat.burns - ROOM.temp) * 1000) continue;
+      if (!row.draws || m[i] <= 0) continue;
+      let can = Math.round(row.draws * dt);
+      for (const j of around(i)) {
+        if (can <= 0) break;
+        if (j < 0 || isAir(j) || m[j] <= 0) continue;
+        if (held[j] > 0) {
+          // along the wick: from fuller pores to drier, while what they hold is liquid
+          const liquid = ROWS[heldMat[j]];
+          if (mat[j] !== mat[i] || (held[i] > 0 && heldMat[i] !== heldMat[j])) continue;
+          if (!meltsOf(liquid) || tOf(j) < (liquid.heat.melts - ROOM.temp) * 1000) continue;
+          const capI = poresHold(i, liquid),
+            capJ = poresHold(j, liquid);
+          const take = Math.min(can, floorDiv(held[j] * capI - held[i] * capJ, capI + capJ));
+          if (take <= 0) continue;
+          const q = floorDiv(E[j] * take, m[j] + held[j]);
+          held[j] -= take;
+          E[j] -= q;
+          heldMat[i] = heldMat[j];
+          held[i] += take;
+          E[i] += q;
+          stamp[i] = stamp[j] = -1;
+          touched.add(j);
+          can -= take;
+          continue;
+        }
+        if (held[i] > 0 && heldMat[i] !== mat[j]) continue;
+        tOf(j);
+        if (!Lc[j]) continue;
+        const room = poresHold(i, ROWS[mat[j]]) - held[i];
+        const take = Math.min(can, room, floorDiv(m[j] * Lc[j], 65536));
+        if (take <= 0) continue;
+        const q = floorDiv(E[j] * take, m[j]);
+        m[j] -= take;
+        E[j] -= q;
+        heldMat[i] = mat[j];
+        held[i] += take;
+        E[i] += q;
+        stamp[i] = stamp[j] = -1;
+        touched.add(j);
+        can -= take;
+      }
+    }
+    // fire: a burnable cell past its ignition heat with air at its faces breaks apart (a soaked one,
+    // what it holds first)
+    for (const i of live) {
+      const soaked = held[i] > 0;
+      const row = soaked ? ROWS[heldMat[i]] : ROWS[mat[i]];
+      const fuel = soaked ? held[i] : m[i];
+      if (!burnsOf(row) || fuel <= 0 || tOf(i) < (row.heat.burns - ROOM.temp) * 1000) continue;
       const airs = around(i).filter((j) => j >= 0 && isAir(j));
       if (!airs.length) continue;
       const fresh = airs.reduce((n, a) => n + Math.max(0, m[a] - spent[a] - dP[a]), 0);
-      const take = Math.min(m[i], Math.round(row.heat.burnRate * airs.length * A * dt * 1e6), floorDiv(fresh, row.heat.air)); // g/(m²·s) over its open faces → µg; as the air allows
+      const take = Math.min(fuel, Math.round(row.heat.burnRate * airs.length * A * dt * 1e6), floorDiv(fresh, row.heat.air)); // g/(m²·s) over its open faces → µg; as the air allows
       if (take <= 0) continue;
       let need = take * row.heat.air; // the air it burns with, from its open faces in turn
       for (const a of airs) {
@@ -189,13 +318,18 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         need -= can;
       }
       const left = floorDiv(take * (row.heat.leaves ?? 0), 1000);
-      const carried = floorDiv(E[i] * take, m[i]); // the heat of what left it goes with it
+      const carried = floorDiv(E[i] * take, m[i] + held[i]); // the heat of what left it goes with it
       let out = take * row.heat.releases + carried; // and the burning's own
-      m[i] -= take;
+      if (soaked) held[i] -= take;
+      else m[i] -= take;
       E[i] -= carried;
+      stamp[i] = -1;
       // its flame keeps what is left of it at its ignition heat (as much as the burning gives)
       if (m[i] > 0) {
-        const keep = Math.min(out, Math.max(0, heatOf(row, m[i], (row.heat.burns - ROOM.temp) * 1000) - E[i] - dE[i]));
+        const own = ROWS[mat[i]];
+        const at = (row.heat.burns - ROOM.temp) * 1000;
+        const want = floorDiv((m[i] * own.heat.holds + held[i] * (soaked ? row.heat.holds : 0)) * at, 1000);
+        const keep = Math.min(out, Math.max(0, want - E[i] - dE[i]));
         add(i, keep);
         out -= keep;
       }
@@ -203,11 +337,33 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       burnt.mass += take;
       burnt.residue += left;
       burnt.smoke += take - left;
+      // its light: every way alike, to the first matter that way
+      const light = floorDiv(out * (row.heat.shines ?? 0), 1000);
+      if (light > 0) {
+        const way = floorDiv(light, WAYS.length);
+        out -= way * WAYS.length;
+        const x0 = i % nx,
+          y0 = floorDiv(i, nx) % ny,
+          z0 = floorDiv(i, LAYER);
+        for (const [sx, sy, sz] of WAYS) {
+          let x = x0 + sx,
+            y = y0 + sy,
+            z = z0 + sz;
+          for (; x >= 0 && x < nx && y >= 0 && y < ny && z >= 0 && z < nz; x += sx, y += sy, z += sz) {
+            const j = index(x, y, z);
+            if (!isAir(j)) {
+              add(j, way);
+              break;
+            }
+          }
+          if (x < 0 || x >= nx || y < 0 || y >= ny || z < 0 || z >= nz) vented.light += way;
+        }
+      }
       const share = floorDiv(out, airs.length);
       airs.forEach((a, k) => add(a, k === 0 ? out - share * (airs.length - 1) : share));
       dS[airs[0]] += take - left; // (the smoke into the air above it, else beside it)
     }
-    for (const i of touched) {
+    for (const i of touchedList) {
       E[i] += dE[i];
       dE[i] = 0;
       if (dS[i]) smoke[i] = Math.max(0, smoke[i] + dS[i]);
@@ -219,6 +375,7 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     // a cell burnt to nothing: its residue lies there now, else air comes in
     for (const i of live) {
       if (m[i] > 0 || isAir(i)) continue;
+      held[i] = 0;
       const what = ROWS[mat[i]].becomes?.burnt;
       const T = Tc[i]; // (as hot as it was)
       if (residue[i] > 0 && what && what !== 'smoke' && MATTER[what]) {
@@ -241,12 +398,25 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       [smoke[i], smoke[j]] = [smoke[j], smoke[i]];
       [spent[i], spent[j]] = [spent[j], spent[i]];
       [residue[i], residue[j]] = [residue[j], residue[i]];
+      [held[i], held[j]] = [held[j], held[i]];
+      [heldMat[i], heldMat[j]] = [heldMat[j], heldMat[i]];
       stamp[i] = stamp[j] = -1;
       touched.add(i);
       touched.add(j);
     };
-    const moved = new Set();
-    const warm = [...touched].filter((i) => isAir(i)).sort((a, b) => b - a);
+    const movedList = [];
+    const moved = {
+      has: (i) => isMoved[i] === 1,
+      add(i) {
+        if (!isMoved[i]) {
+          isMoved[i] = 1;
+          movedList.push(i);
+        }
+      },
+    };
+    const warm = Int32Array.from(touchedList.filter((i) => isAir(i)))
+      .sort()
+      .reverse();
     for (const i of warm) {
       if (moved.has(i)) continue;
       const up = i + LAYER;
@@ -261,14 +431,27 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         continue; // (fresh, it is free for the warm air rising under it)
       }
       if (up < N && isAir(up) && !moved.has(up) && tOf(i) > tOf(up)) {
+        // it rises; the coolest air beside it comes in under it, and the air it pushed up goes down
+        // there (a turn of the air: a plume draws its air in at its foot)
+        let side = -1;
+        for (let k = 1; k < 5; k++) {
+          const j = nb(i, k);
+          if (j >= 0 && isAir(j) && !moved.has(j) && tOf(j) < tOf(i) && (side < 0 || tOf(j) < tOf(side))) side = j;
+        }
         swap(i, up);
-        moved.add(up);
-        moved.add(i);
+        if (side >= 0) {
+          swap(i, side);
+          moved.add(side);
+        } else moved.add(i);
+        moved.add(up); // (the air come in under it may rise on: a warm column rises as one)
         continue;
       }
       if (up < N && isAir(up)) continue; // (the air above is as warm: it stays)
       let best = -1;
-      for (const j of around(i).slice(1, 5)) if (j >= 0 && isAir(j) && !moved.has(j) && tOf(j) < tOf(i) && (best < 0 || tOf(j) < tOf(best))) best = j;
+      for (let k = 1; k < 5; k++) {
+        const j = nb(i, k);
+        if (j >= 0 && isAir(j) && !moved.has(j) && tOf(j) < tOf(i) && (best < 0 || tOf(j) < tOf(best))) best = j;
+      }
       if (best >= 0) {
         swap(i, best);
         moved.add(best);
@@ -276,22 +459,26 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       }
     }
     // falling: a liquid cell, or loose residue, with air beneath changes places with it
-    for (const i of [...touched].sort((a, b) => a - b)) {
+    for (const i of Int32Array.from(touchedList).sort()) {
       if (i < LAYER || isAir(i)) continue;
       const j = i - LAYER;
       if (!isAir(j)) continue;
       const row = ROWS[mat[i]];
-      const liquid = phaseOf(row, m[i], E[i])[1] === 65536;
+      tOf(i);
+      const liquid = held[i] === 0 && Lc[i] === 65536;
       const loose = row === MATTER.ash || row === MATTER.char || row.strength === 0;
       if (!liquid && !loose) continue;
       swap(i, j);
     }
-    // what stays awake: anything not at the air's heat, smoky, or burning down
+    // what stays awake: anything a kelvin or more from the air's heat, smoky, or burning down
     awake.clear();
-    for (const i of touched) {
+    for (const i of live) isAwake[i] = 0;
+    for (const i of movedList) isMoved[i] = 0;
+    for (const i of touchedList) {
+      isTouched[i] = 0;
       const t = tOf(i);
       if (t > peak[i]) peak[i] = t;
-      if (t !== 0 || smoke[i] > 0 || residue[i] > 0) awake.add(i);
+      if (t >= KELVIN || t <= -KELVIN || residue[i] > 0) awake.add(i); // (smoke at the air's heat goes nowhere)
     }
   }
 
@@ -302,6 +489,16 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     // heat put into a cell (nJ): a flame against it, light it drank
     heat(i, nJ) {
       E[i] += nJ;
+      stamp[i] = -1;
+      awake.add(i);
+    },
+    // a porous cell soaked with µg of a liquid (a waxed wick), at the cell's heat
+    soak(i, name, ug) {
+      const T = tOf(i);
+      heldMat[i] = idOf(name);
+      held[i] = ug;
+      E[i] = floorDiv((m[i] * ROWS[mat[i]].heat.holds + ug * MATTER[name].heat.holds) * T, 1000);
+      stamp[i] = -1;
       awake.add(i);
     },
     at(x, y, z) {
@@ -312,10 +509,14 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         matter: nameOf(i),
         m: m[i],
         E: E[i],
-        T,
+        T: held[i] > 0 ? tOf(i) : T,
         liquid,
+        held: held[i],
         smoke: smoke[i],
-        burning: burnsOf(row) && m[i] > 0 && T >= (row.heat.burns - ROOM.temp) * 1000 && around(i).some((j) => j >= 0 && isAir(j)),
+        burning: (() => {
+          const r = held[i] > 0 ? ROWS[heldMat[i]] : row;
+          return burnsOf(r) && m[i] > 0 && tOf(i) >= (r.heat.burns - ROOM.temp) * 1000 && around(i).some((j) => j >= 0 && isAir(j));
+        })(),
       };
     },
     // all the matter there is (µg): solids and liquids by kind, and smoke (the air's own aside)
@@ -325,13 +526,14 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       for (let i = 0; i < N; i++) {
         if (isAir(i)) continue;
         by[nameOf(i)] = (by[nameOf(i)] ?? 0) + m[i] + residue[i];
-        all += m[i] + residue[i];
+        if (held[i] > 0) by[ORDER[heldMat[i]]] = (by[ORDER[heldMat[i]]] ?? 0) + held[i];
+        all += m[i] + residue[i] + held[i];
       }
       let sm = 0;
       for (let i = 0; i < N; i++) sm += smoke[i];
       return { by, matter: all, smoke: sm, all: all + sm };
     },
-    cells: { mat, m, E, smoke, spent },
+    cells: { mat, m, E, smoke, spent, held },
     peak,
     burnt,
     vented,

@@ -108,7 +108,7 @@ test('forgeries are refused: seal, seed, commit, facts, sheet reuse, use, key', 
   assert.equal((await post(good.line, good.seedText, anon)).status, 401);
 });
 
-test('looks: integer sizes only; visitors see only what is on a page; private, friends, blocks', async () => {
+test('looks: integer sizes only; visitors see only what is on a page; a private house only its owner sees', async () => {
   const placed = await writeInk(A(), ana, { place: { page: 'home', x: 50, y: 60, scale: 80 } });
   assert.equal(placed.status, 201);
   const unplaced = await A().post('/api/books/me/ink', { line: bookInk(ana).line, seed: undefined });
@@ -132,21 +132,15 @@ test('looks: integer sizes only; visitors see only what is on a page; private, f
   assert.equal((await look(anon, placed.data.ink, 80)).status, 403);
   assert.equal((await look(app.cy, placed.data.ink, 80)).status, 403);
   assert.equal((await anon.get('/api/books/ana')).status, 403);
-  // friends see it
-  await app.bo.post('/api/users/ana/friend');
-  await A().post('/api/users/bo/friend');
-  assert.equal((await look(app.bo, placed.data.ink, 80)).status, 200);
-  // the signed name is still shown on a private profile
+  // there are no friends (one-world.md): nobody but its owner
+  assert.equal((await look(app.bo, placed.data.ink, 80)).status, 403);
+  assert.equal((await look(A(), placed.data.ink, 80)).status, 200);
+  // the signed name is still shown on a private profile, to anyone
   assert.equal((await anon.get('/api/signatures/ana/look')).status, 200);
-  // blocks hide both ways
-  await A().post('/api/users/cy/block');
-  assert.equal((await app.cy.get('/api/books/ana')).status, 404);
-  assert.equal((await app.cy.get('/api/signatures/ana/look')).status, 404);
-  assert.equal((await A().get('/api/signatures/cy/look')).status, 404);
   const sigs = await app.cy.get('/api/signatures?names=ana,bo');
-  assert.equal(sigs.data.signatures.ana, null);
-  assert.ok(sigs.data.signatures.bo.line.open, 'a signature is open from birth');
-  await A().del('/api/users/cy/block');
+  assert.ok(sigs.data.signatures.ana && sigs.data.signatures.bo.line.open, 'a signature is open from birth');
+  // and no route makes a friend or a block
+  for (const path of ['/api/users/bo/friend', '/api/users/bo/block']) assert.equal((await A().post(path)).status, 404, path);
   await A().post('/api/social/private', { private: false });
 });
 

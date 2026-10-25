@@ -13,7 +13,7 @@ import { countView, viewsOf } from '../store/exposure.js';
 import { litHours } from '../store/rooms.js';
 import fs from 'node:fs/promises';
 import { writeAtomic } from '../files.js';
-import { canSeeProfile, hasBlocked } from '../social.js';
+import { canSeeProfile } from '../social.js';
 import { take, ipKey } from '../limits.js';
 import { confirmFacts, settleOnServer, filmOnServer, decodeField, viewOf } from '../services.js';
 import { keys as K, record as R, fromB64url, b64url } from 'penpals-law';
@@ -33,8 +33,7 @@ function owner(req) {
   const account = name === 'me' ? getAccount(req.user?.id) : findByName(name);
   if (!account) throw name === 'me' ? httpError(401, 'signed_out', 'Please sign in.') : httpError(404, 'no_such_name', 'No such scripter.');
   const me = req.user?.id ?? null;
-  if (me && me !== account.id && hasBlocked(account, me)) throw httpError(404, 'no_such_name', 'No such scripter.');
-  if (!canSeeProfile(me, account)) throw httpError(403, 'private', 'This book is private. Only their friends can see it.');
+  if (!canSeeProfile(me, account)) throw httpError(403, 'private', 'This book is private.');
   return account;
 }
 

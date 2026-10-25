@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { httpError } from '../files.js';
 import { findByName, findByKey, getAccount } from '../store/accounts.js';
-import { canSeeProfile, hasBlocked } from '../social.js';
+import { canSeeProfile } from '../social.js';
 import { join, part, move, beingsIn, act } from '../store/rooms.js';
 import { createShared, stamp, sheetOf, onTable, viewOf, onShared, ownedBy } from '../store/shared.js';
 import { being as B } from 'penpals-law';
@@ -20,7 +20,7 @@ import { being as B } from 'penpals-law';
 //   GET  /api/shared/mine              your shared sheets, wherever they lie
 //   GET  /api/shared/:sheet            a shared sheet: its birth and its stamped acts
 //   POST /api/shared/:sheet/acts       { act, seal }: an act, stamped (201 { line }) or refused
-// Who can come in follows the profile's privacy and block rules.
+// Who can come in follows the profile's privacy (there are no blocks: one-world.md).
 export const roomsRouter = Router();
 export const sharedRouter = Router();
 const json = express.json({ limit: '1mb' });
@@ -30,7 +30,6 @@ function roomOf(req) {
   const owner = findByName(req.params.name);
   if (!owner) throw httpError(404, 'not_found', 'No such room.');
   const me = req.user?.id ?? null;
-  if (me && me !== owner.id && (hasBlocked(owner, me) || hasBlocked(getAccount(me), owner.id))) throw httpError(404, 'not_found', 'No such room.');
   if (!canSeeProfile(me, owner)) throw httpError(403, 'private', 'This room is private.');
   return owner;
 }

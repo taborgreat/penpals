@@ -317,7 +317,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
-  if (book.status === 'private') return <p className="muted">This journal is private. Only their friends can see it.</p>;
+  if (book.status === 'private') return <p className="muted">This journal is private.</p>;
   if (book.status === 'error') return <p className="error">Could not open the book: {book.error}</p>;
   const size = book.page ?? DEFAULT_PAGE; // (a house with nothing written in it is still a house: visitors see its room)
   const missing = pageId && !skeleton.pages[pageId];
