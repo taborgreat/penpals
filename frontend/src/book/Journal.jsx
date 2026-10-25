@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { keys as K, record as R, b64url } from 'penpals-law';
-import Pad from '../components/Pad.jsx';
-import Hand from '../components/Hand.jsx';
 import KeyGate from '../components/KeyGate.jsx';
-import { SIGNATURE_COLORS } from '../hand/colors.js';
 import { useAuth } from '../auth.jsx';
-import { useKey, newSheet, sealInk, openBy } from '../keys/session.js';
-import { useLiveInk } from '../ink/useLiveInk.js';
+import { useKey, openBy } from '../keys/session.js';
 import { useBook } from './useBook.js';
 import { itemSize, SCALE_ONE } from './ink.js';
 import { pageIdFrom } from './ops.js';
@@ -15,7 +11,6 @@ import JournalPage from './JournalPage.jsx';
 import WalkBack from './WalkBack.jsx';
 import { sceneOf } from '../scene/sources.js';
 import { momentsHere } from '../ink/grown.js';
-import InkWell from '../ink/InkWell.jsx';
 import FilmDownload from '../components/FilmDownload.jsx';
 import { fromB64url } from 'penpals-law';
 import { roomSeedsOf } from '../room/seeds.js';
@@ -32,11 +27,12 @@ import PaperPanel, { FreshSheet } from '../components/PaperPanel.jsx';
 import { useFreshSheet, SIZES } from './fresh.js';
 
 // The living journal (books.md, Part B; keys.md): a book of handwritten pages.
-// The owner writes anything anywhere (each piece a sheet of the law's paper,
-// sealed by their key), then moves, resizes and links it; every layout change
-// is one micro edit. Visitors see the same pages, each piece as its settled
-// look, and writing that's a button takes them to its page. Every page has its
-// own link (onPage). A sheet's paper is the writer's secret until they open it.
+// Each piece of writing on them is a sheet of the law's paper, sealed by its
+// writer's key; every layout change is one micro edit. Visitors see the same
+// pages, each piece as its settled look, and writing that's a button takes them
+// to its page. Every page has its own link (onPage). A sheet's paper is the
+// writer's secret until they open it. Out of the world (a .book opened from a
+// file: BookViewer) the pages are only read.
 //
 // The journal is the page on the owner's table in their room, and the room's
 // surfaces are its pages too (rooms.md §1, §2): their walls, floor, ceiling and
@@ -54,8 +50,6 @@ import { useFreshSheet, SIZES } from './fresh.js';
 // it, and E again sets it down at the pointer (one move). The book pulled down
 // from the shelf is in the hand too (`onHold('book')`): its panel turns its
 // pages and holds the page's own tools.
-const WRITE_PAD = { width: 1000, height: 470 }; // writing is placed at the size it was written on a page-wide pad
-const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c.light }));
 const BACKGROUNDS = ['#f6f1e7', '#ffffff', '#f2e8d0', '#e8eef6', '#f6e6e6', '#e7f1e6', '#2b2a33', '#1f2a40'];
 const DEFAULT_PAGE = { width: 1000, height: 1400 };
 // The cloth a book on the shelf is bound in (rooms.md §3): one of these, by its owner's key.
@@ -75,11 +69,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
   const { user } = useAuth();
   const key = useKey(user);
-  const [selected, setSelected] = useState(null);
-  const [writing, setWriting] = useState(false);
-  const [preview, setPreview] = useState(false);
   const [walking, setWalking] = useState(null); // the item being walked back
-  const editing = editable && !preview && !world;
   // the pens on the table (law/room.js PENS), their settings their facts on the room's chain; the one
   // in the hand writes (the world's)
   const roomThings = useThings(fromFile ? null : name);
@@ -90,11 +80,9 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const [wall, setWall] = useState(null); // room/wallInk.js, while a surface is being written on
   const wallRef = useRef(null);
   wallRef.current = wall;
-  const [wallColor, setWallColor] = useState(INK_COLORS[0].hex);
   const [wallBusy, setWallBusy] = useState(false);
   const [reading, setReading] = useState(false); // the book pulled down from the shelf, to flip through
   const [gazeAt, setGazeAt] = useState(null); // a door to a surface was followed: { surface, n } (the head turns to it)
-  const [tableColor, setTableColor] = useState(INK_COLORS[0].hex); // the pen on shared sheets
   const navigate = useNavigate();
   // Through a door (rooms.md §3): to a page of this book, to a surface of this room
   // (the head turns to it), or into someone's room (entering their space).
@@ -111,29 +99,10 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const skeleton = book.skeleton;
   const current = skeleton && (pageId && skeleton.pages[pageId] ? pageId : skeleton.home);
   const page = skeleton?.pages[current];
-  const item = page?.items.find((it) => it.id === selected) ?? null;
   const pageIds = skeleton ? Object.keys(skeleton.pages) : [];
 
-  useEffect(() => setSelected(null), [current]);
-  useEffect(() => setWalking(null), [selected, current]);
+  useEffect(() => setWalking(null), [current]);
 
-  // Delete removes the selected writing; Escape lets go of it.
-  useEffect(() => {
-    if (!editing || !selected) return undefined;
-    const onKey = (e) => {
-      if (e.target.closest?.('input, textarea, select')) return;
-      if (e.key === 'Escape') setSelected(null);
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault();
-        send({ op: 'remove', page: current, item: selected });
-        setSelected(null);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [editing, selected, current, send]);
-
-  const op = useCallback((o) => send(o), [send]);
   const bookName = book.name ?? name;
   const looks = useCallback((item) => `/api/books/${encodeURIComponent(bookName)}/look/${item.ink}?s=${item.scale}`, [bookName]);
   // The scene of a piece of writing: grown here when this device can (yours, or open), else the
@@ -265,7 +234,8 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
                 matter: skeleton.surfaces[surface].matter,
                 surface,
                 at: p,
-                ...(world ? { color: pen.color, nib: pen.settings() } : { color: wallColor }),
+                color: pen.color,
+                nib: pen.settings(),
               });
               wallRef.current = next;
               setWall(next);
@@ -277,7 +247,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mine, key, skeleton?.surfaces, wallColor, world, pen],
+    [mine, key, skeleton?.surfaces, world, pen],
   );
   useEffect(() => {
     if (world && wall) wall.setColor(pen.color); // the pen's ink, on the sheet begun on a wall
@@ -293,7 +263,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     mine: !!key && key.publicKey === book.key,
     pageW: (book.page ?? DEFAULT_PAGE).width,
     pageH: (book.page ?? DEFAULT_PAGE).height,
-    color: world ? pen.color : tableColor,
+    color: pen.color,
   });
   // the room's things in the hand (rooms.md §3b): a candle picked up, carried, tilted, set down
   const tableSheets = useMemo(() => together.sheets.map((p) => ({ sheet: p.view.sheet, origin: p.slot, size: [SHARED_PAGE.width, SHARED_PAGE.height] })), [together.sheets]);
@@ -460,7 +430,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
 
   return (
     <section className="journal">
-      {!world && (editable || pageIds.length > 1) && (
+      {!world && pageIds.length > 1 && (
         <div className="journal-bar">
           <div className="journal-pages" role="tablist" aria-label="Pages">
             {pageIds.map((id) => (
@@ -469,43 +439,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
                 {id}
               </button>
             ))}
-            {editing && (
-              <button type="button" className="quiet" onClick={newPage} title="Add a page">
-                + page
-              </button>
-            )}
           </div>
-          {editable && (
-            <div className="cluster">
-              {editing && (
-                <button type="button" className="primary" aria-pressed={writing} onClick={() => setWriting((w) => !w)}>
-                  ✎ <Hand>Write</Hand>
-                </button>
-              )}
-              <button
-                type="button"
-                className="toggle"
-                aria-pressed={preview}
-                onClick={() => {
-                  setPreview((p) => !p);
-                  setWriting(false);
-                  setSelected(null);
-                }}
-              >
-                {preview ? 'Back to editing' : 'Preview'}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {editing && <div className="journal-tools">{pageTools()}</div>}
-
-      {editing && writing && <WritePanel family={skeleton.paperFamily} onPlace={place} />}
-
-      {editing && item && (
-        <div className="journal-tools selected-tools" role="toolbar" aria-label="Selected writing">
-          {sheetTools(item, () => setSelected(null))}
         </div>
       )}
 
@@ -520,18 +454,10 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       )}
       {missing && <p className="muted">There is no page "{pageId}" in this book, so here is the first page.</p>}
 
-      {!fromFile && !world && (
-        <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={tableColor} onColor={setTableColor} />
-      )}
       <JournalPage
-        pageId={current}
         page={page}
         size={size}
         inks={book.inks}
-        editable={editing}
-        selected={selected}
-        onSelect={setSelected}
-        onOp={op}
         onFollow={(id) => follow({ page: id })}
         lookSrc={lookSrc ?? looks}
         sceneSrc={sceneSrc ?? (fromFile ? null : scenes)}
@@ -572,19 +498,6 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           <div className="journal-tools selected-tools">{sheetTools(heldItem, () => setHeld(null))}</div>
           <p className="meta">Tap E to set it down where the pointer is.</p>
         </Panel>
-      )}
-      {!world && reading && (
-        <div className="journal-tools book-open" role="toolbar" aria-label="The book, pulled down from the shelf">
-          <span className="meta">The book, open:</span>
-          {pageIds.map((id) => (
-            <button key={id} type="button" aria-pressed={id === current} onClick={() => onPage(id === skeleton.home ? null : id)}>
-              {id}
-            </button>
-          ))}
-          <button type="button" className="quiet" onClick={() => setReading(false)}>
-            Put it back
-          </button>
-        </div>
       )}
       {world && panel === 'pen' && (
         <Panel title="The pen in your hand">
@@ -644,56 +557,8 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           <p className="meta">Melting is the flame's: you wait for it. Hold E and move the mouse to tilt it; tap E to set it down where the pointer is.</p>
         </Panel>
       )}
-      {!world && wall && (
-        <div className="journal-tools wall-tools" role="toolbar" aria-label="Writing on the room">
-          <span className="meta">On the {wall.surface.replace('-', ' ')}</span>
-          <InkWell
-            value={wallColor}
-            onChange={(c) => {
-              setWallColor(c);
-              wall.setColor(c);
-            }}
-          />
-          <button type="button" onClick={() => wall.undo()} disabled={wallBusy}>
-            Undo
-          </button>
-          <button type="button" className="primary" onClick={() => placeWall(wall)} disabled={wallBusy}>
-            {wallBusy ? 'Sealing…' : 'Place it there'}
-          </button>
-          <button
-            type="button"
-            className="quiet"
-            onClick={() => {
-              wall.destroy();
-              setWall(null);
-            }}
-            disabled={wallBusy}
-          >
-            Let it go
-          </button>
-        </div>
-      )}
-      {editing && !page.items.length && <p className="hint journal-empty">An empty page. Press ✎ Write to put something on it.</p>}
     </section>
   );
-
-  // New writing goes in the middle of what's on screen of this page, as written.
-  async function place(sealed) {
-    const el = document.querySelector('.journal-page');
-    const r = el.getBoundingClientRect();
-    const k = r.width / size.width;
-    const top = Math.max(r.top, 0);
-    const bottom = Math.min(r.bottom, window.innerHeight);
-    const midY = bottom > top ? (top + bottom) / 2 : r.top + r.height / 2; // the page's middle if none of it is in view
-    const [w, h] = itemSize(sealed.line.ink, SCALE_ONE);
-    const x = Math.round(Math.max(0, size.width / 2 - w / 2));
-    const y = Math.round(Math.max(0, Math.min(size.height - h, (midY - r.top) / k - h / 2)));
-    const id = await addInk(sealed.line, sealed.seed, { page: current, x, y, scale: SCALE_ONE });
-    if (id) {
-      setSelected(id);
-      setWriting(false);
-    }
-  }
 }
 
 // The sheet begun on a wall, in the pen's panel: a stroke lifted, sealed there, or let go.
@@ -712,71 +577,6 @@ function WallSheet({ wall, busy, onPlace, onLetGo }) {
           Let it go
         </button>
       </div>
-    </div>
-  );
-}
-
-// Write something on a page-wide pad (a fresh sheet of your paper, growing
-// live), then seal it and put it on the page.
-function WritePanel({ family, onPlace }) {
-  return <KeyGate signedOut={<p className="muted">Sign in to write.</p>}>{(key) => <WriteSheet key={key.publicKey} writer={key} family={family} onPlace={onPlace} />}</KeyGate>;
-}
-
-// A dip pen's reservoir (law 3: rooms.md §3c): this many well levels (Tabor's to set).
-const DIP_WELL = 2;
-function WriteSheet({ writer, family, onPlace }) {
-  const [n, setN] = useState(0);
-  const [dip, setDip] = useState(false); // a fountain pen (never runs dry), or a dip pen and the ink jar
-  const sheet = useMemo(() => newSheet(writer), [writer, n, dip]); // eslint-disable-line react-hooks/exhaustive-deps
-  const ink = useLiveInk({ paperKey: sheet.paperKey, family, size: WRITE_PAD, ...(dip ? { law: 3 } : {}) }, sheet.sheet);
-  const [color, setColor] = useState(INK_COLORS[0].hex);
-  const [strokes, setStrokes] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-
-  async function put() {
-    setBusy(true);
-    setError(null);
-    try {
-      const settled = await ink.settle();
-      if (!settled?.box[2]) throw new Error('Nothing to place yet.');
-      const { line } = sealInk(writer, { sheet: sheet.sheet, seed: sheet.seed, use: 'book', family, settled });
-      await onPlace({ line, seed: b64url(sheet.seed) });
-      setN((v) => v + 1); // the next writing is a new sheet
-    } catch (err) {
-      setError(err.law ? 'That is more ink than one sheet can hold. Undo some, or place it in parts.' : err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="write-panel">
-      <div className="row">
-        <span className="field">
-          <span>Ink</span>
-          <InkWell value={color} onChange={setColor} />
-        </span>
-        <label className="field" title="A fountain pen keeps its own ink; a dip pen draws from the jar and its line fades until you dip again">
-          <input type="checkbox" checked={dip} disabled={strokes > 0} onChange={(e) => setDip(e.target.checked)} /> Dip pen
-        </label>
-        <span className="spacer" />
-        <button type="button" className="primary" disabled={!strokes || busy} onClick={put}>
-          {busy ? 'Sealing…' : 'Place on page'}
-        </button>
-      </div>
-      {ink && (
-        <Pad
-          key={sheet.sheet}
-          ink={ink}
-          size={WRITE_PAD}
-          inkColor={color}
-          onChange={setStrokes}
-          dipPen={dip ? { well: DIP_WELL } : null}
-          hint="Write anything: a word, a sentence, a drawing. Colours mix while wet; the water brush wets dry ink again. Then place it on the page."
-        />
-      )}
-      {error && <p className="error">{error}</p>}
     </div>
   );
 }

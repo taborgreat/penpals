@@ -18,8 +18,6 @@ export function itemSize(body, scale = SCALE_ONE) {
   return [(w * scale) / SCALE_ONE / CELLS, (h * scale) / SCALE_ONE / CELLS];
 }
 
-export const clampScale = (v) => Math.max(SCALE_MIN, Math.min(SCALE_MAX, Math.round(v)));
-
 const paths = new WeakMap();
 
 // The record's strokes as polylines in its box (cells, as written), with their

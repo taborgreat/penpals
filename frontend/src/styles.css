@@ -1059,9 +1059,6 @@ button.danger:hover:not(:disabled) {
 .write-panel .spacer {
   flex: 1;
 }
-.journal-empty {
-  text-align: center;
-}
 
 /* A page: a fixed canvas scaled to fit, its writing placed on it. */
 .journal-page {
@@ -1071,11 +1068,6 @@ button.danger:hover:not(:disabled) {
   box-shadow: var(--shadow-paper);
   overflow: hidden;
   touch-action: pan-y;
-}
-.journal-page.editing {
-  overflow: visible;
-  outline: 1px dashed var(--rule-strong);
-  outline-offset: 3px;
 }
 .ink-item {
   position: absolute;
@@ -1156,42 +1148,6 @@ button.ink-link:hover {
 button.ink-link:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 4px;
-}
-.ink-item.editable {
-  cursor: move;
-  touch-action: none;
-}
-.ink-item.editable:hover {
-  outline: 1px dashed var(--rule-strong);
-  outline-offset: 3px;
-}
-.ink-item.selected {
-  outline: 2px dashed var(--focus);
-  outline-offset: 4px;
-}
-.resize-handle {
-  position: absolute;
-  right: -11px;
-  bottom: -11px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 2px solid var(--focus);
-  cursor: nwse-resize;
-  touch-action: none;
-}
-.link-badge {
-  position: absolute;
-  left: 0;
-  top: -1.9em;
-  padding: 1px 7px;
-  font: 500 11px var(--font-mono);
-  white-space: nowrap;
-  color: var(--ink-text);
-  background: var(--ink);
-  border-radius: 999px;
-  pointer-events: none;
 }
 .book-viewer {
   display: flex;
@@ -1793,11 +1749,4 @@ main.world .journal-page.scene-shown {
 .world-note {
   margin: auto;
   padding: 20vh 20px;
-}
-/* writing on the room's surfaces: what to do with the sheet on the wall */
-.wall-tools {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
 }
