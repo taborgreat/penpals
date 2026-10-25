@@ -599,9 +599,21 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           <TogetherBar t={together} myRoom={false} me={user?.username ?? null} family={skeleton.paperFamily} color={pen.color} onColor={pen.set.color} />
         </Panel>
       )}
-      {world && panel === 'candle' && (
+      {world && panel === 'stamper' && <StamperPanel t={together} />}
+      {world && panel === 'candle' && carry.hand.which !== null && (
         <Panel title="A candle in your hand">
-          <p className="meta">Hold E and move the mouse to tilt it; tap E to set it down where the pointer is.</p>
+          <div className="row">
+            {together.candleLit(carry.hand.which) ? (
+              <button type="button" onClick={() => together.lightCandle(carry.hand.which, false)}>
+                Put it out
+              </button>
+            ) : (
+              <button type="button" className="primary" onClick={() => together.lightCandle(carry.hand.which, true)}>
+                Light it
+              </button>
+            )}
+          </div>
+          <p className="meta">Melting is the flame's: you wait for it. Hold E and move the mouse to tilt it; tap E to set it down where the pointer is.</p>
         </Panel>
       )}
       {!world && wall && (
@@ -790,5 +802,32 @@ function OpenSheet({ line, opened, keyOf, onOpen }) {
     <button type="button" className="quiet" disabled={!keyOf} onClick={open} title={keyOf ? 'Publish the paper of this sheet' : 'Unlock to open sheets'}>
       Open sheet
     </button>
+  );
+}
+
+// The stamper in your hand (one-world.md, the panel; rooms.md §3b, §5): type the name
+// whose signature its face takes; then a click on a shared sheet of yours presses it
+// into the warm wax there. E sets it down.
+function StamperPanel({ t }) {
+  const [name, setName] = useState('');
+  const face = t.tool?.seal ?? null;
+  return (
+    <Panel title="The stamper in your hand">
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) t.stamperFor(name.trim().replace(/^@/, ''));
+        }}
+      >
+        <input aria-label="Whose seal" placeholder="their name" value={name} onChange={(e) => setName(e.target.value)} />
+        <button type="submit" className="primary" disabled={!name.trim()}>
+          Set its face
+        </button>
+      </form>
+      <p className="meta">
+        {face ? `Its face is @${face.name}'s signature, in relief: drip wax on a sheet of yours and press it there while the wax is warm.` : 'Its face is blank.'} Tap E to set it down.
+      </p>
+    </Panel>
   );
 }

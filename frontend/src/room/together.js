@@ -179,19 +179,20 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
             down(sheet, q, ev, type) {
               const w = writerFor(sheet);
               if (!w) return false;
-              const t = toolRef.current;
-              if (t?.seal) {
-                // the stamper pressed here (harder with a pen pressed harder), then the pen again
-                const depth = ev?.pressure > 0 && ev.pressure !== 0.5 ? Math.max(40, Math.round(255 * ev.pressure)) : 220;
-                const tiltX = Math.max(-127, Math.min(127, Math.round((ev?.tiltX ?? 0) * 2)));
-                const tiltY = Math.max(-127, Math.min(127, Math.round((ev?.tiltY ?? 0) * 2)));
-                w.press(q, t.seal, { depth, tiltX, tiltY });
-                setTool('pen');
-                active.current = null;
-                return true;
-              }
               active.current = w;
               return w.pen.down(q, ev, type);
+            },
+            // the stamper in the hand pressed here, its face set to someone's seal (harder with a pen pressed
+            // harder); without a face, nothing
+            press(sheet, q, ev) {
+              const w = writerFor(sheet);
+              const t = toolRef.current;
+              if (!w || !t?.seal) return false;
+              const depth = ev?.pressure > 0 && ev.pressure !== 0.5 ? Math.max(40, Math.round(255 * ev.pressure)) : 220;
+              const tiltX = Math.max(-127, Math.min(127, Math.round((ev?.tiltX ?? 0) * 2)));
+              const tiltY = Math.max(-127, Math.min(127, Math.round((ev?.tiltY ?? 0) * 2)));
+              w.press(q, t.seal, { depth, tiltX, tiltY });
+              return true;
             },
             move(q, ev) {
               active.current?.pen?.move(q, ev);
@@ -255,10 +256,12 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   };
   const others = useMemo(() => beings.filter((b) => b.name !== me), [beings, me]);
 
-  // Lighting the candles and putting them out are acts (matter-fixes §2): while the sun is down
-  // by the world's clock (law/room.js isNight) the first of those here (by name) lights them; by
-  // day it puts them out; the last one to leave puts them out as it goes. (globalThis.__candles,
-  // for the e2e: light(which), out(which) by hand, and the clock leaves them be.)
+  // Lighting the candles and putting them out are acts (matter-fixes §2). As the sun goes down by
+  // the world's clock (law/room.js isNight), or as one comes in at night, the first of those here
+  // (by name) lights them; as it comes up, puts them out; the last one to leave puts them out as it
+  // goes. A candle someone lit or put out by hand (one-world.md, its panel: lightCandle) is left as
+  // they had it until the sun turns again. (globalThis.__candles, for the e2e: light(which),
+  // out(which) by hand, and the clock leaves them be.)
   const [night, setNight] = useState(() => R.isNight(Date.now()));
   useEffect(() => {
     const t = setInterval(() => setNight(R.isNight(Date.now())), 60000);
@@ -266,10 +269,13 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   }, []);
   const tends = body && !!key && !!roomKey && !!me && [me, ...others.map((b) => b.name)].sort()[0] === me;
   const asked = useRef({}); // candle → what was asked of it, until it is so (an act on its way is not sent twice)
+  const byOwnHand = useRef({ night, things: new Set() }); // the candles someone tended by hand since the sun last turned
+  if (byOwnHand.current.night !== night) byOwnHand.current = { night, things: new Set() };
   useEffect(() => {
     const want = night ? '1' : '0';
     if (!tends || byHand.on) return;
     R.CANDLES.forEach((thing, i) => {
+      if (byOwnHand.current.things.has(thing)) return;
       if (lit[i] === want) delete asked.current[thing];
       else if (asked.current[thing] !== want) {
         asked.current[thing] = want;
@@ -305,6 +311,13 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     others,
     report,
     body,
+    // a candle lit or put out by hand (one-world.md: the candle in your hand, its panel)
+    candleLit: (which) => lit[which] === '1',
+    lightCandle(which, on) {
+      if (!body || !key || !roomKey) return;
+      byOwnHand.current.things.add(R.CANDLES[which]);
+      roomAct(name, key, roomKey, { act: on ? 'light' : 'out', thing: R.CANDLES[which] });
+    },
     candles,
     sheets: placed,
     mine,

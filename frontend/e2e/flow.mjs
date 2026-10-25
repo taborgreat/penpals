@@ -103,6 +103,8 @@ const scribble = (lines, perLine = 5) => {
 const cdps = new WeakMap();
 // `area`: { x, y, width, height } on screen to write in (the world's scene), else the pad's own.
 async function draw(page, canvas, strokes, ms = 9, area = null) {
+  // the world's first frames wait on its shaders (a fresh browser compiles them all): until frames come, nothing is drawn
+  await page.waitForFunction(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok(true)))), null, { timeout: 120000, polling: 1000 });
   await canvas.scrollIntoViewIfNeeded();
   let b = area ?? (await canvas.boundingBox());
   // a pad shown in 3D: write where the page is in the view (its middle), by ray onto the page

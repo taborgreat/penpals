@@ -17,7 +17,7 @@ import { T, jcs, fromB64url, b64url, utf8, concat } from './tags.js';
 import { verify } from './keys.js';
 import { MAX_RATE, STEP_M } from './being.js';
 
-export const THINGS = ['candle-0', 'candle-1', 'pen'];
+export const THINGS = ['candle-0', 'candle-1', 'pen', 'stamper'];
 export const CANDLES = ['candle-0', 'candle-1'];
 export const ACTS = ['light', 'out', 'place', 'tilt'];
 export const TILT_MAX = 90;

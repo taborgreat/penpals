@@ -9,6 +9,7 @@
 //                     cursor, a share of what is left each step; back toward the head. The body
 //                     and head stay where they are, and the zoom is never recorded (§3.6)
 import { roomCamera } from './light/index.js';
+import * as roomGeom from './light/room.js';
 
 export const DOUBLE_MS = 300; // two presses of Space this close together: fly, or stop flying
 export const JUMP_M = 0.45; // how high a jump lifts the feet, at a person's size
@@ -68,7 +69,7 @@ export const atChair = (geom, pose) => near(pose, roomCamera.seat(geom).pos, SIT
 // The owner's account things stand in a corner of the house: behind the chair, on the right, clear of
 // the shelf (one-world.md, the panel). Walk to it and the panel offers them.
 export const CORNER_M = 0.7;
-export const cornerOf = (geom) => [geom.size[0] - 0.4, 0.4];
+export const cornerOf = (geom) => roomGeom.cornerOf(geom); // (light/room.js: the stand with your keys on it)
 export const atCorner = (geom, pose) => near(pose, cornerOf(geom), CORNER_M);
 
 // --- the eye's zoom ---

@@ -6,8 +6,8 @@ import { setPassword, signOutEverywhere } from '../keys/account.js';
 import KeyGate from './KeyGate.jsx';
 
 // Your account, at the corner of your own house (one-world.md, the panel's
-// rulings): the password backup, your keys, and signing out everywhere. Each
-// is signed by the key in this tab (accounts-change.md); without it, unlock first.
+// rulings): the password backup, your keys, and signing out here or everywhere.
+// Each is signed by the key in this tab (accounts-change.md); without it, unlock first.
 export default function AccountPanel() {
   return <KeyGate>{(key) => <Account key={key.publicKey} writer={key} />}</KeyGate>;
 }
@@ -76,7 +76,10 @@ function Account({ writer }) {
           </button>
         )}
       </section>
-      <p>
+      <p className="row">
+        <button type="button" className="quiet logout" onClick={logout} title="Ends this device's session">
+          Sign out here
+        </button>
         <button type="button" className="quiet" onClick={everywhere} title="Ends every session of this account">
           Sign out everywhere
         </button>

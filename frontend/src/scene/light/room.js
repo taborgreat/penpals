@@ -150,8 +150,14 @@ export function roomGeometry(spec = ROOM) {
 export const LEG = 0.05; // m a side
 export const FRAME = { width: 0.05, depth: 0.06, sill: 0.12 }; // the frame's members, and how far the inner sill reaches into the room
 export const HOLDER = { radius: 0.045, height: 0.015 };
+// The stamper (rooms.md §3b): its brass face's radius and its wooden handle's height (m).
+export const STAMPER = { face: 0.015, handle: 0.07 };
+// The key corner (one-world.md): behind the chair on the right, clear of the shelf, a wooden
+// stand (how far in from the corner, a side, its height) and on it a small brass box (your keys).
+export const CORNER = { at: 0.4, side: 0.3, height: 0.95, box: [0.1, 0.07, 0.05] };
+export const cornerOf = (geom) => [geom.size[0] - CORNER.at, CORNER.at];
 function objectsOf(spec, win, tb, candles) {
-  const [, D] = spec.size;
+  const [W, D] = spec.size;
   const inset = 0.04;
   const legs = [[tb.x0 + inset, tb.y0 + inset], [tb.x1 - inset - LEG, tb.y0 + inset], [tb.x0 + inset, tb.y1 - inset - LEG], [tb.x1 - inset - LEG, tb.y1 - inset - LEG]]
     .map(([x, y], k) => ({ id: `leg-${k}`, kind: 'leg', matter: 'table', box: [x, y, 0, x + LEG, y + LEG, tb.bottom] }));
@@ -163,7 +169,14 @@ function objectsOf(spec, win, tb, candles) {
     { id: 'frame-sill', box: [win.x0 - f, D - FRAME.sill, win.z0 - f, win.x1 + f, D, win.z0] },
   ].map((o) => ({ ...o, kind: 'frame', matter: 'table' }));
   const holders = candles.map((c, k) => ({ id: `holder-${k}`, kind: 'holder', matter: 'brass', center: [c[0], c[1]], radius: HOLDER.radius, z0: c[2], z1: c[2] + HOLDER.height }));
-  return [...legs, ...frame, ...holders];
+  const [cx, cy] = cornerOf({ size: [W, D] }),
+    h = CORNER.side / 2,
+    [bx, by, bz] = CORNER.box;
+  const corner = [
+    { id: 'corner-stand', kind: 'corner', matter: 'table', box: [cx - h, cy - h, 0, cx + h, cy + h, CORNER.height] },
+    { id: 'corner-keys', kind: 'corner', matter: 'brass', box: [cx - bx / 2, cy - by / 2, CORNER.height, cx + bx / 2, cy + by / 2, CORNER.height + bz] },
+  ];
+  return [...legs, ...frame, ...holders, ...corner];
 }
 
 // The page frame ↔ the room (a point; z page px above the paper), by default

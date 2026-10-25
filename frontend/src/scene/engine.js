@@ -28,6 +28,7 @@ import { toHalf } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
 import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { DROP_PX, DETAIL_PX } from './light/surface.js';
+import { STAMPER } from './light/room.js';
 import * as shine from './light/shine.js';
 import { geomOf, worldOf } from './light.js';
 import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf } from './roomDraw.js';
@@ -451,6 +452,15 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   for (const m of [penBody, ...penTines]) shadows.add(m);
   pen.visible = false;
   roomGroup.add(pen);
+  // the stamper (rooms.md §3b): a wooden handle on a round brass face, set down face down
+  const stamperMats = { handle: thingMat('table', 'stamper'), face: thingMat('brass', 'stamper-face', 'round') };
+  const stamper = new THREE.Group();
+  const stamperHandle = new THREE.Mesh(box, stamperMats.handle);
+  const stamperFace = new THREE.Mesh(disc, stamperMats.face);
+  stamper.add(stamperHandle, stamperFace);
+  for (const m of [stamperHandle, stamperFace]) shadows.add(m);
+  stamper.visible = false;
+  roomGroup.add(stamper);
   const upZ = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion();
   // a box of length `len` along `dir` (unit), its middle at `mid`, `w` × `h` across
@@ -956,7 +966,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lightRoom(l, performance.now(), R);
       marks.light(l.ambient);
       // (what a thing not yet placed takes)
-      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, penMats.body, penMats.tine]) {
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, penMats.body, penMats.tine, stamperMats.handle, stamperMats.face]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
         m.ambient.A.set(...A);
         m.ambient.B.set(...B);
@@ -1028,7 +1038,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setSeeds(next) {
       roomSeeds = next;
       for (const m of roomMats) m.seed.value = seedOf(m.seedName);
-      for (const m of [...objectMats, ...candleMats, ...shelf.mats, penMats.body, penMats.tine]) if (m.thing) m.seedBase = thingSeedOf(m.thing);
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, penMats.body, penMats.tine, stamperMats.handle, stamperMats.face]) if (m.thing) m.seedBase = thingSeedOf(m.thing);
       marks.reseed();
     },
     // The others in the room (rooms.md §4): [{ name, pose: { pos (the head, room m), yaw,
@@ -1111,6 +1121,18 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         );
       });
       lightHere([penBody, ...penTines], penBody.position.toArray());
+    },
+    // The stamper (rooms.md §3b), room m: its face's foot [x, y, z] (in the hand, or where it lies); null: not drawn.
+    setStamper(at) {
+      stamper.visible = !!at;
+      if (!at) return;
+      const [x, y, z] = at;
+      const faceH = 0.006;
+      stamperFace.scale.set(STAMPER.face, STAMPER.face, faceH);
+      stamperFace.position.set(x, y, z + faceH / 2);
+      stamperHandle.scale.set(0.022, 0.022, STAMPER.handle - faceH);
+      stamperHandle.position.set(x, y, z + faceH + (STAMPER.handle - faceH) / 2);
+      lightHere([stamperHandle, stamperFace], [x, y, z + STAMPER.handle / 2]);
     },
     // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], their cloth's colour.
     setShelf(books) {
@@ -1327,6 +1349,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       view.setBeings(null);
       penMats.body.dispose();
       penMats.tine.dispose();
+      stamperMats.handle.dispose();
+      stamperMats.face.dispose();
       shadows.dispose();
       for (const m of allBeingMats) m.dispose();
       ball.dispose();

@@ -222,7 +222,7 @@ const SceneView = forwardRef(function SceneView(
   const headNow = () => (S.pose ? WK.headOf(S.pose, crouched()) : null);
   const eyeNow = () => WK.eyeOf(headNow(), world ? S.zoom : null);
   // The world: where the being is and what it holds, told to the room when it changes (the panel follows it: room/panel.js).
-  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.holding ? 'candle' : sheetHand?.held ? 'sheet' : null, pen: penMode };
+  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.kind ?? (sheetHand?.held ? 'sheet' : null), pen: penMode };
   function tellPlace() {
     const b = S.beingIn;
     if (!b.world || !b.onBeing) return;
@@ -384,6 +384,7 @@ const SceneView = forwardRef(function SceneView(
     // the pen (rooms.md §3c): in the hand, at its nib, its tines as wide as its line; else set down
     if (penMode && S.pen) S.view.setPen(S.pen);
     else S.view.setPen({ place: penLies });
+    S.view.setStamper(carrying?.stamperAt?.() ?? null); // (the stamper: in the hand, or where it lies)
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     seen(cam, moving);
@@ -798,8 +799,17 @@ const SceneView = forwardRef(function SceneView(
     S.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     S.press = { x: e.clientX, y: e.clientY };
     if (carrying && (e.button === 0 || e.pointerType !== 'mouse')) {
-      // the hand: holding something, a click sets it down; else a click on a thing picks it up
+      // the hand: holding something, a click sets it down (the stamper, over a shared sheet, presses
+      // into it instead: rooms.md §5); else a click on a thing picks it up
       if (carrying.holding) {
+        if (carrying.kind === 'stamper' && tableWriter) {
+          const p = pageOf(e);
+          const on = p && tableWriter.sheets.find((t) => inSheet(t, p));
+          if (on) {
+            tableWriter.press?.(on.sheet, { x: p.x - on.origin[0], y: p.y - on.origin[1] }, e.nativeEvent);
+            return;
+          }
+        }
         const at = roomPointOf(e);
         if (at && carrying.down(at)) return;
       } else {
@@ -1131,7 +1141,7 @@ const SceneView = forwardRef(function SceneView(
       e.preventDefault();
       if (e.repeat) return;
       if (carrying?.holding) {
-        S.tilting = true; // held, the mouse tilts what is in the hand (rooms.md §3b); let go untilted, it is set down
+        S.tilting = carrying.kind === 'candle'; // held, the mouse tilts a candle in the hand (rooms.md §3b); let go untilted, it is set down
         S.eDown = { t: now, tilted: false };
         return;
       }
