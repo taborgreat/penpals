@@ -1,19 +1,24 @@
 // The room's surfaces (light-waves §4; Tests, "Room cells"): the same surface
 // seed draws identical cells on every device; close up, plaster and wood
-// cells are the paper's size; far away there is no shimmer. (The GPU's cells
-// against these: e2e/grower.mjs.)
+// cells are the paper's size; far away there is no shimmer. And the things'
+// matter (matter-fixes §3): each grown the same way, on its own surface.
+// (The GPU's cells against these: e2e/grower.mjs.)
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import * as THREE from 'three';
+import { MATTER } from './curves.js';
+import { N } from './axis.js';
 import { CELLS_PER_UNIT } from 'penpals-law/v1/constants';
 import { PX_PER_MM } from '../../ink/nibs.js';
 import {
-  CELL_PX, CELL_M, PX_PER_M, PLASTER, PLANKS, BOARD, KINDS, CURVES_OF, DEFAULT_SEEDS, defaultSeed, seedMix,
-  growCell, cellFace, growMean, cellOf, SURFACE_GLSL, SURFACE_WGSL,
+  CELL_PX, CELL_M, PX_PER_M, PLASTER, PLANKS, BOARD, BRASS, WAX, WICK, CLOTH, SKIN, KINDS, CURVES_OF, DEFAULT_SEEDS, defaultSeed, seedMix,
+  growCell, cellFace, growMean, cellOf, objectCells, thingSeed, SURFACE_GLSL, SURFACE_WGSL,
 } from './surface.js';
 
 const SEED = [0x12345678, 0x9abcdef0];
 const ALL = [PLASTER, PLANKS, BOARD];
+const THINGS = [BRASS, WAX, WICK, CLOTH, SKIN];
 const digest = (kind, seed, x0, y0, n = 64) => {
   const b = new Int32Array(n * n * 3);
   for (let y = 0; y < n; y++) {
@@ -26,16 +31,21 @@ const digest = (kind, seed, x0, y0, n = 64) => {
 };
 // Blocks with something in them: plaster at its corner, the floor across a
 // seam between rows of boards, the table across the glue line between boards.
-const BLOCKS = { [PLASTER]: [0, 0], [PLANKS]: [100, 1500], [BOARD]: [0, 3180] };
+const BLOCKS = { [PLASTER]: [0, 0], [PLANKS]: [100, 1500], [BOARD]: [0, 3180], ...Object.fromEntries(THINGS.map((k) => [k, [0, 0]])) };
 // Pinned: a change here is a change to every room (the cells are grown, never stored).
 const GOLDEN = {
   [PLASTER]: 'f047de85f69d935c93df6aa5c9b79d4f',
   [PLANKS]: 'ae3e95de8e372b5934ab813995e427f6',
   [BOARD]: 'af2146b99333d37916ae43ee45648794',
+  [BRASS]: '11bf581fbaea0583d91b24d739eac61b',
+  [WAX]: 'cdd5b69dff3e2cc65e9352d13d38d43f',
+  [WICK]: '3477609ff4ab829998aca64036ff7e45',
+  [CLOTH]: 'dc5a9e362785573300482be9ad7c9603',
+  [SKIN]: '13de20cae5e7214551562c451ba22aa4',
 };
 
 test('the same surface seed draws identical cells; another seed, other cells', () => {
-  for (const kind of ALL) {
+  for (const kind of [...ALL, ...THINGS]) {
     const [x0, y0] = BLOCKS[kind];
     assert.equal(digest(kind, SEED, x0, y0), GOLDEN[kind], `kind ${kind}`);
     assert.equal(digest(kind, seedMix(SEED), x0, y0), GOLDEN[kind], 'the seed or its mix');
@@ -46,8 +56,10 @@ test('the same surface seed draws identical cells; another seed, other cells', (
     assert.ok(seed.every((s) => Number.isInteger(s) && s >= 0 && s < 2 ** 32));
   }
   assert.equal(new Set(Object.values(DEFAULT_SEEDS).map((s) => s.join())).size, Object.keys(DEFAULT_SEEDS).length, 'each surface its own seed');
-  assert.deepEqual(KINDS, { plaster: PLASTER, planks: PLANKS, board: BOARD });
-  assert.deepEqual(CURVES_OF, ['plaster', 'floor', 'table']);
+  assert.deepEqual(KINDS, { plaster: PLASTER, planks: PLANKS, board: BOARD, brass: BRASS, wax: WAX, wick: WICK, cloth: CLOTH, skin: SKIN });
+  assert.deepEqual(CURVES_OF, ['plaster', 'floor', 'table', 'brass', 'wax', 'wick', 'cloth', 'skin']);
+  // each kind is a matter: a light and a dark curve, its cells between them (no RGB anywhere)
+  for (const name of CURVES_OF) assert.ok(MATTER[name].light.length === N && MATTER[name].dark.length === N, name);
 });
 
 test('close up, plaster and wood cells are the paper\'s size, each its own', () => {
@@ -177,6 +189,97 @@ test('the floor is boards: seams between rows and at staggered ends, rings acros
   for (let i = 0; i < 20000; i++) for (const kind of ALL) grains[kind].add(growCell(kind, SEED, (i * 977) % 40000, 700 + ((i * 131) % 700)).grain);
   assert.deepEqual([...grains[PLASTER]], [0]);
   for (const kind of [PLANKS, BOARD]) assert.deepEqual([...grains[kind]].sort((a, b) => a - b), [0, 1, 15]);
+});
+
+test("zoomed in, each thing shows its own cells as the wood does: brass scratched along its turning, wax and skin smooth (matter-fixes §3)", () => {
+  const sd = (a) => {
+    const m = a.reduce((x, y) => x + y, 0) / a.length;
+    return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length);
+  };
+  const block = (kind, f) => Array.from({ length: 4096 }, (_, i) => f(growCell(kind, SEED, 300 + (i % 64), 200 + Math.floor(i / 64))));
+  for (const kind of THINGS) {
+    // each cell its own
+    let differ = 0;
+    for (let i = 0; i < 2000; i++) {
+      const x = 5000 + i * 7, y = 2000 + (i % 50) * 13;
+      const a = growCell(kind, SEED, x, y), b = growCell(kind, SEED, x + 1, y + 1);
+      if (a.height !== b.height || a.tone !== b.tone) differ++;
+    }
+    assert.ok(differ / 2000 > 0.5, `kind ${kind}: ${differ / 2000} of neighbours differ`);
+    // no grain (that is wood's), and its tone within its curves
+    for (const c of block(kind, (c) => c)) assert.ok(c.grain === 0 && c.tone >= 0 && c.tone <= 255);
+    // crisp up close; far away the cells' own average
+    for (let i = 0; i < 100; i++) {
+      const x = 1000 + i * 37.31, y = 1400 + i * 11.77;
+      const c = growCell(kind, SEED, Math.floor(x), Math.floor(y));
+      assert.deepEqual(growMean(kind, SEED, x, y, 1), { height: c.height, tone: c.tone });
+    }
+    for (const [x, y] of [[4100.5, 1000.5], [27000.5, 777.25]]) {
+      let tone = 0, height = 0, n = 0;
+      for (let yy = y - 128; yy < y + 128; yy++) for (let xx = x - 128; xx < x + 128; xx++) {
+        const g = growCell(kind, SEED, Math.round(xx), Math.round(yy));
+        tone += g.tone;
+        height += g.height;
+        n++;
+      }
+      const m = growMean(kind, SEED, x, y, 256);
+      assert.ok(Math.abs(m.tone - tone / n) < 4 && Math.abs(m.height - height / n) < 12, `kind ${kind}: ${m.tone.toFixed(1)} vs ${(tone / n).toFixed(1)}, ${m.height.toFixed(1)} vs ${(height / n).toFixed(1)}`);
+    }
+  }
+  // brass: its scratches run along x (around a holder, the lathe's): a cell is like the next along, not the next across
+  let along = 0, across = 0;
+  for (let i = 0; i < 4000; i++) {
+    const x = 700 + (i % 200) * 3, y = 900 + Math.floor(i / 200) * 5;
+    const h = growCell(BRASS, SEED, x, y).height;
+    along += Math.abs(growCell(BRASS, SEED, x + 1, y).height - h);
+    across += Math.abs(growCell(BRASS, SEED, x, y + 1).height - h);
+  }
+  assert.ok(along < 0.75 * across, `scratches along x: ${along} vs ${across}`);
+  // polished and poured: brass, wax and skin are far smoother than plaster
+  const plaster = sd(block(PLASTER, (c) => c.height));
+  for (const kind of [BRASS, WAX, SKIN]) assert.ok(sd(block(kind, (c) => c.height)) < plaster / 2, `kind ${kind} smoother than plaster`);
+});
+
+test("a thing's cells are on its own surface: carried and tilted, its grain stays with it; each thing its own seed (matter-fixes §3)", () => {
+  // a candle (a cylinder about its z axis, its foot at z 0), carried and tilted as the hand does
+  const r = 0.011 * PX_PER_M, h = 0.18 * PX_PER_M;
+  const geo = new THREE.CylinderGeometry(1, 1, 1, 28).rotateX(Math.PI / 2).translate(0, 0, 0.5);
+  const candle = new THREE.Mesh(geo);
+  candle.scale.set(r, r, h);
+  const local = new THREE.Vector3(Math.cos(1.1), Math.sin(1.1), 0.37); // a point on its side
+  const normal = [Math.cos(1.1), Math.sin(1.1), 0];
+  const seen = (pos, tilt) => {
+    candle.position.set(...pos);
+    candle.rotation.set(0, tilt, 0);
+    candle.updateMatrixWorld(true);
+    const world = local.clone().applyMatrix4(candle.matrixWorld);
+    const scale = new THREE.Vector3().setFromMatrixScale(candle.matrixWorld); // (the shader's modelScale)
+    const own = objectCells('round', local.toArray(), normal, scale.toArray()).map(Math.floor);
+    const byWorld = [Math.floor(world.x / CELL_PX + 1e5), Math.floor(world.y / CELL_PX + 1e5)]; // (as it was: cells from where it stands)
+    return { own, byWorld, cell: growCell(WAX, SEED, ...own) };
+  };
+  const a = seen([1000, 2000, 300], 0), b = seen([4000, -500, 300], (35 * Math.PI) / 180);
+  assert.deepEqual(a.own, b.own, 'the same cell of it');
+  assert.deepEqual(a.cell, b.cell, 'grown the same');
+  assert.notDeepEqual(a.byWorld, b.byWorld, '(addressed by the world, its grain would have slid over it)');
+  // its cells are the paper's: a page px along its surface is two cells; all of them ≥ 0
+  const up = objectCells('round', [1, 0, 0.5 + 1 / h], [1, 0, 0], [r, r, h]),
+    at = objectCells('round', [1, 0, 0.5], [1, 0, 0], [r, r, h]);
+  assert.ok(Math.abs(up[1] - at[1] - 1 / CELL_PX) < 1e-6, 'a page px up it');
+  const turn = objectCells('round', [-1, 1e-9, 0], [-1, 0, 0], [r, r, h])[0] - objectCells('round', [-1, -1e-9, 0], [-1, 0, 0], [r, r, h])[0]; // (its back: the seam)
+  assert.ok(Math.abs(turn - (2 * Math.PI * r) / CELL_PX) < 1e-3, 'once around it: its circumference');
+  // a box: each face from its own corner, as far as it is long
+  const size = [0.12 * PX_PER_M, 0.009 * PX_PER_M, 0.009 * PX_PER_M];
+  assert.deepEqual(objectCells('box', [-0.5, -0.5, 0.5], [0, 0, 1], size), [0, 0]);
+  assert.deepEqual(objectCells('box', [0.5, 0.5, 0.5], [0, 0, 1], size).map((v) => Math.round(v)), [Math.round(size[0] / CELL_PX), Math.round(size[1] / CELL_PX)]);
+  for (const n of [[1, 0, 0], [0, -1, 0], [0, 0, -1]]) for (const c of objectCells('box', [0.2, -0.3, 0.4], n, size)) assert.ok(c >= 0);
+  for (const c of objectCells('ball', [0, -1, 0], [0, -1, 0], [50, 50, 50])) assert.ok(c >= 0);
+  // each thing its own seed: from the room's and its name, the same for everyone
+  const room = seedMix(DEFAULT_SEEDS.table);
+  assert.equal(thingSeed(room, 'holder-0'), thingSeed(room, 'holder-0'));
+  assert.notEqual(thingSeed(room, 'holder-0'), thingSeed(room, 'holder-1'));
+  assert.notEqual(thingSeed(room, 'holder-0'), thingSeed(seedMix([1, 2]), 'holder-0'));
+  assert.ok(Number.isInteger(thingSeed(room, 'pen')) && thingSeed(room, 'pen') >= 0 && thingSeed(room, 'pen') < 2 ** 32);
 });
 
 test('the shaders are this grower: the same constants in GLSL and WGSL', () => {

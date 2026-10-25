@@ -40,7 +40,9 @@ import {
   uv,
   positionLocal,
   positionWorld,
+  normalLocal,
   normalWorld,
+  modelScale,
   cameraPosition,
   vec2,
   vec3,
@@ -379,29 +381,43 @@ export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
   return m;
 }
 
-// An object (a leg, the window's frame, a candle's holder): its matter (grown
-// wood, or brass), lit like the room; its cells along its own faces. ambient:
-// { A, B } uniforms (the room's mean light, as colours).
-export function objectMaterial(L, { kind = null, seed = 0, pair, webgpu }) {
+// A thing's cells where the pixel is, on its own surface (light/surface.js
+// objectCells, the same): counted from its own corner in its own units, scaled by
+// its size, so its grain goes where it goes.
+function cellsOn(shape) {
+  const p = positionLocal,
+    n = normalLocal;
+  const s = modelScale.mul(1 / grown.CELL_PX);
+  if (shape === 'box') {
+    const q = p.add(0.5).mul(s);
+    return select(abs(n.z).greaterThan(0.5), q.xy, select(abs(n.x).greaterThan(0.5), q.yz, q.xz));
+  }
+  if (shape === 'ball') return vec2(atan(p.z, p.x).add(Math.PI).mul(s.x), p.y.add(1).mul(s.y));
+  const side = vec2(atan(p.y, p.x).add(Math.PI).mul(s.x), p.z.add(1).mul(s.z));
+  return select(abs(n.z).greaterThan(0.5), p.xy.add(1).mul(s.xy), side);
+}
+
+// A thing (a leg, the window's frame, a holder, a candle's wax and wick, the pen,
+// a being): its matter grown cell by cell as the walls are (light/surface.js: wood,
+// brass, wax, wick, cloth, skin; kind null: one even tone), its cells on its own
+// surface (shape: 'box', 'round', 'ball'), lit like the room. Its seed: each mesh's
+// own (userData.seed), else m.seedBase. ambient: { A, B } uniforms (the room's mean
+// light, as colours).
+export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu }) {
   const m = new MeshBasicNodeMaterial();
   const [light, dark] = pairUniforms(pair);
   const A = uniform(new THREE.Vector3()),
     B = uniform(new THREE.Vector3());
-  const seedU = uniform(seed, 'uint');
+  m.seedBase = seed;
+  const seedU = uniform(seed, 'uint').onObjectUpdate(({ object }) => object.userData.seed ?? m.seedBase);
   m.colorNode = Fn(() => {
     const n = normalize(normalWorld).toVar();
     let t = float(0);
-    if (kind !== null) {
-      // cells along the face (CELL_PX = half a page px), from far out so they stay positive
-      const w = positionWorld.mul(2).add(1e5);
-      const pos = select(abs(n.z).greaterThan(0.5), w.xy, select(abs(n.x).greaterThan(0.5), w.yz, w.xz));
-      t = clamp(grower(webgpu)({ kind: int(kind), m: seedU, pos, foot: footAt(L) }).y.div(255), 0, 1).toVar();
-    }
+    if (kind !== null) t = clamp(grower(webgpu)({ kind: int(kind), m: seedU, pos: cellsOn(shape), foot: footAt(L) }).y.div(255), 0, 1).toVar();
     const V = normalize(cameraPosition.sub(positionWorld));
     return spectral(toned(light, dark, t), n, float(0), vec3(1), float(0), V, L, null, { ambient: A.add(B.mul(t)), slab: true });
   })();
   m.ambient = { A, B };
-  m.seed = seedU;
   return m;
 }
 
@@ -625,18 +641,6 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
 export function cutMaterial(picture) {
   const m = new MeshBasicNodeMaterial({ transparent: true, side: THREE.DoubleSide });
   m.colorNode = texture(picture, down());
-  return m;
-}
-
-// A candle's wax or wick (its matter's curve, N values): lit like everything else.
-export function waxMaterial(L, curve) {
-  const m = new MeshBasicNodeMaterial();
-  const R = spectrumUniform();
-  setSpectrum(R, curve);
-  m.colorNode = Fn(() => {
-    const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(plainly(R), normalize(normalWorld), float(1), vec3(1), float(0), V, L, null);
-  })();
   return m;
 }
 

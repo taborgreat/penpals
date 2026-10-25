@@ -377,15 +377,16 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   for (const g of R.panes) roomGroup.add(new THREE.Mesh(g, paneMat));
   const box = new THREE.BoxGeometry(1, 1, 1);
   const disc = new THREE.CylinderGeometry(1, 1, 1, 32).rotateX(Math.PI / 2);
+  // the room's things (matter-fixes §3): each its matter grown on its own surface from
+  // its own seed (the room's, and its name), so it looks the same to everyone
+  const thingSeedOf = (name) => grown.thingSeed(seedOf('table'), name);
+  const KIND_OF = { table: grown.BOARD, brass: grown.BRASS, wax: grown.WAX, wick: grown.WICK, cloth: grown.CLOTH, skin: grown.SKIN };
+  const thingMat = (matter, thing, shape = 'box') =>
+    Object.assign(gpu.objectMaterial(lights, { kind: KIND_OF[matter], seed: thing ? thingSeedOf(thing) : 0, pair: pairOf(matter), shape, webgpu: own }), { matter, thing });
   const objectMats = [];
   const objectMeshes = new Map(); // id → mesh (a holder goes where its candle is carried)
   for (const o of GEOM.objects) {
-    const brass = o.matter === 'brass';
-    const mat = gpu.objectMaterial(
-      lights,
-      brass ? { pair: { light: curves.MATTER.brass, dark: curves.MATTER.brass } } : { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf(o.matter), webgpu: own },
-    );
-    mat.matter = o.matter;
+    const mat = thingMat(o.matter, o.id, o.box ? 'box' : 'round');
     objectMats.push(mat);
     const mesh = new THREE.Mesh(o.box ? box : disc, mat);
     objectMeshes.set(o.id, mesh);
@@ -413,10 +414,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // its nib is on the paper and its tines spread as wide as the line it lays; set down,
   // it lies on the table. (room m, in the room's group)
   const PEN = { length: 0.12, thick: 0.009, tine: 0.012, tineW: 0.0012 };
-  const penMats = {
-    body: Object.assign(gpu.objectMaterial(lights, { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf('table'), webgpu: own }), { matter: 'table' }),
-    tine: Object.assign(gpu.objectMaterial(lights, { pair: { light: curves.MATTER.brass, dark: curves.MATTER.brass } }), { matter: 'brass' }),
-  };
+  const penMats = { body: thingMat('table', 'pen'), tine: thingMat('brass', 'nib') };
   const pen = new THREE.Group();
   const penBody = new THREE.Mesh(box, penMats.body);
   const penTines = [new THREE.Mesh(box, penMats.tine), new THREE.Mesh(box, penMats.tine)];
@@ -436,20 +434,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // Their matter is made once for the view: a being coming, hiding or going makes no new shaders.
   const ball = new THREE.SphereGeometry(1, 24, 16);
   const beings = new Map(); // name → { group, body, head, face, hands, pen }
-  const beingMat = (curve, matter) => Object.assign(gpu.objectMaterial(lights, { pair: { light: curve, dark: curve } }), { matter: matter ?? { light: curve, dark: curve } });
-  const beingMats = {
-    cloth: [
-      [96, 40, 44],
-      [44, 70, 96],
-      [70, 90, 52],
-      [92, 70, 40],
-      [70, 52, 88],
-    ].map((c) => beingMat(paperCurve(c))),
-    skin: beingMat(paperCurve([214, 178, 150])),
-    dark: beingMat(curves.MATTER.wick),
-    pen: beingMat(curves.MATTER.brass, 'brass'),
-  };
-  const allBeingMats = [...beingMats.cloth, beingMats.skin, beingMats.dark, beingMats.pen];
+  // Each is matter, grown (matter-fixes §3): cloth, skin, its face's dark cotton, a brass pen,
+  // each part from the being's own seed (its name's), so it looks the same in every room.
+  const beingMats = { cloth: thingMat('cloth', null, 'ball'), skin: thingMat('skin', null, 'ball'), dark: thingMat('wick', null, 'ball'), pen: thingMat('brass') };
+  const allBeingMats = Object.values(beingMats);
+  const beingSeed = (name, part) => grown.thingSeed(grown.seedMix(grown.defaultSeed(`being ${name}`)), part);
   // their shaders made now, while the room loads, on specks no one sees: one built when
   // someone first comes in would stall the pen mid-stroke
   const specks = new THREE.Group();
@@ -462,18 +451,25 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   roomGroup.add(specks);
   const made = () => roomGroup.remove(specks);
   (renderer.compileAsync?.(specks, persp, scene) ?? Promise.resolve()).then(made, made);
-  const clothOf = (name) => beingMats.cloth[[...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % beingMats.cloth.length];
   function beingOf(name) {
     let b = beings.get(name);
     if (b) return b;
-    const mats = { body: clothOf(name), skin: beingMats.skin, dark: beingMats.dark, pen: beingMats.pen };
     const group = new THREE.Group();
-    const part = (geo, m) => {
+    const part = (geo, m, id) => {
       const mesh = new THREE.Mesh(geo, m);
+      mesh.userData.seed = beingSeed(name, id);
       group.add(mesh);
       return mesh;
     };
-    b = { group, body: part(ball, mats.body), head: part(ball, mats.skin), face: part(ball, mats.dark), hands: [part(ball, mats.skin), part(ball, mats.skin)], pen: part(box, mats.pen) };
+    const M = beingMats;
+    b = {
+      group,
+      body: part(ball, M.cloth, 'body'),
+      head: part(ball, M.skin, 'head'),
+      face: part(ball, M.dark, 'face'),
+      hands: [part(ball, M.skin, 'hand-0'), part(ball, M.skin, 'hand-1')],
+      pen: part(box, M.pen, 'pen'),
+    };
     roomGroup.add(group);
     beings.set(name, b);
     return b;
@@ -482,9 +478,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   const marks = createMarks({ gpu, lights, group: roomGroup, geom: GEOM, meshes: R.meshes, seedOf, webgpu: own });
   // two candles standing on it, either side of the page: wax, a wick, a flame
   const cylinder = new THREE.CylinderGeometry(1, 1, 1, 28).rotateX(Math.PI / 2).translate(0, 0, 0.5);
-  const candles = [0, 1].map(() => {
-    const wax = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, curves.MATTER.wax));
-    const wick = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, curves.MATTER.wick));
+  const candleMats = [];
+  const candles = [0, 1].map((i) => {
+    const wax = new THREE.Mesh(cylinder, thingMat('wax', `candle-${i}`, 'round'));
+    const wick = new THREE.Mesh(cylinder, thingMat('wick', `wick-${i}`, 'round'));
+    candleMats.push(wax.material, wick.material);
     const flame = new THREE.Sprite(gpu.flameMaterial());
     flame.center.set(0.5, 0.18); // its foot on the wick
     flame.renderOrder = 10;
@@ -924,7 +922,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lights.slabMax.value.set(...W([t.x1, t.y1, t.top]));
       lightRoom(l, performance.now(), R);
       marks.light(l.ambient);
-      for (const m of [...objectMats, ...shelf.mats, ...allBeingMats, penMats.body, penMats.tine]) {
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, penMats.body, penMats.tine]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
         m.ambient.A.value.set(...A);
         m.ambient.B.value.set(...B);
@@ -979,7 +977,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setSeeds(next) {
       roomSeeds = next;
       for (const m of roomMats) m.seed.value = seedOf(m.seedName);
-      for (const m of objectMats) if (m.seed) m.seed.value = seedOf('table');
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, penMats.body, penMats.tine]) if (m.thing) m.seedBase = thingSeedOf(m.thing);
       marks.reseed();
     },
     // The others in the room (rooms.md §4): [{ name, pose: { pos (the head, room m), yaw,
@@ -1072,8 +1070,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         mesh.position.set((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2);
         shelf.group.add(mesh);
       };
-      const wood = gpu.objectMaterial(lights, { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf('table'), webgpu: own });
-      wood.matter = 'table';
+      const wood = thingMat('table', 'shelf');
       shelf.mats.push(wood);
       put(board, wood);
       boxes.forEach((b, k) => {

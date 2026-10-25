@@ -16,7 +16,7 @@ import { N, curves, surface as grown } from './light/index.js';
 const { CELL_M } = grown;
 
 const KIND = { plaster: grown.PLASTER, floor: grown.PLANKS, table: grown.BOARD };
-const PAIR = { plaster: 'plaster', floor: 'floor', table: 'table' }; // matter → its curve pair
+const PAIR = { plaster: 'plaster', floor: 'floor', table: 'table', brass: 'brass', wax: 'wax', wick: 'wick', cloth: 'cloth', skin: 'skin' }; // matter → its curve pair
 export const seedOf = (surface) => grown.seedMix(grown.DEFAULT_SEEDS[surface.id.startsWith('table') ? 'table' : surface.id] ?? grown.defaultSeed(surface.id));
 
 // Every surface's mesh: vertices at its grid's line crossings (room m), each
@@ -139,7 +139,7 @@ export function spectrumAt(geom, meshes, si, u, v, ambient, out = new Float64Arr
 export function meanLight(ambient, n, W, matter) {
   const E = new Float64Array(N);
   for (let p = 0; p < n; p++) for (let b = 0; b < N; b++) E[b] += ambient[p * N + b] / n;
-  const { light, dark } = typeof matter === 'object' ? matter : matter === 'brass' ? { light: curves.MATTER.brass, dark: curves.MATTER.brass } : pairOf(matter); // (or a pair of its own: a book's cloth)
+  const { light, dark } = typeof matter === 'object' ? matter : pairOf(matter); // (or a pair of its own: a book's cloth)
   const A = [0, 0, 0],
     B = [0, 0, 0];
   for (let c = 0; c < 3; c++) {

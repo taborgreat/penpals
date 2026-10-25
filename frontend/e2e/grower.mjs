@@ -7,10 +7,11 @@
 //   node frontend/e2e/grower.mjs              headless Chromium (software GL; no WebGPU adapter there)
 //   node frontend/e2e/grower.mjs --webgpu     also the full Chromium on this machine's GPU, for WebGPU
 import { chromium } from 'playwright';
-import { growCell, growMean, seedMix, SURFACE_GLSL, SURFACE_WGSL, PLASTER, PLANKS, BOARD, DEFAULT_SEEDS } from '../src/scene/light/surface.js';
+import { growCell, growMean, seedMix, thingSeed, SURFACE_GLSL, SURFACE_WGSL, PLASTER, PLANKS, BOARD, BRASS, WAX, WICK, CLOTH, SKIN, DEFAULT_SEEDS } from '../src/scene/light/surface.js';
 
 const N = 128; // cells a side per block
-// Blocks: each kind at the origin, across a floor seam and a board's end, and far out on a wall.
+const mixOf = (seed) => (typeof seed === 'number' ? seed : seedMix(seed)); // (a thing's seed is already mixed)
+// Blocks: each kind at the origin, across a floor seam and a board's end, far out on a wall, and the things.
 const BLOCKS = [
   { kind: PLASTER, seed: DEFAULT_SEEDS['wall-far'], ox: 0, oy: 0 },
   { kind: PLASTER, seed: [0xdeadbeef, 0x01234567], ox: 40000, oy: 30000 },
@@ -19,6 +20,13 @@ const BLOCKS = [
   { kind: PLANKS, seed: [7, 9], ox: 41000, oy: 43000 },
   { kind: BOARD, seed: DEFAULT_SEEDS.table, ox: 0, oy: 3150 },
   { kind: BOARD, seed: [0xffffffff, 0], ox: 17000, oy: 9000 },
+  // the things' matter (matter-fixes §3), each from its own seed
+  { kind: BRASS, seed: thingSeed(seedMix(DEFAULT_SEEDS.table), 'holder-0'), ox: 0, oy: 0 },
+  { kind: BRASS, seed: [3, 0x80000000], ox: 5000, oy: 64 },
+  { kind: WAX, seed: thingSeed(seedMix(DEFAULT_SEEDS.table), 'candle-1'), ox: 100, oy: 3000 },
+  { kind: WICK, seed: [11, 13], ox: 0, oy: 0 },
+  { kind: CLOTH, seed: [0x0badf00d, 5], ox: 2000, oy: 700 },
+  { kind: SKIN, seed: [21, 34], ox: 900, oy: 900 },
 ];
 // The averaged character: positions (cells, fractional) and footprints. Every
 // position is a multiple of 1/16, exact in float32, so the GPU and JS read the
@@ -115,7 +123,7 @@ async function glsl(page) {
     }));
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
     return { cells, avg, renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER) };
-  }, { src: SURFACE_GLSL, blocks: BLOCKS.map((b) => ({ ...b, mix: seedMix(b.seed) })), means: MEANS.map((b) => ({ ...b, mix: seedMix(b.seed) })), N, MN });
+  }, { src: SURFACE_GLSL, blocks: BLOCKS.map((b) => ({ ...b, mix: mixOf(b.seed) })), means: MEANS.map((b) => ({ ...b, mix: mixOf(b.seed) })), N, MN });
 }
 
 // --- WebGPU: a compute shader writes each cell into a storage buffer ---
@@ -191,7 +199,7 @@ struct Q { m: u32, kind: i32, ox: f32, oy: f32, stride: f32, foot: f32, pad0: f3
     }
     const ai = adapter.info ?? {};
     return { cells, avg, renderer: `${ai.vendor ?? ''} ${ai.architecture ?? ''} ${ai.description ?? ''}`.trim() };
-  }, { src: SURFACE_WGSL, blocks: BLOCKS.map((b) => ({ ...b, mix: seedMix(b.seed) })), means: MEANS.map((b) => ({ ...b, mix: seedMix(b.seed) })), N, MN });
+  }, { src: SURFACE_WGSL, blocks: BLOCKS.map((b) => ({ ...b, mix: mixOf(b.seed) })), means: MEANS.map((b) => ({ ...b, mix: mixOf(b.seed) })), N, MN });
 }
 
 // Cells from the GPU against the JS reference: [mismatches, first mismatch].
