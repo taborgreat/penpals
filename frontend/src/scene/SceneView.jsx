@@ -5,9 +5,11 @@ import { groundOf } from './ground.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
 import { theLight, originOf, withinRoom, returnTo, sunAt, zoned, GEOM } from './light.js';
 import { roomCamera, hit as roomHit, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
-import { surfaceFrame, fromRoom, onSurface, surfaceOfHit } from './surfaces.js';
+import { surfaceFrame, fromRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
 import { poseNow } from '../room/presence.js';
+import { lawPen, lineWidthPx } from '../ink/pens.js';
+import { PEN_SIZES } from '../ink/nibs.js';
 import { shelfLayout, rayBox } from './shelf.js';
 import { isPhone } from './support.js';
 import { sightOf } from './sight.js';
@@ -87,6 +89,11 @@ const FLY_KEYS = { w: 'forward', arrowup: 'forward', s: 'back', arrowdown: 'back
 const toRoomDir = (d) => [d[0], -d[1], d[2]]; // page frame ↔ the room's (y flips)
 const INSIDE_M = 0.3; // another's head nearer your eye than this (at their size): you are in it, and do not see it
 const SIZE_MIN = 1e-4; // a being as small as a bead of ink
+// The pen in the hand (rooms.md §3c): a writer that says nothing of its nib writes with a medium pen.
+const PLAIN_PEN = lawPen({ nib: 'pen', size: PEN_SIZES.medium }, '#000000');
+const LIFT_M = 0.002; // the nib above the paper between strokes
+// Where the pen lies when set down and nothing says where: on the table, right of the page.
+const penRest = () => [GEOM.pageRect.x1 + 0.06, (GEOM.pageRect.y0 + GEOM.pageRect.y1) / 2, GEOM.table.top];
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
 const SceneView = forwardRef(function SceneView(
@@ -142,6 +149,20 @@ const SceneView = forwardRef(function SceneView(
   const canPen = !!(writer || wallWriter || tableWriter); // the page, the room's surfaces (from Look), shared sheets on the table
   const hand = handChoice ?? !canPen;
   const penMode = canPen && !hand;
+  // the pen picked up while it writes, set down when the hand takes over (place acts: room/carry.js)
+  const penWas = useRef(null);
+  useEffect(() => {
+    if (penWas.current === null) {
+      penWas.current = penMode;
+      return;
+    }
+    if (penWas.current === penMode) return;
+    penWas.current = penMode;
+    if (penMode) carrying?.penUp?.();
+    else carrying?.penDown?.(st.current?.pen ? [st.current.pen.nib[0], st.current.pen.nib[1], GEOM.table.top] : null);
+    if (!penMode && st.current) st.current.pen = null;
+    schedule(); // (drawn again: the pen in the hand, or set down)
+  }, [penMode]); // eslint-disable-line react-hooks/exhaustive-deps
   const [relief, setRelief] = useState(storedRelief);
   const [crisp, setCrisp] = useState(false); // the page close up: smooth between its cells, or each cell crisp
   const [steep, setSteep] = useState(false); // too low to write
@@ -334,6 +355,9 @@ const SceneView = forwardRef(function SceneView(
       clearTimeout(S.still);
       S.still = setTimeout(schedule, Math.max(0, S.moveUntil - now) + 20);
     }
+    // the pen (rooms.md §3c): in the hand, at its nib, its tines as wide as its line; else set down
+    if (penMode && S.pen) S.view.setPen(S.pen);
+    else S.view.setPen({ place: penLies });
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     seen(cam, moving);
@@ -466,7 +490,7 @@ const SceneView = forwardRef(function SceneView(
   }, [seeds, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ink on the room's surfaces
-  useEffect(() => {
+  const showMarks = () => {
     const view = S.view;
     if (!view) return;
     const list = marks ?? [];
@@ -497,7 +521,20 @@ const SceneView = forwardRef(function SceneView(
       S.marksOn.set(m.id, { spec: m, unsub });
     }
     schedule();
-  }, [marks, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
+  useEffect(showMarks, [marks, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the pen's face (rooms.md §3c) where the pen lies: the ink on it goes with it
+  const penLies = carrying?.penPlace ?? penRest();
+  useEffect(() => {
+    setPenPlace(penLies);
+    for (const [id, a] of S.marksOn) {
+      if (a.spec.surface !== 'pen') continue;
+      a.unsub?.();
+      S.view?.removeMark(id);
+      S.marksOn.delete(id);
+    }
+    showMarks();
+  }, [penLies.join(), ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the shelf's books
   useEffect(() => {
@@ -651,6 +688,26 @@ const SceneView = forwardRef(function SceneView(
       id = surfaceOfHit(GEOM, h.surface);
       t = h.t;
       if (!id || (h.patch !== undefined && h.patch === GEOM.page)) return null; // the page itself: the paper's own pen
+      // the pen lying in front of it: its top face
+      const pf = surfaceFrame(GEOM, 'pen');
+      const down = pf && -(dir[0] * pf.normal[0] + dir[1] * pf.normal[1] + dir[2] * pf.normal[2]);
+      if (down > 0) {
+        const tp = ((o[0] - pf.origin[0]) * pf.normal[0] + (o[1] - pf.origin[1]) * pf.normal[1] + (o[2] - pf.origin[2]) * pf.normal[2]) / down;
+        if (
+          tp > 0 &&
+          tp < t &&
+          onSurface(
+            pf,
+            fromRoom(
+              pf,
+              o.map((v, k) => v + dir[k] * tp),
+            ),
+          )
+        ) {
+          id = 'pen';
+          t = tp;
+        }
+      }
     }
     const f = surfaceFrame(GEOM, id);
     const across = -(dir[0] * f.normal[0] + dir[1] * f.normal[1] + dir[2] * f.normal[2]);
@@ -675,6 +732,15 @@ const SceneView = forwardRef(function SceneView(
     return { az: (fx - 0.5) * 220, el: Math.max(2, Math.min(88, (1 - fy) * 90)) };
   };
 
+  // The pen at the nib (page point p, page px), pressing as the event does (rooms.md §3c).
+  const penAt = (p, ev, down = true) => {
+    if (!p) return;
+    const w = writer?.widthAt ?? tableWriter?.widthAt ?? ((q) => lineWidthPx(PLAIN_PEN, q));
+    const pressure = down ? Math.round(255 * (ev?.pressure > 0 ? ev.pressure : 0.5)) : 0;
+    const nib = pageToRoom([p.x, p.y, 0], origin());
+    if (!down) nib[2] += LIFT_M;
+    S.pen = { nib, spread: w(pressure) / PX_PER_M, across: (writer?.across ?? tableWriter?.across)?.() ?? 0 };
+  };
   // The room point the pointer is over on the table's plane (the page's), room m.
   const roomPointOf = (e) => {
     const p = pageOf(e);
@@ -766,6 +832,7 @@ const SceneView = forwardRef(function SceneView(
         const q = { x: at.x - on.origin[0], y: at.y - on.origin[1] };
         if (tableWriter.down(on.sheet, q, e.nativeEvent, e.pointerType) !== false) {
           S.drag = { kind: 'table', on, last: q };
+          penAt(at, e.nativeEvent);
           return;
         }
       }
@@ -777,6 +844,7 @@ const SceneView = forwardRef(function SceneView(
         writer.penDown?.(S.shown ?? S.cam);
         S.drag = { kind: 'write', last: at };
         writer.down(at, e.nativeEvent, e.pointerType);
+        penAt(at, e.nativeEvent);
         return;
       }
       if (can) {
@@ -843,6 +911,7 @@ const SceneView = forwardRef(function SceneView(
         }
         d.last = { x: p.x - d.on.origin[0], y: p.y - d.on.origin[1] };
         tableWriter.move(d.last, ev);
+        penAt(p, ev);
       }
     } else if (d.kind === 'pen-off') {
       const p = pageOf(e);
@@ -863,6 +932,7 @@ const SceneView = forwardRef(function SceneView(
         }
         writer.move(p, ev);
         d.last = p;
+        penAt(p, ev);
       }
     } else if (d.kind === 'two' && S.pointers.size >= 2) {
       const [a, b] = [...S.pointers.values()];
@@ -951,6 +1021,7 @@ const SceneView = forwardRef(function SceneView(
           .catch((err) => console.warn('[cut]', err.message)); // (the scene stays whole)
       }
     } else if (d.kind === 'table') {
+      penAt({ x: d.last.x + d.on.origin[0], y: d.last.y + d.on.origin[1] }, null, false); // lifted
       if (e.type === 'pointercancel') tableWriter.cancel();
       else {
         const p = pageOf(e);
@@ -960,6 +1031,7 @@ const SceneView = forwardRef(function SceneView(
       if (e.type === 'pointercancel') wallWriter.cancel();
       else wallWriter.up(surfaceAt(e, d.surface)?.p ?? d.last, e.nativeEvent);
     } else if (d.kind === 'write') {
+      penAt(d.last, null, false); // lifted
       if (e.type === 'pointercancel') writer.cancel();
       else {
         const p = pageOf(e);

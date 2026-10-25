@@ -7,6 +7,8 @@
 // (what tips its melt pool: matter-fixes §2).
 //   name: the room; me: who holds; page: [w, h] (page px); sheets: the shared sheets on
 //   the table, as room/drops.js landing takes them
+// The pen (rooms.md §3c) is picked up and set down the same way: in the hand while it
+// writes, set down on the table (where it lies, read from its place acts) when it does not.
 // → { hand (SceneView's hand prop), held: () => { which, at, tilt } | null }
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -76,6 +78,14 @@ export function useCarry({ name, me, page, sheets = [], onTilt = null }) {
         if (!h) return;
         put({ ...h, tilt: Math.max(0, Math.min(TILT_MAX, h.tilt + d)) });
         live.current.onTilt?.(h.which, held.current.tilt, h.at);
+      },
+      // the pen: where it lies when set down (room m), null where the room was made with it
+      penPlace: things.pen?.at ?? null,
+      penDown(at) {
+        placeThing(name, 'pen', at).catch(() => {});
+      },
+      penUp() {
+        placeThing(name, 'pen', null).catch(() => {});
       },
       down(p) {
         const h = held.current;

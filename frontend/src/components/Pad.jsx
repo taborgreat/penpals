@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom';
 import { NIBS, PEN_SIZES, BROAD_SIZES, FLEX_PRESETS, GUIDES, PX_PER_MM, drawGuides, guideRows } from '../ink/nibs.js';
 import { PAPERS } from '../ink/paper.js';
-import { lawPen, FLOW_DEFAULT, SPATTER_DEFAULT } from '../ink/pens.js';
+import { lawPen, lineWidthPx, FLOW_DEFAULT, SPATTER_DEFAULT } from '../ink/pens.js';
 import { CELLS } from '../ink/live.js';
 import WriteMode from './WriteMode.jsx';
 import { CHASE, setChase } from './chase.js';
@@ -68,6 +68,7 @@ export default function Pad({
   dipPen = null, // { well }: a dip pen and its ink jar (rooms.md §3c, a law-3 sheet)
 }) {
   const [dips, setDips] = useState(0); // times dipped in the jar (the first: before the first stroke)
+  const penNow = useRef(null); // the law pen the ink is written with now
   const [nib, setNib] = useState('flex');
   const [penSize, setPenSize] = useState('medium');
   const [flex, setFlex] = useState({ ...FLEX_PRESETS.copperplate });
@@ -196,6 +197,9 @@ export default function Pad({
   }, [scene, placeScene, zoom, screenW, screenH, cssWidth]);
   const sceneWriter = useMemo(
     () => ({
+      // the pen in the hand (rooms.md §3c): its line's width at pressure p (0..255, page px), its tines' spread
+      widthAt: (p) => (penNow.current ? lineWidthPx(penNow.current, p) : 0),
+      across: () => penNow.current?.angle ?? 0,
       penDown: (cam) => camStack.penDown(cam),
       down: (p, ev, type) => {
         downRef.current = true;
@@ -242,7 +246,8 @@ export default function Pad({
   // nib under a mouse or finger gets its thick and thin from the slant (capture.js).
   const spatter = ink.law >= 2 ? (spatterSet ?? SPATTER_DEFAULT[nib]) : undefined;
   useEffect(() => {
-    ink.setPen(lawPen(nibSettings(), inkColor, flow, spatter, dipPen ? { well: dipPen.well, n: dips } : null));
+    penNow.current = lawPen(nibSettings(), inkColor, flow, spatter, dipPen ? { well: dipPen.well, n: dips } : null);
+    ink.setPen(penNow.current);
   }, [ink, nibSettings, inkColor, flow, spatter, dipPen, dips]);
   useEffect(() => {
     ink.capture.setFlex(nib === 'flex' ? { slant: flex.slant, swell: flex.swell, hold: ink.law >= 2 } : null);

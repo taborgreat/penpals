@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { roomGeometry, hit, ROOM } from '../scene/light/room.js';
 import { CELL_M } from '../scene/light/surface.js';
 import { N } from '../scene/light/axis.js';
-import { SURFACE_IDS, ROOM_SURFACE, surfaceFrame, toRoom, fromRoom, onSurface, surfaceOfHit } from '../scene/surfaces.js';
+import { SURFACE_IDS, THING_SURFACE_IDS, ROOM_SURFACE, PEN_FACE, setPenPlace, surfaceFrame, toRoom, fromRoom, onSurface, surfaceOfHit } from '../scene/surfaces.js';
 import { pieceCorners } from '../scene/marks.js';
 import { roomMeshes, spectrumAt } from '../scene/roomDraw.js';
 import { roomSeedsOf, lobbySeeds, SEED_NAMES } from './seeds.js';
@@ -22,7 +22,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const near = (a, b, e = 1e-9) => a.every((v, i) => Math.abs(v - b[i]) < e);
 
 test("each surface is a page of the book in its own frame: on its room surface, read the right way round, its size the book's", () => {
-  assert.deepEqual([...SURFACE_IDS].sort(), Object.keys(config.book.surfaces).sort(), 'the book has every surface the room has');
+  assert.deepEqual([...SURFACE_IDS, ...THING_SURFACE_IDS].sort(), Object.keys(config.book.surfaces).sort(), 'the book has every surface the room has');
   for (const id of SURFACE_IDS) {
     const f = surfaceFrame(geom, id);
     assert.deepEqual(f.units, config.book.surfaces[id].size, `${id}: the book's size`);
@@ -54,6 +54,26 @@ test("each surface is a page of the book in its own frame: on its room surface, 
     assert.ok(Math.abs(q.x - 1234.5) < 1e-6 && Math.abs(q.y - 678.25) < 1e-6 && Math.abs(q.off - 0.01) < 1e-12);
     assert.ok(onSurface(f, q) && !onSurface(f, { x: -1, y: 0 }));
   }
+});
+
+test("the pen's top face is a page of the book, wherever the pen lies (rooms.md §3c)", () => {
+  setPenPlace(null);
+  assert.equal(surfaceFrame(geom, 'pen'), null, 'nowhere until it lies somewhere');
+  const at = [1.2, 1.4, geom.table.top];
+  setPenPlace(at);
+  const f = surfaceFrame(geom, 'pen');
+  assert.deepEqual(f.units, config.book.surfaces.pen.size, "the book's size");
+  assert.ok(
+    near(
+      cross(f.right, f.down),
+      f.normal.map((v) => -v),
+    ),
+    'not mirrored',
+  );
+  // its middle is over where it lies, its thickness up
+  const mid = toRoom(f, [f.units[0] / 2, f.units[1] / 2]);
+  assert.ok(near(mid, [at[0], at[1], at[2] + PEN_FACE.thick], 2e-3), mid.join());
+  setPenPlace(null);
 });
 
 test('the pen pointed into the room finds the surface it meets', () => {

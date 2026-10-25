@@ -14,11 +14,23 @@
 import { PX_PER_M } from './light/index.js';
 
 export const SURFACE_IDS = ['table', 'wall-far', 'wall-near', 'wall-left', 'wall-right', 'floor', 'ceiling'];
+// The book's surfaces on the room's things, not on the room (each where its thing lies).
+export const THING_SURFACE_IDS = ['pen'];
 
 // The room surface (light/room.js surfaces[].id) each book surface lies on.
 export const ROOM_SURFACE = { table: 'table-top', 'wall-far': 'wall-far', 'wall-near': 'wall-near', 'wall-left': 'wall-left', 'wall-right': 'wall-right', floor: 'floor', ceiling: 'ceiling' };
 // The grown cells' seed name each one uses (light/surface.js DEFAULT_SEEDS).
-export const SEED_NAME = (roomSurfaceId) => (roomSurfaceId.startsWith('table') ? 'table' : roomSurfaceId);
+// (The pen is cut from the table's wood.)
+export const SEED_NAME = (roomSurfaceId) => (roomSurfaceId.startsWith('table') || roomSurfaceId === 'pen' ? 'table' : roomSurfaceId);
+
+// The pen (rooms.md §3c) is a sheet too: its top face, wherever it lies set down (its
+// place: room m, the middle of its foot, lying along x, its nib to the right). Its place
+// is a room fact (place acts); the view says where it is now.
+export const PEN_FACE = { length: 0.12, thick: 0.009 };
+let penPlace = null;
+export const setPenPlace = (p) => {
+  penPlace = p ? [...p] : null;
+};
 
 const X = [1, 0, 0],
   Y = [0, 1, 0],
@@ -38,6 +50,9 @@ export function surfaceFrame(geom, id) {
     floor: { origin: [0, D, 0], right: X, down: neg(Y), normal: Z, size: [W, D] },
     ceiling: { origin: [W, D, H], right: neg(X), down: neg(Y), normal: neg(Z), size: [W, D] },
     table: { origin: [t.x0, t.y1, t.top], right: X, down: neg(Y), normal: Z, size: [t.x1 - t.x0, t.y1 - t.y0] },
+    pen: penPlace
+      ? { origin: [penPlace[0] - PEN_FACE.length / 2, penPlace[1] + PEN_FACE.thick / 2, penPlace[2] + PEN_FACE.thick], right: X, down: neg(Y), normal: Z, size: [PEN_FACE.length, PEN_FACE.thick] }
+      : null,
   }[id];
   if (!f) return null;
   return { id, ...f, units: f.size.map((v) => Math.round(v * PX_PER_M)) };

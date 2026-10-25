@@ -20,7 +20,7 @@ const KIND = { plaster: grown.PLASTER, floor: grown.PLANKS, table: grown.BOARD }
 // the surface's own cells, in its texture (uv.y up, as every plane's: its row dy
 // at 1 − v, nodes.js down), and in the surface's own u, v (m).
 export function pieceCorners(geom, mk, x0, y0, w, h) {
-  const s = geom.surfaces[mk.si];
+  const s = mk.surf ?? geom.surfaces[mk.si];
   const [bx, by] = mk.box;
   return [
     [0, 0],
@@ -42,10 +42,18 @@ export function createMarks({ gpu, lights, group, geom, meshes, seedOf, webgpu }
   const E = new Float64Array(N);
   let ambient = null;
 
+  // The room's light over all its patches (a thing's face, not one of the room's own surfaces).
+  const meanOf = (out) => {
+    out.fill(0);
+    const n = ambient.length / N;
+    for (let p = 0; p < n; p++) for (let b = 0; b < N; b++) out[b] += ambient[p * N + b] / n;
+    return out;
+  };
   function lightPiece(mk, pc) {
     const a = pc.geo.attributes;
     pc.corners.forEach((c, k) => {
-      if (ambient) spectrumAt(geom, meshes, mk.si, c.surf[0], c.surf[1], ambient, E);
+      if (ambient && mk.si >= 0) spectrumAt(geom, meshes, mk.si, c.surf[0], c.surf[1], ambient, E);
+      else if (ambient) meanOf(E);
       else E.fill(0);
       for (let g = 0; g < 4; g++) a[`amb${g}`].array.set(E.subarray(4 * g, 4 * g + 4), 4 * k);
     });
@@ -61,7 +69,7 @@ export function createMarks({ gpu, lights, group, geom, meshes, seedOf, webgpu }
       y0 = by + cy * MARK_CHUNK;
     const w = Math.min(MARK_CHUNK, bx + bw - x0),
       h = Math.min(MARK_CHUNK, by + bh - y0);
-    const s = geom.surfaces[mk.si];
+    const s = mk.surf ?? geom.surfaces[mk.si];
     const corners = pieceCorners(geom, mk, x0, y0, w, h);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(corners.flatMap((c) => c.pos)), 3));
@@ -104,8 +112,10 @@ export function createMarks({ gpu, lights, group, geom, meshes, seedOf, webgpu }
       if (was) api.remove(id);
       const frame = surfaceFrame(geom, surface);
       const si = geom.surfaces.findIndex((s) => s.id === ROOM_SURFACE[surface]);
-      if (!frame || si < 0) return null;
-      const mk = { id, surface, origin: [...origin], cellUnits, box: [...box], frame, si, pieces: new Map() };
+      // a thing's face (the pen's: rooms.md §3c) is a surface of its own, wood, wherever the thing lies
+      const surf = si < 0 && frame ? { id: surface, matter: 'table', origin: frame.origin, u: frame.right, v: frame.down } : null;
+      if (!frame || (si < 0 && !surf)) return null;
+      const mk = { id, surface, origin: [...origin], cellUnits, box: [...box], frame, si, surf, pieces: new Map() };
       marks.set(id, mk);
       return mk;
     },
@@ -152,7 +162,7 @@ export function createMarks({ gpu, lights, group, geom, meshes, seedOf, webgpu }
     },
     // The grown cells' seeds changed (a view of another's room): every piece's.
     reseed() {
-      for (const mk of marks.values()) for (const pc of mk.pieces.values()) pc.mat.seed.value = seedOf(SEED_NAME(geom.surfaces[mk.si].id));
+      for (const mk of marks.values()) for (const pc of mk.pieces.values()) pc.mat.seed.value = seedOf(SEED_NAME((mk.surf ?? geom.surfaces[mk.si]).id));
     },
     get size() {
       return marks.size;

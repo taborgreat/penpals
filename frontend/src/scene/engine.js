@@ -409,6 +409,29 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // the shelf (rooms.md §3): its board, and the owner's books on it, spine out
   const shelf = { group: new THREE.Group(), mats: [] };
   roomGroup.add(shelf.group);
+  // the pen (rooms.md §3c): a plain wooden body and a nib of two brass tines. In the hand
+  // its nib is on the paper and its tines spread as wide as the line it lays; set down,
+  // it lies on the table. (room m, in the room's group)
+  const PEN = { length: 0.12, thick: 0.009, tine: 0.012, tineW: 0.0012 };
+  const penMats = {
+    body: Object.assign(gpu.objectMaterial(lights, { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf('table'), webgpu: own }), { matter: 'table' }),
+    tine: Object.assign(gpu.objectMaterial(lights, { pair: { light: curves.MATTER.brass, dark: curves.MATTER.brass } }), { matter: 'brass' }),
+  };
+  const pen = new THREE.Group();
+  const penBody = new THREE.Mesh(box, penMats.body);
+  const penTines = [new THREE.Mesh(box, penMats.tine), new THREE.Mesh(box, penMats.tine)];
+  pen.add(penBody, ...penTines);
+  pen.visible = false;
+  roomGroup.add(pen);
+  const upZ = new THREE.Vector3(0, 0, 1);
+  const q = new THREE.Quaternion();
+  // a box of length `len` along `dir` (unit), its middle at `mid`, `w` × `h` across
+  function lay(mesh, mid, dir, len, w, h) {
+    mesh.position.set(...mid);
+    q.setFromUnitVectors(upZ, new THREE.Vector3(...dir));
+    mesh.quaternion.copy(q);
+    mesh.scale.set(w, h, len);
+  }
   // the others in the room (rooms.md §4): each a ball of a body, a head that turns, two hands, a pen.
   // Their matter is made once for the view: a being coming, hiding or going makes no new shaders.
   const ball = new THREE.SphereGeometry(1, 24, 16);
@@ -901,7 +924,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lights.slabMax.value.set(...W([t.x1, t.y1, t.top]));
       lightRoom(l, performance.now(), R);
       marks.light(l.ambient);
-      for (const m of [...objectMats, ...shelf.mats, ...allBeingMats]) {
+      for (const m of [...objectMats, ...shelf.mats, ...allBeingMats, penMats.body, penMats.tine]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
         m.ambient.A.value.set(...A);
         m.ambient.B.value.set(...B);
@@ -1000,6 +1023,41 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         roomGroup.remove(b.group);
         beings.delete(name);
       }
+    },
+    // The pen (rooms.md §3c), room m: in the hand { nib: [x, y, z] (its point), spread (m: the
+    // tines apart, the line's width), across (degrees in the page: the tines' spread) } or set
+    // down { place: [x, y, z] (where it lies on the table) }; null: not drawn.
+    setPen(p) {
+      pen.visible = !!p;
+      if (!p) return;
+      const { length: L, thick: T, tine: TL, tineW: TW } = PEN;
+      if (p.place) {
+        // lying along x, its nib to the right
+        const [x, y, z] = p.place;
+        lay(penBody, [x, y, z + T / 2], [-1, 0, 0], L, T, T);
+        penTines.forEach((m, k) => lay(m, [x + L / 2 + TL / 2, y + (k ? 1 : -1) * TW, z + T / 2], [1, 0, 0], TL, TW, TW));
+        return;
+      }
+      // in the hand: rising from the nib toward the writer, 50° up
+      const up = (50 * Math.PI) / 180;
+      const dir = [0, -Math.cos(up), Math.sin(up)];
+      const at = (d) => p.nib.map((v, k) => v + dir[k] * d);
+      lay(penBody, at(TL + L / 2), dir, L, T, T);
+      // the tines: from the point up the nib, apart across it by the line's width
+      const a = ((p.across ?? 0) * Math.PI) / 180;
+      const side = [Math.cos(a), -Math.sin(a), 0]; // (the page's y is the room's −y)
+      const half = Math.max(TW / 2, (p.spread ?? 0) / 2);
+      penTines.forEach((m, k) => {
+        const o = (k ? 1 : -1) * half;
+        lay(
+          m,
+          at(TL / 2).map((v, j) => v + side[j] * o),
+          dir,
+          TL,
+          TW,
+          TW,
+        );
+      });
     },
     // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], their cloth's colour.
     setShelf(books) {
@@ -1209,6 +1267,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       marks.dispose();
       view.setShelf(null);
       view.setBeings(null);
+      penMats.body.dispose();
+      penMats.tine.dispose();
       for (const m of allBeingMats) m.dispose();
       ball.dispose();
       view.setGround(null);

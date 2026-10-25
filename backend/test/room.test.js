@@ -35,7 +35,7 @@ beforeEach(() => app.resetLimits());
 test("a new book has the room's surfaces: each with its matter, family and size, empty", async () => {
   const { data } = await app.ana.get('/api/books/me');
   const s = data.skeleton.surfaces;
-  assert.deepEqual(Object.keys(s).sort(), ['ceiling', 'floor', 'table', 'wall-far', 'wall-left', 'wall-near', 'wall-right']);
+  assert.deepEqual(Object.keys(s).sort(), ['ceiling', 'floor', 'pen', 'table', 'wall-far', 'wall-left', 'wall-near', 'wall-right']);
   assert.equal(s['wall-far'].matter, 'plaster');
   assert.deepEqual(s['wall-far'].family, PLASTER);
   assert.deepEqual(s.floor.family, WOOD);
