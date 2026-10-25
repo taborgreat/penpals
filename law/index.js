@@ -16,5 +16,6 @@ export * as unlock from './unlock.js';
 export * as shared from './shared.js';
 export * as being from './being.js';
 export * as seal from './seal.js';
+export * as join from './join.js';
 export { T, jcs, b64url, fromB64url, hex, fromHex, concat } from './tags.js';
 export const LAW = Object.freeze({ current: 2, accept: Object.freeze([1, 2]) });

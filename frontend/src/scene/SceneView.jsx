@@ -2,7 +2,7 @@ import { forwardRef, useContext, useEffect, useImperativeHandle, useRef, useStat
 import { createPortal } from 'react-dom';
 import { createView, engineReady } from './engine.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
-import { theLight, originOf, withinRoom, returnTo, sunAt, zoned, GEOM } from './light.js';
+import { theLight, originOf, withinRoom, returnTo, sunAt, zoned, geomOf } from './light.js';
 import { roomCamera, hit as roomHit, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
 import { surfaceFrame, fromRoom, onSurface, surfaceOfHit } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
@@ -51,6 +51,9 @@ import { sightOf } from './sight.js';
 //               move(p, ev), up(p, ev), cancel() }: writing on shared sheets on the table (rooms.md §6),
 //               p in that sheet's own units
 //   focus       { at: [x, y] (page px), size, n }: the eye goes to that place on the table
+//   join        { room: 'joined-wall' | 'joined-door', seedsB }: this room joined to another (rooms.md §7):
+//               both drawn and lit as one, the other grown from its owner's seeds (seedsB). Fixed
+//               for a view's life: a new join is a new view (give the view a key by it)
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
 const LIVE_MS = 16; // a sheet being written is drawn again at most this often (about every frame)
@@ -114,11 +117,14 @@ const SceneView = forwardRef(function SceneView(
     onPose = null,
     tableWriter = null,
     focus = null,
+    join = null,
   },
   ref,
 ) {
   // the room these views are in (room/RoomContext.js): its seeds, clock, the eye's way, fixed or not
   const inRoom = useContext(RoomContext);
+  const roomName = join?.room ?? 'room';
+  const GEOM = geomOf(roomName); // the room's shape: this room, or two joined
   const seeds = seedsProp ?? inRoom?.seeds ?? null;
   const eye = eyeProp ?? inRoom?.eye ?? null;
   const timeZone = zoneProp ?? inRoom?.timeZone ?? null;
@@ -169,7 +175,7 @@ const SceneView = forwardRef(function SceneView(
   eyeRef.current = eye;
   const zoneRef = useRef(timeZone);
   zoneRef.current = timeZone;
-  const origin = () => originOf(page[0], page[1]);
+  const origin = () => originOf(page[0], page[1], GEOM);
   // A pose as the engine's camera (camera.js 'pose', the page frame).
   function camOfPose(pose) {
     const { forward } = roomCamera.look(pose);
@@ -214,7 +220,7 @@ const SceneView = forwardRef(function SceneView(
       override = k < 1 ? returnTo(S.back.from, sunAt(new Date()), k) : null;
       if (k >= 1) S.back = null;
     }
-    return theLight().at({ now, date: zoned(new Date(), zoneRef.current), override, eye: eyeRef.current ?? undefined, gaze: gazeOf() });
+    return theLight(roomName).at({ now, date: zoned(new Date(), zoneRef.current), override, eye: eyeRef.current ?? undefined, gaze: gazeOf() });
   }
 
   // What the eye sees, told once the view has settled (SIGHT_MS after it stops).
@@ -282,7 +288,7 @@ const SceneView = forwardRef(function SceneView(
     if (cam.mode === '3d' && follow) cam = chaseFollow(cam, follow.base, follow.offset);
     if (cam.mode === '3d') {
       // in the room: never through a wall, the floor, the ceiling or the table
-      const kept = withinRoom(cam, page[0], page[1]);
+      const kept = withinRoom(cam, page[0], page[1], GEOM);
       if (kept !== cam) {
         cam = kept;
         if (!S.anim && !follow) S.cam = kept;
@@ -303,7 +309,7 @@ const SceneView = forwardRef(function SceneView(
       S.beingsOn = list.length > 0;
     }
     const light = currentLight(now);
-    S.view.setLight(light, originOf(page[0], page[1]));
+    S.view.setLight(light, originOf(page[0], page[1], GEOM));
     // the resolution: capped; lower while moving and for the flicker alone (full again once still)
     const moving = !!S.anim || now < S.moveUntil || S.drag?.kind === 'orbit' || S.drag?.kind === 'pan' || S.drag?.kind === 'two';
     if (!S.flickerOnly) S.lastFull = now;
@@ -355,10 +361,10 @@ const SceneView = forwardRef(function SceneView(
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   function start(gpu) {
-    const view = createView(canvasRef.current, { host: wrapRef.current, invalidate: schedule, seeds });
+    const view = createView(canvasRef.current, { host: wrapRef.current, invalidate: schedule, seeds, room: roomName, seedsB: join?.seedsB ?? null });
     S.view = view;
     if (paper) view.setPaper(paper);
-    const offLight = theLight().onSettled(schedule); // the room's light settled anew: draw it
+    const offLight = theLight(roomName).onSettled(schedule); // the room's light settled anew: draw it
     const ro = new ResizeObserver(() => {
       if (!wrapRef.current) return;
       const r = wrapRef.current.getBoundingClientRect();

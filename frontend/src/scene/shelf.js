@@ -10,12 +10,16 @@ export const BOOK = { width: 0.04, height: 0.235, depth: 0.165, gap: 0.006 };
 
 // The board and each book's box [x0, y0, z0, x1, y1, z1], for `count` books
 // standing from the shelf's window end.
+// (joined to a room on its left, rooms.md §7: the shelf is on the right wall instead)
 export function shelfLayout(geom, count) {
-  const x0 = 0; // the left wall
+  const onRight = geom.join?.side === 'left';
+  const wall = onRight ? (geom.mine?.x1 ?? geom.size[0]) : (geom.mine?.x0 ?? 0);
+  const x0 = onRight ? wall - SHELF.depth : wall;
   const board = [x0, SHELF.y0, SHELF.z - SHELF.thick, x0 + SHELF.depth, SHELF.y1, SHELF.z];
   const books = Array.from({ length: Math.min(count, Math.floor((SHELF.y1 - SHELF.y0) / (BOOK.width + BOOK.gap))) }, (_, k) => {
     const y1 = SHELF.y1 - 0.02 - k * (BOOK.width + BOOK.gap);
-    return [x0 + 0.01, y1 - BOOK.width, SHELF.z, x0 + 0.01 + BOOK.depth, y1, SHELF.z + BOOK.height];
+    const bx = onRight ? wall - 0.01 - BOOK.depth : wall + 0.01;
+    return [bx, y1 - BOOK.width, SHELF.z, bx + BOOK.depth, y1, SHELF.z + BOOK.height];
   });
   return { board, books };
 }

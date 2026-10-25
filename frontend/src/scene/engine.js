@@ -27,7 +27,7 @@ import { frame } from './camera.js';
 import { toHalf } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
 import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
-import { GEOM, worldOf } from './light.js';
+import { geomOf, worldOf } from './light.js';
 import { roomMeshes, vertexLight, meanLight, pairOf } from './roomDraw.js';
 import { createMarks } from './marks.js';
 import { SEED_NAME } from './surfaces.js';
@@ -178,9 +178,10 @@ function stages() {
 // the room's page). The outside, as the window shows it: a map by direction.
 const OUT_W = 64,
   OUT_H = 32;
-let room = null;
-function theRoom() {
-  if (room) return room;
+const rooms = new Map(); // room shape name → its drawing (light.js geomOf)
+function theRoom(name = 'room') {
+  if (rooms.has(name)) return rooms.get(name);
+  const GEOM = geomOf(name);
   const meshes = roomMeshes(GEOM);
   const geos = meshes.map((m) => {
     const g = new THREE.BufferGeometry();
@@ -204,12 +205,12 @@ function theRoom() {
   outside.colorSpace = THREE.NoColorSpace;
   outside.magFilter = outside.minFilter = THREE.LinearFilter;
   outside.wrapS = THREE.RepeatWrapping;
-  room = { meshes, geos, panes, outside, light: [], sunKey: '', sunMap: null, outAt: -1e9 };
+  const room = { meshes, geos, panes, outside, light: [], sunKey: '', sunMap: null, outAt: -1e9 };
+  rooms.set(name, room);
   return room;
 }
 // The room's light from a moment's light (light.js): each vertex's colours, the outside's.
-function lightRoom(l, now) {
-  const R = theRoom();
+function lightRoom(l, now, R) {
   vertexLight(R.meshes, l.ambient, l.W, R.light);
   R.geos.forEach((g, i) => {
     g.attributes.ambA.array.set(R.light[i].A);
@@ -292,7 +293,7 @@ const keyOf = (cx, cy) => (cy + 32768) * 65536 + (cx + 32768); // a chunk's numb
 // A view: `target` the 2D canvas it shows in (and takes the pointer); `host` the
 // element the renderer's own canvas goes in when this view is drawn straight
 // into; `invalidate()` asks for a frame (when how it is drawn changes).
-export function createView(target, { host = null, invalidate = () => {}, seeds = null } = {}) {
+export function createView(target, { host = null, invalidate = () => {}, seeds = null, room: roomName = 'room', seedsB = null } = {}) {
   if (!shared) throw new Error('the scene: engineReady() first');
   const { renderer, gpu } = shared;
   const ctx = target.getContext('2d');
@@ -344,16 +345,19 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   lights.thick.value = SLAB_PX;
   // the room: the table the paper rests on (the sheets' shadows on its top), the
   // floor, the walls, the ceiling, the window and what stands about, all grown
-  const R = theRoom();
+  const GEOM = geomOf(roomName); // this view's room: its own, or two joined (rooms.md §7)
+  const R = theRoom(roomName);
   const roomGroup = new THREE.Group(); // metres; placed by setLight so this view's page lies on the room's page
   // whose room this is: its surfaces grown from its owner's key (rooms.md §1;
   // seeds by name, as light/surface.js names them), else the shared defaults
   let roomSeeds = seeds;
-  const seedOf = (name) => grown.seedMix(roomSeeds?.[name] ?? grown.DEFAULT_SEEDS[name] ?? grown.defaultSeed(name));
+  const seedOf = (name) =>
+    name.startsWith('b:') ? grown.seedMix(seedsB?.[name.slice(2)] ?? grown.defaultSeed(name)) : grown.seedMix(roomSeeds?.[name] ?? grown.DEFAULT_SEEDS[name] ?? grown.defaultSeed(name)); // ('b:': the joined room's, its owner's)
+  const seedNameOf = (id) => (id.startsWith('b:') ? `b:${SEED_NAME(id.slice(2))}` : SEED_NAME(id));
   const roomMats = [];
   R.meshes.forEach((m, i) => {
-    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: seedOf(SEED_NAME(m.id)), pair: pairOf(m.matter), normal: m.normal, top: m.top, webgpu: own });
-    mat.seedName = SEED_NAME(m.id);
+    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: seedOf(seedNameOf(m.id)), pair: pairOf(m.matter), normal: m.normal, top: m.top, webgpu: own });
+    mat.seedName = seedNameOf(m.id);
     roomMats.push(mat);
     const mesh = new THREE.Mesh(R.geos[i], mat);
     if (m.top) mesh.renderOrder = -3; // first of all: the sheets' paper (which writes no depth) goes over it
@@ -805,7 +809,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       const t = GEOM.table;
       lights.slabMin.value.set(...W([t.x0, t.y0, t.bottom]));
       lights.slabMax.value.set(...W([t.x1, t.y1, t.top]));
-      lightRoom(l, performance.now());
+      lightRoom(l, performance.now(), R);
       marks.light(l.ambient);
       for (const m of [...objectMats, ...shelf.mats, ...allBeingMats]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
