@@ -71,15 +71,6 @@ export default function TogetherBar({ t, myRoom, me, family, color, onColor }) {
           <button type="button" aria-pressed={t.tool === 'pen'} onClick={() => t.useTool('pen')}>
             Pen
           </button>
-          <button type="button" aria-pressed={t.tool === 'wax'} onClick={() => t.useTool('wax')} title="A candle: held over a sheet, hold E to tilt it and its melted wax drips there">
-            Candle
-          </button>
-          {t.tool === 'wax' && (
-            <span className="meta candle" data-pool={t.candle.pool} data-tilt={t.candle.tilt}>
-              {t.candle.pool > 0 ? `its pool ${Math.round((100 * t.candle.pool) / 1024)}% melted` : 'its wax is set (the candles burn at night)'} ·{' '}
-              {t.candle.tilt ? `tilted ${t.candle.tilt}°` : 'hold E to tilt it'}
-            </span>
-          )}
           {ownsHere && (
             <button
               type="button"

@@ -8,12 +8,17 @@ import { shared as SH } from 'penpals-law';
 import { lawOf } from 'penpals-law/laws';
 import { record, samplePath } from 'penpals-law/tools/fixtures';
 import { verifyBook } from 'penpals-law/verify';
+import { wax as WX } from 'penpals-law';
+import { roomGeometry, ROOM } from '../../frontend/src/scene/light/room.js';
+import { originIn, slotOf } from '../../frontend/src/room/table.js';
+import { PX_PER_M } from '../../frontend/src/scene/light/index.js';
+import path from 'node:path';
 
 let app;
 const ana = person(71, 'ana');
 const bo = person(72, 'bo');
 const cy = person(73, 'cy');
-let rooms;
+let rooms, files, accounts, config; // (the backend's own modules: after startApp has set its data dir)
 
 before(async () => {
   app = await startApp();
@@ -23,6 +28,9 @@ before(async () => {
     assert.equal((await register(p.c, p)).status, 201);
   }
   rooms = await import('../src/store/rooms.js');
+  files = await import('../src/files.js');
+  accounts = await import('../src/store/accounts.js');
+  ({ config } = await import('../src/config.js'));
 });
 after(async () => {
   await app.close();
@@ -195,20 +203,35 @@ test("seals: the owner presses bo's seal (his signature's face) into warm wax an
   assert.equal(sealed.data.key, b64url(bo.pk));
   assert.ok(sealed.data.w <= 32 && sealed.data.h <= 32);
   assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 403);
-  // a pool of hot wax, then the stamper set to bo, pressed while it is warm
-  for (const [dx, dy] of [
-    [0, 0],
-    [120, 0],
-    [-120, 0],
-    [0, 120],
-    [0, -120],
-    [90, 90],
-    [-90, -90],
-    [90, -90],
-    [-90, 90],
-  ])
-    assert.equal((await post(ana, sheet, act(ana, sheet, 'drip', { drip: { x: 2000 + dx, y: 2000 + dy, amt: 400000, heat: 220 } }))).status, 201);
-  const press = { x: 2000, y: 2000, depth: 220, angle: 0, tiltX: 0, tiltY: 0, cell: 2, w: sealed.data.w, h: sealed.data.h, face: sealed.data.face, for: b64url(bo.pk) };
+  // no one writes a drip
+  assert.equal((await post(ana, sheet, { act: { v: 2, kind: 'shared', sheet, by: b64url(ana.pk), k: 99, act: 'drip', drip: { x: 2000, y: 2000, amt: 400000, heat: 220 } }, seal: 'x' })).status, 400);
+  // hot wax from her candle: night on her room's clock, she has been in her room ten
+  // minutes (its candles lit; written here, a test cannot wait), she picks a candle up
+  // and tilts it with its wick over the sheet; the law regrows what falls
+  const utc = new Date().getUTCHours();
+  let off = (23 - utc + 24) % 24;
+  if (off > 14) off -= 24;
+  assert.equal((await ana.c.post('/api/social/time', { timeZone: off === 0 ? 'Etc/GMT' : `Etc/GMT${off > 0 ? '-' : '+'}${Math.abs(off)}` })).status, 200);
+  const anaId = accounts.findByName('ana').id;
+  const before = await rooms.roomLines(anaId);
+  await files.appendLine(
+    path.join(accounts.userDir(anaId), 'room.chain'),
+    JSON.stringify({ n: (before.at(-1)?.n ?? 0) + 1, at: new Date(Date.now() - 600000).toISOString(), by: 'ana', kind: 'enter' }),
+  );
+  const host = await stream(ana, 'ana');
+  await host.until('here');
+  assert.equal((await ana.c.post('/api/rooms/ana/place', { thing: 'candle-0', at: null })).status, 200);
+  const slot = (await rooms.roomLines(anaId)).find((l) => l.kind === 'lay' && l.sheet === sheet).slot;
+  const o = originIn(roomGeometry(ROOM), [config.book.pageWidth, config.book.pageHeight]);
+  const [sx, sy] = slotOf(slot, config.book.pageWidth);
+  const under = [o[0] + (sx + 200) / PX_PER_M, o[1] - (sy + 200) / PX_PER_M]; // (200, 200) on the sheet
+  const h = WX.heightOf(600000);
+  const tilted = await ana.c.post('/api/rooms/ana/tilt', { thing: 'candle-0', pos: [under[0] - Math.sin(Math.PI / 3) * h, under[1], 0.92], deg: 60 });
+  assert.equal(tilted.data.stamped, true, JSON.stringify(tilted.data));
+  await host.until('room', (l) => l.kind === 'tilt');
+  await new Promise((r) => setTimeout(r, 400)); // (it pours at its next step)
+  // the stamper set to bo, pressed into it while it is warm (each face pixel a cell: within the pour)
+  const press = { x: 2000, y: 2000, depth: 220, angle: 0, tiltX: 0, tiltY: 0, cell: 1, w: sealed.data.w, h: sealed.data.h, face: sealed.data.face, for: b64url(bo.pk) };
   const wrong = await post(ana, sheet, act(ana, sheet, 'press', { press: { ...press, face: b64url(new Uint8Array(sealed.data.w * sealed.data.h).fill(255)) } }));
   assert.equal(wrong.status, 400, 'a face that is not his');
   assert.match(JSON.stringify(wrong.data), /not their seal/);
@@ -220,9 +243,13 @@ test("seals: the owner presses bo's seal (his signature's face) into warm wax an
   const broke = await post(ana, sheet, act(ana, sheet, 'break', { broke: { seal: pressed.data.line.n, from: [1850, 1900], to: [2150, 2100] } }));
   assert.equal(broke.status, 201);
   assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(40, [30, 40, 200]) }))).status, 403, 'broken: refused');
-  // the whole of it in her .book verifies offline: the press took, the break, the refusals
-  const v = verifyBook(Buffer.from((await ana.c.get('/api/books/ana/download')).data).toString('utf8'));
+  // the whole of it in her .book verifies offline: the press took (in the wax the law regrew,
+  // given in its head), the break, the refusals
+  const text = Buffer.from((await ana.c.get('/api/books/ana/download')).data).toString('utf8');
+  assert.ok(JSON.parse(text.slice(0, text.indexOf('\n'))).wax?.[sheet]?.length > 0, 'the wax on her sheet, in her book');
+  const v = verifyBook(text);
   assert.equal(v.ok, true, JSON.stringify(v.problems));
+  host.close();
 });
 
 test('things: a candle picked up is held (no one else takes it), set down it rests where it was put, and the room remembers it after it sleeps', async () => {

@@ -8,7 +8,7 @@
 // visitors either side), its head turned to what you look at; flying, the head is
 // where your eye is.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { being as B } from 'penpals-law';
+import { being as B, wax as WX } from 'penpals-law';
 import { api } from '../api.js';
 import { GEOM } from '../scene/light.js';
 import { roomCamera } from '../scene/light/index.js';
@@ -40,6 +40,33 @@ export function useThings(name) {
   return now;
 }
 export const placeThing = (name, thing, at) => api.post(`/api/rooms/${encodeURIComponent(name)}/place`, { thing, at });
+// The candle in your hand tilted (law/wax.js: a coarse act; its drips are the law's).
+export const tiltThing = (name, thing, pos, deg) => api.post(`/api/rooms/${encodeURIComponent(name)}/tilt`, WX.quantizeTilt({ thing, pos, deg }));
+
+// The room's lines its drips are regrown from (law/wax.js dripsOf: who came and went,
+// things picked up, set down and tilted, sheets laid on its table), by room, as its
+// stream tells them. useRoomLines(name) follows them.
+const roomLines = new Map(); // room name → { now, listeners }
+const linesIn = (name) => {
+  let t = roomLines.get(name);
+  if (!t) roomLines.set(name, (t = { now: [], listeners: new Set() }));
+  return t;
+};
+function setLines(name, f) {
+  const t = linesIn(name);
+  t.now = f(t.now);
+  for (const fn of t.listeners) fn(t.now);
+}
+export function useRoomLines(name) {
+  const [now, setNow] = useState(() => linesIn(name).now);
+  useEffect(() => {
+    const t = linesIn(name);
+    setNow(t.now);
+    t.listeners.add(setNow);
+    return () => t.listeners.delete(setNow);
+  }, [name]);
+  return now;
+}
 const SEAT_X = [0, -0.45, 0.45, -0.9, 0.9]; // m from the middle seat (the owner's), along the table
 
 // The i-th seat's eye (room m): 0 the owner's, in front of the page; then either side, then a row behind.
@@ -96,9 +123,11 @@ export function useRoom(name, { seat = 0 } = {}) {
       on('here', (d) => {
         setBody(!!d.body);
         setThings(name, () => d.things ?? {});
+        setLines(name, () => d.lines ?? []);
         setBeings(new Map(d.beings.map((b) => [b.name, { name: b.name, from: b.pose, to: b.pose, t0: performance.now() }])));
       });
       on('thing', (d) => setThings(name, (t) => ({ ...t, [d.thing]: { at: d.at, by: d.by } })));
+      on('room', (l) => setLines(name, (ls) => (ls.some((x) => x.n === l.n) ? ls : [...ls, l].sort((a, b) => a.n - b.n))));
       on('being', (d) => {
         if (d.kind === 'leave')
           setBeings((m) => {

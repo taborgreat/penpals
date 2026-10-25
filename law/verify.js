@@ -106,11 +106,14 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
   // Each shared sheet replayed: every place in order, every seal its writer's, every
   // act allowed by the chain before it (possession, lifts); then it grows.
   for (const [sheet, sh] of shares) {
-    const { problems: wrong } = replay(sh.owner, sh.lines, { ctx: { seed: sh.seed, family: sh.family } }); // (a press took or not: the sheet grown to it says)
+    // (a press took or not: the sheet grown to it says, with the wax that landed on it: no
+    // one's act, regrown by the law from the rooms it lay in, given in the head as the stamper's)
+    const drips = head.wax?.[sheet] ?? [];
+    const { problems: wrong } = replay(sh.owner, sh.lines, { ctx: { seed: sh.seed, family: sh.family, drips } });
     for (const w of wrong) problems.push(`shared sheet ${sheet}, ${w}`);
     if (regrowOpen && !wrong.length) {
       try {
-        growShared(sh.lines, { seed: sh.seed, family: sh.family });
+        growShared(sh.lines, { seed: sh.seed, family: sh.family, drips });
         sh.r.regrown = true;
       } catch (err) {
         sh.r.regrown = false;

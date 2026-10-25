@@ -3,16 +3,18 @@ import { requireAuth } from '../auth.js';
 import { httpError } from '../files.js';
 import { findByName, findByKey, getAccount } from '../store/accounts.js';
 import { canSeeProfile, hasBlocked } from '../social.js';
-import { join, part, move, beingsIn, place, checkThing } from '../store/rooms.js';
+import { join, part, move, beingsIn, place, tilt, checkThing } from '../store/rooms.js';
 import { createShared, stamp, sheetOf, onTable, viewOf, onShared, ownedBy } from '../store/shared.js';
-import { being as B } from 'penpals-law';
+import { being as B, wax as WX } from 'penpals-law';
 
 // Rooms and writing together (rooms.md §4, §5, §6).
 //   GET  /api/rooms/:name/stream       the room, live (server-sent events): who is here and
 //                                       how they move ('here', 'being'), the shared sheets on
-//                                       its owner's table and their acts as stamped ('table', 'shared')
+//                                       its owner's table and their acts as stamped ('table', 'shared'),
+//                                       and the lines its drips are regrown from ('here', 'room')
 //   POST /api/rooms/:name/motion       { pose }: a coarse motion act (light/roomCamera, law/being.js)
 //   POST /api/rooms/:name/place        { thing, at }: a thing picked up (at null) or set down (rooms.md §3b, §3c)
+//   POST /api/rooms/:name/tilt         { thing, pos, deg }: the candle in your hand tilted (coarse: law/wax.js)
 //   GET  /api/rooms/:name/table        the shared sheets lying on its owner's table
 //   POST /api/shared                   { birth, seal, open }: a new shared sheet, on your table
 //   GET  /api/shared/mine              your shared sheets, wherever they lie
@@ -87,6 +89,14 @@ roomsRouter.post('/:name/place', requireAuth, json, async (req, res) => {
   const line = await place(owner.id, req.user.id, { thing, at });
   if (!line) throw httpError(409, 'not_yours', 'You are not in the room, or someone else is holding it.');
   res.json({ n: line.n });
+});
+
+roomsRouter.post('/:name/tilt', requireAuth, json, async (req, res) => {
+  const owner = roomOf(req);
+  const act = req.body ?? {};
+  if (!WX.checkTilt(act)) throw httpError(400, 'bad_tilt', 'That is not a candle tilted in this room.');
+  const line = await tilt(owner.id, req.user.id, act);
+  res.json({ stamped: !!line, n: line?.n ?? null });
 });
 
 roomsRouter.get('/:name/table', (req, res) => {

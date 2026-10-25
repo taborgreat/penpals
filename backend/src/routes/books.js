@@ -4,6 +4,7 @@ import { httpError } from '../files.js';
 import { requireAuth } from '../auth.js';
 import { findByName, getAccount } from '../store/accounts.js';
 import { bookBytes, chainBytes, edit, getSkeleton, inkLine, sheetLine, openSeed, digestOf, landInk, landOpen, dryRunEdit, NEW_INK } from '../store/books.js';
+import { waxOfBook } from '../store/shared.js';
 import { CLIENT_OPS, SCALE, allItems, familyFor } from '../store/ops.js';
 import { seedOf } from '../store/seeds.js';
 import { sheetUsedInLetters } from '../store/letters.js';
@@ -69,7 +70,7 @@ booksRouter.get('/:name/download', async (req, res) => {
   if (account.id !== req.user?.id && !config.book.visitorsCanDownload) throw httpError(403, 'owner_only', 'Only its owner can download a book.');
   res.set('Content-Disposition', `attachment; filename="${account.username}.book"`);
   res.type('text/plain; charset=utf-8');
-  res.send(await bookBytes(account.id, account));
+  res.send(await bookBytes(account.id, account, { wax: await waxOfBook(account.id) }));
 });
 
 // The look of one piece of ink at one size: a PNG of the settled ink (colour to

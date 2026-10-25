@@ -127,7 +127,7 @@ export const WELL_UNIT = 1 << 20; // drops of CAP_REF a well level holds (Tabor'
 // Wax sits on top of the paper: it does not soak in, it stands (its height in the
 // surface ink runs on, so ink beads off it and runs to the paper around), and a
 // cell under wax lets no water into its fibers (wax resist).
-export const MAX_MARKS = 64;
+export const MAX_MARKS = 4096; // (drips are no one's act: law/wax.js regrows them, as many as a candle held tilted lets fall)
 export const WAX_MAX = 4095; // the most wax a cell holds (its height, in the surface's units)
 export const WAX_DRIP_MAX = 1 << 20; // a drip's wax, at most
 export const WAX_R_MAX = 64; // cells: the widest a drip spreads

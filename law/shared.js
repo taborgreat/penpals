@@ -8,7 +8,6 @@
 //            act 'stroke'  stroke: b64url(PNKA of one stroke, in the sheet's own frame)
 //            act 'lift'    lift: n   (lift my stroke: rooms.md §6, undo on a shared sheet)
 //            act 'move'    to: b64url(pk)   (the owner lays the sheet on someone's table: §5)
-//            act 'drip'    drip: { x, y, amt, heat }   wax from a tilted candle (§3b), tenths of the sheet's units
 //            act 'press'   press: { x, y, depth, angle, tiltX, tiltY, cell, w, h, face, for }   the owner
 //                          presses the stamper, set to someone's seal (face: b64url relief, for: their key)
 //            act 'break'   break: { seal: n, from: [x, y], to: [x, y] }   the owner breaks the seal pressed at n
@@ -32,8 +31,11 @@
 // and what it did with its water stays: the soak, the swelling, the dents and
 // wear of its nib, how it pushed the other writer's ink; nobody's time
 // replays. A writer may lift only their own strokes, and only their last
-// LIFT_WINDOW: older pigment has merged. Wax lands at its stamp (no duration),
-// in the same one order: a drip, a press, a break are marks of the record.
+// LIFT_WINDOW: older pigment has merged. A press and a break land at their stamp
+// (no duration), in the same one order, as marks of the record. Drips are no one's
+// act: the law regrows them from the room's chain (law/wax.js: a held candle tilted
+// past its pool's lip), and those that landed on this sheet are marks of its record
+// at their moments (drips: [{ t (ms from the sheet's birth), x, y, amt, heat }], wax.js dripsOn).
 
 import { sha256 } from '@noble/hashes/sha2.js';
 import { T, jcs, b64url, fromB64url, utf8, concat, equalBytes } from './tags.js';
@@ -41,12 +43,12 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { verify, isSheetId, isGoodPublicKey, sheetSeed, verifySeed, commitOf, paperKeyOf } from './keys.js';
 import { checkFamily } from './v1/paper.js';
 import { MAX_GAP, MAX_COORD } from './v1/constants.js';
-import { WATER, WAX_DRIP_MAX, FACE_MAX, FACE_CELL_MAX } from './v2/constants.js';
+import { WATER, FACE_MAX, FACE_CELL_MAX } from './v2/constants.js';
 import { lawOf } from './laws.js';
 
 export const SHARED_LAW = 3; // the law a shared sheet's record grows under (wax: rooms.md §3b)
 export const LIFT_WINDOW = 8; // a writer's last strokes that can still be lifted (Tabor's to set)
-export const ACTS = ['stroke', 'lift', 'move', 'drip', 'press', 'break'];
+export const ACTS = ['stroke', 'lift', 'move', 'press', 'break'];
 
 const sign = (sk, msg) => ed25519.sign(msg, sk);
 const bad = (msg) => Object.assign(new Error(msg), { code: 'bad_shared', status: 400 });
@@ -64,12 +66,11 @@ export function makeSharedSheet({ sk, pk, sheet, family }) {
   return { birth, seal: b64url(sign(sk, sealMsg(D))), open: { seed: b64url(seed), by: b64url(sign(sk, openMsg(D, sheet))) } };
 }
 
-export function makeSharedAct({ sk, pk, sheet, k, act, stroke = null, lift = null, to = null, drip = null, press = null, broke = null }) {
+export function makeSharedAct({ sk, pk, sheet, k, act, stroke = null, lift = null, to = null, press = null, broke = null }) {
   const body = { v: 2, kind: 'shared', sheet, by: b64url(pk), k, act };
   if (act === 'stroke') body.stroke = b64url(stroke);
   if (act === 'lift') body.lift = lift;
   if (act === 'move') body.to = to;
-  if (act === 'drip') body.drip = { ...drip };
   if (act === 'press') body.press = { ...press, face: typeof press.face === 'string' ? press.face : b64url(press.face) };
   if (act === 'break') body.break = { seal: broke.seal, from: [...broke.from], to: [...broke.to] };
   checkSharedAct(body);
@@ -86,7 +87,6 @@ export function checkSharedAct(body) {
     stroke: 'act,by,k,kind,sheet,stroke,v',
     lift: 'act,by,k,kind,lift,sheet,v',
     move: 'act,by,k,kind,sheet,to,v',
-    drip: 'act,by,drip,k,kind,sheet,v',
     press: 'act,by,k,kind,press,sheet,v',
     break: 'act,break,by,k,kind,sheet,v',
   }[body.act];
@@ -98,7 +98,7 @@ export function checkSharedAct(body) {
   }
   if (body.act === 'lift' && (!Number.isInteger(body.lift) || body.lift < 1)) throw bad('a lift names a stroke by its place');
   if (body.act === 'move' && !isKey(body.to)) throw bad('a move names a table by its key');
-  if (body.act === 'drip' || body.act === 'press' || body.act === 'break') checkWax(body);
+  if (body.act === 'press' || body.act === 'break') checkWax(body);
   return body;
 }
 
@@ -107,10 +107,7 @@ const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const point = (q) => Array.isArray(q) && q.length === 2 && q.every((v) => int(v, 0, MAX_COORD));
 function checkWax(body) {
   const fields = (o, names) => o && typeof o === 'object' && Object.keys(o).sort().join() === names;
-  if (body.act === 'drip') {
-    const d = body.drip;
-    if (!fields(d, 'amt,heat,x,y') || !int(d.x, 0, MAX_COORD) || !int(d.y, 0, MAX_COORD) || !int(d.amt, 1, WAX_DRIP_MAX) || !int(d.heat, 0, 255)) throw bad('a malformed drip');
-  } else if (body.act === 'press') {
+  if (body.act === 'press') {
     const q = body.press;
     if (!fields(q, 'angle,cell,depth,face,for,h,tiltX,tiltY,w,x,y')) throw bad('a malformed press');
     if (!int(q.x, 0, MAX_COORD) || !int(q.y, 0, MAX_COORD) || !int(q.depth, 1, 255) || !int(q.angle, 0, 179) || !int(q.tiltX, -127, 127) || !int(q.tiltY, -127, 127)) throw bad('a malformed press');
@@ -140,7 +137,8 @@ export const verifyActSeal = (act, seal) => verify(fromB64url(seal, 64), sealMsg
 // Who may do what, read from the chain: a state the stamper keeps and a
 // verifier replays. state: { owner, table, strokes: [{ n, by, lifted }], k: { [by]: last k },
 // seals: [{ n, for, took, broken }], lines (so far: a press is grown to see if it took) }.
-// ctx: { seed, family } (checkBirth): without it no press can take.
+// ctx: { seed, family } (checkBirth), and drips (the drips that landed on it: wax.js
+// dripsOn): without it no press can take.
 export const startState = (owner, ctx = null) => ({ owner, table: owner, strokes: [], k: {}, seals: [], lines: [], ctx });
 
 // May `by` write here now: the owner; the one whose table it lies on; anyone whose
@@ -157,7 +155,7 @@ export function refusal(state, act) {
     return null;
   }
   if (!mayWrite(state, act.by)) return 'the sheet is not on your table';
-  if (act.act === 'stroke' || act.act === 'drip') return null;
+  if (act.act === 'stroke') return null;
   if (act.act === 'lift') {
     const s = state.strokes.find((x) => x.n === act.lift);
     if (!s) return 'there is no such stroke';
@@ -178,8 +176,9 @@ export function apply(state, line) {
   if (act.act === 'stroke') next.strokes = [...state.strokes, { n, by: act.by, lifted: false }];
   if (act.act === 'lift') next.strokes = state.strokes.map((s) => (s.n === act.lift ? { ...s, lifted: true } : s));
   if (act.act === 'press') {
-    // did it take? the sheet grown to this press says
-    const took = !!state.ctx && !!growShared(next.lines, state.ctx)?.seals.at(-1)?.took;
+    // did it take? the sheet grown to this press says (with the wax that had landed on it by then)
+    const drips = (state.ctx?.drips ?? []).filter((d) => d.t <= line.at);
+    const took = !!state.ctx && !!growShared(next.lines, { ...state.ctx, drips })?.seals.at(-1)?.took;
     next.seals = [...state.seals, { n, for: act.press.for, took, broken: false }];
   }
   if (act.act === 'break') next.seals = state.seals.map((x) => (x.n === act.break.seal ? { ...x, broken: true } : x));
@@ -219,15 +218,23 @@ const shift = (s, dx, dy, dt) => ({
 });
 const asWater = (s) => ({ ...s, pens: s.pens.map((p, i) => (i === 0 || p.rgb ? { ...p, rgb: [...WATER], mask: undefined } : p)) });
 
-// lines: stamped, allowed (replay first). → the PNKA record (law 3) of all its strokes and its wax.
+// lines: stamped, allowed (replay first); drips: those that landed on it (wax.js dripsOn).
+// → the PNKA record (law 3) of all its strokes and its wax.
 const MARKED = new Set(['stroke', 'drip', 'press', 'break']);
-export function compose(lines) {
+export function compose(lines, drips = []) {
   const L = lawOf(SHARED_LAW);
   const lifted = new Set(lines.filter((l) => l.act.act === 'lift').map((l) => l.act.lift));
   const out = { orgX: 0, orgY: 0, strokes: [], marks: [] };
   let end = null; // where the last stroke ended, or the last mark landed (ms on the record's clock)
   let offset = null; // the sheet's clock less the record's
-  for (const line of lines) {
+  // each drip among the lines at its moment (after a line stamped at the same moment)
+  const all = [...lines];
+  for (const d of [...drips].sort((x, y) => x.t - y.t)) {
+    let i = all.length;
+    while (i > 0 && all[i - 1].at > d.t) i--;
+    all.splice(i, 0, { at: d.t, act: { act: 'drip', drip: d } });
+  }
+  for (const line of all) {
     const a = line.act;
     if (!MARKED.has(a.act)) continue;
     const rec = a.act === 'stroke' ? L.decodeCanonical(fromB64url(a.stroke)) : null;
@@ -269,7 +276,7 @@ export function compose(lines) {
   return out;
 }
 
-// A wax act as the law's mark, at its moment on the record's clock.
+// A wax act (or a drip that landed) as the law's mark, at its moment on the record's clock.
 function markOf(a, t) {
   if (a.act === 'drip') return { kind: 'drip', t, x: a.drip.x, y: a.drip.y, amt: a.drip.amt, heat: a.drip.heat };
   if (a.act === 'press') {
@@ -279,11 +286,11 @@ function markOf(a, t) {
   return { kind: 'break', t, x: a.break.from[0], y: a.break.from[1], x1: a.break.to[0], y1: a.break.to[1] };
 }
 
-// The sheet as its acts have made it: facts on its owner's paper, and each press's
-// seal (took or not). → settled ({ facts, cells, box, seals, ... }) | null
-export function growShared(lines, { seed, family, scale = 64 }) {
+// The sheet as its acts and the drips that landed on it have made it: facts on its
+// owner's paper, and each press's seal (took or not). → settled ({ facts, cells, box, seals, ... }) | null
+export function growShared(lines, { seed, family, scale = 64, drips = [] }) {
   const L = lawOf(SHARED_LAW);
-  const rec = compose(lines);
+  const rec = compose(lines, drips);
   if (!rec.strokes.length && !rec.marks) return null;
   const acts = L.encodeActs(rec);
   const res = L.grow(L.decodeCanonical(acts), { paperKey: paperKeyOf(seed), family, scale });

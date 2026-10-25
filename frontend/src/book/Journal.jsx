@@ -201,6 +201,8 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     me: user?.username ?? null,
     mine: !!key && key.publicKey === book.key,
     pageW: (book.page ?? DEFAULT_PAGE).width,
+    pageH: (book.page ?? DEFAULT_PAGE).height,
+    timeZone, // (the room's clock: when its candles burn, law/wax.js)
     color: tableColor,
   });
   // the room's things in the hand (rooms.md §3b): a candle picked up, carried, tilted, set down
