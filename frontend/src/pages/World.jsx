@@ -55,7 +55,8 @@ function House({ name }) {
   if (error) return <p className="error world-note">{error}</p>;
   if (!owner) return null;
   const mine = !!user && user.username.toLowerCase() === owner.username.toLowerCase();
-  const panel = <WorldPanel kind={panelFor({ signedIn: !!user, mine, ...place })} />;
+  const kind = panelFor({ signedIn: !!user, mine, ...place });
+  const panel = <WorldPanel kind={kind} />; // (what the house's own things need, the house shows: Journal's panel)
   if (!room)
     return (
       <>
@@ -65,7 +66,7 @@ function House({ name }) {
     );
   return (
     <RoomContext.Provider value={room}>
-      <Journal name={owner.username} pageId={pageId} editable={mine} timeZone={room.timeZone} onPage={setPageId} />
+      <Journal name={owner.username} pageId={pageId} editable={mine} timeZone={room.timeZone} onPage={setPageId} world panel={kind} />
       {panel}
     </RoomContext.Provider>
   );

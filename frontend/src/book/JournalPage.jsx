@@ -111,9 +111,10 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
       }),
     [placed, shown],
   );
-  // the shared sheets lying on the table beside the page
+  // the shared sheets lying on the table beside the page, and a fresh sheet on it (the world's new paper)
   const tableSheets = room?.together?.sheets;
-  const allSheets = useMemo(() => (tableSheets?.length ? [...sheets, ...tableSheets] : sheets), [sheets, tableSheets]);
+  const freshSheet = room?.paper ?? null;
+  const allSheets = useMemo(() => [...sheets, ...(tableSheets ?? []), ...(freshSheet ? [freshSheet] : [])], [sheets, tableSheets, freshSheet]);
   // ink on the room's surfaces: each piece's whole field (or its look), set on its surface
   const [onWalls, setOnWalls] = useState(() => new Map()); // item key → mark
   const surfaceItems = useMemo(
@@ -239,7 +240,8 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           tableWriter={room?.together?.tableWriter ?? null}
           focus={room?.together?.focus ?? null}
           hand={room?.hand ?? null}
-          world={!!room}
+          writer={room?.paperWriter ?? null}
+          world={!!room?.world}
           ground
           onFlat={() => {
             setViewChoice('flat');

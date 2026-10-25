@@ -24,6 +24,10 @@ import { useTogether } from '../room/together.js';
 import { useCarry } from '../room/carry.js';
 import { SHARED_PAGE } from '../room/shared.js';
 import TogetherBar from '../room/TogetherBar.jsx';
+import Panel from '../components/Panel.jsx';
+import PenPanel, { usePen } from '../components/PenPanel.jsx';
+import PaperPanel, { FreshSheet } from '../components/PaperPanel.jsx';
+import { useFreshSheet } from './fresh.js';
 
 // The living journal (books.md, Part B; keys.md): a book of handwritten pages.
 // The owner writes anything anywhere (each piece a sheet of the law's paper,
@@ -38,6 +42,13 @@ import TogetherBar from '../room/TogetherBar.jsx';
 // a surface from Look, the pen pointed at it (room/wallInk.js); `timeZone` is
 // the room's own clock. Others in the room are there with you, and shared
 // sheets lie on its table to write on together (rooms.md §4–§6, room/together.js).
+//
+// In the world (`world`, one-world.md) there is no flat editor: the owner is in
+// their house, and the world's one panel (`panel`, room/panel.js) holds what the
+// toolbars did for what is in hand: the pen (components/PenPanel.jsx; it writes
+// the next strokes on the walls, on shared sheets and on a fresh sheet), or, at
+// the table with nothing in hand, new paper (a fresh sheet on the table:
+// book/fresh.js). Ctrl+Z lifts the fresh sheet's last stroke.
 const WRITE_PAD = { width: 1000, height: 470 }; // writing is placed at the size it was written on a page-wide pad
 const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c.light }));
 const BACKGROUNDS = ['#f6f1e7', '#ffffff', '#f2e8d0', '#e8eef6', '#f6e6e6', '#e7f1e6', '#2b2a33', '#1f2a40'];
@@ -55,7 +66,7 @@ const clothOf = (seeds) => CLOTHS[(seeds?.table?.[0] ?? 0) % CLOTHS.length];
 const doorValue = (l) => (l?.page ? `page:${l.page}` : l?.surface ? `surface:${l.surface}` : l?.room ? `room:${l.room}` : '');
 const surfaceName = (id) => `the ${id.replace('-', ' ')}`;
 
-export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null, timeZone = null }) {
+export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null, timeZone = null, world = false, panel = null }) {
   const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
   const { user } = useAuth();
   const key = useKey(user);
@@ -63,7 +74,8 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const [writing, setWriting] = useState(false);
   const [preview, setPreview] = useState(false);
   const [walking, setWalking] = useState(null); // the item being walked back
-  const editing = editable && !preview;
+  const editing = editable && !preview && !world;
+  const pen = usePen(); // the pen in the hand (the world's)
   // writing on the room's surfaces: one sheet at a time, begun where the pen first touches one
   const [wall, setWall] = useState(null); // room/wallInk.js, while a surface is being written on
   const wallRef = useRef(null);
@@ -156,6 +168,23 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   // the room this page lies in: the owner's own, grown from their key
   const seeds = useMemo(() => roomSeedsOf(book.key), [book.key]);
   const mine = !!(editable && key && book.key && key.publicKey === book.key && skeleton?.surfaces);
+  // the world: a fresh sheet on the table, written on in the scene, sealed into the book where it lies
+  const fresh = useFreshSheet({
+    writer: world && mine ? key : null,
+    family: skeleton?.paperFamily ?? null,
+    pen,
+    onPlace: (line, seed, at) => addInk(line, seed, { page: current, x: Math.round(at.x), y: Math.round(at.y), scale: SCALE_ONE }),
+  });
+  useEffect(() => {
+    if (!world || !fresh.sheet) return undefined;
+    const onKey = (e) => {
+      if (e.target.closest?.('input, textarea, select') || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      e.preventDefault();
+      fresh.undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [world, fresh]);
   async function placeWall(w) {
     if (!w.strokes) {
       w.destroy();
@@ -179,7 +208,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
               const was = wallRef.current;
               if (was?.pen.down(surface, p, ev, type)) return;
               if (was) placeWall(was); // the pen came down elsewhere: what was there is laid down, a new sheet begins
-              const next = createWallInk({ writer: key, family: skeleton.surfaces[surface].family, surface, at: p, color: wallColor });
+              const next = createWallInk({ writer: key, family: skeleton.surfaces[surface].family, surface, at: p, ...(world ? { color: pen.color, nib: pen.settings() } : { color: wallColor }) });
               wallRef.current = next;
               setWall(next);
               next.pen.down(surface, p, ev, type);
@@ -190,8 +219,11 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mine, key, skeleton?.surfaces, wallColor],
+    [mine, key, skeleton?.surfaces, wallColor, world, pen],
   );
+  useEffect(() => {
+    if (world && wall) wall.setColor(pen.color); // the pen's ink, on the sheet begun on a wall
+  }, [world, wall, pen.color]);
   // the shelf: the owner's own book (their journal), until Tabor rules which others stand there
   const shelf = useMemo(() => ({ books: [{ id: 'journal', color: clothOf(seeds) }], onOpen: () => setReading(true) }), [seeds]);
   // together in this room: who else is here, the shared sheets on its table
@@ -201,14 +233,28 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     me: user?.username ?? null,
     mine: !!key && key.publicKey === book.key,
     pageW: (book.page ?? DEFAULT_PAGE).width,
-    color: tableColor,
+    color: world ? pen.color : tableColor,
   });
   // the room's things in the hand (rooms.md §3b): a candle picked up, carried, tilted, set down
   const tableSheets = useMemo(() => together.sheets.map((p) => ({ sheet: p.view.sheet, origin: p.slot, size: [SHARED_PAGE.width, SHARED_PAGE.height] })), [together.sheets]);
   const carry = useCarry({ name: fromFile ? null : name, me: user?.username ?? null, page: [(book.page ?? DEFAULT_PAGE).width, (book.page ?? DEFAULT_PAGE).height], sheets: tableSheets });
   const room = useMemo(
-    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, timeZone, wallWriter, live: wall ? [wall.mark] : [], shelf, follow, gazeAt, together: together.scene, hand: carry.hand }),
-    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand],
+    () => ({
+      surfaces: skeleton?.surfaces ?? null,
+      seeds,
+      timeZone,
+      wallWriter,
+      live: wall ? [wall.mark] : [],
+      shelf,
+      follow,
+      gazeAt,
+      together: together.scene,
+      hand: carry.hand,
+      paper: fresh.scene, // the fresh sheet on the table, and the pen on it
+      paperWriter: fresh.writer,
+      world,
+    }),
+    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, world],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
@@ -241,7 +287,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
 
   return (
     <section className="journal">
-      {(editable || pageIds.length > 1) && (
+      {!world && (editable || pageIds.length > 1) && (
         <div className="journal-bar">
           <div className="journal-pages" role="tablist" aria-label="Pages">
             {pageIds.map((id) => (
@@ -438,7 +484,35 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           </button>
         </div>
       )}
-      {wall && (
+      {world && panel === 'pen' && (
+        <Panel title="The pen in your hand">
+          <PenPanel pen={pen}>
+            {fresh.sheet && <FreshSheet fresh={fresh} />}
+            {wall && (
+              <WallSheet
+                wall={wall}
+                busy={wallBusy}
+                onPlace={() => placeWall(wall)}
+                onLetGo={() => {
+                  wall.destroy();
+                  setWall(null);
+                }}
+              />
+            )}
+          </PenPanel>
+        </Panel>
+      )}
+      {world && panel === 'paper' && mine && (
+        <Panel title="At your table">
+          <PaperPanel fresh={fresh} family={skeleton.paperFamily} onFamily={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />
+        </Panel>
+      )}
+      {world && panel === 'candle' && (
+        <Panel title="A candle in your hand">
+          <p className="meta">Hold E and move the mouse to tilt it; tap E to set it down where the pointer is.</p>
+        </Panel>
+      )}
+      {!world && wall && (
         <div className="journal-tools wall-tools" role="toolbar" aria-label="Writing on the room">
           <span className="meta">On the {wall.surface.replace('-', ' ')}</span>
           <InkWell
@@ -488,6 +562,26 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       setWriting(false);
     }
   }
+}
+
+// The sheet begun on a wall, in the pen's panel: a stroke lifted, sealed there, or let go.
+function WallSheet({ wall, busy, onPlace, onLetGo }) {
+  return (
+    <div className="stack wall-sheet">
+      <p className="meta">On the {wall.surface.replace('-', ' ')}</p>
+      <div className="row">
+        <button type="button" className="quiet" onClick={() => wall.undo()} disabled={busy}>
+          Undo
+        </button>
+        <button type="button" onClick={onPlace} disabled={busy}>
+          {busy ? 'Sealing…' : 'Seal it there'}
+        </button>
+        <button type="button" className="quiet" onClick={onLetGo} disabled={busy}>
+          Let it go
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // Write something on a page-wide pad (a fresh sheet of your paper, growing
