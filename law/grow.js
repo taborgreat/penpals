@@ -121,7 +121,9 @@ export function stackGrower(base, sheets) {
     tileFields(cx0, cy0) {
       const f = base.tileFields(cx0, cy0);
       const mat = f.mat ?? new Uint8Array(TT).fill(idOf(base.matter));
-      const out = { ...f, mat };
+      // what lies under each sheet's cells: the body's own (worn through, the sheet is gone and this is the face)
+      const under = { cap: f.cap.slice(), hold: f.hold.slice(), siz: f.siz.slice(), z: f.z.slice(), link: f.link.slice(), mat: mat.slice(), has: new Uint8Array(TT) };
+      const out = { ...f, cap: f.cap.slice(), hold: f.hold.slice(), siz: f.siz.slice(), z: f.z.slice(), link: f.link.slice(), ridge: f.ridge.slice(), mat: mat.slice(), under };
       sheets.forEach((s, k) => {
         if (s.x1 <= cx0 || s.y1 <= cy0 || s.x0 >= cx0 + TILE || s.y0 >= cy0 + TILE) return;
         for (let y = 0; y < TILE; y++)
@@ -142,16 +144,17 @@ export function stackGrower(base, sheets) {
             out.z[i] = g.z[j];
             out.ridge[i] = g.ridge[j];
             out.mat[i] = g.mat[j];
+            under.has[i] = 1;
             for (let n = 0; n < 8; n++) out.link[i * 8 + n] = g.link[j * 8 + n];
           }
       });
       // no fiber across where one matter meets another (a cell's matter is which sheet it lies under, if any)
-      const under = (cx, cy) => sheets.findIndex((s) => cx >= s.x0 && cy >= s.y0 && cx < s.x1 && cy < s.y1);
+      const sheetAt = (cx, cy) => sheets.findIndex((s) => cx >= s.x0 && cy >= s.y0 && cx < s.x1 && cy < s.y1);
       for (let y = 0; y < TILE; y++)
         for (let x = 0; x < TILE; x++) {
           const i = y * TILE + x;
-          const here = under(cx0 + x, cy0 + y);
-          for (let n = 0; n < 8; n++) if (under(cx0 + x + NB_DX[n], cy0 + y + NB_DY[n]) !== here) out.link[i * 8 + n] = 0;
+          const here = sheetAt(cx0 + x, cy0 + y);
+          for (let n = 0; n < 8; n++) if (sheetAt(cx0 + x + NB_DX[n], cy0 + y + NB_DY[n]) !== here) out.link[i * 8 + n] = 0;
         }
       return out;
     },

@@ -125,3 +125,39 @@ test('Phase 3: the same stroke on paper, wood, plaster, wax and metal settles fi
   // what is written on is the record's: its facts say it
   assert.ok(runs.wood.cells.every((c) => c[18] === idOf('wood')));
 });
+
+// A nib scrubbed back and forth over a short line, dry (no ink), pressing as hard as `press` (0..255).
+const scrub = (press, passes, units = 30) =>
+  record([{ path: samplePath((u) => [units * Math.abs(((u * passes) % 2) - 1), 0], () => 200, { pressure: () => press }), pen: { ...PENS.medium, flow: 0 }, start: 0, hasP: true }], [10, 10]);
+const onTable = () => stackGrower(makeGrower('wood', key), [{ grower: paperGrower(testPaperKey('a sheet'), FAMILY), x0: 0, y0: 0, x1: 400, y1: 400 }]);
+
+test('Phase 4: a hard scrape wears through the paper, then cuts the table: fluff, then shavings; every ng accounted for', () => {
+  const g = grow(scrub(255, 120), { paper: onTable() });
+  const { cuts } = g.res;
+  const looseOn = (id) => g.cells.filter((c) => c[20] === id).reduce((n, c) => n + c[19], 0);
+  assert.ok(cuts.byMatter[idOf('paper')] > 0, 'paper fluff');
+  assert.ok(g.cells.some((c) => c[18] === idOf('wood') && c[6] > 0), 'worn through, the table beneath is dented');
+  assert.ok(cuts.byMatter[idOf('wood')] > 0, 'and its shavings');
+  // matter is never deleted: what was taken off the cells lies loose, every ng of it
+  assert.equal(cuts.removed, cuts.loose);
+  assert.equal(g.cells.reduce((n, c) => n + c[19], 0), cuts.loose, 'all of it lying on the cells');
+  assert.equal(looseOn(idOf('paper')) + looseOn(idOf('wood')), cuts.loose);
+});
+
+test('Phase 4: a light scrape leaves only paper fluff; the paper holds', () => {
+  const g = grow(scrub(40, 6), { paper: onTable() });
+  const { cuts } = g.res;
+  assert.ok(cuts.byMatter[idOf('paper')] > 0, 'some fibers come off');
+  assert.equal(cuts.byMatter[idOf('wood')] ?? 0, 0, 'nothing of the table');
+  assert.ok(g.cells.every((c) => c[18] === idOf('paper')), 'not worn through anywhere');
+  assert.equal(cuts.removed, cuts.loose);
+});
+
+test('Phase 4: a nib cuts only what is softer than it: metal and stone give the nib nothing', () => {
+  for (const m of ['metal', 'stone', 'glass']) {
+    const g = grow(scrub(255, 40), { matter: m });
+    assert.equal(g.res.cuts.removed, 0, `${m}: nothing comes off`);
+  }
+  const wax = grow(scrub(255, 40), { matter: 'wax' });
+  assert.ok(wax.res.cuts.byMatter[idOf('wax')] > 0, 'wax is cut');
+});

@@ -54,6 +54,12 @@
 //      there); a press dents it as much as its hardness gives. Wax lying on a cell is its face:
 //      no wax rule of its own (law 3's sealed cells are this, the same to the bit). Law 2 and 3
 //      sheets are paper throughout, so nothing here changes them; law 4 grows any matter.
+//  14. removing matter (one-matter.md Phase 4; law 4): the nib cuts what is softer than it, wet
+//      or dry, the more the softer (paper's rate the paper's own). Paper worn sheds its fibers
+//      as fluff, as much of the sheet as it is worn; worn through over a body (a sheet lying on
+//      the table), the body is its face from then on, and the nib cuts that: its dent deepens
+//      and what it takes is shavings. Nothing is deleted: what is removed lies loose on its cell
+//      (looseA: ng, looseM: its matter), and every ng removed is counted (removed, loose).
 //
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry), under the nib (stamp), or over warm
@@ -159,10 +165,15 @@ import { floorDiv, ceilDiv, clamp, isqrt, LawError } from '../v1/int.js';
 import { penTimeline, precheck } from './acts.js';
 import { paperHasher } from '../v1/siphash.js';
 import { splatter } from './splat.js';
-import { MATTER, ROWS } from '../matter.js';
+import { MATTER, ROWS, idOf, cellNg, DROP_M } from '../matter.js';
 import { makeGrower } from '../grow.js';
 
 const PAPER = MATTER.paper;
+const NIB = MATTER.metal; // (a nib is metal)
+const PAPER_ID = idOf('paper');
+const SHEET_NG = cellNg(PAPER, PAPER.ink.thickness / 1e6); // a cell of a sheet, all of it
+// a dent level's slice of a cell of this matter (ng): a cut that deep takes this much
+const sliceNg = (row) => cellNg(row, DENT_Z * DROP_M);
 const WAX_FACE = MATTER.wax.ink; // (wax lying on a cell, as its face)
 
 const TT = TILE * TILE;
@@ -215,6 +226,10 @@ class Tile {
     this.link = f.link;
     this.ridge = f.ridge;
     this.mat = f.mat ?? null; // each cell's matter (law/matter.js ORDER); null: paper throughout
+    this.under = f.under ?? null; // (a stack) what lies beneath each sheet's cell
+    this.looseA = null; // (law 4) ng of loose matter lying on each cell, and its matter: allocated when some is
+    this.looseM = null;
+    this.goneA = null; // ng of the cell's own face already gone (worn off it)
     this.W = new Int32Array(TT);
     this.P = new Int32Array(TT * 3);
     this.F = new Uint16Array(TT * 3);
@@ -308,7 +323,8 @@ function hasFacts(t) {
       t.cockle[i] ||
       (t.FG && t.FG[i]) ||
       t.filmA[i] >> FILM_SHIFT ||
-      (t.wax && t.wax[i])
+      (t.wax && t.wax[i]) ||
+      (t.looseA && t.looseA[i])
     )
       return true;
   }
@@ -335,6 +351,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   const touched = [];
   const dirty = track ? new Set() : null;
   const lost = { W: 0, P: 0, F: 0, G: 0 }; // what tears took with them (for the books: conservation)
+  const cuts = { removed: 0, loose: 0, byMatter: {} }; // (law 4) ng taken off the cells, ng lying loose: always the same
   const splat = { drops: 0, W: 0 }; // what the pen threw (drops, and the water they put down)
   const put = { nib: 0, drops: 0 }; // water put down, by the nib and by drops (the books: every drop counted)
   const H = paperHasher(paperKey.subarray(0, 16));
@@ -367,6 +384,9 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     t.filmA.slice(),
     t.enter.slice(),
     t.wax ? [t.wax.slice(), t.waxQ.slice(), t.waxDent.slice(), t.waxF.slice(), t.hot] : null,
+    // (law 4) what has come loose, and a stack's faces (a sheet worn through changes its cell)
+    t.looseA || t.goneA ? [t.looseA?.slice() ?? null, t.looseM?.slice() ?? null, t.goneA?.slice() ?? null] : null,
+    t.under ? [t.cap.slice(), t.hold.slice(), t.siz.slice(), t.z.slice(), t.link.slice(), t.mat.slice(), t.under.has.slice()] : null,
   ];
   function cow(t) {
     const j = journals.length ? journals[journals.length - 1] : null;
@@ -501,6 +521,81 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     }
   }
 
+  // --- removing matter (law 4) ---
+
+  // ng of matter `m` (an id) come loose on cell i: it lies there (it falls until it rests; on a
+  // flat sheet, where it was), as much as was removed.
+  function shed(t, i, ng, m) {
+    if (ng <= 0) return;
+    if (!t.looseA) {
+      t.looseA = new Int32Array(TT);
+      t.looseM = new Uint8Array(TT);
+      t.goneA = t.goneA ?? new Int32Array(TT);
+    }
+    t.looseA[i] += ng;
+    t.looseM[i] = m;
+    cuts.removed += ng;
+    cuts.loose += ng;
+    cuts.byMatter[m] = (cuts.byMatter[m] ?? 0) + ng;
+  }
+  // A cell's face worn as far as `level` of `strength`: the sheet's fibers that have gone, shed.
+  function wearOff(t, i, row, level, strength) {
+    if (!t.goneA) t.goneA = new Int32Array(TT);
+    const want = row === PAPER ? floorDiv(SHEET_NG * Math.min(level, strength), strength) : 0;
+    if (want > t.goneA[i]) {
+      shed(t, i, want - t.goneA[i], t.mat ? t.mat[i] : PAPER_ID);
+      t.goneA[i] = want;
+    }
+  }
+  // Worn through. A sheet lying on a body: the rest of it goes (fluff), and the body beneath is the
+  // cell's face from now on (its own fields, fresh). Else a hole, as ever (tear).
+  function through(t, i) {
+    const u = t.under;
+    if (!u || !u.has[i]) {
+      if (cutting) shed(t, i, SHEET_NG - (t.goneA ? t.goneA[i] : 0), t.mat ? t.mat[i] : PAPER_ID);
+      tear(t, i);
+      return;
+    }
+    shed(t, i, SHEET_NG - (t.goneA ? t.goneA[i] : 0), t.mat[i]);
+    t.goneA[i] = 0;
+    lost.W += t.W[i];
+    if (t.W[i] > 0) becameDry(t);
+    t.W[i] = 0;
+    for (let ch = 0; ch < 3; ch++) {
+      lost.P += t.P[3 * i + ch];
+      lost.F += t.F[3 * i + ch];
+      t.P[3 * i + ch] = 0;
+      t.F[3 * i + ch] = 0;
+    }
+    t.filmA[i] = 0;
+    t.cap[i] = u.cap[i];
+    t.hold[i] = u.hold[i];
+    t.siz[i] = u.siz[i];
+    t.z[i] = u.z[i];
+    t.mat[i] = u.mat[i];
+    for (let n = 0; n < 8; n++) t.link[i * 8 + n] = u.link[i * 8 + n];
+    u.has[i] = 0;
+    t.wearA[i] = 0;
+    t.dentA[i] = 0;
+    t.depthA[i] = 0;
+    t.soakA[i] = 0;
+    t.cockle[i] = 0;
+    t.enter[i] = 0;
+    for (let n = 0; n < 8; n++) {
+      neighbour(t, i, n);
+      const tn = res[0];
+      if (journals.length) cow(tn);
+      if (tn.rim[res[1]] < 8) tn.rim[res[1]]++;
+      if (dirty) dirty.add(tn);
+    }
+  }
+  // A body's face cut `levels` deeper (wood, plaster: no fibers to tear): its dent, and the shavings.
+  function cutInto(t, i, row, levels) {
+    const was = t.dentA[i] >> DENT_SHIFT;
+    t.dentA[i] = Math.min(DENT_TOP, t.dentA[i] + (levels << DENT_SHIFT));
+    shed(t, i, ((t.dentA[i] >> DENT_SHIFT) - was) * sliceNg(row), t.mat[i]);
+  }
+
   // --- the nib ---
 
   let pen = null;
@@ -509,6 +604,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     abs1 = 0,
     abs2 = 0;
   const fair = law >= 3; // (11: direction fairness)
+  const cutting = law >= 4; // (14: removing matter)
   let carry = 0;
   let well = 0; // what is left in a dipped nib's reservoir (law 3), of wellCap
   let wellCap = 0; // 0: not a dip pen (it never runs dry)
@@ -637,13 +733,27 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       // The nib presses: a dent (plastic), and on a wet cell, wear.
       const m = matterAt(t, i);
       if (dd > 0) t.dentA[i] = Math.min(DENT_TOP, t.dentA[i] + floorDiv(floorDiv(dd * fw[k], top) * PAPER.hardness, m.hardness));
-      if (!drop && t.W[i] >= W_WET) {
+      if (!drop && t.W[i] >= W_WET && !cutting) {
         t.wearA[i] += floorDiv((moving ? WEAR_Q[p] : WEAR_Q[p] >> WEAR_STILL) * fw[k], top); // < 2^9 · 2^16 per pass
         const strength = (m.ink.wear ?? STRENGTH_BASE * m.hardness) - floorDiv(t.W[i] * WET_K + soakL(t, i) * SOAK_K, 256);
         if (t.wearA[i] >> WEAR_SHIFT > strength) {
           tear(t, i);
           continue;
         }
+      } else if (!drop && cutting && m.hardness < NIB.hardness) {
+        // (14) the nib cuts what is softer than it, wet or dry: the softer, the more (paper's rate the paper's own)
+        const was = t.wearA[i] >> WEAR_SHIFT;
+        t.wearA[i] += floorDiv(floorDiv((moving ? WEAR_Q[p] : WEAR_Q[p] >> WEAR_STILL) * fw[k], top) * (NIB.hardness - m.hardness), NIB.hardness - PAPER.hardness);
+        const level = t.wearA[i] >> WEAR_SHIFT;
+        if (m === PAPER) {
+          const dry = m.ink.wear;
+          const strength = dry - floorDiv(t.W[i] * WET_K + soakL(t, i) * SOAK_K, 256);
+          wearOff(t, i, m, level, dry);
+          if (level > strength) {
+            through(t, i);
+            continue;
+          }
+        } else if (level > was) cutInto(t, i, m, level - was);
       }
       const room = floorDiv(W_SAT * wets(t, i), 1000) - t.W[i]; // a face that sheds ink holds only a skin of it: the rest beads off
       if (room <= 0) continue;
@@ -1409,7 +1519,17 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       }
     }
     if (instrument) instrument.finish(now);
-    return { tiles: [...tiles.values()].filter(hasFacts), ticks: now, work, lost: { ...lost }, splat: { ...splat }, put: { ...put }, seals: [...seals], well };
+    return {
+      tiles: [...tiles.values()].filter(hasFacts),
+      ticks: now,
+      work,
+      lost: { ...lost },
+      splat: { ...splat },
+      put: { ...put },
+      seals: [...seals],
+      well,
+      cuts: { ...cuts, byMatter: { ...cuts.byMatter } },
+    };
   }
 
   // --- live (between strokes only) ---
@@ -1436,7 +1556,19 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     if (journals[journals.length - 1] !== snap) throw new Error('restore the newest snapshot first');
     journals.pop();
     for (let k = snap.saved.length - 1; k >= 0; k--) {
-      const [t, W, P, F, ev, wet, dentA, depthA, peak, soakA, wearA, flags, rim, cockle, G, FG, drainA, filmA, enter, wax] = snap.saved[k];
+      const [t, W, P, F, ev, wet, dentA, depthA, peak, soakA, wearA, flags, rim, cockle, G, FG, drainA, filmA, enter, wax, loose, faces] = snap.saved[k];
+      t.looseA = loose?.[0] ? loose[0].slice() : null;
+      t.looseM = loose?.[1] ? loose[1].slice() : null;
+      t.goneA = loose?.[2] ? loose[2].slice() : null;
+      if (faces) {
+        t.cap.set(faces[0]);
+        t.hold.set(faces[1]);
+        t.siz.set(faces[2]);
+        t.z.set(faces[3]);
+        t.link.set(faces[4]);
+        t.mat.set(faces[5]);
+        t.under.has.set(faces[6]);
+      }
       t.W.set(W);
       t.P.set(P);
       t.F.set(F);

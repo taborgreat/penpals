@@ -44,6 +44,7 @@ const PAPER_INK = Object.freeze({
   fiber: 3,
   thick: V2.THICK,
   wear: V2.STRENGTH_BASE,
+  thickness: 100, // µm: a sheet of writing paper
   holdQ: V1.HOLD_Q,
 });
 
@@ -288,6 +289,13 @@ export const idOf = (name) => {
   return k;
 };
 export const ROWS = Object.freeze(ORDER.map((n) => MATTER[n]));
+
+// The grain's units (the page's: a cell is half a pixel of a letter page 1400 px across; a drop of
+// height is what the scene draws as 0.004 px): what a cell's matter weighs, what a cut removes.
+export const CELL_M = 0.2159 / 2800;
+export const DROP_M = (0.004 * 0.2159) / 1400;
+// The mass of a cell of a matter thick metres deep, in ng (integer).
+export const cellNg = (row, thick) => Math.round(row.density * CELL_M * CELL_M * thick * 1e12);
 
 // The room's air, as the heat rule takes it: its temperature (°C), and its film (W/(m²·K)):
 // how fast still air carries heat off a surface warmer than it.
