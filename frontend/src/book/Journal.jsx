@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { keys as K, b64url } from 'penpals-law';
+import { keys as K, record as R, b64url } from 'penpals-law';
 import Pad from '../components/Pad.jsx';
 import Hand from '../components/Hand.jsx';
 import KeyGate from '../components/KeyGate.jsx';
@@ -157,7 +157,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const filmOf = (it) => {
     const line = book.inks.get(it.ink);
     const seed = seedOf(it);
-    if (seed) return { local: { actsBytes: fromB64url(line.ink.acts), paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: line.ink.paper, box: line.ink.box, law: line.ink.law } };
+    if (seed) return { local: { actsBytes: fromB64url(line.ink.acts), paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: R.familyOf(line.ink), box: line.ink.box, law: line.ink.law } };
     return { url: `/api/books/${encodeURIComponent(bookName)}/film/${it.ink}` };
   };
   // A sheet's seed, to grow it here: published (open), or made with your key (yours).
@@ -251,7 +251,14 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
               const was = wallRef.current;
               if (was?.pen.down(surface, p, ev, type)) return;
               if (was) placeWall(was); // the pen came down elsewhere: what was there is laid down, a new sheet begins
-              const next = createWallInk({ writer: key, family: skeleton.surfaces[surface].family, surface, at: p, ...(world ? { color: pen.color, nib: pen.settings() } : { color: wallColor }) });
+              const next = createWallInk({
+                writer: key,
+                family: skeleton.surfaces[surface].family,
+                matter: skeleton.surfaces[surface].matter,
+                surface,
+                at: p,
+                ...(world ? { color: pen.color, nib: pen.settings() } : { color: wallColor }),
+              });
               wallRef.current = next;
               setWall(next);
               next.pen.down(surface, p, ev, type);

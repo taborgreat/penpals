@@ -3,7 +3,8 @@
 // writing on the page in 3D, onto that surface's plane. Each time the pen
 // comes down on a surface with nothing being written there, a new sheet
 // begins: the owner's own (its seed from their key, as any page's), on that
-// surface's matter (plaster, wood: backend config.book.families), a pad of
+// surface's matter (plaster, wood: law 4 grows the ink on that matter's own cells, by
+// its row: one-matter.md; its family's paper only names the sheet), a pad of
 // WALL_PAD page units centred where the pen first touched. What is written
 // shows live as a mark on the surface (scene/marks.js); placed, it is
 // settled, sealed and laid on the surface page at its record's own box, a
@@ -19,9 +20,10 @@ export const WALL_PAD = { width: 1024, height: 512 }; // page units: about 16 ×
 
 // writer: the key session (keys/session.js); family: the surface's; at: where the
 // pen came down (the surface's page units); color: the ink (#rrggbb).
-export function createWallInk({ writer, family, surface, at, color, nib = { nib: 'pen', size: PEN_SIZES.medium } }) {
+export function createWallInk({ writer, family: surfaceFamily, matter, surface, at, color, nib = { nib: 'pen', size: PEN_SIZES.medium } }) {
   const sheet = newSheet(writer);
-  const ink = createLiveInk({ paperKey: sheet.paperKey, family, size: WALL_PAD, pen: lawPen(nib, color, undefined, SPATTER_DEFAULT.pen) });
+  const family = matter && matter !== 'paper' ? { ...surfaceFamily, matter } : surfaceFamily;
+  const ink = createLiveInk({ paperKey: sheet.paperKey, family, size: WALL_PAD, pen: lawPen(nib, color, undefined, SPATTER_DEFAULT.pen), law: family.matter ? 4 : undefined });
   const origin = [Math.round(at.x - WALL_PAD.width / 2), Math.round(at.y - WALL_PAD.height / 2)];
   const local = (p) => ({ x: p.x - origin[0], y: p.y - origin[1] });
   const inside = (q) => q.x >= 0 && q.y >= 0 && q.x <= WALL_PAD.width && q.y <= WALL_PAD.height;

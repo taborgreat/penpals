@@ -1,4 +1,4 @@
-import { keys as K, laws as Laws, fromB64url, hex } from 'penpals-law';
+import { keys as K, laws as Laws, record as R, fromB64url, hex } from 'penpals-law';
 import { httpError } from './files.js';
 import { config } from './config.js';
 
@@ -52,7 +52,7 @@ export async function confirmFacts(body, seed, { timeout, png = true, ua = '' } 
     law: body.law,
     acts,
     seed,
-    family: body.paper,
+    family: R.familyOf(body),
     scale: 64,
     png,
     priority: 'upload',

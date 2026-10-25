@@ -46,7 +46,9 @@ test('shape rules: uses, sheets, names, unknown fields', () => {
   assert.throws(() => checkInkBody({ ...sig.line.ink, extra: 1 }), /fields/);
   const book = makeInk({ sk, pk, sheet: newSheetId(), use: 'book', family, acts });
   assert.throws(() => checkInkBody({ ...book.line.ink, sheet: proofOf(new Uint8Array(32), pk).sheet }), /sheet/);
-  assert.throws(() => checkInkBody({ ...book.line.ink, law: 4 }), /law/); // (a law not known here)
+  assert.throws(() => checkInkBody({ ...book.line.ink, law: 5 }), /law/); // (a law not known here)
+  assert.throws(() => checkInkBody({ ...book.line.ink, matter: 'wood' }), /law 4/); // (other matter only under law 4)
+  assert.throws(() => checkInkBody({ ...book.line.ink, law: 4, matter: 'air' }), /matter/); // (matter that takes ink)
   assert.throws(() => checkInkBody({ ...book.line.ink, acts: b64url(new Uint8Array([1, 2, 3])) }), /acts/);
   // the canonical body is integers and ASCII only
   assert.doesNotThrow(() => jcs(book.line.ink));

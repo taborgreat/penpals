@@ -103,7 +103,7 @@ export const ROUGH = Object.freeze(Object.fromEntries(Object.values(KINDS).map((
 // The paper's own, below its cells (its fibers finer than the grain): as the grower's kinds.
 export const PAPER_SUB = subM2([12, 0.5]);
 // Each grown kind's matter (law/matter.js): how much its faces turn back (null: a metal, its colour).
-export const MATTER_OF = Object.freeze({ [PLASTER]: 'plaster', [PLANKS]: 'oak', [BOARD]: 'oak', [BRASS]: 'brass', [WAX]: 'wax', [WICK]: 'wick', [CLOTH]: 'fiber', [SKIN]: 'skin' });
+export const MATTER_OF = Object.freeze({ [PLASTER]: 'plaster', [PLANKS]: 'wood', [BOARD]: 'wood', [BRASS]: 'metal', [WAX]: 'wax', [WICK]: 'wick', [CLOTH]: 'fiber', [SKIN]: 'skin' });
 export const f0OfKind = (kind) => F0[MATTER_OF[kind]] ?? null;
 
 // A sheet's faces' scatter about a block, as the shade bake has it (nodes.js facesScatter): its top

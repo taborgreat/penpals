@@ -53,8 +53,8 @@ test('the same acts swing the same everywhere (a golden), and the harder matter 
   const digest = b64url(sha256(utf8(JSON.stringify([r.rest, r.snapped, r.path]))));
   assert.deepEqual(hang({ anchor: ANCHOR, start: [1150000, 1200000, 1900000], pieces: 8, weight: 120, steps: 4000 }), r);
   assert.equal(digest, GOLDEN);
-  assert.equal(givesWay('stone', 'oak'), 'oak', 'a hard stone carves the wood');
-  assert.equal(givesWay('chalk', 'oak'), 'chalk', 'a soft one wears away instead');
-  assert.equal(givesWay('oak', 'oak'), null);
+  assert.equal(givesWay('stone', 'wood'), 'wood', 'a hard stone carves the wood');
+  assert.equal(givesWay('chalk', 'wood'), 'chalk', 'a soft one wears away instead');
+  assert.equal(givesWay('wood', 'wood'), null);
 });
 const GOLDEN = 'Qo4sgyX8lDJ6djZfP8tID4afIdoipnWxPrI2TPKJ-iA'; // recorded with this layer: a change to it is a change of the law

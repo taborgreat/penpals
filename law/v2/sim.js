@@ -46,6 +46,14 @@
 //      the air and sleeps. Above its melting heat wax is liquid; only wax above
 //      its softening heat takes a press. No clock: a cell is soft for as long as
 //      its heat says.
+//  13. one matter (one-matter.md Phases 1-3): a cell is of a matter (law/matter.js; law/grow.js
+//      grows each from its row, paper by its own grower): how much it holds, how fast it
+//      drinks, how rough it is, its fibers are its row's. Its face takes as much of a nib's
+//      ink as its matter's wets allows (a waxy face sheds most: it beads off); a liquid
+//      sinks into it only if its matter drinks (wax, metal, glass: it stands on top and dries
+//      there); a press dents it as much as its hardness gives. Wax lying on a cell is its face:
+//      no wax rule of its own (law 3's sealed cells are this, the same to the bit). Law 2 and 3
+//      sheets are paper throughout, so nothing here changes them; law 4 grows any matter.
 //
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry), under the nib (stamp), or over warm
@@ -134,7 +142,6 @@ import {
   WAX_R_MAX,
   WAX_SPREAD,
   WAX_SEAL,
-  WAX_BEAD,
   HEAT_Q,
   WAX_CONDUCT,
   WAX_COOL,
@@ -152,6 +159,11 @@ import { floorDiv, ceilDiv, clamp, isqrt, LawError } from '../v1/int.js';
 import { penTimeline, precheck } from './acts.js';
 import { paperHasher } from '../v1/siphash.js';
 import { splatter } from './splat.js';
+import { MATTER, ROWS } from '../matter.js';
+import { makeGrower } from '../grow.js';
+
+const PAPER = MATTER.paper;
+const WAX_FACE = MATTER.wax.ink; // (wax lying on a cell, as its face)
 
 const TT = TILE * TILE;
 const STEP_FINE = STEP_HT * 256;
@@ -202,6 +214,7 @@ class Tile {
     this.z = f.z;
     this.link = f.link;
     this.ridge = f.ridge;
+    this.mat = f.mat ?? null; // each cell's matter (law/matter.js ORDER); null: paper throughout
     this.W = new Int32Array(TT);
     this.P = new Int32Array(TT * 3);
     this.F = new Uint16Array(TT * 3);
@@ -245,7 +258,13 @@ function waxOn(t) {
     t.waxF = new Uint8Array(TT);
   }
 }
-const sealed = (t, i) => t.wax !== undefined && t.wax !== null && t.wax[i] >= WAX_SEAL;
+// A cell's matter, and its face: wax lying on it once it covers the cell (WAX_SEAL), else its own.
+const matterAt = (t, i) => (t.mat ? ROWS[t.mat[i]] : PAPER);
+const waxFaced = (t, i) => t.wax !== undefined && t.wax !== null && t.wax[i] >= WAX_SEAL;
+const faceOf = (t, i) => (waxFaced(t, i) ? WAX_FACE : matterAt(t, i).ink);
+// Whether a liquid on it can sink in (its face drinks); how much of a nib's ink its face takes (‰).
+const drinks = (t, i) => faceOf(t, i).drinks === 1;
+const wets = (t, i) => faceOf(t, i).wets;
 
 // n / 16384 rounded to the nearest, halves away from zero: the same both ways (law 3).
 const roundQ14 = (n) => (n >= 0 ? floorDiv(n + 8192, 16384) : -floorDiv(-n + 8192, 16384));
@@ -267,7 +286,7 @@ export const heldE = (t, i) => floorDiv(t.cap[i] * t.depthA[i], DEPTH_TOP) + den
 // the front that would hold w drops here (never past the bottom)
 function frontFor(t, i, w) {
   const d = w - dentL(t, i) * DENT_CAP;
-  return d <= 0 ? 0 : Math.min(DEPTH_TOP, ceilDiv(d * DEPTH_TOP, t.cap[i]));
+  return d <= 0 || t.cap[i] === 0 ? 0 : Math.min(DEPTH_TOP, ceilDiv(d * DEPTH_TOP, t.cap[i]));
 }
 const zE = (t, i) => t.z[i] - dentL(t, i) * DENT_Z + t.cockle[i] - t.rim[i] * RIM_Z + (t.wax ? t.wax[i] - t.waxDent[i] : 0);
 const washed = (t, i) => Math.min(SOAK_FULL, t.soakA[i] >> 8);
@@ -301,9 +320,10 @@ function hasFacts(t) {
 // minutes long, so within one record it is 0 (no record carries it); it is the
 // hook for writing over an older sheet, which needs a ruling.
 // paper: a paper to grow on instead of the key's (the law's own tests: an even sheet, to see the law alone)
+// family.matter (law 4): the matter written on, grown from the key by its own grower (law/grow.js); paper by default
 export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY = 0, instrument = null, track = false, gallAgeH = 0, paper: evenPaper = null, law = 2 }) {
   if (!Number.isInteger(scale) || scale < SCALE_MIN || scale > SCALE_MAX) throw new LawError('scale', 'scale out of range');
-  const paper = evenPaper ?? makePaper(paperKey, family);
+  const paper = evenPaper ?? (law >= 4 && family?.matter && family.matter !== 'paper' ? makeGrower(family.matter, paperKey) : makePaper(paperKey, family));
   const tiles = new Map();
   const wetTiles = new Set();
   const hotTiles = new Set(); // (law 3) tiles with wax warmer than the air
@@ -615,16 +635,17 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       if (journals.length) cow(t);
       if (dirty) dirty.add(t);
       // The nib presses: a dent (plastic), and on a wet cell, wear.
-      if (dd > 0) t.dentA[i] = Math.min(DENT_TOP, t.dentA[i] + floorDiv(dd * fw[k], top));
+      const m = matterAt(t, i);
+      if (dd > 0) t.dentA[i] = Math.min(DENT_TOP, t.dentA[i] + floorDiv(floorDiv(dd * fw[k], top) * PAPER.hardness, m.hardness));
       if (!drop && t.W[i] >= W_WET) {
         t.wearA[i] += floorDiv((moving ? WEAR_Q[p] : WEAR_Q[p] >> WEAR_STILL) * fw[k], top); // < 2^9 · 2^16 per pass
-        const strength = STRENGTH_BASE - floorDiv(t.W[i] * WET_K + soakL(t, i) * SOAK_K, 256);
+        const strength = (m.ink.wear ?? STRENGTH_BASE * m.hardness) - floorDiv(t.W[i] * WET_K + soakL(t, i) * SOAK_K, 256);
         if (t.wearA[i] >> WEAR_SHIFT > strength) {
           tear(t, i);
           continue;
         }
       }
-      const room = (sealed(t, i) ? W_SAT >> WAX_BEAD : W_SAT) - t.W[i]; // wax holds only a skin of ink: the rest beads off
+      const room = floorDiv(W_SAT * wets(t, i), 1000) - t.W[i]; // a face that sheds ink holds only a skin of it: the rest beads off
       if (room <= 0) continue;
       const g = Math.min(floorDiv(amt * ink[k], sumI), room);
       if (g <= 0) continue;
@@ -780,7 +801,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           const gs = s > 0 && (!dryJ || s > holdI) ? (dryJ ? GS_DRY[n] : GS_WET[n]) : 0;
           let lk = link[i * 8 + n];
           if (lk && sl) lk += floorDiv(lk * sl * SOAK_LINK, 256); // soaked fibers loosen
-          let gp = diag(dryJ ? G_WICK + SOAK_WICK * washed(tn, j) : G_PORE + SOAK_PORE * sl, n) + lk;
+          let gp = tn.cap[j] === 0 ? 0 : diag(dryJ ? G_WICK + SOAK_WICK * washed(tn, j) : G_PORE + SOAK_PORE * sl, n) + lk; // (nothing goes into pores it has not got)
           if (gs + gp > G_MAX) gp = G_MAX - gs;
           const qp = floorDiv(Math.min(d, inP) * gp, 4096); // through the pores
           const q = floorDiv(Math.min(d, sPos) * gs, 4096) + qp; // and over the top
@@ -1002,7 +1023,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         // nor more than FRONT_STEP ahead of its deepest side neighbour (one wet front, no spikes)
         adv[i] = -1;
         const fr = t.depthA[i];
-        if (fr < DEPTH_TOP && Wi > heldE(t, i) && !sealed(t, i)) {
+        if (fr < DEPTH_TOP && Wi > heldE(t, i) && drinks(t, i)) {
           let th = 4 * thirstE(t, i);
           let wa = 4 * Wi;
           let side = 0;
@@ -1037,7 +1058,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         const Wi = W[i];
         if (Wi <= 0) continue;
         if (t.adv[i] > t.depthA[i]) t.depthA[i] = t.adv[i];
-        if (!sealed(t, i)) t.soakA[i] = Math.min(255 << 8, t.soakA[i] + floorDiv(Wi * SOAK_Q, W_SAT));
+        if (drinks(t, i)) t.soakA[i] = Math.min(255 << 8, t.soakA[i] + floorDiv(Wi * SOAK_Q, W_SAT));
         const e = dW[i];
         dW[i] = 0;
         let w = Wi - Math.min(e, Wi);
@@ -1530,9 +1551,9 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
 // Grow a whole decoded record on a paper. Returns the tiles with facts (and, for
 // law 3, each press's seal: whether it took). A record's marks (law 3) land at
 // their moments, between and within its strokes; a pen act that sets `well` is a dip.
-export function grow(rec, { paperKey, family, scale = SCALE_ONE, instrument = null, gallAgeH = 0, law = 2 }) {
+export function grow(rec, { paperKey, family, scale = SCALE_ONE, instrument = null, gallAgeH = 0, law = 2, paper = null }) {
   precheck(rec, scale);
-  const sim = createSim({ paperKey, family, scale, orgX: rec.orgX, orgY: rec.orgY, instrument, gallAgeH, law });
+  const sim = createSim({ paperKey, family, scale, orgX: rec.orgX, orgY: rec.orgY, instrument, gallAgeH, law, paper });
   const timeline = penTimeline(rec);
   const marks = rec.marks ?? [];
   let mi = 0;

@@ -21,7 +21,7 @@ import { httpError } from '../files.js';
 import { getAccount, findByName, findByKey, usersDir } from './accounts.js';
 import { chainLines, appendLines, getSkeleton, inkLine, openSeed } from './books.js';
 import { listDirs } from '../files.js';
-import { shared as SH, seal as SEAL, fromB64url, b64url, keys as K } from 'penpals-law';
+import { shared as SH, seal as SEAL, record as R, fromB64url, b64url, keys as K } from 'penpals-law';
 import { lawOf } from 'penpals-law/laws';
 import { lay } from './rooms.js';
 import { dripsOnSheet } from './wax.js';
@@ -204,7 +204,7 @@ export async function sealFaceOf(account) {
   let face = null;
   if (seed) {
     const L = lawOf(line.ink.law ?? 1);
-    const res = L.grow(L.decodeCanonical(fromB64url(line.ink.acts)), { paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: line.ink.paper, scale: 64 });
+    const res = L.grow(L.decodeCanonical(fromB64url(line.ink.acts)), { paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: R.familyOf(line.ink), scale: 64 });
     const cells = L.settledCells(res.tiles);
     const f = SEAL.faceOf(cells, L.boxOf(cells));
     face = f && { w: f.w, h: f.h, face: b64url(f.face) };

@@ -139,7 +139,7 @@ async function sendDepth(req, res, account, line, scale) {
     if (!seedText) throw httpError(410, 'seed_missing', 'The paper of this sheet is not on the server.');
     const seed = fromB64url(seedText, 64);
     if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', 'The seed of this sheet does not match its record.');
-    const out = await settleOnServer({ law: line.ink.law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, view, mode, cut, key: `depth:${account.id}:${name}` });
+    const out = await settleOnServer({ law: line.ink.law, acts: fromB64url(line.ink.acts), seed, family: R.familyOf(line.ink), scale, view, mode, cut, key: `depth:${account.id}:${name}` });
     if (mode !== 'scene') return res.type('png').send(Buffer.from(out.png));
     whole = Buffer.from(out.scene);
     await writeCached(kept, whole).catch((err) => console.warn('[cache]', err.message));
@@ -181,7 +181,7 @@ export async function sendFilm(req, res, file, body, seedText, key, keep = () =>
     if (!text) throw httpError(410, 'seed_missing', 'The paper of this sheet is not on the server.');
     const seed = fromB64url(text, 64);
     if (b64url(K.commitOf(seed)) !== body.commit) throw httpError(500, 'seed_mismatch', 'The seed of this sheet does not match its record.');
-    const out = await filmOnServer({ law: body.law, acts: fromB64url(body.acts), seed, family: body.paper, box: body.box, key });
+    const out = await filmOnServer({ law: body.law, acts: fromB64url(body.acts), seed, family: R.familyOf(body), box: body.box, key });
     film = Buffer.from(out.film);
     if (keep()) await writeAtomic(file, film).catch((err) => console.warn('[film]', err.message));
   }
@@ -205,7 +205,7 @@ export async function sendLook(req, res, account, line, scale, { cacheControl = 
     if (!seedText) throw httpError(410, 'seed_missing', "This sheet's paper is not on the server.");
     const seed = fromB64url(seedText, 64);
     if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', "This sheet's seed does not match its record.");
-    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: line.ink.paper, scale, png: true, lod, view, priority: 'view', key: `look:${account.id}:${etag}` });
+    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: R.familyOf(line.ink), scale, png: true, lod, view, priority: 'view', key: `look:${account.id}:${etag}` });
     png = Buffer.from(out.png);
     await writeCached(p, png).catch((err) => console.warn('[cache]', err.message));
   }
@@ -255,7 +255,9 @@ booksRouter.post('/me/ink', requireAuth, inkJson, async (req, res) => {
   const skeleton = await getSkeleton(account.id);
   const family = familyFor(skeleton, place);
   if (!family) throw httpError(400, 'bad_edit', 'There is no such surface.');
-  if (JSON.stringify(body.paper) !== JSON.stringify(family))
+  // (a surface's ink under law 4 grows on the surface's own matter: one-matter.md; it must say so)
+  const matter = place?.surface !== undefined ? skeleton.surfaces?.[place.surface]?.matter : null;
+  if (JSON.stringify(body.paper) !== JSON.stringify(family) || (body.law >= 4 && body.matter !== matter) || (body.matter && body.law < 4))
     throw httpError(400, 'wrong_paper', place?.surface !== undefined ? 'Write on the matter of that surface.' : 'Write on your own paper family.');
   const seed = decodeField(req.body.seed, 64, 'seed');
   R.verifySeedFor(body, seed);

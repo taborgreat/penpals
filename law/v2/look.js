@@ -29,6 +29,7 @@ import { EXP8, ABS_Q } from '../v1/tables.js';
 import { FADE, SURFACE } from './tables.js';
 import { GALL_ABS, darkAt, filmLevel } from './sim.js';
 import { T, concat, u16be } from '../tags.js';
+import { idOf } from '../matter.js';
 
 const TT = TILE * TILE;
 const VISIBLE = 4;
@@ -68,6 +69,7 @@ export function settledCells(tiles, { law = LAW } = {}) {
       const y = t.ty * TILE + Math.floor(i / TILE);
       const c = [y, x, f0, f1, f2, fg, dent, depth, peak, soak, wear, flags, cockle, film];
       if (w3) c.push(0, wax, wax ? t.waxDent[i] : 0, wax ? t.waxF[i] : 0);
+      if (law >= 4) c.push(t.mat ? t.mat[i] : 0); // its matter (law/matter.js ORDER): a sheet lying on a body is paper over it
       cells.push(c);
     }
   }
@@ -180,6 +182,7 @@ export function factsDigest({ cells, box, actsBytes, family, scale = SCALE_ONE, 
   h.update(u16be(law));
   h.update(sha256(actsBytes));
   h.update(Uint8Array.of(family.grain, family.weight, family.tooth));
+  if (law >= 4) h.update(Uint8Array.of(idOf(family.matter ?? 'paper'))); // (what it was written on)
   h.update(u16be(scale));
   for (const v of box) h.update(i32be(v));
   h.update(i32be(cells.length));
@@ -204,6 +207,7 @@ export function factsDigest({ cells, box, actsBytes, family, scale = SCALE_ONE, 
       wrow[3] = c[17];
       h.update(wrow);
     }
+    if (law >= 4) h.update(Uint8Array.of(c[18]));
   }
   return h.digest();
 }

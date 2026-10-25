@@ -239,7 +239,7 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
       const res = sim.finish();
       const cells = settledCells(res.tiles);
       const box = boxOf(cells);
-      return { cells, box, facts: factsDigest({ cells, box, actsBytes, family, scale: SCALE_ONE }), ticks: res.ticks, work: res.work, lost: res.lost };
+      return { cells, box, facts: factsDigest({ cells, box, actsBytes, family, scale: SCALE_ONE, law }), ticks: res.ticks, work: res.work, lost: res.lost };
     },
   };
 }

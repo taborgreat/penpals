@@ -30,7 +30,7 @@ import * as v2moments from './v2/moments.js';
 import { OAK_GALL } from './v2/constants.js';
 
 export const CURRENT = 2;
-export const ACCEPTED = Object.freeze([1, 2, 3]);
+export const ACCEPTED = Object.freeze([1, 2, 3, 4]);
 
 const LAWS = {
   1: Object.freeze({
@@ -93,6 +93,18 @@ LAWS[3] = Object.freeze({
   grow: (rec, opts) => v2sim.grow(rec, { ...opts, law: 3 }),
   createLive: (sheet) => v2live.createLive({ ...sheet, law: 3 }),
   factsDigest: (o) => v2look.factsDigest({ ...o, law: 3 }),
+});
+
+// Law 4 (one-matter.md): law 3's rules on any matter. A record says what it was written on
+// (its family's matter: wood, plaster, wax, metal, ...; paper by default), and grows on that
+// matter's cells (law/grow.js) by its row (law/matter.js); its facts say it too.
+LAWS[4] = Object.freeze({
+  ...LAWS[3],
+  law: 4,
+  settledCells: (tiles) => v2look.settledCells(tiles, { law: 4 }),
+  grow: (rec, opts) => v2sim.grow(rec, { ...opts, law: 4 }),
+  createLive: (sheet) => v2live.createLive({ ...sheet, law: 4 }),
+  factsDigest: (o) => v2look.factsDigest({ ...o, law: 4 }),
 });
 
 export class LawUnknown extends Error {

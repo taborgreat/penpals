@@ -77,6 +77,23 @@ test("ink on a surface is written on that surface's matter; unknown surfaces are
   assert.equal((await writeInk(app.ana, ana, { family: PLASTER })).status, 400);
 });
 
+test('law 4 (one-matter.md): ink on a wall grows on the plaster itself and says so; claiming another matter, refused', async () => {
+  const acts = S.write(ana.writer, 'on plaster', 2);
+  const res = await writeInk(app.ana, ana, { family: { ...PLASTER, matter: 'plaster' }, acts, law: 4, place: { surface: 'wall-left', x: 9000, y: 6000, scale: 64 } });
+  assert.equal(res.status, 201, JSON.stringify(res.data));
+  assert.equal(res.ink.line.ink.law, 4);
+  assert.equal(res.ink.line.ink.matter, 'plaster');
+  assert.equal(R.regrow(res.ink.line.ink, res.ink.seed).ok, true, 'regrown on plaster');
+  // the same writing grown as the plaster's old paper family settles otherwise
+  const asPaper = R.makeInk({ sk: ana.sk, pk: ana.pk, sheet: res.ink.line.ink.sheet, use: 'book', family: PLASTER, acts, law: 4 });
+  assert.notEqual(asPaper.line.ink.facts, res.ink.line.ink.facts);
+  const wrong = await writeInk(app.ana, ana, { family: { ...PLASTER, matter: 'wood' }, acts, law: 4, place: { surface: 'wall-left', x: 1000, y: 1000, scale: 64 } });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.data.code, 'wrong_paper');
+  const v = verifyBook(Buffer.from((await app.ana.get('/api/books/ana/download')).data).toString('utf8'), { regrowOpen: false });
+  assert.equal(v.ok, true, JSON.stringify(v.problems));
+});
+
 test("writing on the pen's body leaves ink like any sheet (rooms.md §3c): wood, its own small page", async () => {
   const acts = S.write(ana.writer, 'on the pen', 3);
   const res = await writeInk(app.ana, ana, { family: WOOD, acts, place: { surface: 'pen', x: 40, y: 10, scale: 16 } });

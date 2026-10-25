@@ -136,7 +136,8 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
     for (const it of surface.items ?? []) {
       const l = byId.get(it.ink);
       if (!l?.ink || l.ink.use !== 'book') problems.push(`surface ${sid} item ${it.id} points at ${it.ink}, which is not book ink here`);
-      else if (JSON.stringify(l.ink.paper) !== JSON.stringify(surface.family)) problems.push(`surface ${sid} item ${it.id} is not written on that surface's matter`);
+      else if (l.ink.law >= 4 ? l.ink.matter !== surface.matter : JSON.stringify(l.ink.paper) !== JSON.stringify(surface.family))
+        problems.push(`surface ${sid} item ${it.id} is not written on that surface's matter`);
     }
   }
   if (head.signature) {

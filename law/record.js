@@ -13,6 +13,7 @@
 
 import { sha256 } from '@noble/hashes/sha2.js';
 import { checkFamily } from './v1/paper.js';
+import { MATTER } from './matter.js';
 import { lawOf, CURRENT, ACCEPTED } from './laws.js';
 import {
   sheetSeed,
@@ -109,6 +110,7 @@ export function sealSettled({ sk, pk, sheet, use, family, acts, seed, box, facts
   };
   if (name !== undefined) body.name = name;
   if (proof !== undefined) body.proof = proof;
+  if (law >= 4 && family.matter && family.matter !== 'paper') body.matter = family.matter; // what it was written on (one-matter.md)
   const D = recordDigest(body);
   return { line: { ink: body, seal: b64url(sealOf(sk, D)) }, D };
 }
@@ -139,7 +141,9 @@ const b64Len = (s, n) => {
 
 // Returns { acts (bytes), rec (decoded acts) } for a well-formed ink body, or throws.
 export function checkInkBody(body, { maxActsBytes = 1 << 20 } = {}) {
-  if (!keysExactly(body, ['v', 'kind', 'law', 'use', 'sheet', 'key', 'paper', 'acts', 'box', 'commit', 'facts'], ['name', 'proof'])) throw bad('bad_record', 'unexpected or missing fields');
+  if (!keysExactly(body, ['v', 'kind', 'law', 'use', 'sheet', 'key', 'paper', 'acts', 'box', 'commit', 'facts'], ['name', 'proof', 'matter'])) throw bad('bad_record', 'unexpected or missing fields');
+  if (body.matter !== undefined && (body.law < 4 || body.matter === 'paper' || !MATTER[body.matter]?.ink))
+    throw bad('bad_record', 'a record written on something else than paper says so under law 4, on matter that takes ink');
   if (body.v !== 2 || body.kind !== 'ink') throw bad('bad_record', 'not an ink record');
   if (!LAWS_ACCEPTED.includes(body.law)) throw bad('law_unknown', 'this law version is not accepted');
   if (!USES.includes(body.use)) throw bad('bad_record', 'bad use');
@@ -209,9 +213,12 @@ export function verifyOpenFor(body, D, open) {
   return seed;
 }
 
+// What a record was written on, as growing takes it: its paper's family, and (law 4) its matter.
+export const familyOf = (body) => (body.matter ? { ...body.paper, matter: body.matter } : body.paper);
+
 // Regrow the ink from the seed and compare with what the record sealed.
 export function regrow(body, seed) {
-  const s = settle(fromB64url(body.acts), seed, body.paper, 64, body.law);
+  const s = settle(fromB64url(body.acts), seed, familyOf(body), 64, body.law);
   const ok = b64url(s.facts) === body.facts && JSON.stringify(s.box) === JSON.stringify(body.box);
   return { ok, settled: s };
 }

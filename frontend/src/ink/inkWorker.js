@@ -30,7 +30,7 @@ const SIDE_PX = 3;
 function growBody(body, seed, scale = 64) {
   const L = lawOf(body.law);
   const acts = fromB64url(body.acts);
-  const res = L.grow(L.decodeCanonical(acts), { paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: body.paper, scale });
+  const res = L.grow(L.decodeCanonical(acts), { paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: R.familyOf(body), scale });
   const cells = L.settledCells(res.tiles);
   return { L, cells, box: L.boxOf(cells) };
 }
@@ -129,7 +129,7 @@ onmessage = ({ data: m }) => {
       const L = lawOf(m.body.law);
       if (!L.momentsOf) throw new Error('ink written before depth (law 1) has no moments to show');
       const rec = L.decodeCanonical(fromB64url(m.body.acts));
-      const mo = L.momentsOf(rec, { paperKey: K.paperKeyOf(fromB64url(m.seed, 64)), family: m.body.paper }, m.body.box);
+      const mo = L.momentsOf(rec, { paperKey: K.paperKeyOf(fromB64url(m.seed, 64)), family: R.familyOf(m.body) }, m.body.box);
       postMessage({ type: 'moments', id: m.id, box: mo.box, at: mo.at }, [mo.at.buffer]);
     } else if (m.type === 'liveMoments') {
       // show the moments of the sheet being written (yours, on its own paper), as written so far
@@ -147,7 +147,7 @@ onmessage = ({ data: m }) => {
     } else if (m.type === 'trace') {
       const L = lawOf(m.body.law);
       const rec = L.decodeCanonical(fromB64url(m.body.acts));
-      postMessage({ type: 'traced', id: m.id, trace: L.trace(rec, { paperKey: K.paperKeyOf(fromB64url(m.seed, 64)), family: m.body.paper }, m.cell) });
+      postMessage({ type: 'traced', id: m.id, trace: L.trace(rec, { paperKey: K.paperKeyOf(fromB64url(m.seed, 64)), family: R.familyOf(m.body) }, m.cell) });
     } else if (m.type === 'stop') {
       plays.delete(m.id);
     }

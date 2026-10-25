@@ -889,7 +889,14 @@ const SceneView = forwardRef(function SceneView(
         return;
       }
       if (can) {
-        // the pen down on the desk: it writes from where it reaches the page
+        // the pen down on the desk: it writes on the table (its own wood: one-matter.md), and carries
+        // on onto the page where it reaches it; with no table to write on, from where it reaches the page
+        const desk = wallWriter ? surfaceAt(e, 'table') : null;
+        if (desk) {
+          S.drag = { kind: 'wall', surface: 'table', last: desk.p, type: e.pointerType };
+          wallWriter.down('table', desk.p, e.nativeEvent, e.pointerType);
+          return;
+        }
         S.drag = { kind: 'pen-off', type: e.pointerType };
         return;
       }
@@ -932,6 +939,16 @@ const SceneView = forwardRef(function SceneView(
     } else if (d.kind === 'wall') {
       const evs = e.nativeEvent.getCoalescedEvents?.() ?? [];
       for (const ev of evs.length ? evs : [e.nativeEvent]) {
+        const onto = d.surface === 'table' && writer && !S.pose ? pageOf(ev) : null;
+        if (onPage(onto)) {
+          // across the table onto the page: the line goes on, in the paper now
+          wallWriter.up(d.last, ev);
+          writer.penDown?.(S.shown ?? S.cam);
+          S.drag = { kind: 'write', last: onto, type: d.type };
+          writer.down(onto, ev, d.type);
+          penAt(onto, ev);
+          break;
+        }
         const at = surfaceAt(ev, d.surface);
         if (!at) {
           // off the surface (or too grazing): the stroke ends there
@@ -968,9 +985,12 @@ const SceneView = forwardRef(function SceneView(
       for (const ev of evs.length ? evs : [e.nativeEvent]) {
         const p = pageOf(ev);
         if (!onPage(p)) {
-          // off the page: the stroke ends at its edge
+          // off the page's edge: the line goes on onto the table, where the wood drinks it by its own
+          // row (one-matter.md Phase 3); with no table to write on, the stroke ends at the edge
           writer.up(d.last, ev);
-          S.drag = null;
+          const desk = wallWriter ? surfaceAt(ev, 'table') : null;
+          S.drag = desk ? { kind: 'wall', surface: 'table', last: desk.p, type: d.type ?? e.pointerType } : null;
+          if (desk) wallWriter.down('table', desk.p, ev, d.type ?? e.pointerType);
           break;
         }
         writer.move(p, ev);
