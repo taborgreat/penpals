@@ -6,6 +6,7 @@
 //   record    sealed records: making, checking, verifying, regrowing
 //   verify    .book and proof verification (server, BookViewer, CLI)
 //   unlock    the password backup: OPRF + argon2id + the keyring
+//   world     where every house stands: its acts, sealed, regrown from the world's chain
 export * as v1 from './v1/index.js';
 export * as v2 from './v2/index.js';
 export * as laws from './laws.js';
@@ -21,5 +22,6 @@ export * as string from './string.js';
 export * as wax from './wax.js';
 export * as room from './room.js';
 export * as candle from './candle.js';
+export * as world from './world.js';
 export { T, jcs, b64url, fromB64url, hex, fromHex, concat } from './tags.js';
 export const LAW = Object.freeze({ current: 2, accept: Object.freeze([1, 2]) });

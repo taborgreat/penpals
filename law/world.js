@@ -1,34 +1,34 @@
-// The houses in the world (one-world.md, "Spawned matter"): pure, so anyone
-// can regrow them from the world's chain and get the same places. (It belongs
-// in the law next to being.js and shared.js, with every other message the key
-// signs; it is here until that move.)
+// The houses in the world (one-world.md, "Spawned matter"). Pure, so anyone can
+// regrow them from the world's chain and get the same places: the stamper
+// (backend store/world.js), every client, and a verifier.
 //
-// The outside is one shared space; plot [0, 0] is the starting area, and the
-// plots around it are handed out ring by ring, each ring counterclockwise from
-// due +x. Each house stands on one plot, PLOT_M apart (world metres).
+// The outside is one shared space; plot [0, 0] is the starting area, no one's.
+// The plots around it are handed out ring by ring, each ring counterclockwise
+// from due +x. Each house stands on one plot, PLOT_M apart (world metres).
 //
-// Acts, each signed by its owner's key, k its count of acts (0, 1, ...: an old
+// Acts, each sealed by its owner's key, k its count of acts (0, 1, ...: an old
 // act cannot be played again):
 //   { v: 1, kind: 'house', key, k: 0 }               a house with a table, on the next free plot
 //   { v: 1, kind: 'move', key, k, plot: [i, j] }     the owner's house onto another free plot
-// D = SHA-256(T("world") ‖ JCS(act)), sealed as any record is: sign(sk, T("seal") ‖ D).
+// D = sha256(T("world") ‖ JCS(act)), sealed as any record is: sign(sk, T("seal") ‖ D).
 // A stamped line: { n, at, act, seal } (n its place in the chain, from 1).
 
-import { keys as K, T, jcs, concat, fromB64url } from 'penpals-law';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { T, jcs, utf8, concat, b64url, fromB64url } from './tags.js';
+import { sealOf, verifySeal, isGoodPublicKey } from './keys.js';
 
 export const V = 1;
-export const PLOT_M = 12; // metres between plots (Tabor's to set)
+export const PLOT_M = 12; // metres between plots (one-world.md: how far apart, NEEDS RULING)
 export const MAX_RING = 1000; // the farthest ring a house may stand on
 export const START = Object.freeze([0, 0]);
 
-const enc = new TextEncoder();
-export async function worldDigest(act) {
-  return new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', concat(T('world'), enc.encode(jcs(act)))));
-}
+export const worldDigest = (act) => sha256(concat(T('world'), utf8(jcs(act))));
 
 // --- the plots ---
 export const ringOf = ([i, j]) => Math.max(Math.abs(i), Math.abs(j));
-const turn = ([i, j]) => (Math.atan2(j, i) + 2 * Math.PI) % (2 * Math.PI);
+// Counterclockwise from due +x, exactly (integers: the half the point is in, then which side of the other it lies).
+const upper = ([i, j]) => j > 0 || (j === 0 && i > 0);
+const before = (a, b) => (upper(a) !== upper(b) ? (upper(a) ? -1 : 1) : -Math.sign(a[0] * b[1] - a[1] * b[0]));
 const ringPlots = new Map();
 // The plots of ring r, in the order they are handed out.
 export function ring(r) {
@@ -36,7 +36,7 @@ export function ring(r) {
   if (out) return out;
   out = [];
   for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) if (ringOf([i, j]) === r) out.push([i, j]);
-  out.sort((a, b) => turn(a) - turn(b));
+  out.sort(before);
   if (r <= 64) ringPlots.set(r, out);
   return out;
 }
@@ -52,9 +52,9 @@ export function nextFree(state) {
 
 // --- the acts ---
 const fields = (o, list) => Object.keys(o).sort().join() === list;
-const b64key = (s) => {
+const goodKey = (s) => {
   try {
-    return K.isGoodPublicKey(fromB64url(s, 32));
+    return isGoodPublicKey(fromB64url(s, 32));
   } catch {
     return false;
   }
@@ -62,17 +62,26 @@ const b64key = (s) => {
 // Its shape, or why not.
 export function shapeOf(act) {
   if (!act || typeof act !== 'object' || act.v !== V) return 'not a world act';
-  if (!b64key(act.key)) return 'not a key';
+  if (!goodKey(act.key)) return 'not a key';
   if (act.kind === 'house') return fields(act, 'k,key,kind,v') && act.k === 0 ? null : 'a malformed house act';
   if (act.kind === 'move') return fields(act, 'k,key,kind,plot,v') && Number.isInteger(act.k) && act.k >= 1 && isPlot(act.plot) ? null : 'a malformed move';
   return 'not a world act';
 }
-export async function sealed(act, seal) {
+export function sealed(act, seal) {
   try {
-    return K.verifySeal(fromB64url(act.key, 32), await worldDigest(act), fromB64url(seal, 64));
+    return verifySeal(fromB64url(act.key, 32), worldDigest(act), fromB64url(seal, 64));
   } catch {
     return false;
   }
+}
+
+// Made and sealed on the device (key: the public key, b64url, as everything carries it).
+export const houseAct = (key) => ({ v: V, kind: 'house', key, k: 0 });
+export const moveAct = (key, house, plot) => ({ v: V, kind: 'move', key, k: house.k + 1, plot: [...plot] });
+export function sealWorldAct(sk, act) {
+  const bad = shapeOf(act);
+  if (bad) throw new Error(`that is ${bad}`);
+  return { act, seal: b64url(sealOf(sk, worldDigest(act))) };
 }
 
 // --- the houses, grown from the acts in order ---
@@ -105,10 +114,11 @@ export function apply(state, act, n) {
   return state;
 }
 
-// The houses of a chain: every line in order, as the stamper took them (a line
-// that could not have landed is passed over, as the stamper would have).
-export function grow(lines) {
+// The houses of a chain: every line in order, as the stamper took them. A line that could not have
+// landed (its shape, its order, its plot) is passed over, as the stamper would have; with `seals`,
+// one whose seal is not its key's is too (a verifier regrowing from someone else's copy).
+export function grow(lines, { seals = false } = {}) {
   const s = start();
-  for (const l of lines) if (!check(s, l.act)) apply(s, l.act, l.n);
+  for (const l of lines) if (!check(s, l.act) && (!seals || sealed(l.act, l.seal))) apply(s, l.act, l.n);
   return s;
 }

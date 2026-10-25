@@ -1,13 +1,13 @@
 // The world's chain (one-world.md): data/world.chain, one line per act that
 // placed or moved a house, stamped here in arrival order:
 //   { n, at, act, seal }
-// The houses are regrown from it on every start (world.js grow), so nothing
+// The houses are regrown from it on every start (law/world.js grow), so nothing
 // else is ever the only record of where a house stands.
 
 import path from 'node:path';
 import { config } from '../config.js';
 import { appendLine, readLines, serial, httpError } from '../files.js';
-import * as W from '../world.js';
+import { world as W } from 'penpals-law';
 
 export const worldFile = () => path.join(config.dataDir, 'world.chain');
 let lines = [];
@@ -24,7 +24,7 @@ export function stampWorld(act, seal) {
   return serial('world', async () => {
     const bad = W.shapeOf(act);
     if (bad) throw httpError(400, 'bad_world', `That is ${bad}.`);
-    if (!(await W.sealed(act, seal))) throw httpError(401, 'bad_seal', 'That act is not sealed by its key.');
+    if (!W.sealed(act, seal)) throw httpError(401, 'bad_seal', 'That act is not sealed by its key.');
     const why = W.check(state, act);
     if (why) throw httpError(409, 'world_refused', `Not done: ${why}.`);
     const line = { n: lines.length + 1, at: new Date().toISOString(), act, seal };

@@ -8,6 +8,7 @@
 //   seal     sign(sk, T("seal") ‖ D)                         the record is the key holder's
 //   by       sign(sk, T("open") ‖ D ‖ sheet)                 the key holder chose to publish this sheet's seed
 //   auth     sign(sk, T("auth") ‖ purpose ‖ origin ‖ nonce ‖ username)
+//   world    sign(sk, T("seal") ‖ sha256(T("world") ‖ JCS(act)))  a house placed or moved (world.js)
 //
 // Every message starts with its own tag T(p) = "penpals/<p>/v1\0", so no
 // signature made for one purpose can ever be taken for another. Verification

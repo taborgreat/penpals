@@ -2,13 +2,12 @@
 // drops a house with a table on the next free plot around the start, by an act
 // signed with the new key; the places come from the house acts in chain order,
 // the same for every viewer; a house moves to another free plot with one act.
-// The acts are made exactly as the frontend makes them (frontend/src/room/world.js).
+// The acts are made as every device makes them (law/world.js).
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, client } from './helpers.js';
 import { person, register, b64url } from './device.js';
-import { sealWorld, houseAct, moveAct } from '../../frontend/src/room/world.js';
-import * as W from '../src/world.js';
+import { world as W } from 'penpals-law';
 
 let app;
 const ana = person(61, 'ana');
@@ -16,6 +15,9 @@ const bo = person(62, 'bo');
 const cy = person(63, 'cy');
 const dee = person(64, 'dee');
 const keyOf = (p) => ({ sk: p.sk, publicKey: b64url(p.pk) });
+const sealWorld = (key, act) => W.sealWorldAct(key.sk, act);
+const houseAct = (key) => W.houseAct(key.publicKey);
+const moveAct = (key, house, plot) => W.moveAct(key.publicKey, house, plot);
 const world = (c) => c.get('/api/world').then((r) => r.data);
 const placeOf = (w, p) => w.houses.find((h) => h.key === b64url(p.pk))?.plot ?? null;
 
@@ -24,7 +26,7 @@ async function join(p) {
   app.resetLimits();
   const r = await register(app[p.username], p);
   assert.equal(r.status, 201, JSON.stringify(r.data));
-  const placed = await app[p.username].post('/api/world/acts', await sealWorld(keyOf(p), houseAct(keyOf(p))));
+  const placed = await app[p.username].post('/api/world/acts', sealWorld(keyOf(p), houseAct(keyOf(p))));
   assert.equal(placed.status, 201, JSON.stringify(placed.data));
   return placed.data.line;
 }
