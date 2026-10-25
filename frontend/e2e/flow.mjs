@@ -385,12 +385,37 @@ try {
 
   step('the scroll is the eye’s zoom: the eye goes in and back, the body and its motion acts stay');
   await page.waitForTimeout(1200); // (the last coarse motion acts sent)
-  let motions = 0;
+  let motions = 0,
+    told = 0,
+    measuring = false;
   const count = (r) => {
-    if (r.url().includes('/motion')) motions++;
+    if (r.url().includes('/motion') && !measuring) motions++; // (the measure below turns the head: its own acts)
+    if (/zoom/i.test(r.url() + (r.postData() ?? ''))) told++;
+  };
+  // what a frame costs where the eye is: the head turned a little at a time, a frame each
+  const frameMs = async () => {
+    measuring = true;
+    const ms = await page.evaluate(async () => {
+      const s = globalThis.__sceneStats,
+        L = globalThis.__sceneLook,
+        p = L.pose();
+      const r = Math.PI / 180;
+      const f0 = s.frames,
+        m0 = s.renderMs;
+      for (let k = 1; k <= 15; k++) {
+        const yaw = (p.yaw + k * 0.02) * r;
+        L.aim([p.pos[0] + Math.sin(yaw) * 2, p.pos[1] + Math.cos(yaw) * 2, p.pos[2] + Math.sin(p.pitch * r) * 2]);
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      }
+      return (s.renderMs - m0) / Math.max(1, s.frames - f0);
+    });
+    await page.waitForTimeout(1200); // (its motion acts gone out)
+    measuring = false;
+    return ms;
   };
   page.on('request', count);
-  const body = JSON.stringify(await pose());
+  const bodyOf = (p) => JSON.stringify({ pos: p.pos, mode: p.mode, size: p.size }); // (where the body is: the checks turn the head)
+  const body = bodyOf(await pose());
   await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
   const shot = async () => onScreen(page, '.journal-scene', (d) => Array.from(d.subarray(0, d.length).filter((_, i) => i % 97 === 0)));
   const far = await shot();
@@ -400,13 +425,18 @@ try {
   }
   await page.waitForTimeout(800);
   const near = await shot();
+  const nearMs = await frameMs();
   for (let i = 0; i < 30; i++) {
     await page.mouse.wheel(0, 120);
     await page.waitForTimeout(20);
   }
   await page.waitForTimeout(1200);
+  const farMs = await frameMs();
   page.off('request', count);
-  if (JSON.stringify(await pose()) !== body) throw new Error('the zoom moved the body');
+  if (told) throw new Error('the zoom went out in a request');
+  if (nearMs > 3 * farMs + 4) throw new Error(`a frame close in cost ${nearMs.toFixed(1)} ms, pulled back ${farMs.toFixed(1)} ms`);
+  console.log(`   a frame close in ${nearMs.toFixed(1)} ms, pulled back ${farMs.toFixed(1)} ms; the zoom in no request`);
+  if (bodyOf(await pose()) !== body) throw new Error('the zoom moved the body');
   if (motions) throw new Error(`the zoom sent ${motions} motion act(s)`);
   const moved = near.filter((v, i) => Math.abs(v - far[i]) > 30).length / near.length;
   if (moved < 0.05) throw new Error(`the zoom did not change the view (${(moved * 100).toFixed(1)}%)`);
@@ -443,6 +473,7 @@ try {
       .join('\n'),
   );
   if (verified.status !== 0) throw new Error('the downloaded book does not check');
+  if (/zoom/i.test(fs.readFileSync(file, 'utf8'))) throw new Error('the zoom is in the .book'); // (never recorded: outside.md §3.6)
   await panel(page, 'The book, open in your hands').getByRole('button', { name: 'Put it back' }).click();
 
   step('back to the chair: E sits you down');
