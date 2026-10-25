@@ -1,2 +1,2 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Auto detect text files; LF in the repo and in every checkout (no CRLF, whatever core.autocrlf says)
+* text=auto eol=lf

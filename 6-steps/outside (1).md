@@ -4,7 +4,7 @@ Layer 4 of 5. For an agent, after rooms.md is green. world.md comes after this o
 
 This doc has three parts, and the third ties them together:
 1. **The laws of the universe in this world:** circles, swings, levers and wrapping come out of the law; nothing is coded as a shape.
-2. **The outside and the hands:** ground, stones and trees grown from the key; picking things up, breaking branches, carving sticks. Just that for now.
+2. **The outside and the hands:** ground, stones and trees grown from the world's seed; picking things up, breaking branches, carving sticks. Just that for now.
 3. **The point of attention:** the whole interface is a few keys and a mouse, with no menus, plus the scroll that sends the eye down to a spot without moving the body.
 
 ## The whole picture (same block in all the docs)
@@ -82,18 +82,18 @@ Listed so the law is built to allow them, not to build them now:
 
 ## Part 2: the outside and the hands
 
-### 2.1 The outside is grown from the key
+### 2.1 The outside is grown from the world's seed
 
-Like the room (light-waves §4) and the paper, the outside is grown on the fly from the room's key, at the paper's one grain. Nothing about it is stored except what has been done to it.
+Like the room (light-waves §4) and the paper, the outside is grown on the fly, from the world's public seed, at the paper's one grain. Nothing about it is stored except what has been done to it.
 - **Dirt:** the ground. Walkable; things let go of land on it.
 - **Stones:** loose, of different sizes and hardness. Small ones can be picked up.
-- **Trees:** trunk, branches, bark, leaves. Grown from the key, so no two trees are the same.
+- **Trees:** trunk, branches, bark, leaves. Grown from the seed, so no two trees are the same.
 
 Only what the senses reach is grown (the primitives' sense ranges). A tree out of view is not drawn; a branch broken off it stays broken because the break is a fact on the chain.
 
 ### 2.2 The outside is spaces too, and doors decide what loads
 
-- **Every scene is a space.** The room is a space; the outside is a space (or several, nesting like any other spaces). They all belong to the one being whose key grew them, the same way the room and its surfaces do (rooms.md §1).
+- **Every scene is a space.** Each house is its owner's space, grown from their key (rooms.md §1). The outside is one shared space grown from the world's public seed, with the houses standing in it (one-world.md).
 - **The house opens to it** through its door and its window (rooms.md §3 doors). Walk out with WASD.
 - **Door principles apply:** a closed door or window is a wall. With both closed, the outside is not loaded or drawn at all, because that is how it is: nothing outside reaches any sense. It also keeps a slow PC fast.
 - **Open either one** and the outside beyond it loads, only as far as the senses reach through the opening.
@@ -187,7 +187,7 @@ Each phase ends usable and tested, and builds only on phases before it.
 1. **The keys and the mouse:** WASD, jump, fly, Shift, the mouse on the head, the mouse on the pen at a sheet. **Test:** walk, jump and land; fly and lower; sit and write without touching anything else; others see the same body move.
 2. **The zoom:** scroll toward the cursor, body fixed, depth at every distance, writing while zoomed. **Test:** scroll from the room to a single bead and back in a handful of steps; the body's motion acts do not change while scrolling; a frame at deep zoom costs about the same as one pulled back; zoom depth appears in no request and no `.book`.
 3. **The free-drop test and the string:** direction fairness in the ink law; a weight on a string swings and settles. **Test:** §1.3.
-4. **The outside:** dirt, stones and trees grown from the key on the fly, as spaces of the same being; the door and window open to it. **Test:** the same key grows the same trees for everyone; with door and window closed nothing outside loads and the candles light; opening either loads only what is seen through it; leaving and returning shows the same ground.
+4. **The outside:** dirt, stones and trees grown on the fly from the world's seed, one shared space with the houses in it; the door and window open to it. **Test:** the same seed grows the same trees for everyone; with door and window closed nothing outside loads and the candles light; opening either loads only what is seen through it; leaving and returning shows the same ground.
 5. **The hands:** pick up, let go, break a branch, carve a stick, carve into a tree. **Test:** a broken branch stays broken for everyone and after return; carving with a soft stone on hard wood removes nothing; the same carving acts regrow the same stick on every machine.
 6. **Outside meets the house:** dip a carved stick in the jar, press an inked leaf with a stone, press bark into warm wax. **Test:** each leaves a mark that regrows exactly; the jar never runs out.
 

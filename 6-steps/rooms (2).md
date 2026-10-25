@@ -186,16 +186,9 @@ Red and blue mix to purple; the red writer lifts their stroke; it goes back to b
 Solo drafts keep today's undo: a full rewind from the snapshot, since no one else's ink is involved.
 - **When the last person leaves,** the room settles (wet ink dries out in recorded time) and sleeps.
 
-## 7. Joining spaces
+## 7. Joining spaces (replaced)
 
-Like pushing two toy cube rooms together:
-- **Attach:** two owners each sign a join act; one room attaches to the other along a wall.
-- **The opening:** wall down (one open space, loaded together) or a door (the wall stays, which protects decorated walls; the other room loads when you step through). Each owner chooses their side and can change it.
-- **Furniture moves across:** your table is your matter. Move it into the joined space (a move act) and set it anywhere. Wherever your table is, you can write on it and on any sheet lying on it.
-- **Unjoin:** either owner separates the rooms (an act).
-- **Nothing gets stranded.** The unjoin act itself places every piece of matter back in its owner's space: no separate move, no one else's signature. Reading the chain after an unjoin, your table is home and every sheet is on its owner's table.
-- **Light across a join:** at join time, compute the form factors between the two rooms through the opening once, in a worker, and solve the bounce over both rooms together. A door passes light only while open.
-- **Rendering:** room B is placed at the shared wall with a transform, its surfaces still grown from its owner's key. Only the opening is new geometry.
+Replaced by one-world.md: houses stand near each other in one shared outside and people walk to each other's houses. There are no join acts.
 
 ## 8. Load by the senses
 
