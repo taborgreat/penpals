@@ -186,3 +186,41 @@ test('beings: entering, moving coarsely (the neck law applied), leaving; an empt
   );
   assert.ok(!JSON.stringify(lines).includes('pupil') && !JSON.stringify(lines).includes('adaptation'));
 });
+
+test("seals: the owner presses bo's seal (his signature's face) into warm wax and bo writes while it lies on her table; another face is refused; broken, he is refused", async () => {
+  const sheet = K.newSheetId();
+  assert.equal((await ana.c.post('/api/shared', SH.makeSharedSheet({ sk: ana.sk, pk: ana.pk, sheet, family: FAMILY }))).status, 201);
+  const sealed = await ana.c.get('/api/signatures/bo/seal');
+  assert.equal(sealed.status, 200, JSON.stringify(sealed.data));
+  assert.equal(sealed.data.key, b64url(bo.pk));
+  assert.ok(sealed.data.w <= 32 && sealed.data.h <= 32);
+  assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 403);
+  // a pool of hot wax, then the stamper set to bo, pressed while it is warm
+  for (const [dx, dy] of [
+    [0, 0],
+    [120, 0],
+    [-120, 0],
+    [0, 120],
+    [0, -120],
+    [90, 90],
+    [-90, -90],
+    [90, -90],
+    [-90, 90],
+  ])
+    assert.equal((await post(ana, sheet, act(ana, sheet, 'drip', { drip: { x: 2000 + dx, y: 2000 + dy, amt: 400000, heat: 220 } }))).status, 201);
+  const press = { x: 2000, y: 2000, depth: 220, angle: 0, tiltX: 0, tiltY: 0, cell: 2, w: sealed.data.w, h: sealed.data.h, face: sealed.data.face, for: b64url(bo.pk) };
+  const wrong = await post(ana, sheet, act(ana, sheet, 'press', { press: { ...press, face: b64url(new Uint8Array(sealed.data.w * sealed.data.h).fill(255)) } }));
+  assert.equal(wrong.status, 400, 'a face that is not his');
+  assert.match(JSON.stringify(wrong.data), /not their seal/);
+  const pressed = await post(ana, sheet, act(ana, sheet, 'press', { press }));
+  assert.equal(pressed.status, 201, JSON.stringify(pressed.data));
+  const wrote = await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }));
+  assert.equal(wrote.status, 201, 'his seal took: he writes on her sheet on her table');
+  assert.equal((await post(cy, sheet, act(cy, sheet, 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 403, 'no seal of hers');
+  const broke = await post(ana, sheet, act(ana, sheet, 'break', { broke: { seal: pressed.data.line.n, from: [1850, 1900], to: [2150, 2100] } }));
+  assert.equal(broke.status, 201);
+  assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(40, [30, 40, 200]) }))).status, 403, 'broken: refused');
+  // the whole of it in her .book verifies offline: the press took, the break, the refusals
+  const v = verifyBook(Buffer.from((await ana.c.get('/api/books/ana/download')).data).toString('utf8'));
+  assert.equal(v.ok, true, JSON.stringify(v.problems));
+});

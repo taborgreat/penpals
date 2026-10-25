@@ -27,6 +27,16 @@
 //      receiver's front to hold it); evaporation takes from the top first. No
 //      water is drunk: soaking in is the front advancing.
 //
+//
+// Law 3 (rooms.md §3b, §3c, §5; the same rules, with what only law-3 records carry):
+//   9. the nib's reservoir: a dipped pen's supply is scaled by what is left in it,
+//      and drawn down by what it puts on the paper; a dip fills it again
+//  10. wax: drips land at their moment and sit on top (their height is in the
+//      surface the ink flows over, so ink runs off them to the paper around);
+//      under wax the paper is sealed (no water enters its fibers) and ink landing
+//      on it beads off the nib. A press dents soft wax with the stamper's face; a
+//      break cracks it. Law-2 records have neither, so nothing here runs for them.
+//
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry) or under the nib (stamp).
 // Each 10 ms tick: the deposits that fall in it, flow, then on dry ticks mix →
@@ -108,6 +118,18 @@ import {
   WEAR_STILL,
   OX_BASE,
   AGE_CAP_H,
+  WELL_UNIT,
+  WAX_MAX,
+  WAX_R_MAX,
+  WAX_SPREAD,
+  WAX_SEAL,
+  WAX_BEAD,
+  WAX_SOFT_MS,
+  WAX_SOFT_HEAT,
+  SEAL_RAISED,
+  SEAL_DENT,
+  SEAL_TOOK,
+  WAX_CRACK,
 } from './constants.js';
 import { ABS_Q, PRESS, PRESS_SHAPE, FLOW_Q, COSSIN_Q14 } from '../v1/tables.js';
 import { DENT_Q, WEAR_Q, COCKLE, OX, AIR } from './tables.js';
@@ -184,6 +206,7 @@ class Tile {
     this.dWp = new Int32Array(TT); // water arriving through the pores this tick (it lifts the front)
     this.adv = new Int32Array(TT); // the front a dry step moves to (scratch)
     this.filmA = new Int32Array(TT); // ink that dried on top (the ring and the last of a bead): the film above it
+    this.wax = null; // wax (law 3: allocated when wax first lands on this tile)
     this.G = null; // oak gall, wet (allocated when gall first reaches this tile)
     this.FG = null; // oak gall, fixed
     this.dG = null;
@@ -194,6 +217,18 @@ class Tile {
     this.journal = null;
   }
 }
+
+// Wax on a tile (law 3): how much, when it last landed (tick), how hot, a press's dent, cracks.
+function waxOn(t) {
+  if (!t.wax) {
+    t.wax = new Uint16Array(TT);
+    t.waxT = new Int32Array(TT);
+    t.waxHeat = new Uint8Array(TT);
+    t.waxDent = new Uint8Array(TT);
+    t.waxF = new Uint8Array(TT);
+  }
+}
+const sealed = (t, i) => t.wax !== undefined && t.wax !== null && t.wax[i] >= WAX_SEAL;
 
 function gallOn(t) {
   if (!t.G) {
@@ -214,7 +249,7 @@ function frontFor(t, i, w) {
   const d = w - dentL(t, i) * DENT_CAP;
   return d <= 0 ? 0 : Math.min(DEPTH_TOP, ceilDiv(d * DEPTH_TOP, t.cap[i]));
 }
-const zE = (t, i) => t.z[i] - dentL(t, i) * DENT_Z + t.cockle[i] - t.rim[i] * RIM_Z;
+const zE = (t, i) => t.z[i] - dentL(t, i) * DENT_Z + t.cockle[i] - t.rim[i] * RIM_Z + (t.wax ? t.wax[i] - t.waxDent[i] : 0);
 const washed = (t, i) => Math.min(SOAK_FULL, t.soakA[i] >> 8);
 const thirstE = (t, i) => clamp(t.siz[i] + floorDiv(washed(t, i) * SOAK_THIRST - dentL(t, i) * DENT_THIRST, 256), 0, 15);
 
@@ -233,7 +268,8 @@ function hasFacts(t) {
       t.flags[i] ||
       t.cockle[i] ||
       (t.FG && t.FG[i]) ||
-      t.filmA[i] >> FILM_SHIFT
+      t.filmA[i] >> FILM_SHIFT ||
+      (t.wax && t.wax[i])
     )
       return true;
   }
@@ -419,6 +455,8 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     abs1 = 0,
     abs2 = 0;
   let carry = 0;
+  let well = 0; // what is left in a dipped nib's reservoir (law 3), of wellCap
+  let wellCap = 0; // 0: not a dip pen (it never runs dry)
   const sc = (v) => floorDiv(v * scale, SCALE_ONE);
 
   function setPen(p) {
@@ -551,7 +589,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           continue;
         }
       }
-      const room = W_SAT - t.W[i];
+      const room = (sealed(t, i) ? W_SAT >> WAX_BEAD : W_SAT) - t.W[i]; // wax holds only a skin of ink: the rest beads off
       if (room <= 0) continue;
       const g = Math.min(floorDiv(amt * ink[k], sumI), room);
       if (g <= 0) continue;
@@ -636,7 +674,9 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     const et = getTile(floorDiv(ex, TILE), floorDiv(ey, TILE));
     const fill = Math.min(256, floorDiv(et.W[(ey - et.ty * TILE) * TILE + (ex - et.tx * TILE)] * 256, W_SAT));
     const fed = dwellMs > DWELL_MS ? 0 : floorDiv(floorDiv(feed, 256) * FEED_Q, 256) * (256 - fill);
-    const total = pen.flow === 0 ? 0 : floorDiv(wipe + fed, DEPOSIT_D16) + carry;
+    const supply = pen.flow === 0 ? 0 : floorDiv(wipe + fed, DEPOSIT_D16) + carry;
+    // a dipped nib gives as much as it still holds allows: its line fades as it empties
+    const total = wellCap ? Math.min(well, ceilDiv(supply * well, wellCap)) : supply;
     const n = sx.length;
     let left = 0;
     for (let m = 1; m <= n; m++) {
@@ -646,6 +686,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       put.nib += amt - l;
       left += l;
     }
+    if (wellCap) well -= total - left; // what went onto the paper left the reservoir
     carry = pen.flow === 0 ? 0 : Math.min(left, floorDiv(FLOW_Q[pen.flow] * widthAt(end[5]) * 256 * CARRY_MS * scale, DEPOSIT_D));
     // what the pen threw in this tick lands after the nib's ink
     if (b.drops) {
@@ -925,7 +966,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         // nor more than FRONT_STEP ahead of its deepest side neighbour (one wet front, no spikes)
         adv[i] = -1;
         const fr = t.depthA[i];
-        if (fr < DEPTH_TOP && Wi > heldE(t, i)) {
+        if (fr < DEPTH_TOP && Wi > heldE(t, i) && !sealed(t, i)) {
           let th = 4 * thirstE(t, i);
           let wa = 4 * Wi;
           let side = 0;
@@ -960,7 +1001,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         const Wi = W[i];
         if (Wi <= 0) continue;
         if (t.adv[i] > t.depthA[i]) t.depthA[i] = t.adv[i];
-        t.soakA[i] = Math.min(255 << 8, t.soakA[i] + floorDiv(Wi * SOAK_Q, W_SAT));
+        if (!sealed(t, i)) t.soakA[i] = Math.min(255 << 8, t.soakA[i] + floorDiv(Wi * SOAK_Q, W_SAT));
         const e = dW[i];
         dW[i] = 0;
         let w = Wi - Math.min(e, Wi);
@@ -1014,6 +1055,96 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       }
       step(now);
       now++;
+    }
+  }
+
+  // --- law 3: the dip, and the wax ---
+
+  // The pen dipped: its reservoir full (level 1..WELL_MAX).
+  function dip(level) {
+    if (batch) flushTick();
+    wellCap = level * WELL_UNIT;
+    well = wellCap;
+  }
+
+  const seals = []; // each press: whether it took (the design dented into soft wax)
+  const cellOf = (x, y) => [floorDiv(hx(x), HT_PER_CELL), floorDiv(hy(y), HT_PER_CELL)];
+  function cellAt(cx, cy) {
+    const t = getTile(floorDiv(cx, TILE), floorDiv(cy, TILE));
+    if (dirty) dirty.add(t);
+    return [t, (cy - t.ty * TILE) * TILE + (cx - t.tx * TILE)];
+  }
+  const soft = (t, i) => (now - t.waxT[i]) * TICK_MS <= WAX_SOFT_MS + t.waxHeat[i] * WAX_SOFT_HEAT;
+
+  // A mark at its moment (on the record's clock): a drip, a press or a break.
+  function mark(m) {
+    if (batch) flushTick();
+    runUntil(floorDiv(m.t, TICK_MS));
+    const [cx, cy] = cellOf(m.x, m.y);
+    if (m.kind === 'drip') {
+      // a dome of wax, wider the more of it and the more liquid it is
+      const R = clamp(sc(isqrt(floorDiv(m.amt * (128 + m.heat), WAX_SPREAD))), 1, WAX_R_MAX);
+      const cells = [];
+      let sum = 0;
+      for (let dy = -R; dy <= R; dy++)
+        for (let dx = -R; dx <= R; dx++) {
+          const g = R * R - dx * dx - dy * dy;
+          if (g <= 0) continue;
+          cells.push([cx + dx, cy + dy, g]);
+          sum += g;
+        }
+      for (const [x, y, g] of cells) {
+        const [t, i] = cellAt(x, y);
+        if (t.flags[i] & TORN) continue;
+        waxOn(t);
+        t.wax[i] = Math.min(WAX_MAX, t.wax[i] + floorDiv(m.amt * g, sum));
+        t.waxT[i] = now;
+        t.waxHeat[i] = m.heat;
+      }
+    } else if (m.kind === 'press') {
+      // the face, turned to the stamper's angle, each pixel m.cell cells; tilted, one side deeper
+      const cos = COSSIN_Q14[2 * m.angle];
+      const sin = COSSIN_Q14[2 * m.angle + 1];
+      const hw = m.w * m.cell,
+        hh = m.h * m.cell;
+      const R = isqrt(hw * hw + hh * hh) + 1;
+      let design = 0,
+        took = 0;
+      for (let dy = -R; dy <= R; dy++)
+        for (let dx = -R; dx <= R; dx++) {
+          const u = floorDiv(dx * cos + dy * sin, 16384) + (hw >> 1);
+          const v = floorDiv(dy * cos - dx * sin, 16384) + (hh >> 1);
+          if (u < 0 || v < 0 || u >= hw || v >= hh) continue;
+          const fu = floorDiv(u, m.cell),
+            fv = floorDiv(v, m.cell);
+          const relief = m.face[fv * m.w + fu];
+          const lean = 256 + floorDiv(m.tiltX * (2 * fu + 1 - m.w), m.w) + floorDiv(m.tiltY * (2 * fv + 1 - m.h), m.h);
+          const want = floorDiv(relief * m.depth * Math.max(0, lean), 255 * 256);
+          const [t, i] = cellAt(cx + dx, cy + dy);
+          const raised = relief >= SEAL_RAISED;
+          if (raised) design++;
+          if (!t.wax || t.wax[i] < WAX_SEAL || !soft(t, i)) continue; // cold wax, or none, takes no impression
+          const d = Math.min(want, t.wax[i], 255);
+          if (d > t.waxDent[i]) t.waxDent[i] = d;
+          if (raised && t.waxDent[i] >= SEAL_DENT) took++;
+        }
+      seals.push({ t: m.t, took: design > 0 && took * 256 >= SEAL_TOOK * design, design, dented: took });
+    } else {
+      // a crack across the wax, from (x, y) to (x1, y1)
+      const [ex, ey] = cellOf(m.x1, m.y1);
+      const n = Math.max(Math.abs(ex - cx), Math.abs(ey - cy), 1);
+      for (let k = 0; k <= n; k++) {
+        const x = cx + floorDiv((ex - cx) * k, n),
+          y = cy + floorDiv((ey - cy) * k, n);
+        for (const [ox, oy] of [
+          [0, 0],
+          [1, 0],
+          [0, 1],
+        ]) {
+          const [t, i] = cellAt(x + ox, y + oy);
+          if (t.wax && t.wax[i]) t.waxF[i] |= WAX_CRACK;
+        }
+      }
     }
   }
 
@@ -1116,7 +1247,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       }
     }
     if (instrument) instrument.finish(now);
-    return { tiles: [...tiles.values()].filter(hasFacts), ticks: now, work, lost: { ...lost }, splat: { ...splat }, put: { ...put } };
+    return { tiles: [...tiles.values()].filter(hasFacts), ticks: now, work, lost: { ...lost }, splat: { ...splat }, put: { ...put }, seals: [...seals], well };
   }
 
   // --- live (between strokes only) ---
@@ -1202,6 +1333,8 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
 
   return {
     setPen,
+    dip,
+    mark,
     strokeStart,
     act,
     finish,
@@ -1236,24 +1369,36 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   };
 }
 
-// Grow a whole decoded record on a paper. Returns the tiles with facts.
+// Grow a whole decoded record on a paper. Returns the tiles with facts (and, for
+// law 3, each press's seal: whether it took). A record's marks (law 3) land at
+// their moments, between and within its strokes; a pen act that sets `well` is a dip.
 export function grow(rec, { paperKey, family, scale = SCALE_ONE, instrument = null, gallAgeH = 0 }) {
   precheck(rec, scale);
   const sim = createSim({ paperKey, family, scale, orgX: rec.orgX, orgY: rec.orgY, instrument, gallAgeH });
   const timeline = penTimeline(rec);
+  const marks = rec.marks ?? [];
+  let mi = 0;
+  const due = (t) => {
+    while (mi < marks.length && marks[mi].t <= t) sim.mark(marks[mi++]);
+  };
   rec.strokes.forEach((s, si) => {
     const pens = timeline[si];
+    const dipped = new Map(s.pens.filter((a) => a.well !== undefined).map((a) => [a.at, a.well]));
+    const pen = (k) => {
+      sim.setPen(pens[k][1]);
+      if (dipped.has(pens[k][0])) sim.dip(dipped.get(pens[k][0]));
+    };
     let k = 0;
-    sim.setPen(pens[0][1]);
+    due(s.t[0]);
+    pen(0);
     const p = (i) => (s.hasP ? s.p[i] : P_NONE);
     sim.strokeStart(s.x[0], s.y[0], s.t[0], p(0));
     for (let i = 1; i < s.x.length; i++) {
-      while (k + 1 < pens.length && pens[k + 1][0] <= i - 1) {
-        k++;
-        sim.setPen(pens[k][1]);
-      }
+      while (k + 1 < pens.length && pens[k + 1][0] <= i - 1) pen(++k);
+      due(s.t[i] - 1);
       sim.act(s.x[i], s.y[i], s.t[i], p(i));
     }
   });
+  due(Infinity);
   return sim.finish();
 }

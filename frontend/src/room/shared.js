@@ -4,7 +4,9 @@
 // own guess), go to the stamper sealed by your key, and once the sheet grown
 // in the stamper's order has them, that is what shows. An act not stamped
 // within STAMP_MS is withdrawn here, and you are told, so you can write it
-// again. Lift takes back your own stroke (one of your last LIFT_WINDOW).
+// again. Lift takes back your own stroke (one of your last LIFT_WINDOW). Wax
+// (rooms.md §3b, §5): a drip from the tilted candle, the stamper pressed (set to
+// someone's seal), a seal broken: acts like any other, stamped in the one order.
 import { useEffect, useRef, useState } from 'react';
 import { keys as K, shared as SH, fromB64url } from 'penpals-law';
 import { createLiveInk, CELLS } from '../ink/live.js';
@@ -17,6 +19,9 @@ import { api } from '../api.js';
 
 export const SHARED_PAGE = { width: 800, height: 600 }; // page units: a shared sheet
 export const STAMP_MS = 8000; // an act unstamped this long is withdrawn (Tabor's to set)
+export const SEAL_CELL = 2; // paper cells a stamper's face pixel presses: 32 of them about 5 mm (Tabor's to set)
+// A drip from the candle tilted past its pool's lip (Tabor's to set: how fast the pool forms, how far to tilt)
+export const DRIP = { amt: 400000, heat: 220, every: 350 };
 const GAP = 60; // page units between the table's sheets and the page
 
 // Where the i-th shared sheet lies on the table, in the frame of a page `pageW`
@@ -30,7 +35,7 @@ export function slotOf(i, pageW = 1000) {
 // A shared sheet as the scene lays it (SceneView sheets): its whole paper, at its slot.
 export const sceneSheetOf = (sheet, slot) => ({ id: `shared:${sheet}`, box: [0, 0, SHARED_PAGE.width * CELLS, SHARED_PAGE.height * CELLS], origin: slot, cellPx: 1 / CELLS });
 
-// Each shared sheet grown as its acts arrive: sheet → { field, n } (the last place grown).
+// Each shared sheet grown as its acts arrive: sheet → { field, n (the last place grown), facts, seals: [took] }.
 let worker = null;
 let nextId = 1;
 const waiting = new Map();
@@ -59,7 +64,7 @@ export function useSharedFields(sheets) {
       if (asked.current.get(s.sheet) === s.lines.length) continue;
       asked.current.set(s.sheet, s.lines.length);
       grow(s)
-        .then((r) => setFields((m) => (m.get(s.sheet)?.n > r.n ? m : new Map(m).set(s.sheet, { field: r.field, n: r.n, facts: r.facts }))))
+        .then((r) => setFields((m) => (m.get(s.sheet)?.n > r.n ? m : new Map(m).set(s.sheet, { field: r.field, n: r.n, facts: r.facts, seals: r.seals }))))
         .catch((err) => console.warn('[shared sheet]', err.message));
     }
   }, [sheets]);
@@ -119,6 +124,13 @@ export function createSharedWriter({ key, view, color, onNotice = () => {} }) {
   let pending = 0; // strokes sent, not yet stamped
   let down = false;
   const send = (made) => api.post(`/api/shared/${view.sheet}/acts`, made);
+  const tenths = (v) => Math.max(0, Math.round(v * 10));
+  // a wax act, stamped or withdrawn (and told)
+  const act = (kind, fields) =>
+    withinStamp(send(SH.makeSharedAct({ sk: key.sk, pk: key.pk, sheet: view.sheet, k: ++k, act: kind, ...fields }))).catch((err) => {
+      onNotice(err.timeout ? 'That was not stamped in time. Do it again.' : `That was not taken: ${err.message}`);
+      return null;
+    });
   const inside = (q) => q.x >= 0 && q.y >= 0 && q.x <= SHARED_PAGE.width && q.y <= SHARED_PAGE.height;
   async function strokeDone() {
     const strokes = live.capture.strokes;
@@ -185,6 +197,17 @@ export function createSharedWriter({ key, view, color, onNotice = () => {} }) {
     },
     // the next count for an act of yours on this sheet (a move sent beside your strokes)
     nextK: () => ++k,
+    // wax (rooms.md §3b): a drip at q (the sheet's units), the stamper pressed at q, a seal broken
+    drip(q, { amt, heat }) {
+      return act('drip', { drip: { x: tenths(q.x), y: tenths(q.y), amt, heat } });
+    },
+    press(q, seal, { depth = 200, tiltX = 0, tiltY = 0, angle = 0, cell = SEAL_CELL } = {}) {
+      return act('press', { press: { x: tenths(q.x), y: tenths(q.y), depth, angle, tiltX, tiltY, cell, w: seal.w, h: seal.h, face: seal.face, for: seal.key } });
+    },
+    breakSeal(n, at) {
+      const r = (SEAL_CELL * 32) / 2 / CELLS; // across the impression, corner to corner (the sheet's units)
+      return act('break', { broke: { seal: n, from: [tenths(at.x - r), tenths(at.y - r)], to: [tenths(at.x + r), tenths(at.y + r)] } });
+    },
     destroy: () => live.destroy(),
   };
 }

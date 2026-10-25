@@ -121,3 +121,37 @@ test('writing happens from the seat: the owner in the middle, visitors beside, e
   // from a seat at the side, turned toward the same point
   assert.ok(seatedHead(1, [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, geom.pageOrigin[2]], geom).yaw > 20);
 });
+
+test('seals read from a sheet: whom each is for, whether it took (the grown sheet says), broken; and who may write', async () => {
+  const { sealsOf, mayWriteOn } = await import('./together.js');
+  const owner = 'O'.repeat(43),
+    bo = 'B'.repeat(43),
+    cy = 'C'.repeat(43);
+  const line = (n, act) => ({ n, at: n * 100, act: { by: owner, ...act } });
+  const view = {
+    birth: { key: owner },
+    table: owner,
+    names: { [bo]: 'bo', [cy]: 'cy' },
+    lines: [
+      line(1, { act: 'drip' }),
+      line(2, { act: 'press', press: { for: bo, x: 20000, y: 1500 } }),
+      line(3, { act: 'press', press: { for: cy, x: 100, y: 100 } }),
+      line(4, { act: 'break', break: { seal: 3 } }),
+    ],
+  };
+  const seals = sealsOf(view, [true, true]);
+  assert.deepEqual(
+    seals.map((x) => [x.n, x.name, x.took, x.broken]),
+    [
+      [2, 'bo', true, false],
+      [3, 'cy', true, true],
+    ],
+  );
+  assert.deepEqual(seals[0].at, { x: 2000, y: 150 });
+  assert.equal(mayWriteOn(view, seals, bo), true, 'his seal took and is whole');
+  assert.equal(mayWriteOn(view, seals, cy), false, 'hers is broken');
+  assert.equal(mayWriteOn({ ...view, table: cy }, seals, bo), false, "a seal counts only on the owner's table");
+  assert.equal(mayWriteOn({ ...view, table: cy }, seals, cy), true, 'on her table, she writes');
+  assert.equal(mayWriteOn(view, sealsOf(view, []), bo), false, 'not grown yet: not yet');
+  assert.equal(mayWriteOn(view, seals, owner), true);
+});

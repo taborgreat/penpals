@@ -476,6 +476,84 @@ try {
   const home = (await (await page.request.get(`${base}/api/shared/mine`)).json()).sheets.find((s) => s.sheet === sheetId);
   if (home?.on !== 'tabor') throw new Error(`the sheet is not home: ${home?.on}`);
   console.log("   back on tabor's table; gone from bo's");
+
+  step("seals: tabor drips warm wax on it, presses bo's seal in; bo writes on it at tabor's table; tabor breaks it");
+  await page.goto(`${base}/u/tabor`);
+  await page.getByRole('button', { name: 'Preview' }).click();
+  await page.locator(`${scene}[data-gpu]`).waitFor({ timeout: 60000 });
+  const mineHere = bar(page).locator(`.shared-sheet[data-sheet="${sheetId}"]`);
+  await mineHere.waitFor({ timeout: 15000 });
+  await mineHere.getByRole('button', { name: 'Write on it' }).click();
+  await page.waitForTimeout(900);
+  await page.locator(scene).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(300);
+  // the sheet's middle on screen (a click in the bar may have scrolled the page: centred again before each use)
+  const middle = async () => {
+    await page.locator(scene).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(250);
+    const sb = await page.locator(`${scene} canvas.scene-canvas`).boundingBox();
+    return [sb.x + sb.width / 2, sb.y + sb.height / 2];
+  };
+  let at = await middle();
+  const plain = await onScreen(page, scene, pixels);
+  // the candle, held down over the sheet: tilted, it drips while held (a small circle: a pool)
+  await bar(page).getByRole('button', { name: 'Candle' }).click();
+  const dripAnswers = [];
+  page.on('response', (r) => r.url().includes('/acts') && r.request().method() === 'POST' && dripAnswers.push(r.status()));
+  const linesBefore = (await (await page.request.get(`${base}/api/shared/${sheetId}`)).json()).lines.length;
+  at = await middle();
+  await page.mouse.move(at[0] + 12, at[1]);
+  await page.mouse.down();
+  for (let i = 0; i <= 40; i++) {
+    const a = (i / 40) * 2 * Math.PI;
+    await page.mouse.move(at[0] + 12 * Math.cos(a), at[1] + 12 * Math.sin(a));
+    await page.waitForTimeout(80);
+  }
+  await page.mouse.up();
+  let drips = 0;
+  for (const end = Date.now() + 10000; Date.now() < end && drips < 6;) {
+    await page.waitForTimeout(300);
+    drips = (await (await page.request.get(`${base}/api/shared/${sheetId}`)).json()).lines.slice(linesBefore).filter((l) => l.act.act === 'drip').length;
+  }
+  console.log(`   ${drips} drips of wax`);
+  if (drips < 6)
+    throw new Error(
+      `the candle did not drip (${await bar(page)
+        .locator('.notice')
+        .textContent({ timeout: 500 })
+        .catch(() => 'no notice')}; ${dripAnswers.join(', ')})`,
+    );
+  // the stamper, set to bo, pressed into the middle of the pool while it is warm
+  page.once('dialog', (d) => d.accept('bo'));
+  await bar(page).getByRole('button', { name: 'Stamper…' }).click();
+  await bar(page).getByRole('button', { name: 'Stamper: @bo' }).waitFor({ timeout: 10000 });
+  const pressedRes = page.waitForResponse((r) => r.url().endsWith(`/api/shared/${sheetId}/acts`) && r.request().method() === 'POST' && r.request().postData()?.includes('"press"'), { timeout: 20000 });
+  at = await middle();
+  await page.mouse.click(...at);
+  const pr = await pressedRes;
+  if (pr.status() !== 201) throw new Error(`the press: ${pr.status()} ${await pr.text()}`);
+  await bar(page).locator(`.shared-sheet[data-sheet="${sheetId}"] .seal[data-took="true"]`).waitFor({ timeout: 30000 });
+  console.log(`   ${await bar(page).locator(`.shared-sheet[data-sheet="${sheetId}"] .seal .meta`).first().textContent()}`);
+  let waxSeen = 0;
+  for (const end = Date.now() + 15000; Date.now() < end && waxSeen < 150;) {
+    await page.waitForTimeout(400);
+    waxSeen = darkened(plain, await onScreen(page, scene, pixels), 0.4, 6);
+  }
+  await page.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-seal.png') });
+  console.log(`   the wax and its impression on tabor's screen: ${waxSeen} pixels`);
+  if (waxSeen < 150) throw new Error('the wax does not show');
+  // bo comes into tabor's room: the sheet lies on its owner's table with his seal in it
+  await guest.goto(`${base}/u/tabor`);
+  await guest.locator(`${there}[data-gpu]`).waitFor({ timeout: 60000 });
+  const sealedForBo = bar(guest).locator(`.shared-sheet[data-sheet="${sheetId}"]`);
+  await sealedForBo.getByRole('button', { name: 'Write on it' }).waitFor({ timeout: 30000 });
+  const boOnSeal = await writeOnSheet(guest, there, [0, 60], across([0.1, 0.5], [0.9, 0.5]));
+  console.log(`   bo writes on tabor's sheet by his seal: place ${boOnSeal}`);
+  // broken: he may no longer write on it
+  await bar(page).locator(`.shared-sheet[data-sheet="${sheetId}"] .seal`).getByRole('button', { name: 'Break' }).click();
+  await bar(guest).locator(`.shared-sheet[data-sheet="${sheetId}"] .seal[data-broken="true"]`).waitFor({ timeout: 20000 });
+  await sealedForBo.getByRole('button', { name: 'Look at it' }).waitFor({ timeout: 20000 });
+  console.log("   broken: bo's pen is off it");
   await other.close();
   console.log('ok: the lobby, your room, the shelf, a wall written on; visiting, a door into another room; writing together on one shared sheet');
 } catch (err) {

@@ -113,3 +113,35 @@ export const DROP_R = Object.freeze([3, 5, 8, 12, 18]); // drop radius by size c
 export const DROP_W = Object.freeze([60, 150, 360, 800, 1800]); // water each size class carries (drops of CAP_REF)
 export const DROP_R_MAX = 18;
 export const DROP_REACH = 400; // half-tenths: the farthest a drop is flung (40 cells)
+
+// --- law 3 (rooms.md §3b, §3c, §5): wax on sheets and the nib's reservoir. Only
+// records of law 3 carry them (PNKA format 3), so nothing above changes for law 2.
+export const LAW3 = 3;
+// The nib reservoir: a dip pen (a pen act setting `well`, 1..WELL_MAX) is filled
+// to WELL_UNIT × well drops when it is dipped; writing draws it down and its
+// line fades with it (the supply × what is left ÷ what it holds); dipped again,
+// it is full. A pen with no well (a fountain pen, every law-2 pen) never runs dry.
+export const WELL_MAX = 15;
+export const WELL_UNIT = 1 << 20; // drops of CAP_REF a well level holds (Tabor's to set: a level writes about a word at a heavy flow)
+// Wax (marks: drips, presses, breaks, each at its moment on the record's clock).
+// Wax sits on top of the paper: it does not soak in, it stands (its height in the
+// surface ink runs on, so ink beads off it and runs to the paper around), and a
+// cell under wax lets no water into its fibers (wax resist).
+export const MAX_MARKS = 64;
+export const WAX_MAX = 4095; // the most wax a cell holds (its height, in the surface's units)
+export const WAX_DRIP_MAX = 1 << 20; // a drip's wax, at most
+export const WAX_R_MAX = 64; // cells: the widest a drip spreads
+export const WAX_SPREAD = 1 << 18; // a drip spreads to √(amt × (128 + heat) ÷ WAX_SPREAD) cells (a hot drip of 400000: about 3.5 mm across)
+export const WAX_SEAL = 24; // wax under which a cell is sealed: no water enters its fibers
+export const WAX_BEAD = 3; // sealed wax holds 1/2^WAX_BEAD of what paper does: a skin of ink, the rest beads off the nib
+export const WAX_SOFT_MS = 3000; // wax stays soft this long after it lands, cold ...
+export const WAX_SOFT_HEAT = 60; // ... and this much longer per level of heat (0..255): hot wax up to about 18 s
+// A press: the stamper's face (a relief, FACE_MAX × FACE_MAX at most, each face
+// pixel `cell` paper cells) pressed into the wax at an angle, tilted (deeper on one
+// side), as deep as `depth`. Only soft wax takes it, and no deeper than the wax is.
+export const FACE_MAX = 32;
+export const FACE_CELL_MAX = 16;
+export const SEAL_RAISED = 128; // a face pixel this high or more is the design
+export const SEAL_DENT = 24; // a design pixel took if the wax under it dented this deep ...
+export const SEAL_TOOK = 179; // ... and the press took if this share (/256: 70%) of the design did
+export const WAX_CRACK = 1; // waxF bit: cracked (a broken seal)

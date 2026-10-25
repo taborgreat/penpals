@@ -85,7 +85,7 @@ export function useRoom(name, { seat = 0 } = {}) {
       setSheets((m) => {
         const s = m.get(d.sheet);
         if (!s || s.lines.some((l) => l.n === d.line.n)) return m;
-        return new Map(m).set(d.sheet, { ...s, lines: [...s.lines, d.line].sort((a, b) => a.n - b.n) });
+        return new Map(m).set(d.sheet, { ...s, names: { ...s.names, ...d.names }, lines: [...s.lines, d.line].sort((a, b) => a.n - b.n) });
       }),
     );
     return () => es.close();

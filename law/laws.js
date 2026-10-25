@@ -7,7 +7,11 @@
 // it ignores the view. The side view, the scene's field and the moments exist
 // from law 2 on (null before: law 1 ink has no depth).
 // Each law reads its own acts: law 2's PNKA adds the pen's spatter (format 2),
-// which law 1 refuses.
+// which law 1 refuses; law 3's adds the nib's well and the wax marks (format 3:
+// rooms.md §3b, §3c), which law 2 refuses. Law 3 grows with law 2's rules and
+// those two more (v2/sim.js 9, 10); its facts and look carry the wax.
+// New writing is still made under law 2 (CURRENT): law 3 is what shared sheets
+// (law/shared.js) and the dip pen are made under (Tabor's to rule when all of it is).
 
 import * as v1acts from './v1/acts.js';
 import * as v2acts from './v2/acts.js';
@@ -26,7 +30,7 @@ import * as v2moments from './v2/moments.js';
 import { OAK_GALL } from './v2/constants.js';
 
 export const CURRENT = 2;
-export const ACCEPTED = Object.freeze([1, 2]);
+export const ACCEPTED = Object.freeze([1, 2, 3]);
 
 const LAWS = {
   1: Object.freeze({
@@ -79,6 +83,15 @@ const LAWS = {
     momentsOf: v2moments.momentsOf,
   }),
 };
+
+LAWS[3] = Object.freeze({
+  ...LAWS[2],
+  law: 3,
+  decodeActs: (bytes) => v2acts.decodeActs(bytes, { maxFormat: 3 }),
+  decodeCanonical: (bytes) => v2acts.decodeCanonical(bytes, { maxFormat: 3 }),
+  settledCells: (tiles) => v2look.settledCells(tiles, { law: 3 }),
+  factsDigest: (o) => v2look.factsDigest({ ...o, law: 3 }),
+});
 
 export class LawUnknown extends Error {
   constructor(n) {

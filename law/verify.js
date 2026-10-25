@@ -106,7 +106,7 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
   // Each shared sheet replayed: every place in order, every seal its writer's, every
   // act allowed by the chain before it (possession, lifts); then it grows.
   for (const [sheet, sh] of shares) {
-    const { problems: wrong } = replay(sh.owner, sh.lines);
+    const { problems: wrong } = replay(sh.owner, sh.lines, { ctx: { seed: sh.seed, family: sh.family } }); // (a press took or not: the sheet grown to it says)
     for (const w of wrong) problems.push(`shared sheet ${sheet}, ${w}`);
     if (regrowOpen && !wrong.length) {
       try {

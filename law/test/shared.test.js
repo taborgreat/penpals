@@ -34,8 +34,8 @@ const strokeBytes = (from, to, pen) => {
 const birth = makeSharedSheet({ sk: ana.sk, pk: ana.pk, sheet: SHEET, family: FAMILY });
 const { seed } = checkBirth(birth.birth, birth);
 // The stamper: acts in, each checked against the chain so far, given its place and moment.
-function stamper(owner) {
-  let state = startState(owner);
+function stamper(owner, ctx = null) {
+  let state = startState(owner, ctx);
   const lines = [];
   let k = {};
   return {
@@ -165,4 +165,66 @@ test('goldens: the fixture sheet, and the same with a lift, grow to these facts'
   assert.notEqual(whole, lifted);
   assert.deepEqual({ whole, lifted }, GOLDEN);
 });
-const GOLDEN = { whole: '03XcbdTFz6kLOQaJGHCVso7rHMi9917H60u_jcepMJE', lifted: 'z5QiFcCg2Ck4GJCcPvhXWHC7GfWlXVm6xeCSsJJhv9Q' }; // recorded with this layer: a change to them is a change of the law
+const GOLDEN = { whole: 'UHOb0Jfup4cU9H2DopjM0wLDIKIHTn32z8Vk3EEqKXk', lifted: 'emWeKGwJ3bU-TOkWquGwMzhQY1wzIR096ZlqfjTkSlo' }; // recorded with this layer: a change to them is a change of the law
+
+// A seal's face (a ring and a cross) and a pool of hot wax about a point (tenths of the sheet's units).
+const FACE = new Uint8Array(32 * 32).map((_, i) => {
+  const u = i % 32,
+    v = Math.floor(i / 32);
+  const r = Math.hypot(u - 15.5, v - 15.5);
+  return (r > 11 && r < 14) || Math.abs(u - 15.5) < 2 || Math.abs(v - 15.5) < 2 ? 255 : 0;
+});
+const POOL = [
+  [0, 0],
+  [120, 0],
+  [-120, 0],
+  [0, 120],
+  [0, -120],
+  [90, 90],
+  [-90, -90],
+  [90, -90],
+  [-90, 90],
+];
+const pressFor = (who, more = {}) => ({ x: 2000, y: 2000, depth: 220, angle: 0, tiltX: 0, tiltY: 0, cell: 2, w: 32, h: 32, face: FACE, for: who.id, ...more });
+function waxed(s, t0) {
+  POOL.forEach(([dx, dy], k) => assert.equal(s.act(ana, 'drip', t0 + 150 * k, { drip: { x: 2000 + dx, y: 2000 + dy, amt: 400000, heat: 220 } }), null));
+}
+
+test("seals: pressed into warm wax, a seal admits its key while the sheet lies on the owner's table; cold wax admits no one; broken, it is refused", () => {
+  const ctx = { seed, family: FAMILY };
+  const s = stamper(ana.id, ctx);
+  assert.match(s.act(bo, 'stroke', 500, { stroke: strokeBytes([20, 20], [60, 20], BLUE) }), /not on your table/);
+  waxed(s, 1000);
+  assert.match(s.act(bo, 'press', 2400, { press: pressFor(bo) }), /only the owner/);
+  assert.equal(s.act(ana, 'press', 2500, { press: pressFor(bo) }), null);
+  const pressed = s.lines.length;
+  assert.equal(s.act(bo, 'stroke', 3000, { stroke: strokeBytes([20, 20], [60, 20], BLUE) }), null, 'his seal took: he writes');
+  assert.match(s.act(cy, 'stroke', 3100, { stroke: strokeBytes([20, 30], [60, 30], BLUE) }), /not on your table/, 'no seal of hers');
+  // the seal counts only while the sheet lies on its owner's table
+  assert.equal(s.act(ana, 'move', 3500, { to: cy.id }), null);
+  assert.match(s.act(bo, 'stroke', 3600, { stroke: strokeBytes([20, 40], [60, 40], BLUE) }), /not on your table/);
+  assert.equal(s.act(ana, 'move', 3700, { to: ana.id }), null);
+  assert.equal(s.act(bo, 'stroke', 3800, { stroke: strokeBytes([20, 40], [60, 40], BLUE) }), null);
+  // broken: the wax cracks across the impression, and he is refused
+  assert.equal(s.act(ana, 'break', 5000, { broke: { seal: pressed, from: [1850, 1900], to: [2150, 2100] } }), null);
+  assert.match(s.act(bo, 'stroke', 5200, { stroke: strokeBytes([20, 50], [60, 50], BLUE) }), /not on your table/);
+  assert.match(s.act(ana, 'break', 5300, { broke: { seal: pressed, from: [1850, 1900], to: [2150, 2100] } }), /no such seal/, 'broken once');
+  // a verifier replays the same rule from the chain (with the paper: whether a press took is the law's)
+  assert.deepEqual(replay(ana.id, s.lines, { ctx }).problems, []);
+  assert.ok(
+    replay(ana.id, s.lines).problems.some((p) => /not on your table/.test(p)),
+    'without the paper no seal can be known to take',
+  );
+  // the impression and the crack are on the paper
+  const grown = growShared(s.lines, ctx);
+  assert.equal(grown.seals[0].took, true);
+  assert.ok(grown.cells.some((c) => c[16] >= 24));
+  assert.ok(grown.cells.some((c) => c[17] & 1));
+  // into cold wax: nothing took, and no one is admitted
+  const cold = stamper(ana.id, ctx);
+  waxed(cold, 1000);
+  assert.equal(cold.act(ana, 'press', 70000, { press: pressFor(bo) }), null);
+  assert.match(cold.act(bo, 'stroke', 71000, { stroke: strokeBytes([20, 20], [60, 20], BLUE) }), /not on your table/);
+  // a press with no face of its size is refused before anything
+  assert.throws(() => makeSharedAct({ sk: ana.sk, pk: ana.pk, sheet: SHEET, k: 99, act: 'press', press: { ...pressFor(bo), w: 31 } }), /size/);
+});

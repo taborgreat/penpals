@@ -14,12 +14,17 @@
 // as clear as untouched paper in the look (colour to alpha), and a break in
 // the side view.
 //
+// Law 3 adds wax (rooms.md §3b): per cell how much wax stands on it, how deep a
+// press dented it, and whether it cracked (a broken seal). They are facts like the
+// rest (in factsDigest for law 3), shown in the look as the wax's own colour over
+// the paper, darker in a dent and along a crack, and in the height field.
+//
 // heightOf and sideView are for viewers (not the published look): the height
 // field the scene is built from (scene.js), and a cut through the paper. They
 // read the paper's facts (depth, dents).
 
 import { sha256 } from '@noble/hashes/sha2.js';
-import { TILE, LAW, SCALE_ONE, THICK, DENT_SHIFT, DEPTH_SHIFT, WEAR_SHIFT, OAK_GALL, GALL_FRESH, AGE_CAP_H, EXPOSURE_STEP, FADE_SHIFT, DRUNK, TORN, DENT_Z, FILM_Q } from './constants.js';
+import { TILE, LAW, SCALE_ONE, THICK, DENT_SHIFT, DEPTH_SHIFT, WEAR_SHIFT, OAK_GALL, GALL_FRESH, AGE_CAP_H, EXPOSURE_STEP, FADE_SHIFT, DRUNK, TORN, DENT_Z, FILM_Q, WAX_CRACK } from './constants.js';
 import { EXP8, ABS_Q } from '../v1/tables.js';
 import { FADE, SURFACE } from './tables.js';
 import { GALL_ABS, darkAt, filmLevel } from './sim.js';
@@ -39,7 +44,9 @@ export const GN = OAK_GALL.map((c) => Math.floor((ABS_Q[c] * 256 + (GALL_ABS >> 
 
 // Every cell with a fact, sorted (y, x):
 // [y, x, f0, f1, f2, fg, dent, depth, peak, soak, wear, flags, cockle, film]
-export function settledCells(tiles) {
+// and for law 3: [..., 0 (a live row's bead), wax, waxDent, waxF]
+export function settledCells(tiles, { law = LAW } = {}) {
+  const w3 = law >= 3;
   const cells = [];
   for (const t of tiles) {
     for (let i = 0; i < TT; i++) {
@@ -55,10 +62,13 @@ export function settledCells(tiles) {
       const flags = t.flags[i];
       const cockle = t.cockle[i];
       const film = filmLevel(t.filmA[i]);
-      if (!(f0 || f1 || f2 || fg || dent || depth || peak || soak || wear || flags || cockle || film)) continue;
+      const wax = w3 && t.wax ? t.wax[i] : 0;
+      if (!(f0 || f1 || f2 || fg || dent || depth || peak || soak || wear || flags || cockle || film || wax)) continue;
       const x = t.tx * TILE + (i % TILE);
       const y = t.ty * TILE + Math.floor(i / TILE);
-      cells.push([y, x, f0, f1, f2, fg, dent, depth, peak, soak, wear, flags, cockle, film]);
+      const c = [y, x, f0, f1, f2, fg, dent, depth, peak, soak, wear, flags, cockle, film];
+      if (w3) c.push(0, wax, wax ? t.waxDent[i] : 0, wax ? t.waxF[i] : 0);
+      cells.push(c);
     }
   }
   cells.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -72,7 +82,7 @@ export function boxOf(cells) {
     x1 = -Infinity,
     y1 = -Infinity;
   for (const c of cells) {
-    if (Math.max(c[2], c[3], c[4], c[5]) < VISIBLE) continue;
+    if (Math.max(c[2], c[3], c[4], c[5]) < VISIBLE && !c[15]) continue; // (wax shows too)
     const [y, x] = c;
     if (x < x0) x0 = x;
     if (x > x1) x1 = x;
@@ -116,6 +126,17 @@ function cellAbs(c, ageH, views) {
 }
 const tOf = (a) => EXP8[Math.min(a >> 2, 2047)];
 
+// Wax (law 3): candle wax, a warm cream, as much as a thick drip shows at most;
+// a dent shades it, a crack is dark.
+const WAX_RGB = [236, 226, 200];
+const WAX_FULL = 400; // wax this thick shows its whole colour
+const waxAbs = WAX_RGB.map((v) => ABS_Q[v]);
+function waxOver(c, a) {
+  const k = Math.min(c[15], WAX_FULL);
+  for (let ch = 0; ch < 3; ch++) a[ch] += Math.floor((waxAbs[ch] * k) / WAX_FULL) + c[16] * 4 + (c[17] & WAX_CRACK ? 1600 : 0);
+  return a;
+}
+
 // Transmittance RGB over the box at a view ({ ageH, views }; zero = the canonical look).
 export function lookRGB(cells, box, { ageH = 0, views = 0 } = {}) {
   const [x0, y0, w, h] = box;
@@ -125,7 +146,8 @@ export function lookRGB(cells, box, { ageH = 0, views = 0 } = {}) {
       ly = c[0] - y0;
     if (lx < 0 || ly < 0 || lx >= w || ly >= h) continue;
     if (c[11] & TORN) continue;
-    const [a0, a1, a2] = cellAbs(c, ageH, views);
+    const abs = cellAbs(c, ageH, views);
+    const [a0, a1, a2] = c[15] ? waxOver(c, abs) : abs;
     const k = (ly * w + lx) * 3;
     out[k] = tOf(a0);
     out[k + 1] = tOf(a1);
@@ -162,6 +184,7 @@ export function factsDigest({ cells, box, actsBytes, family, scale = SCALE_ONE, 
   for (const v of box) h.update(i32be(v));
   h.update(i32be(cells.length));
   const row = new Uint8Array(24);
+  const wrow = new Uint8Array(4);
   const dv = new DataView(row.buffer);
   for (const c of cells) {
     dv.setInt32(0, c[1], false);
@@ -173,6 +196,14 @@ export function factsDigest({ cells, box, actsBytes, family, scale = SCALE_ONE, 
     for (let k = 0; k < 7; k++) row[16 + k] = c[6 + k];
     row[23] = c[13]; // film: the ink dried on top
     h.update(row);
+    if (law >= 3) {
+      // the wax: how much, its dent, its cracks
+      wrow[0] = c[15] >> 8;
+      wrow[1] = c[15] & 255;
+      wrow[2] = c[16];
+      wrow[3] = c[17];
+      h.update(wrow);
+    }
   }
   return h.digest();
 }
@@ -200,13 +231,16 @@ export const hasInk = (c) => !!(c[2] || c[3] || c[4] || c[5]);
 export function heightOf(c) {
   return {
     surface: c[12] - c[6] * DENT_Z,
-    above: (c[14] ?? 0) + c[13] * FILM_Q,
+    above: (c[14] ?? 0) + c[13] * FILM_Q + (c[15] ? (c[15] - c[16]) >> WAX_VIEW_SHIFT : 0), // (wax stands on top, a press dents it)
     wet: (c[14] ?? 0) > 0,
     depth: c[7],
     torn: (c[11] & TORN) !== 0,
   };
 }
 const FLAT = { surface: 0, above: 0, wet: false, depth: 0, torn: false };
+// Wax is shown at 1/2^WAX_VIEW_SHIFT of its height: a viewer draws relief taller than
+// true to show ink's beads (about 20×), and a millimetre of wax would stand as a spike.
+const WAX_VIEW_SHIFT = 4;
 
 // A cut through the paper along (x0, y0) → (x1, y1) (sheet cells), `px` pixels
 // per cell: the paper body in layers, its surface with dents and ridges, the

@@ -5,6 +5,7 @@ import { getSkeleton, inkLine } from '../store/books.js';
 import { hasBlocked } from '../social.js';
 import { take, ipKey } from '../limits.js';
 import { sendLook } from './books.js';
+import { sealFaceOf } from '../store/shared.js';
 
 // Signatures: each scripter's name in their own hand, open from birth (anyone
 // can check it offline), standing in for @name around the site. Shown to
@@ -39,6 +40,16 @@ signaturesRouter.get('/', async (req, res) => {
   }
   res.set('Cache-Control', 'private, max-age=60');
   res.json({ signatures: out });
+});
+
+// Their seal (rooms.md §3b): the face a stamper set to them takes. → { name, key, w, h, face }
+signaturesRouter.get('/:name/seal', async (req, res) => {
+  const account = findByName(req.params.name);
+  if (!account || !visibleTo(req.user?.id ?? null, account)) throw httpError(404, 'no_such_name', 'No such signature.');
+  const face = await sealFaceOf(account);
+  if (!face) throw httpError(404, 'no_signature', 'They have not signed.');
+  res.set('Cache-Control', 'private, max-age=600');
+  res.json({ name: account.username, key: account.publicKey, ...face });
 });
 
 signaturesRouter.get('/:name/look', async (req, res) => {

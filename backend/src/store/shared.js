@@ -3,7 +3,10 @@
 // the sheet's chain are checked (is it on this writer's table?); it is given
 // the next place and its moment, appended to the owner's ink.chain, and sent
 // to everyone in the rooms it lies in. Permission is facts landing: a move
-// lands and the next act is checked against it.
+// lands and the next act is checked against it; a seal pressed into warm wax
+// that took admits its key (the sheet grown to the press decides), a break
+// takes it back. A press must carry the named person's own seal: their face,
+// made from their public signature (sealFaceOf, law/seal.js).
 //
 // In the owner's ink.chain (store/books.js):
 //   { id, made, share: { birth, seal, open } }        a shared sheet, born open
@@ -13,9 +16,9 @@
 
 import { httpError } from '../files.js';
 import { getAccount, findByName, findByKey, usersDir } from './accounts.js';
-import { chainLines, appendLines } from './books.js';
+import { chainLines, appendLines, getSkeleton, inkLine, openSeed } from './books.js';
 import { listDirs } from '../files.js';
-import { shared as SH, fromB64url, keys as K } from 'penpals-law';
+import { shared as SH, seal as SEAL, fromB64url, b64url, keys as K } from 'penpals-law';
 import { lawOf } from 'penpals-law/laws';
 
 const sheets = new Map(); // sheet → { sheet, ownerId, owner (key), birth, seal, open, born (ms), lines, state }
@@ -39,7 +42,8 @@ export const onShared = (fn) => {
 function remember(ownerId, line) {
   if (line.share) {
     const { birth, seal, open } = line.share;
-    const s = { sheet: birth.sheet, ownerId, owner: birth.key, birth, seal, open, born: Date.parse(line.made), lines: [], state: SH.startState(birth.key) };
+    const ctx = { seed: fromB64url(open.seed, 64), family: birth.paper }; // (presses are grown to see if they took)
+    const s = { sheet: birth.sheet, ownerId, owner: birth.key, birth, seal, open, born: Date.parse(line.made), lines: [], state: SH.startState(birth.key, ctx) };
     sheets.set(birth.sheet, s);
     lieOn(birth.key, birth.sheet, true);
   } else if (typeof line.shared === 'string') {
@@ -80,7 +84,10 @@ export const viewOf = (s) => ({
   lines: s.lines,
   table: s.state.table,
   on: findByKey(s.state.table)?.username ?? null,
+  names: namesIn(s), // who the keys in it are: its writers, and whom its seals are for
 });
+const namesIn = (s) =>
+  Object.fromEntries([...new Set([s.owner, s.state.table, ...s.lines.flatMap((l) => [l.act.by, l.act.press?.for].filter(Boolean))])].map((k) => [k, findByKey(k)?.username ?? null]));
 
 // A new shared sheet, on its owner's table: { birth, seal, open }.
 export async function createShared(userId, { birth, seal, open }) {
@@ -110,12 +117,19 @@ export async function stamp(userId, { act, seal }) {
   if (!SH.verifyActSeal(act, seal)) throw httpError(401, 'bad_seal', 'That act is not sealed by your key.');
   const s = sheets.get(act.sheet);
   if (!s) throw httpError(404, 'no_sheet', 'No such sheet.');
+  if (act.act === 'press') {
+    // the stamper set to someone: their own seal, made from their signature
+    const them = findByKey(act.press.for);
+    const face = them ? await sealFaceOf(them) : null;
+    if (!face || face.w !== act.press.w || face.h !== act.press.h || face.face !== act.press.face)
+      throw httpError(400, 'not_their_seal', "That is not their seal: a stamper set to someone takes their signature's face.");
+  }
   // one at a time per sheet: its order is the order acts pass here
   return serialSheet(s.sheet, async () => {
     const why = SH.refusal(s.state, act);
     if (why) throw httpError(403, 'not_yours', why === 'the sheet is not on your table' ? 'That sheet is not on your table.' : why);
     const line = { n: s.lines.length + 1, at: Math.max(0, Date.now() - s.born), act, seal };
-    if (act.act === 'stroke') {
+    if (act.act === 'stroke' || act.act === 'drip' || act.act === 'press') {
       try {
         growable([...s.lines, line]);
       } catch (err) {
@@ -149,6 +163,28 @@ function serialSheet(sheet, work) {
     next.catch(() => {}),
   );
   return next;
+}
+
+// A person's seal (rooms.md §3b): the face a stamper set to them takes, from their
+// public signature (open from birth). → { w, h, face: b64url } | null (not signed yet)
+const faces = new Map(); // userId → { sig (their signature's ink), face }
+export async function sealFaceOf(account) {
+  const id = (await getSkeleton(account.id))?.signature;
+  if (!id) return null;
+  const was = faces.get(account.id);
+  if (was?.sig === id) return was.face;
+  const line = await inkLine(account.id, id);
+  const seed = line && (await openSeed(account.id, line.ink.sheet));
+  let face = null;
+  if (seed) {
+    const L = lawOf(line.ink.law ?? 1);
+    const res = L.grow(L.decodeCanonical(fromB64url(line.ink.acts)), { paperKey: K.paperKeyOf(fromB64url(seed, 64)), family: line.ink.paper, scale: 64 });
+    const cells = L.settledCells(res.tiles);
+    const f = SEAL.faceOf(cells, L.boxOf(cells));
+    face = f && { w: f.w, h: f.h, face: b64url(f.face) };
+  }
+  faces.set(account.id, { sig: id, face });
+  return face;
 }
 
 // Who a table belongs to, by name → key.

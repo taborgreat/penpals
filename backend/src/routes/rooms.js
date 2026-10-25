@@ -60,7 +60,7 @@ roomsRouter.get('/:name/stream', (req, res) => {
       if (e.on) lying.add(e.sheet);
       else lying.delete(e.sheet);
       res.write(`event: table\ndata: ${JSON.stringify({ arrived: e.on ? viewOf(s) : null, left: e.on ? null : e.sheet })}\n\n`);
-    } else if (e.kind === 'shared' && lying.has(e.sheet)) res.write(`event: shared\ndata: ${JSON.stringify({ sheet: e.sheet, line: e.line })}\n\n`);
+    } else if (e.kind === 'shared' && lying.has(e.sheet)) res.write(`event: shared\ndata: ${JSON.stringify({ sheet: e.sheet, line: e.line, names: viewOf(sheetOf(e.sheet)).names })}\n\n`);
   });
   const beat = setInterval(() => res.write(': still here\n\n'), 25000);
   join(owner.id, client).catch(() => {});

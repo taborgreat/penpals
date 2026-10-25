@@ -1,15 +1,30 @@
 // Together in a room (rooms.md §4, §5, §6): who else is here, the shared sheets
 // on its owner's table (each grown from its stamped acts, your own strokes laid
 // over it as your guess until they are grown), your pen on the ones you may
-// write on (yours, or one lying on your table), and the acts that lay a sheet on
-// someone's table, take it back, or lift your stroke.
+// write on (yours, one lying on your table, or one on its owner's table with your
+// seal pressed into it), and the acts that lay a sheet on someone's table, take it
+// back, or lift your stroke. On the table the hand holds the pen, a candle (wax:
+// held down over a sheet it is tilted and drips) or the stamper (set to someone's
+// seal: the next press, then the pen again).
 //
-// → { others, report, body, sheets: [{ view, slot, field, mayWrite }], scene: { sheets,
-//     tableWriter, beings, onPose, focus }, mine (your shared sheets, wherever they lie),
-//     notice, clearNotice, share(family), layOn(view, name), takeBack(view), lift(view), lookAt(view) }
+// → { others, report, body, sheets: [{ view, slot, field, mayWrite, seals }], scene: { sheets,
+//     tableWriter, beings, onPose, focus }, mine (your shared sheets, wherever they lie), tool,
+//     notice, clearNotice, share(family), layOn(view, name), takeBack(view), lift(view), lookAt(view),
+//     useTool('pen' | 'wax'), stamperFor(name), breakSeal(view, n) }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, seatOf } from './presence.js';
-import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE } from './shared.js';
+import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE, DRIP } from './shared.js';
+
+// The seals pressed into a sheet, in its order: [{ n, for (key), name, took, broken, at: { x, y } }]
+// (took: the sheet grown to that press, its i-th seal; until then, not yet).
+export function sealsOf(view, took = []) {
+  const broken = new Set(view.lines.filter((l) => l.act.act === 'break').map((l) => l.act.break.seal));
+  return view.lines
+    .filter((l) => l.act.act === 'press')
+    .map((l, i) => ({ n: l.n, for: l.act.press.for, name: view.names?.[l.act.press.for] ?? null, took: !!took[i], broken: broken.has(l.n), at: { x: l.act.press.x / 10, y: l.act.press.y / 10 } }));
+}
+// May `me` write here (law/shared.js mayWrite, read from the view and its seals)?
+export const mayWriteOn = (view, seals, me) => !!me && (view.birth.key === me || view.table === me || (view.table === view.birth.key && seals.some((x) => x.for === me && x.took && !x.broken)));
 import { api } from '../api.js';
 
 export function useTogether({ name, key, me, mine: myRoom = false, pageW, color }) {
@@ -23,18 +38,24 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
   const [notice, setNotice] = useState(null);
   const [mine, setMine] = useState([]);
   const [focus, setFocus] = useState(null);
-  const mayWrite = useCallback((v) => !!myKey && (v.birth.key === myKey || v.table === myKey), [myKey]);
+  const [tool, setTool] = useState('pen'); // 'pen' | 'wax' | { seal: { name, key, w, h, face } }
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
   const placed = useMemo(
     () =>
-      sheets.map((view, i) => ({
-        view,
-        slot: slotOf(i, pageW),
-        field: fields.get(view.sheet)?.field ?? null,
-        grown: fields.get(view.sheet)?.n ?? 0,
-        facts: fields.get(view.sheet)?.facts ?? null,
-        mayWrite: mayWrite(view),
-      })),
-    [sheets, fields, pageW, mayWrite],
+      sheets.map((view, i) => {
+        const seals = sealsOf(view, fields.get(view.sheet)?.seals);
+        return {
+          view,
+          slot: slotOf(i, pageW),
+          field: fields.get(view.sheet)?.field ?? null,
+          grown: fields.get(view.sheet)?.n ?? 0,
+          facts: fields.get(view.sheet)?.facts ?? null,
+          seals,
+          mayWrite: mayWriteOn(view, seals, myKey),
+        };
+      }),
+    [sheets, fields, pageW, myKey],
   );
   const viewsRef = useRef(placed);
   viewsRef.current = placed;
@@ -103,12 +124,45 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
             down(sheet, q, ev, type) {
               const w = writerFor(sheet);
               if (!w) return false;
+              const t = toolRef.current;
+              if (t === 'wax') {
+                // the candle held over the sheet, tilted past its pool's lip: a drip now, and every DRIP.every while held
+                const held = { w, q };
+                w.drip(q, DRIP);
+                held.timer = setInterval(() => held.w.drip(held.q, DRIP), DRIP.every);
+                active.current = { wax: held };
+                return true;
+              }
+              if (t?.seal) {
+                // the stamper pressed here (harder with a pen pressed harder), then the pen again
+                const depth = ev?.pressure > 0 && ev.pressure !== 0.5 ? Math.max(40, Math.round(255 * ev.pressure)) : 220;
+                const tiltX = Math.max(-127, Math.min(127, Math.round((ev?.tiltX ?? 0) * 2)));
+                const tiltY = Math.max(-127, Math.min(127, Math.round((ev?.tiltY ?? 0) * 2)));
+                w.press(q, t.seal, { depth, tiltX, tiltY });
+                setTool('pen');
+                active.current = null;
+                return true;
+              }
               active.current = w;
               return w.pen.down(q, ev, type);
             },
-            move: (q, ev) => active.current?.pen.move(q, ev),
-            up: (q, ev) => active.current?.pen.up(q, ev),
-            cancel: () => active.current?.pen.cancel(),
+            move(q, ev) {
+              const a = active.current;
+              if (a?.wax) a.wax.q = q;
+              else a?.pen?.move(q, ev);
+            },
+            up(q, ev) {
+              const a = active.current;
+              if (a?.wax) clearInterval(a.wax.timer);
+              else a?.pen?.up(q, ev);
+              active.current = null;
+            },
+            cancel() {
+              const a = active.current;
+              if (a?.wax) clearInterval(a.wax.timer);
+              else a?.pen?.cancel();
+              active.current = null;
+            },
           }
         : null,
     [rects, writerFor], // (the sheets you may write on, by place: not every act on them)
@@ -141,6 +195,18 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
       if (!w) return fail(new Error('That sheet is not on your table.'));
       return w.lift(view.lines);
     },
+    useTool: (t) => setTool(t),
+    // the stamper set to someone: their seal's face, from their signature (backend routes/signatures.js)
+    async stamperFor(who) {
+      const r = await api.get(`/api/signatures/${encodeURIComponent(who)}/seal`).catch((err) => fail(err));
+      if (r?.face) setTool({ seal: r });
+    },
+    breakSeal(view, n) {
+      const w = writerFor(view.sheet);
+      const at = sealsOf(view).find((x) => x.n === n)?.at;
+      if (!w || !at) return fail(new Error('Only its owner breaks a seal.'));
+      return w.breakSeal(n, at);
+    },
     lookAt(view) {
       const p = placed.find((x) => x.view.sheet === view.sheet);
       if (p) setFocus((f) => ({ at: [p.slot[0] + SHARED_PAGE.width / 2, p.slot[1] + SHARED_PAGE.height / 2], size: SHARED_PAGE.width, n: (f?.n ?? 0) + 1 }));
@@ -156,6 +222,7 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
     mine,
     notice,
     clearNotice: () => setNotice(null),
+    tool,
     ...actions,
     scene,
   };
