@@ -12,7 +12,11 @@
 // room's light settles between its walls (a worker: the bounce solver over the
 // room's patches); the page takes what reaches it. The eye adapts to what it
 // sees and turns radiance into the screen's colours. The viewer can drag the
-// sun anywhere; on release it returns to the clock.
+// sun anywhere; on release it returns to the clock. The room's air (roomAir.js,
+// world.md 3b) takes the flames' heat and smoke; its soot hazes the room (light/
+// smoke.js): what the room bounces dims over its mean free path, and the haze
+// goes to the drawing (each pixel dimmed over its way to the eye, the grains'
+// glow added).
 //
 // Frames: the room's (metres; x the writer's right, y toward the window, z up)
 // and each view's page (page px; x right, y down the page, z up). A view's page
@@ -46,6 +50,8 @@ import {
 const MATTER_GLASS = curves.MATTER.glass;
 
 import { frame } from './camera.js';
+import { createRoomAir } from './roomAir.js';
+import { hazeOf } from './light/smoke.js';
 
 export { PX_PER_M };
 const DEFAULT_PAPER = [0xf7, 0xf3, 0xea]; // the page the room settles with (and the eye looks at)
@@ -142,6 +148,9 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     t: null,
     page: paperCurve(paper),
     listeners: new Set(),
+    air: null, // the room's air (roomAir.js), begun when it is first drawn
+    open: false, // the window (an act: room/carry.js)
+    outside: 0, // the outside air's heat, °C above the room's (the weather's: world.md Phase 4)
   };
   // The room's light in parts (the worker's settle): the day and each flame
   // (unit strength), and what of each comes straight from the sun's disk or a
@@ -200,6 +209,15 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       S.candles = list;
       for (const fn of S.listeners) fn();
     },
+    // The window open or shut, and the outside air's heat (°C above the room's): what the room's air
+    // exchanges through it (world.md 3b)
+    setWindow(open, outside = S.outside) {
+      S.open = !!open;
+      S.outside = outside;
+    },
+    get air() {
+      return S.air;
+    },
     at({ now, date, override = null, present = true, eye = { lids: 1, color: 1 }, gaze = null }) {
       const dt = S.t === null ? 0 : Math.min(1, Math.max(0, (now - S.t) / 1000));
       S.t = now;
@@ -219,6 +237,13 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         const a = (tilt * Math.PI) / 180; // (leaning, its flame is where its wick is)
         return { ...st, which, foot, tilt, pos: [foot[0] + Math.sin(a) * st.flameAt, foot[1], foot[2] + Math.cos(a) * st.flameAt], I: flameLight(st), lit: lit && !st.spent };
       });
+      // the room's air: the flames' heat and smoke, the window; its soot's haze (scene only)
+      S.air ??= createRoomAir(S.geom);
+      S.air.to(date.getTime() / 1000, { flames, open: S.open, outside: S.outside });
+      const haze = hazeOf(S.air.soot());
+      const [gw, gd, gh] = S.geom.size;
+      const free = (4 * gw * gd * gh) / (2 * (gw * gd + gw * gh + gd * gh)); // the room's mean free path, m
+      const through = haze.ext.map((e) => Math.exp(-e * free)); // what of a bounce the smoke lets through
       // the room's light at the page, less what comes straight from the sun and the flames (drawn per pixel)
       const lit = flames.some((f) => f.lit);
       const key = [Math.round(place.az * 2), Math.round(place.el * 2), ...flames.map((f) => [Math.round(f.height * 2000), ...f.pos.map((v) => Math.round(v * 200))].join(':')), lit ? 1 : 0].join();
@@ -236,9 +261,9 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
           if (!part || !fl.intensity) return;
           for (let i = 0; i < n * N; i++) ambient[i] += fl.intensity * (part[i] - direct[i]);
         });
-        for (let i = 0; i < n * N; i++) if (ambient[i] < 0) ambient[i] = 0;
+        for (let i = 0; i < n * N; i++) ambient[i] = ambient[i] < 0 ? 0 : ambient[i] * through[i % N];
         const at = S.geom.page * N;
-        for (let b = 0; b < N; b++) pageLight[b] = p.day[at + b] + flames.reduce((t, fl, k) => t + fl.intensity * (p.flames[k]?.[at + b] ?? 0), 0);
+        for (let b = 0; b < N; b++) pageLight[b] = (p.day[at + b] + flames.reduce((t, fl, k) => t + fl.intensity * (p.flames[k]?.[at + b] ?? 0), 0)) * through[b];
       } else ambient.fill(0);
       const indirect = ambient.slice(S.geom.page * N, S.geom.page * N + N);
       // the eye on the page: settled on the room's light the first time it is
@@ -272,6 +297,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         geom: S.geom,
         sun,
         flames,
+        haze,
         indirect,
         ambient, // per patch (n × N): the room drawn takes it
         W,

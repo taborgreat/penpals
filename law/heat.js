@@ -40,7 +40,9 @@
 //            its side (an open window, a door: world.md 3b) is the outside air at its own
 //            heat: an air cell at it warmer than the outside goes out through it, smoke and
 //            all, and the outside air comes in in its place (colder, it sinks: the room's warm
-//            air leaves at the top of the opening, the outside's comes in at its foot).
+//            air leaves at the top of the opening, the outside's comes in at its foot). Air
+//            colder than the room's sinks and, resting on something, slides into the warmer air
+//            beside it (as warm air slides under a ceiling): it floods along the floor.
 //   Settling smoke's grains fall through the air at their settling speed (Stokes: their size
 //            and weight against the air's drag, slipping between its molecules) and stick
 //            where they meet a face: falling onto it, or crossing the air's film to it as
@@ -452,6 +454,8 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       [m[i], m[j]] = [m[j], m[i]];
       [E[i], E[j]] = [E[j], E[i]];
       [smoke[i], smoke[j]] = [smoke[j], smoke[i]];
+      [owedOnto[i], owedOnto[j]] = [owedOnto[j], owedOnto[i]];
+      [owedDown[i], owedDown[j]] = [owedDown[j], owedDown[i]];
       [spent[i], spent[j]] = [spent[j], spent[i]];
       [residue[i], residue[j]] = [residue[j], residue[i]];
       [held[i], held[j]] = [held[j], held[i]];
@@ -525,6 +529,22 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         moved.add(i);
       }
     }
+    // cold air sinks: air colder than the room's, resting on something (the floor, the table), slides
+    // into the warmest air beside it warmer than it (as warm air slides under a ceiling)
+    for (const i of Int32Array.from(touchedList.filter((c) => isAir(c))).sort()) {
+      if (moved.has(i) || tOf(i) > -KELVIN) continue;
+      if (i >= LAYER && isAir(i - LAYER)) continue;
+      let best = -1;
+      for (let k = 1; k < 5; k++) {
+        const j = nb(i, k);
+        if (j >= 0 && isAir(j) && !moved.has(j) && tOf(j) > tOf(i) && (best < 0 || tOf(j) > tOf(best))) best = j;
+      }
+      if (best >= 0) {
+        swap(i, best);
+        moved.add(best);
+        moved.add(i);
+      }
+    }
     // falling: a liquid cell, or loose residue, with air beneath changes places with it
     for (const i of Int32Array.from(touchedList).sort()) {
       if (i < LAYER || isAir(i)) continue;
@@ -552,6 +572,8 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
   // Smoke's grains settling for `seconds`: falling a cell's share of the way down, onto what is under
   // it where that is not air; crossing the film to each face it touches (the grid's edges are faces).
   const speeds = grainSpeeds();
+  const owedOnto = new Float64Array(N),
+    owedDown = new Float64Array(N); // (each cell's share not yet a whole µg, carried to the next settling)
   function settle(seconds) {
     const Q = 65536;
     const fall = Math.min(Q, Math.round(((speeds.falls * seconds) / dx) * Q)),
@@ -565,8 +587,12 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         if (j < 0 ? !(isOpen[i] & (1 << k)) : !isAir(j)) faces++;
       }
       const s0 = smoke[i];
-      const onto = Math.min(s0, floorDiv(s0 * Math.min(Q, faces * stick), Q));
-      const down = Math.min(s0 - onto, floorDiv(s0 * fall, Q));
+      const a = s0 * Math.min(Q, faces * stick) + owedOnto[i];
+      const onto = Math.min(s0, floorDiv(a, Q));
+      owedOnto[i] = onto < s0 ? a - onto * Q : 0;
+      const b = (s0 - onto) * fall + owedDown[i];
+      const down = Math.min(s0 - onto, floorDiv(b, Q));
+      owedDown[i] = down < s0 - onto ? b - down * Q : 0;
       const below = nb(i, 5);
       dS[i] -= onto + down;
       if (below >= 0 && isAir(below)) dS[below] += down;

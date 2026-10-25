@@ -11,7 +11,8 @@
 //   loss      ‰ of its bending's energy it turns to heat a cycle (how long it rings: Q = 1000 / loss)
 //   friction  ×1000 (how much it resists sliding against another matter)
 //   heat      { holds (J/(kg·K)), conducts (mW/(m·K)), melts, boils, burns (°C) | null,
-//               fuses (J/kg the melting takes and the setting gives back), releases (J/kg its
+//               fuses (J/kg the melting takes and the setting gives back), vaporizes (J/kg its turning
+//               to vapour takes, at the air's heat, and its condensing gives back), releases (J/kg its
 //               burning gives), softens (°C: a solid that gives under a press, as warm wax does),
 //               hardens (°C: what heat makes lastingly hard, as fired clay), burnRate (g/(m²·s): how
 //               fast it burns over the face it shows the air), leaves (‰ of what burns left as its
@@ -70,8 +71,9 @@ export const MATTER = Object.freeze({
     hardness: 0,
     strength: 0,
     friction: 0,
-    heat: { holds: 4186, conducts: 600, melts: 0, boils: 100, burns: null, fuses: 334000 },
+    heat: { holds: 4186, conducts: 600, melts: 0, boils: 100, burns: null, fuses: 334000, vaporizes: 2450000 },
     becomes: { boiled: 'steam', frozen: 'ice' },
+    molar: 18.015,
     tension: 72,
     light: 'water',
     sound: [10, 10, 10, 10, 10, 15, 20, 20, 20, 20],

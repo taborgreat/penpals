@@ -157,8 +157,8 @@ const spectrumUniform = () =>
   );
 export const BIN_GROUPS = 4;
 // Set a spectrum uniform from N values (the visible 16).
-export function setSpectrum(u, values, k = 1) {
-  for (let g = 0; g < BIN_GROUPS; g++) u.array[g].set(values[4 * g] * k, values[4 * g + 1] * k, values[4 * g + 2] * k, values[4 * g + 3] * k);
+export function setSpectrum(u, values, k = 1, from = 0) {
+  for (let g = 0; g < BIN_GROUPS; g++) u.array[from + g].set(values[4 * g] * k, values[4 * g + 1] * k, values[4 * g + 2] * k, values[4 * g + 3] * k);
 }
 const binsOf = (curve) => [0, 1, 2, 3].map((g) => vec4(curve[4 * g], curve[4 * g + 1], curve[4 * g + 2], curve[4 * g + 3]));
 const INK = curves.INK.map(binsOf); // what each of the law's three channels drinks, per bin
@@ -195,6 +195,12 @@ export function lightUniforms(paper, dropPx, maps = null) {
     footK: uniform(1), // cells a pixel covers a metre away (the room's surfaces: how fine to grow them)
     slabMin: uniform(new THREE.Vector3(1e9, 1e9, 1e9)), // the table's slab (world px): it shades what is under it
     slabMax: uniform(new THREE.Vector3(1e9, 1e9, 1e9)),
+    // the room's smoke (world.md 3b, light/smoke.js): what a metre of it takes out of a beam (its first
+    // four), and what it turns aside (its last four), per bin: one array (a stage holds few buffers)
+    haze: uniformArray(
+      Array.from({ length: 8 }, () => new THREE.Vector4()),
+      'vec4',
+    ),
   };
   setSpectrum(L.paper, paper);
   // the flames' places (world px): the shade is marched toward them
@@ -358,8 +364,25 @@ function lobe(n, V, Ld, m2) {
 // surface's, from its vertices) in place of the page's; opts.indirect: the
 // room's light as a spectrum (four vec4s: a mark's, rooms.md §2, so ink on a
 // wall drinks it by wavelength); opts.slab: the table's slab may hide the sources.
+// The room's smoke (L.haze) takes its share of what leaves the point on its way to
+// the eye and adds what its grains turn toward the eye: of the room's light, and of each flame's
+// (a point's light scattered along the way: ∫ dt / (h² + t²), closed).
 function spectral(R, n, open, shade, m2, V, L, band, opts = {}) {
   const p = positionWorld;
+  const toEye = cameraPosition.sub(p).toVar();
+  const dEye = length(toEye).div(L.pxPerM).toVar(); // m
+  const along = toEye
+    .div(max(length(toEye), 1e-6))
+    .negate()
+    .toVar(); // from the eye, toward p
+  const flameAir = L.candleAt.map((pos) => {
+    const toF = pos.sub(cameraPosition).div(L.pxPerM).toVar();
+    const tf = dot(toF, along).toVar();
+    const h = max(length(toF.sub(along.mul(tf))), 0.003).toVar(); // (no nearer than a flame's own size)
+    return atan(dEye.sub(tf).div(h))
+      .sub(atan(tf.negate().div(h)))
+      .div(h.mul(4 * Math.PI));
+  });
   const Ls = normalize(L.sunDir).toVar();
   const sunOn = aperture(p, Ls, L)
     .mul(shade.x)
@@ -414,6 +437,14 @@ function spectral(R, n, open, shade, m2, V, L, band, opts = {}) {
       .add(L.flameI[0].element(g).mul(flames[0].spec).mul(turned(g, flames[0].graze)))
       .add(L.flameI[1].element(g).mul(flames[1].spec).mul(turned(g, flames[1].graze)));
     const rad = R[g].mul(E).div(Math.PI).add(mirror).toVar();
+    const ext = L.haze.element(g);
+    const sca = L.haze.element(g + BIN_GROUPS);
+    const T = exp(ext.mul(dEye).negate()).toVar();
+    const glow = T.oneMinus()
+      .mul(sca.div(max(ext, vec4(1e-12))))
+      .mul(L.indirect.element(g).div(Math.PI));
+    const flamesGlow = sca.mul(L.flameI[0].element(g).mul(flameAir[0]).add(L.flameI[1].element(g).mul(flameAir[1])));
+    rad.assign(rad.mul(T).add(glow).add(flamesGlow));
     rgb.addAssign(vec3(dot(L.W[0].element(g), rad), dot(L.W[1].element(g), rad), dot(L.W[2].element(g), rad)));
   }
   const col = eyeTone(rgb).toVar();

@@ -825,7 +825,10 @@ const SceneView = forwardRef(function SceneView(
   // the room the ear is in: its size and faces, the window open or shut (world.md Phase 3)
   useEffect(() => spaceIs(space), [space]);
   const windowOpen = !!carrying?.windowOpen;
-  useEffect(() => roomIs(acoustics(GEOM, { open: windowOpen })), [windowOpen]);
+  useEffect(() => {
+    roomIs(acoustics(GEOM, { open: windowOpen }));
+    theLight().setWindow(windowOpen); // (the room's air: what it lets out, world.md 3b)
+  }, [windowOpen]);
   // the window under the pointer (E opens it, or shuts it)
   const windowAt = (e) => {
     if (!e || !carrying?.openWindow) return false;

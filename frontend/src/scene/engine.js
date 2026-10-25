@@ -1040,6 +1040,10 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lights.window.value.set(x0, x1, z0, z1);
       lights.wallY.value = W([0, g.size[1], 0])[1];
       gpu.setSpectrum(lights.indirect, l.indirect);
+      if (l.haze) {
+        gpu.setSpectrum(lights.haze, l.haze.ext);
+        gpu.setSpectrum(lights.haze, l.haze.sca, 1, gpu.BIN_GROUPS);
+      }
       for (let c = 0; c < 3; c++) gpu.setSpectrum(lights.W[c], l.W.subarray(c * 17, c * 17 + 17));
       // the candles: wax from the table up to where it has burnt down, the wick, the flame
       const r = (DIAMETER / 2) * PX_PER_M;
