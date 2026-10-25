@@ -11,6 +11,7 @@ import { poseNow } from '../room/presence.js';
 import { lawPen, lineWidthPx } from '../ink/pens.js';
 import { PEN_SIZES } from '../ink/nibs.js';
 import { shelfLayout, rayBox } from './shelf.js';
+import { penRestOf } from './light/room.js';
 import { isPhone } from './support.js';
 import { sightOf } from './sight.js';
 import * as WK from './keys.js';
@@ -98,8 +99,8 @@ const SIZE_MIN = 1e-4; // a being as small as a bead of ink
 // The pen in the hand (rooms.md §3c): a writer that says nothing of its nib writes with a medium pen.
 const PLAIN_PEN = lawPen({ nib: 'pen', size: PEN_SIZES.medium }, '#000000');
 const LIFT_M = 0.002; // the nib above the paper between strokes
-// Where the pen lies when set down and nothing says where: on the table, right of the page.
-const penRest = () => [GEOM.pageRect.x1 + 0.06, (GEOM.pageRect.y0 + GEOM.pageRect.y1) / 2, GEOM.table.top];
+// Where the plain pen lies when set down and nothing says where: its place on the table (light/room.js).
+const penRest = () => penRestOf(GEOM, 0);
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
 const SceneView = forwardRef(function SceneView(
@@ -165,7 +166,7 @@ const SceneView = forwardRef(function SceneView(
     if (penWas.current === penMode) return;
     penWas.current = penMode;
     if (penMode) carrying?.penUp?.();
-    else carrying?.penDown?.(st.current?.pen?.nib ?? null);
+    else carrying?.penDown?.(null); // (set down beside the paper, at its own place)
     if (!penMode && st.current) st.current.pen = null;
     schedule(); // (drawn again: the pen in the hand, or set down)
   }, [penMode]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -381,9 +382,12 @@ const SceneView = forwardRef(function SceneView(
       clearTimeout(S.still);
       S.still = setTimeout(schedule, Math.max(0, S.moveUntil - now) + 20);
     }
-    // the pen (rooms.md §3c): in the hand, at its nib, its tines as wide as its line; else set down
-    if (penMode && S.pen) S.view.setPen(S.pen);
-    else S.view.setPen({ place: penLies });
+    // the pens (rooms.md §3c): the one in the hand at its nib, its tines as wide as its line; the rest
+    // where they lie; and the jar
+    const drawn = Object.fromEntries(Object.entries(carrying?.penPlaces ?? { pen: penLies }).map(([id, at]) => [id, at ? { place: at } : null]));
+    if (penMode && S.pen) drawn[carrying?.penHeld ?? 'pen'] = S.pen;
+    S.view.setPens(drawn);
+    S.view.setJar(carrying?.jarAt?.() ?? null);
     S.view.setStamper(carrying?.stamperAt?.() ?? null); // (the stamper: in the hand, or where it lies)
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
@@ -553,7 +557,7 @@ const SceneView = forwardRef(function SceneView(
   };
   useEffect(showMarks, [marks, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   // the pen's face (rooms.md §3c) where the pen lies: the ink on it goes with it
-  const penLies = carrying?.penPlace ?? penRest();
+  const penLies = carrying?.penPlaces?.pen ?? penRest();
   useEffect(() => {
     setPenPlace(penLies);
     for (const [id, a] of S.marksOn) {
@@ -814,8 +818,12 @@ const SceneView = forwardRef(function SceneView(
         if (at && carrying.down(at)) return;
       } else {
         const id = pickableAt(e);
+        if (id === 'jar' && penMode && carrying.penDips) {
+          carrying.dip(); // the dip pen's nib into the jar
+          return;
+        }
         if (id !== null) {
-          carrying.pick(id);
+          if (carrying.pick(id) === 'pen') setHand(false); // a pen taken up: it is the pen in the hand
           return;
         }
       }
@@ -1171,7 +1179,11 @@ const SceneView = forwardRef(function SceneView(
         return;
       }
       const id = S.lastPointer ? pickableAt(S.lastPointer) : null; // the thing under the pointer, picked up
-      if (id !== null) return carrying.pick(id);
+      if (id === 'jar' && penMode && carrying.penDips) return carrying.dip();
+      if (id !== null) {
+        if (carrying.pick(id) === 'pen') setHand(false);
+        return;
+      }
       const it = onPage(p) ? sheetHand?.items.findLast((x) => p.x >= x.rect[0] && p.y >= x.rect[1] && p.x <= x.rect[2] && p.y <= x.rect[3]) : null; // (the topmost)
       if (it) sheetHand.pick(it.id, p);
       else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit

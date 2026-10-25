@@ -119,10 +119,12 @@ test('the air: noon sky blue, low sun gold to red, night zero sun. Computed, not
   assert.ok(lumOf(out(toward(0, 40))) > 1e5 * lumOf(out(toward(0, 50))));
   assert.ok(lumOf(out([0, 0.7, -0.7])) > 0 && out([0, 0.7, -0.7])[7] > out([0, 0.7, -0.7])[0], 'the field is green-lit ground');
   // placed by the clock
-  const at = (h) => sunPlace(new Date(2026, 9, 23, h, 0, 0));
-  assert.ok(at(12).el > at(11).el && at(12).el > at(13).el && at(8).az < 0 && at(17).az > 0 && at(23).el < 0);
+  const at = (h) => sunPlace(new Date(Date.UTC(2026, 9, 23, h + 7))); // Pacific, its summer hour (UTC−7)
+  // the sun's noon is the world's longitude's (122.68° W): 12:11 by the zone, 13:11 in its summer hour
+  assert.ok(at(13).el > at(12).el && at(13).el > at(14).el && at(8).az < 0 && at(17).az > 0 && at(23).el < 0);
   // by the date: higher at midsummer than at the end of October, at its highest NOON_EL
-  assert.ok(Math.abs(sunPlace(new Date(2026, 5, 21, 12)).el - NOON_EL) < 0.3 && sunPlace(new Date(2026, 5, 21, 12)).el > at(12).el + 30);
+  const midsummer = sunPlace(new Date(Date.UTC(2026, 5, 21, 20, 11)));
+  assert.ok(Math.abs(midsummer.el - NOON_EL) < 0.3 && midsummer.el > at(13).el + 30);
 });
 
 test('candles: lit at night while a being is present, out when they leave', () => {
@@ -283,7 +285,7 @@ test('record untouched: facts and digests identical under any light, time, candl
   // everything the light can do, over the very cells
   const inked = a.cells.filter((c) => c[2] || c[3] || c[4]).slice(0, 400);
   for (const h of [0, 5, 7, 12, 17, 19, 23]) {
-    const sunDir = toward(sunPlace(new Date(2026, 9, 23, h)).az, sunPlace(new Date(2026, 9, 23, h)).el);
+    const sunDir = toward(sunPlace(new Date(Date.UTC(2026, 9, 23, h + 7))).az, sunPlace(new Date(Date.UTC(2026, 9, 23, h + 7))).el);
     const E = daylight(sunDir);
     let eye = createEye();
     for (const c of inked) {

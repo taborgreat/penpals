@@ -28,7 +28,8 @@ import { toHalf } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
 import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { DROP_PX, DETAIL_PX } from './light/surface.js';
-import { STAMPER } from './light/room.js';
+import { STAMPER, PEN, JAR } from './light/room.js';
+import { room as RL } from 'penpals-law';
 import * as shine from './light/shine.js';
 import { geomOf, worldOf } from './light.js';
 import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf } from './roomDraw.js';
@@ -409,7 +410,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // the room's things (matter-fixes §3): each its matter grown on its own surface from
   // its own seed (the room's, and its name), so it looks the same to everyone
   const thingSeedOf = (name) => grown.thingSeed(seedOf('table'), name);
-  const KIND_OF = { table: grown.BOARD, brass: grown.BRASS, wax: grown.WAX, wick: grown.WICK, cloth: grown.CLOTH, skin: grown.SKIN };
+  const KIND_OF = { table: grown.BOARD, brass: grown.BRASS, wax: grown.WAX, wick: grown.WICK, cloth: grown.CLOTH, skin: grown.SKIN, ink: grown.WAX }; // (ink standing in a jar: a smooth liquid face, as poured wax's)
   const thingMat = (matter, thing, shape = 'box') =>
     Object.assign(gpu.objectMaterial(lights, { kind: KIND_OF[matter], seed: thing ? thingSeedOf(thing) : 0, pair: pairOf(matter), shape, webgpu: own }), { matter, thing });
   const objectMats = [];
@@ -440,18 +441,29 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // the shelf (rooms.md §3): its board, and the owner's books on it, spine out
   const shelf = { group: new THREE.Group(), mats: [] };
   roomGroup.add(shelf.group);
-  // the pen (rooms.md §3c): a plain wooden body and a nib of two brass tines. In the hand
-  // its nib is on the paper and its tines spread as wide as the line it lays; set down,
-  // it lies on the table. (room m, in the room's group)
-  const PEN = { length: 0.12, thick: 0.009, tine: 0.012, tineW: 0.0012 };
-  const penMats = { body: thingMat('table', 'pen'), tine: thingMat('brass', 'nib') };
-  const pen = new THREE.Group();
-  const penBody = new THREE.Mesh(box, penMats.body);
-  const penTines = [new THREE.Mesh(box, penMats.tine), new THREE.Mesh(box, penMats.tine)];
-  pen.add(penBody, ...penTines);
-  for (const m of [penBody, ...penTines]) shadows.add(m);
-  pen.visible = false;
-  roomGroup.add(pen);
+  // the pens (rooms.md §3c; law/room.js PENS): each a plain wooden body (its own grain) and a nib of
+  // two brass tines. In the hand its nib is on the paper and its tines spread as wide as the line it
+  // lays; set down, it lies on the table. (room m, in the room's group)
+  const penMats = { tine: thingMat('brass', 'nib') };
+  const pens = new Map(); // id → { group, body, tines, mat }
+  for (const id of RL.PENS) {
+    const mat = thingMat('table', id);
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(box, mat);
+    const tines = [new THREE.Mesh(box, penMats.tine), new THREE.Mesh(box, penMats.tine)];
+    group.add(body, ...tines);
+    for (const m of [body, ...tines]) shadows.add(m);
+    group.visible = false;
+    roomGroup.add(group);
+    pens.set(id, { group, body, tines, mat });
+  }
+  const penBodyMats = [...pens.values()].map((p) => p.mat);
+  // the ink jar (rooms.md §3c): oak gall ink standing in it (its glass is not drawn yet: NEEDS RULING)
+  const jarMat = thingMat('ink', 'jar', 'round');
+  const jar = new THREE.Mesh(disc, jarMat);
+  shadows.add(jar);
+  jar.visible = false;
+  roomGroup.add(jar);
   // the stamper (rooms.md §3b): a wooden handle on a round brass face, set down face down
   const stamperMats = { handle: thingMat('table', 'stamper'), face: thingMat('brass', 'stamper-face', 'round') };
   const stamper = new THREE.Group();
@@ -461,6 +473,41 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   for (const m of [stamperHandle, stamperFace]) shadows.add(m);
   stamper.visible = false;
   roomGroup.add(stamper);
+  // one pen drawn, in the hand or lying (setPens)
+  function drawPen({ group, body, tines }, p) {
+    group.visible = !!p;
+    if (!p) return;
+    const { length: L, thick: T, tine: TL, tineW: TW } = PEN;
+    if (p.place) {
+      // lying along x, its nib to the right
+      const [x, y, z] = p.place;
+      lay(body, [x, y, z + T / 2], [-1, 0, 0], L, T, T);
+      tines.forEach((m, k) => lay(m, [x + L / 2 + TL / 2, y + (k ? 1 : -1) * TW, z + T / 2], [1, 0, 0], TL, TW, TW));
+      lightHere([body, ...tines], body.position.toArray());
+      return;
+    }
+    // in the hand: rising from the nib toward the writer, 50° up
+    const up = (50 * Math.PI) / 180;
+    const dir = [0, -Math.cos(up), Math.sin(up)];
+    const at = (d) => p.nib.map((v, k) => v + dir[k] * d);
+    lay(body, at(TL + L / 2), dir, L, T, T);
+    // the tines: from the point up the nib, apart across it by the line's width
+    const a = ((p.across ?? 0) * Math.PI) / 180;
+    const side = [Math.cos(a), -Math.sin(a), 0]; // (the page's y is the room's −y)
+    const half = Math.max(TW / 2, (p.spread ?? 0) / 2);
+    tines.forEach((m, k) => {
+      const o = (k ? 1 : -1) * half;
+      lay(
+        m,
+        at(TL / 2).map((v, j) => v + side[j] * o),
+        dir,
+        TL,
+        TW,
+        TW,
+      );
+    });
+    lightHere([body, ...tines], body.position.toArray());
+  }
   const upZ = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion();
   // a box of length `len` along `dir` (unit), its middle at `mid`, `w` × `h` across
@@ -966,7 +1013,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lightRoom(l, performance.now(), R);
       marks.light(l.ambient);
       // (what a thing not yet placed takes)
-      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, penMats.body, penMats.tine, stamperMats.handle, stamperMats.face]) {
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, ...penBodyMats, penMats.tine, jarMat, stamperMats.handle, stamperMats.face]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
         m.ambient.A.set(...A);
         m.ambient.B.set(...B);
@@ -1020,7 +1067,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       // each thing, lit where it stands
       for (const mesh of objectMeshes.values()) lightHere([mesh], mesh.position.toArray());
       for (const mesh of shelf.group.children) lightHere([mesh], mesh.position.toArray());
-      if (pen.visible) lightHere([penBody, ...penTines], penBody.position.toArray());
+      for (const p of pens.values()) if (p.group.visible) lightHere([p.body, ...p.tines], p.body.position.toArray());
+      if (jar.visible) lightHere([jar], jar.position.toArray());
       for (const b of beings.values()) lightHere(b.group.children, b.body.position.toArray());
       // the sources, for what blocks them
       const sunUp = l.sun.E.some((v) => v > 0);
@@ -1038,7 +1086,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setSeeds(next) {
       roomSeeds = next;
       for (const m of roomMats) m.seed.value = seedOf(m.seedName);
-      for (const m of [...objectMats, ...candleMats, ...shelf.mats, penMats.body, penMats.tine, stamperMats.handle, stamperMats.face]) if (m.thing) m.seedBase = thingSeedOf(m.thing);
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...penBodyMats, penMats.tine, jarMat, stamperMats.handle, stamperMats.face]) if (m.thing) m.seedBase = thingSeedOf(m.thing);
       marks.reseed();
     },
     // The others in the room (rooms.md §4): [{ name, pose: { pos (the head, room m), yaw,
@@ -1085,43 +1133,21 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         beings.delete(name);
       }
     },
-    // The pen (rooms.md §3c), room m: in the hand { nib: [x, y, z] (its point), spread (m: the
-    // tines apart, the line's width), across (degrees in the page: the tines' spread) } or set
-    // down { place: [x, y, z] (where it lies on the table) }; null: not drawn.
-    setPen(p) {
-      pen.visible = !!p;
-      if (!p) return;
-      const { length: L, thick: T, tine: TL, tineW: TW } = PEN;
-      if (p.place) {
-        // lying along x, its nib to the right
-        const [x, y, z] = p.place;
-        lay(penBody, [x, y, z + T / 2], [-1, 0, 0], L, T, T);
-        penTines.forEach((m, k) => lay(m, [x + L / 2 + TL / 2, y + (k ? 1 : -1) * TW, z + T / 2], [1, 0, 0], TL, TW, TW));
-        lightHere([penBody, ...penTines], penBody.position.toArray());
-        return;
-      }
-      // in the hand: rising from the nib toward the writer, 50° up
-      const up = (50 * Math.PI) / 180;
-      const dir = [0, -Math.cos(up), Math.sin(up)];
-      const at = (d) => p.nib.map((v, k) => v + dir[k] * d);
-      lay(penBody, at(TL + L / 2), dir, L, T, T);
-      // the tines: from the point up the nib, apart across it by the line's width
-      const a = ((p.across ?? 0) * Math.PI) / 180;
-      const side = [Math.cos(a), -Math.sin(a), 0]; // (the page's y is the room's −y)
-      const half = Math.max(TW / 2, (p.spread ?? 0) / 2);
-      penTines.forEach((m, k) => {
-        const o = (k ? 1 : -1) * half;
-        lay(
-          m,
-          at(TL / 2).map((v, j) => v + side[j] * o),
-          dir,
-          TL,
-          TW,
-          TW,
-        );
-      });
-      lightHere([penBody, ...penTines], penBody.position.toArray());
+    // The pens (rooms.md §3c), room m: { [id]: p } with p in the hand { nib: [x, y, z] (its point),
+    // spread (m: the tines apart, the line's width), across (degrees in the page: the tines' spread) }
+    // or set down { place: [x, y, z] (where it lies on the table) }; null or absent: not drawn.
+    setPens(all) {
+      for (const [id, one] of pens) drawPen(one, all?.[id] ?? null);
     },
+    // The jar (rooms.md §3c), room m: its foot [x, y, z] (in the hand, or where it stands); null: not drawn.
+    setJar(at) {
+      jar.visible = !!at;
+      if (!at) return;
+      jar.scale.set(JAR.radius, JAR.radius, JAR.height);
+      jar.position.set(at[0], at[1], at[2] + JAR.height / 2);
+      lightHere([jar], jar.position.toArray());
+    },
+
     // The stamper (rooms.md §3b), room m: its face's foot [x, y, z] (in the hand, or where it lies); null: not drawn.
     setStamper(at) {
       stamper.visible = !!at;
@@ -1157,7 +1183,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       put(board, wood);
       boxes.forEach((b, k) => {
         const cloth = paperCurve(books[k].color);
-        const mat = gpu.objectMaterial(lights, { pair: { light: cloth, dark: cloth } });
+        const mat = gpu.objectMaterial(lights, { kind: grown.CLOTH, pair: { light: cloth, dark: cloth }, webgpu: own });
         mat.matter = { light: cloth, dark: cloth };
         shelf.mats.push(mat);
         put(b, mat);
@@ -1347,7 +1373,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       marks.dispose();
       view.setShelf(null);
       view.setBeings(null);
-      penMats.body.dispose();
+      for (const m of penBodyMats) m.dispose();
+      jarMat.dispose();
       penMats.tine.dispose();
       stamperMats.handle.dispose();
       stamperMats.face.dispose();

@@ -301,3 +301,26 @@ test('things: acts sealed by their being; a candle picked up is held (no one els
   assert.deepEqual(here.data.things['candle-0'], { at: [1.235, 2.5, 0.74], by: 'ana' });
   back.close();
 });
+
+test("pens: a pen's settings are its facts: set only by the hand holding it, told to everyone in the room, kept when the room sleeps", async () => {
+  const host = await stream(ana, 'ana');
+  await host.until('here');
+  const guest = await stream(bo, 'ana');
+  await guest.until('here');
+  const FLEX = { hairline: 14, maxWidth: 14, swell: 25, slant: 55, flow: 9, spatter: 3, color: '#22336a', dip: true };
+  const set = (p, thing, s) => doIn(p, ana, roomAct(p, ana, { act: 'set', thing, set: s }));
+  assert.equal((await set(ana, 'pen-flex', FLEX)).status, 409, 'lying on the table: pick it up first');
+  assert.equal((await doIn(ana, ana, roomAct(ana, ana, { act: 'place', thing: 'pen-flex', to: null }))).status, 200, 'ana picks up the flex nib');
+  assert.equal((await set(bo, 'pen-flex', FLEX)).status, 409, 'bo is not holding it');
+  assert.equal((await set(ana, 'pen-flex', FLEX)).status, 200);
+  const told = await guest.until('thing', (d) => d.thing === 'pen-flex' && d.set);
+  assert.deepEqual(told.data.set, FLEX, 'bo sees what she set it to');
+  assert.equal((await doIn(ana, ana, roomAct(ana, ana, { act: 'place', thing: 'pen-flex', to: [1.7, 2.8, 0.74] }))).status, 200, 'and sets it down');
+  host.close();
+  guest.close();
+  await settle(rooms.LINGER_MS + 200);
+  const back = await stream(bo, 'ana');
+  const here = await back.until('here');
+  assert.deepEqual(here.data.things['pen-flex'], { at: [1.7, 2.8, 0.74], by: 'ana', set: FLEX }, 'where it lies, as it is set');
+  back.close();
+});

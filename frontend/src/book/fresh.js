@@ -5,7 +5,9 @@
 // exactly where its ink is; new paper seals the one before (the old sheet
 // stays where you put it). Until it is sealed it is a draft on this device.
 //   writer: your key in this tab; family: the paper the next sheet is grown on;
-//   pen: the pen in the hand (components/PenPanel.jsx usePen); onPlace(line, seed, place)
+//   pen: the pen in the hand (components/PenPanel.jsx usePens); onPlace(line, seed, place)
+// A sheet begun with a dip pen in the hand is a law-3 sheet (its pen acts carry the nib's well:
+// laws.js); one still blank when the pen in the hand turns dip pen, or back, is begun again so.
 // → { sheet (null: none on the table), strokes, newPaper({ size, origin }), seal(), undo(),
 //     scene: SceneView's sheet for it, writer: SceneView's writer for it }
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -69,10 +71,10 @@ export function sheetPen(now, pen) {
 }
 
 export function useFreshSheet({ writer, family, pen, onPlace }) {
-  const [paper, setPaper] = useState(null); // { n, size, origin, family }
+  const [paper, setPaper] = useState(null); // { n, size, origin, family, law }
   const n = useRef(0);
   const made = useMemo(() => (paper && writer ? newSheet(writer) : null), [paper?.n, writer]); // (each new paper, a new sheet)
-  const ink = useLiveInk(made ? { paperKey: made.paperKey, family: paper.family, size: paper.size } : null, made?.sheet);
+  const ink = useLiveInk(made ? { paperKey: made.paperKey, family: paper.family, size: paper.size, ...(paper.law === 3 ? { law: 3 } : {}) } : null, made?.sheet);
   const [strokes, setStrokes] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -85,6 +87,14 @@ export function useFreshSheet({ writer, family, pen, onPlace }) {
       setError(ink.error ? 'That is more ink than one sheet can hold. Undo a little.' : null);
     });
   }, [ink]);
+  // a blank sheet under the law the pen in the hand writes with
+  const lawNow = pen.dip ? 3 : 2;
+  useEffect(() => {
+    if (paper && !strokes && paper.law !== lawNow) {
+      n.current += 1;
+      setPaper({ ...paper, n: n.current, law: lawNow });
+    }
+  }, [paper, strokes, lawNow]);
   // the pen in the hand writes the next strokes
   useEffect(() => {
     if (!ink) return;
@@ -118,7 +128,7 @@ export function useFreshSheet({ writer, family, pen, onPlace }) {
   async function newPaper({ size, origin = [0, 0] }) {
     if (ink?.strokes) await seal();
     n.current += 1;
-    setPaper({ n: n.current, size, origin, family });
+    setPaper({ n: n.current, size, origin, family, law: lawNow });
   }
 
   const sheetOnTable =

@@ -22,7 +22,7 @@
 // from the seated writer (toward the window), z up; unit vectors toward the
 // light or along the view.
 
-import { SUN, SKY, WORLD, sunToward } from 'penpals-law/sun';
+import { SUN, SKY, WORLD, sunAt } from 'penpals-law/sun';
 import { N, HEAT, HEAT_NM, LAMBDA } from './axis.js';
 import { blackbody } from './blackbody.js';
 
@@ -66,14 +66,12 @@ export function sunLight(el) {
   return GRANT.map((g, i) => g * Math.exp(-BETA[i] * path) * seen);
 }
 
-// Where the sun stands on a date at a time (its wall clock: getFullYear, getMonth,
-// getDate, getHours…): the law's sun (law/sun.js) over the world's latitude, the
-// window facing south, so it rises on the writer's left and sets on their right,
-// highest at noon, higher and longer up in the summer. → { az, el } degrees.
+// Where the sun stands at an instant (a Date, or anything with getTime): the law's sun
+// (law/sun.js) over the world's place, the window facing south, so it rises on the
+// writer's left and sets on their right, highest at the sun's noon, higher and longer up
+// in the summer. → { az, el } degrees.
 export function sunPlace(date) {
-  const h = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
-  const doy = (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(date.getFullYear(), 0, 1)) / 86400000;
-  const [east, north, up] = sunToward(doy, h);
+  const [east, north, up] = sunAt(date.getTime());
   return { el: deg(Math.asin(Math.max(-1, Math.min(1, up)))), az: deg(Math.atan2(-east, -north)) };
 }
 // The room-frame direction toward a light at azimuth az (0: straight ahead,

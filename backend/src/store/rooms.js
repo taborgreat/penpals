@@ -29,8 +29,9 @@ export const LINGER_MS = 2000;
 const rooms = new Map(); // ownerId → { clients: Set(client), beings: Map(userId → { name, pose, at, links }), things, lit, counted, n }
 const nameOf = (key) => findByKey(key)?.username ?? null;
 const metres = (mm) => mm.map((v) => v / 1000);
-// What the room's signed acts have made so: where each thing is ({ at (room m) | null: held, by }),
-// which candles burn, and each being's counts stamped ('<key>.<k>').
+// What the room's signed acts have made so: where each thing is ({ at (room m) | null: held, by }) and
+// what each pen is set to (set: its settings), which candles burn, and each being's counts stamped
+// ('<key>.<k>').
 function stateOf(lines) {
   const things = {},
     lit = {},
@@ -39,7 +40,8 @@ function stateOf(lines) {
     const a = l.act;
     if (a?.kind !== 'room') continue;
     counted.add(`${a.by}.${a.k}`);
-    if (a.act === 'place') things[a.thing] = { at: a.to === null ? null : metres(a.to), by: nameOf(a.by) };
+    if (a.act === 'place') things[a.thing] = { ...things[a.thing], at: a.to === null ? null : metres(a.to), by: nameOf(a.by) };
+    if (a.act === 'set') things[a.thing] = { ...things[a.thing], set: a.set };
     if (a.act === 'light' || a.act === 'out') lit[a.thing] = a.act === 'light';
   }
   return { things, lit, counted };
@@ -159,13 +161,15 @@ export async function act(ownerId, userId, owner, { act: a, seal } = {}) {
     if (now - b.lastTilt < 1000 / B.MAX_RATE) return { why: 'Too soon: a tilt is coarse.', status: 429 }; // at most five a second
     b.lastTilt = now;
   }
+  if (a.act === 'set' && (!held || held.at !== null || held.by !== b.name)) return { why: 'Only the one holding a pen sets it.', status: 409 };
   if (a.act === 'light' && r.lit[a.thing]) return { why: 'It is lit already.', status: 409 };
   if (a.act === 'out' && !r.lit[a.thing]) return { why: 'It is out already.', status: 409 };
   r.counted.add(count);
-  if (a.act === 'place') r.things[a.thing] = { at: a.to === null ? null : metres(a.to), by: b.name };
+  if (a.act === 'place') r.things[a.thing] = { ...r.things[a.thing], at: a.to === null ? null : metres(a.to), by: b.name };
+  if (a.act === 'set') r.things[a.thing] = { ...r.things[a.thing], set: a.set };
   if (a.act === 'light' || a.act === 'out') r.lit[a.thing] = a.act === 'light';
   const line = await record(ownerId, r, { act: a, seal });
-  if (a.act === 'place') tellAll(r, 'thing', { thing: a.thing, ...r.things[a.thing] });
+  if (a.act === 'place' || a.act === 'set') tellAll(r, 'thing', { thing: a.thing, ...r.things[a.thing] });
   return { line };
 }
 

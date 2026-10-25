@@ -137,7 +137,7 @@ const pageSeen = (l, paper = 0.85) =>
   );
 
 test('the light is a beauty layer: the sun by the clock through the window, candles burning at night, the eye; facts and digests never change', async () => {
-  const at = (h) => new Date(2026, 5, 21, h, 0, 0); // midsummer
+  const at = (h) => new Date(Date.UTC(2026, 5, 21, h + 7)); // midsummer, Pacific (its summer hour: UTC−7)
   const morning = sunAt(at(8)),
     noon = sunAt(at(12)),
     evening = sunAt(at(17)),

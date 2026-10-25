@@ -150,8 +150,17 @@ export function roomGeometry(spec = ROOM) {
 export const LEG = 0.05; // m a side
 export const FRAME = { width: 0.05, depth: 0.06, sill: 0.12 }; // the frame's members, and how far the inner sill reaches into the room
 export const HOLDER = { radius: 0.045, height: 0.015 };
-// The stamper (rooms.md §3b): its brass face's radius and its wooden handle's height (m).
+// The stamper (rooms.md §3b): its brass face's radius and its wooden handle's height (m), and where it
+// lies when the room is made with it: left of the page, toward the writer (clear of the candle's holder).
 export const STAMPER = { face: 0.015, handle: 0.07 };
+export const stamperRestOf = (geom) => [geom.pageRect.x0 - 0.05, geom.pageRect.y0 + 0.03, geom.table.top];
+// The pens (rooms.md §3c; law/room.js PENS: a plain pen, a flex nib, a broad nib): a wooden body and a
+// nib of brass, each lying right of the page toward the writer, side by side, its nib to the right
+// (clear of the candle's holder); and the ink jar beyond them (glass and oak gall ink).
+export const PEN = { length: 0.12, thick: 0.009, tine: 0.012, tineW: 0.0012, apart: 0.03 };
+export const penRestOf = (geom, k) => [geom.pageRect.x1 + 0.08, geom.pageRect.y0 + 0.02 + k * PEN.apart, geom.table.top];
+export const JAR = { radius: 0.025, height: 0.06 };
+export const jarRestOf = (geom) => [geom.pageRect.x1 + 0.08 + PEN.length / 2 + JAR.radius + 0.02, geom.pageRect.y0 + 0.04, geom.table.top];
 // The key corner (one-world.md): behind the chair on the right, clear of the shelf, a wooden
 // stand (how far in from the corner, a side, its height) and on it a small brass box (your keys).
 export const CORNER = { at: 0.4, side: 0.3, height: 0.95, box: [0.1, 0.07, 0.05] };

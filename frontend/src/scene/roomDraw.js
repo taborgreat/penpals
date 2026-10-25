@@ -16,7 +16,7 @@ import { N, curves, surface as grown } from './light/index.js';
 const { CELL_M } = grown;
 
 const KIND = { plaster: grown.PLASTER, floor: grown.PLANKS, table: grown.BOARD };
-const PAIR = { plaster: 'plaster', floor: 'floor', table: 'table', brass: 'brass', wax: 'wax', wick: 'wick', cloth: 'cloth', skin: 'skin' }; // matter → its curve pair
+const PAIR = { plaster: 'plaster', floor: 'floor', table: 'table', brass: 'brass', wax: 'wax', wick: 'wick', cloth: 'cloth', skin: 'skin', ink: 'ink' }; // matter → its curve pair
 export const seedOf = (surface) => grown.seedMix(grown.DEFAULT_SEEDS[surface.id.startsWith('table') ? 'table' : surface.id] ?? grown.defaultSeed(surface.id));
 
 // Every surface's mesh: vertices at its grid's line crossings (room m), each

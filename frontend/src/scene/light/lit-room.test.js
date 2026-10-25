@@ -38,7 +38,7 @@ const lum = (s) => xyzOf(s, CMF, LUMENS)[1];
 const radiance = (E, R) => E.map((v, b) => (v * R[b]) / Math.PI);
 
 function day(hour) {
-  const { az, el } = sunPlace(new Date(2026, 5, 21, hour));
+  const { az, el } = sunPlace(new Date(Date.UTC(2026, 5, 21, hour + 7))); // Pacific, its summer hour
   const sunDir = toward(az, el);
   return { sunDir, sun: sunLight(el), outside: outsideAt(sunDir), glass: MATTER.glass };
 }

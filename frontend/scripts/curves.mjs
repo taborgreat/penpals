@@ -15,7 +15,7 @@
 //             white page, matches its swatch
 //   GALL      oak gall's own curve at full darkness, fitted to its swatch
 //   MATTER    reflectances: plaster, the floor's and the table's wood, and the
-//             things' matter (brass, wax, wick, cloth, skin), each a light and a
+//             things' matter (brass, wax, wick, cloth, skin, the ink in its jar), each a light and a
 //             dark curve the grown cells mix between; grass, leaves, and the
 //             window glass's transmittance
 //   DRUNK     how much of the reference daylight each ink channel (and gall)
@@ -195,6 +195,9 @@ function gallResidual(p) {
   return r;
 }
 const GALL = unpackGall(fit(gallResidual, LAMBDA.map(() => Math.log(1.6))));
+// oak gall ink standing in its jar (rooms.md §3c): deep, so darker than at full darkness on a page (a
+// surface × e^−A, what the gall curve is fitted to): its light as two such films over white, its dark as three
+MATTER.ink = { light: GALL.map((a) => Math.exp(-2 * a)), dark: GALL.map((a) => Math.exp(-3 * a)) };
 
 // How much of the reference daylight one unit of each channel's absorbance drinks.
 const visible = (s) => s.slice(0, BINS).reduce((t, v) => t + v, 0);
@@ -250,6 +253,7 @@ export const MATTER = Object.freeze({
   grass: ${arr(MATTER.grass)},
   leaf: ${arr(MATTER.leaf)},
   glass: ${arr(MATTER.glass)},
+  ink: ${pair(MATTER.ink)},
 });
 export const PAPER_HEAT = ${PAPER_HEAT};
 

@@ -25,7 +25,9 @@ import { useCarry } from '../room/carry.js';
 import { SHARED_PAGE } from '../room/shared.js';
 import TogetherBar from '../room/TogetherBar.jsx';
 import Panel from '../components/Panel.jsx';
-import PenPanel, { usePen } from '../components/PenPanel.jsx';
+import PenPanel from '../components/PenPanel.jsx';
+import { usePens } from '../room/pens.js';
+import { useThings, roomAct } from '../room/presence.js';
 import PaperPanel, { FreshSheet } from '../components/PaperPanel.jsx';
 import { useFreshSheet, SIZES } from './fresh.js';
 
@@ -78,7 +80,12 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const [preview, setPreview] = useState(false);
   const [walking, setWalking] = useState(null); // the item being walked back
   const editing = editable && !preview && !world;
-  const pen = usePen(); // the pen in the hand (the world's)
+  // the pens on the table (law/room.js PENS), their settings their facts on the room's chain; the one
+  // in the hand writes (the world's)
+  const roomThings = useThings(fromFile ? null : name);
+  const penAct = useCallback((a) => (key && book.key && name && !fromFile ? roomAct(name, key, book.key, a) : null), [key, book.key, name, fromFile]);
+  const pens = usePens({ things: roomThings, act: penAct });
+  const pen = pens.pen;
   // writing on the room's surfaces: one sheet at a time, begun where the pen first touches one
   const [wall, setWall] = useState(null); // room/wallInk.js, while a surface is being written on
   const wallRef = useRef(null);
@@ -296,6 +303,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     room: book.key ?? null,
     page: [(book.page ?? DEFAULT_PAGE).width, (book.page ?? DEFAULT_PAGE).height],
     sheets: tableSheets,
+    pens,
   });
   const room = useMemo(
     () => ({

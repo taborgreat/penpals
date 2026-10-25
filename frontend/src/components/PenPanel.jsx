@@ -10,7 +10,6 @@ import InkWell from '../ink/InkWell.jsx';
 // writes carries them: they are recorded with the ink.
 const FLEX_FIELDS = ['hairline', 'maxWidth', 'swell', 'slant'];
 const NIB_NAMES = { pen: 'Pen', flex: 'Flex nib', broad: 'Broad nib' };
-
 export function usePen() {
   const [nib, setNib] = useState('flex');
   const [penSize, setPenSize] = useState('medium');
@@ -57,13 +56,17 @@ export default function PenPanel({ pen, law = 2, children = null }) {
   const spatter = pen.spatterFor(law);
   return (
     <div className="stack pen-panel">
-      <div className="nib-picker" role="group" aria-label="Nib">
-        {Object.keys(NIBS).map((id) => (
-          <button key={id} type="button" aria-pressed={pen.nib === id} title={NIBS[id].name} onClick={() => pen.set.nib(id)}>
-            {NIB_NAMES[id] ?? id}
-          </button>
-        ))}
-      </div>
+      {pen.fixedNib ? (
+        <p className="meta">{pen.name}: set it down (H) and pick up another for another nib.</p>
+      ) : (
+        <div className="nib-picker" role="group" aria-label="Nib">
+          {Object.keys(NIBS).map((id) => (
+            <button key={id} type="button" aria-pressed={pen.nib === id} title={NIBS[id].name} onClick={() => pen.set.nib(id)}>
+              {NIB_NAMES[id] ?? id}
+            </button>
+          ))}
+        </div>
+      )}
       {pen.nib === 'pen' && (
         <label className="field">
           <span>Size</span>
@@ -143,6 +146,12 @@ export default function PenPanel({ pen, law = 2, children = null }) {
         <span>Ink</span>
         <InkWell value={pen.color} onChange={pen.set.color} />
       </div>
+      {pen.dip !== undefined && (
+        <label className="field" title="A fountain pen keeps its own ink; a dip pen draws from the jar, and its line fades until you dip it again">
+          <input type="checkbox" checked={pen.dip} onChange={(e) => pen.set.dip(e.target.checked)} /> Dip pen
+          {pen.dip && <span className="meta"> · touch its nib to the jar to dip it</span>}
+        </label>
+      )}
       {children}
     </div>
   );

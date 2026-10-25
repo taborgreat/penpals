@@ -8,6 +8,9 @@
 //            act 'light' | 'out'   thing: a candle
 //            act 'place'           thing, to: [x, y, z] (mm, room: where it rests) | null (held: in by's hand)
 //            act 'tilt'            thing: the candle in by's hand, pos: [x, y, z] (mm: its foot), deg (0..90, toward +x)
+//            act 'set'             thing: a pen, set: its settings (its facts: one-world.md, the panel for the pen
+//                                  in hand): what its nib is set to, its flow and spatter, its ink, and whether it
+//                                  is a dip pen (its line fading until it is dipped in the jar: rooms.md §3c)
 //   stamped line  { n, at (ISO: the stamper's clock), act, seal }
 // k is the being's own count of its acts in this room: no act is stamped twice.
 
@@ -16,21 +19,22 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { T, jcs, fromB64url, b64url, utf8, concat } from './tags.js';
 import { verify } from './keys.js';
 import { MAX_RATE, STEP_M } from './being.js';
+import { sunAt } from './sun.js';
 
-export const THINGS = ['candle-0', 'candle-1', 'pen', 'stamper'];
+// The pens on the table (rooms.md §3c; one-world.md: which pen you pick up is the nib you write
+// with): a plain pen, a flex nib and a broad nib, each its own matter with its own settings.
+export const PENS = ['pen', 'pen-flex', 'pen-broad'];
+export const NIB_OF = Object.freeze({ pen: 'pen', 'pen-flex': 'flex', 'pen-broad': 'broad' });
 export const CANDLES = ['candle-0', 'candle-1'];
-export const ACTS = ['light', 'out', 'place', 'tilt'];
+export const THINGS = [...CANDLES, ...PENS, 'jar', 'stamper'];
+export const ACTS = ['light', 'out', 'place', 'tilt', 'set'];
 export const TILT_MAX = 90;
 export const TILT_STEP = 5; // degrees: a tilt act only past this turn or a step moved (being.js: as the head's)
-// One world, one sun, one clock (rooms.md §1b): Pacific. Night is the sun down by it (the light's
-// sunPlace: below the horizon before 6:00 and from 18:00); at night a being in a room lights its
-// candles (an act), and puts them out by day and as the last one leaves.
+// One world, one sun, one clock (rooms.md §1b): Pacific. Night is the sun down by it (law/sun.js:
+// the one sun, shorter nights in summer); at night a being in a room lights its candles (an act),
+// and puts them out by day and as the last one leaves.
 export const WORLD_ZONE = 'America/Los_Angeles';
-const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: WORLD_ZONE, hour12: false, hour: 'numeric' });
-export const isNight = (ms) => {
-  const h = Number(hourIn.formatToParts(new Date(ms)).find((p) => p.type === 'hour').value) % 24;
-  return h < 6 || h >= 18;
-};
+export const isNight = (ms) => sunAt(ms)[2] < 0;
 const REACH_MM = [3048, 3353, 2438]; // the room (law/being.js checkPose's), and a metre past it
 
 const bad = (msg) => Object.assign(new Error(msg), { code: 'bad_room_act', status: 400 });
@@ -41,9 +45,10 @@ const mm = (v) => Math.round(v * 1000);
 const inRoom = (p) => Array.isArray(p) && p.length === 3 && p.every((v, k) => Number.isInteger(v) && v >= -1000 && v <= REACH_MM[k] + 1000);
 
 // An act, made and sealed on the device (positions in room m: made whole millimetres here).
-export function makeRoomAct({ sk, pk, room, k, act, thing, to, pos, deg }) {
+export function makeRoomAct({ sk, pk, room, k, act, thing, to, pos, deg, set }) {
   const body = { v: 2, kind: 'room', room, by: b64url(pk), k, act, thing };
   if (act === 'place') body.to = to === null ? null : to.map(mm);
+  if (act === 'set') body.set = set;
   if (act === 'tilt') {
     body.pos = pos.map(mm);
     body.deg = Math.max(0, Math.min(TILT_MAX, Math.round(deg)));
@@ -55,14 +60,55 @@ export function makeRoomAct({ sk, pk, room, k, act, thing, to, pos, deg }) {
 // An act as anyone may check it: its fields, nothing more.
 export function checkRoomAct(body) {
   if (!body || typeof body !== 'object') throw bad('no act');
-  const want = { light: 'act,by,k,kind,room,thing,v', out: 'act,by,k,kind,room,thing,v', place: 'act,by,k,kind,room,thing,to,v', tilt: 'act,by,deg,k,kind,pos,room,thing,v' }[body.act];
+  const want = {
+    light: 'act,by,k,kind,room,thing,v',
+    out: 'act,by,k,kind,room,thing,v',
+    place: 'act,by,k,kind,room,thing,to,v',
+    tilt: 'act,by,deg,k,kind,pos,room,thing,v',
+    set: 'act,by,k,kind,room,set,thing,v',
+  }[body.act];
   if (!want || Object.keys(body).sort().join() !== want) throw bad('not a room act');
   if (body.v !== 2 || body.kind !== 'room' || !isKey(body.room) || !isKey(body.by) || !Number.isInteger(body.k) || body.k < 1) throw bad('a malformed room act');
   if (!THINGS.includes(body.thing)) throw bad('not a thing in a room');
   if ((body.act === 'light' || body.act === 'out' || body.act === 'tilt') && !CANDLES.includes(body.thing)) throw bad('only a candle is lit, put out or tilted');
   if (body.act === 'place' && body.to !== null && !inRoom(body.to)) throw bad('not a place in the room');
   if (body.act === 'tilt' && (!inRoom(body.pos) || !Number.isInteger(body.deg) || body.deg < 0 || body.deg > TILT_MAX)) throw bad('a malformed tilt');
+  if (body.act === 'set') {
+    if (!PENS.includes(body.thing)) throw bad('only a pen is set');
+    checkPenSet(NIB_OF[body.thing], body.set);
+  }
   return body;
+}
+
+// A pen's settings, as its nib takes them: every field, each a plain value in its range.
+const PEN_FIELDS = {
+  pen: ['color', 'dip', 'flow', 'size', 'spatter'],
+  flex: ['color', 'dip', 'flow', 'hairline', 'maxWidth', 'slant', 'spatter', 'swell'],
+  broad: ['angle', 'color', 'dip', 'flow', 'size', 'spatter'],
+};
+// whole numbers (an act is canonical JSON): the hairline in tenths of a pixel, the rest as the panel shows them
+const RANGES = { flow: [0, 15], spatter: [0, 15], hairline: [1, 100], maxWidth: [1, 60], swell: [0, 100], slant: [0, 180], angle: [0, 180] };
+function checkPenSet(nib, set) {
+  if (!set || typeof set !== 'object' || Array.isArray(set) || Object.keys(set).sort().join() !== PEN_FIELDS[nib].join()) throw bad('not the settings of this pen');
+  for (const [f, v] of Object.entries(set)) {
+    if (f === 'color') {
+      if (typeof v !== 'string' || !/^#[0-9a-f]{6}$/.test(v)) throw bad('a pen ink is a colour');
+    } else if (f === 'dip') {
+      if (typeof v !== 'boolean') throw bad('a pen dips or does not');
+    } else if (f === 'size') {
+      if (typeof v !== 'string' || !v.length || v.length > 12) throw bad('a pen size is a name');
+    } else {
+      const [lo, hi] = RANGES[f];
+      if (!Number.isInteger(v) || v < lo || v > hi) throw bad(`a pen's ${f} is out of range`);
+    }
+  }
+}
+// Each pen's settings now: the last set act for it on the room's chain (lines in order, as stamped),
+// else none (it is as it was made: the panel's defaults for its nib).
+export function penSettings(lines) {
+  const out = {};
+  for (const l of lines) if (l.act?.act === 'set' && PENS.includes(l.act.thing)) out[l.act.thing] = l.act.set;
+  return out;
 }
 export const verifyRoomActSeal = (act, seal) => verify(fromB64url(seal, 64), sealMsg(roomDigest(act)), fromB64url(act.by, 32));
 
