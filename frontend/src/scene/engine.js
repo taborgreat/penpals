@@ -27,6 +27,8 @@ import { frame } from './camera.js';
 import { toHalf } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
 import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
+import { DROP_PX, DETAIL_PX } from './light/surface.js';
+import * as shine from './light/shine.js';
 import { geomOf, worldOf } from './light.js';
 import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf } from './roomDraw.js';
 import { createShadows } from './shadows.js';
@@ -37,7 +39,7 @@ import { shelfLayout } from './shelf.js';
 export const CHUNK = 128; // cells a side
 const APRON = 4; // cells each chunk also holds of its neighbours: edges sample the same values (no seams)
 const TEXN = CHUNK + 2 * APRON; // texels a side
-export const DROP_PX = 0.004; // a drop of height at true scale, page px
+export { DROP_PX }; // (a drop of height at true scale, page px: light/surface.js)
 const SLAB_PX = 3; // the paper's thickness
 const PAPER = [0xf7, 0xf3, 0xea]; // a page's colour until it says its own
 const CLEAR = new THREE.Color(0, 0, 0); // behind everything (transparent: the page around shows)
@@ -122,8 +124,15 @@ function generic() {
   tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
   genericDetail = tex;
+  // how scattered blank paper's faces are, a texel a cell (light/shine.js: the shine of the flat paper)
+  genericM2 =
+    shine.slopeVariance(
+      Float64Array.from(d, (v) => (v / 255) * DETAIL_PX),
+      n,
+    ) + shine.PAPER_SUB;
   return tex;
 }
+let genericM2 = null;
 
 // Each texture its own starting version. The shared materials switch a binding
 // between chunks' textures, and WebGPU (three 0.186) rebuilds a binding only when
@@ -333,7 +342,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       a.B.set(...B);
     }
   };
-  const K = { APRON, CHUNK, TEXN, generic: generic(), blank: blank() };
+  const K = { APRON, CHUNK, TEXN, generic: generic(), blank: blank(), genericM2 };
   // each kind of material once, for every chunk (a chunk's own textures and numbers go
   // per object); with WebGPU, each chunk and sheet its own (nodes.js says why)
   const own = shared.backend === 'webgpu';
@@ -343,7 +352,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     shade: gpu.shadeBake(lights, K),
     base: gpu.flatMaterial(lights, K),
     ground: gpu.flatMaterial(lights, K, null, true),
-    slab: gpu.slabMaterial(lights),
+    slab: gpu.slabMaterial(lights, K),
   };
   // a sheet's base: drawn first, writing no depth, kept out of the chunks' footprints
   const asBase = (m) => Object.assign(m, { depthWrite: false, stencilWrite: true, stencilWriteMask: 0, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc });
@@ -385,7 +394,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   const seedOf = (name) => grown.seedMix(roomSeeds?.[name] ?? grown.DEFAULT_SEEDS[name] ?? grown.defaultSeed(name));
   const roomMats = [];
   R.meshes.forEach((m, i) => {
-    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: seedOf(SEED_NAME(m.id)), pair: pairOf(m.matter), normal: m.normal, top: m.top, webgpu: own });
+    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: seedOf(SEED_NAME(m.id)), pair: pairOf(m.matter), normal: m.normal, axes: m.axes, top: m.top, webgpu: own });
     mat.seedName = SEED_NAME(m.id);
     roomMats.push(mat);
     const mesh = new THREE.Mesh(R.geos[i], mat);
@@ -970,6 +979,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         const at = W(fl.pos);
         lights.candleAt[i].value.set(...at);
         gpu.setSpectrum(lights.flameI[i], fl.I);
+        lights.flameR[i].value = (fl.flameSize / 2) * PX_PER_M; // (seen in a mirror, still this big)
         const foot = W(fl.foot);
         const top = foot[2] + fl.height * PX_PER_M;
         const wickH = (fl.wick / 1000) * PX_PER_M;

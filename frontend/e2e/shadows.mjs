@@ -28,8 +28,10 @@ const browser = await chromium.launch({ channel: 'chromium', args: ['--enable-un
 
 // A candle's own wax top shades the table straight below its flame: within the angle its
 // rim makes from the flame (light/candle.js: its radius, the flame's height over the wax; and a little).
-const { candleState, DIAMETER } = await import(pathToUrl(path.join(frontend, 'src', 'scene', 'light', 'candle.js')));
-const lit = candleState(600000, 0, { which: 0 });
+const { candleState, DIAMETER, HEIGHT } = await import(pathToUrl(path.join(frontend, 'src', 'scene', 'light', 'candle.js')));
+// the candles as drawn here: ten minutes lit (their wicks grown a little), as the law would have them (light.js setCandles)
+const BURNT = { lit: true, height: HEIGHT, fed: 1, burntS: 600, spent: false };
+const lit = candleState(BURNT, 0, { which: 0 });
 const OWN_DEG = (Math.atan2(DIAMETER / 2, lit.flameAt - lit.height) * 180) / Math.PI + 3;
 const fromDown = (F, X) => (Math.atan2(Math.hypot(X[0] - F[0], X[1] - F[1]), F[2] - X[2]) * 180) / Math.PI;
 const CLEAR_M = 0.015; // the rest of the being stays this far off every line that matters (past a shadow's soft edge)
@@ -88,6 +90,7 @@ try {
     const drawn = await page.locator('.pad-scene .scene-view[data-gpu]').first().getAttribute('data-gpu');
     const scene = page.locator('.pad-scene canvas.scene-canvas').first();
     await scene.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.evaluate((c) => globalThis.__sceneLight.setCandles([c, c]), BURNT);
     await page.waitForTimeout(4000); // (the light settled, the candles burning)
     const now = () =>
       page.evaluate(() => {

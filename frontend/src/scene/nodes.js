@@ -76,7 +76,7 @@ import {
   wgslFn,
   int,
 } from 'three/tsl';
-import { curves, SUN_RADIUS, surface as grown } from './light/index.js';
+import { curves, SUN_RADIUS, surface as grown, shine } from './light/index.js';
 
 export { WebGPURenderer, ClippingGroup, CubeRenderTarget } from 'three/webgpu';
 
@@ -147,7 +147,8 @@ function restShade(L, rests) {
   const p = positionWorld;
   return vec3(underRests(p, normalize(L.sunDir), L, rests), underRests(p, normalize(L.candleAt[0].sub(p)), L, rests), underRests(p, normalize(L.candleAt[1].sub(p)), L, rests));
 }
-const DETAIL_PX = 0.35; // the fibers' relief, page px
+const DETAIL_PX = grown.DETAIL_PX; // the fibers' relief, page px
+const PAPER_F0 = shine.F0.paper; // how much the paper's faces turn back, head on (law/matter.js ior)
 
 // A spectrum's 16 visible bins as four vec4s.
 const spectrumUniform = () =>
@@ -172,6 +173,7 @@ export function lightUniforms(paper, dropPx, maps = null) {
     window: uniform(new THREE.Vector4()), // the window's opening (world px): x0, x1, z0, z1
     wallY: uniform(1e9), // and the wall it is in (world y)
     flameI: [spectrumUniform(), spectrumUniform()], // each flame's light now, W / sr per bin
+    flameR: [uniform(0), uniform(0)], // each flame's half height (world px): seen in a mirror it is still that big
     indirect: spectrumUniform(), // the room's settled light at the page, less the sun's and the flames' own
     W: [spectrumUniform(), spectrumUniform(), spectrumUniform()], // the eye: radiance → linear r, g, b
     paper: spectrumUniform(), // the paper's reflectance per bin
@@ -321,15 +323,28 @@ function underSlab(p, dir, far, L) {
   return select(hi.greaterThan(max(lo, 0.5)).and(lo.lessThan(far)), float(0), float(1));
 }
 
+// A face's mirror toward a source (light/shine.js glint): Beckmann's share of the faces turned
+// to the half vector, the surface's own scatter and the source's size together (m2), over
+// 4 n·v; and how near grazing the eye meets those faces (Schlick's (1 − cos)^5).
+function lobe(n, V, Ld, m2) {
+  const h = normalize(Ld.add(V)).toVar();
+  const c = max(dot(n, h), 1e-3).toVar();
+  const c2 = c.mul(c).toVar();
+  const D = exp(float(1).sub(c2).div(c2.mul(m2)).negate()).div(c2.mul(c2).mul(m2).mul(Math.PI));
+  return { k: select(dot(n, Ld).greaterThan(0), D.div(max(dot(n, V), 0.05).mul(4)), float(0)), graze: pow(float(1).sub(clamp(dot(h, V), 0, 1)), 5) };
+}
+
 // The light on a point (reflectance R: four vec4s): the room's settled light by
 // how open the point is to it, the sun through the window and each flame, each
-// through its shade (sun, flame 1, flame 2); a wet bead mirrors the sources;
-// the eye takes it to the screen. The moments' bands darken their cells.
-// opts.ambient: the room's light already as colour (a room surface's, from its
-// vertices) in place of the page's; opts.indirect: the room's light as a
-// spectrum (four vec4s: a mark's, rooms.md §2, so ink on a wall drinks it by
-// wavelength); opts.slab: the table's slab may hide the sources.
-function spectral(R, n, open, shade, wet, V, L, band, opts = {}) {
+// through its shade (sun, flame 1, flame 2); its faces mirror the sources as
+// scattered as they are (m2: matter-fixes §5, light/shine.js), turning back what
+// their matter does (opts.f0; a metal, opts.metal: its own colour, and nothing
+// from beneath its face); the eye takes it to the screen. The moments' bands
+// darken their cells. opts.ambient: the room's light already as colour (a room
+// surface's, from its vertices) in place of the page's; opts.indirect: the
+// room's light as a spectrum (four vec4s: a mark's, rooms.md §2, so ink on a
+// wall drinks it by wavelength); opts.slab: the table's slab may hide the sources.
+function spectral(R, n, open, shade, m2, V, L, band, opts = {}) {
   const p = positionWorld;
   const Ls = normalize(L.sunDir).toVar();
   const sunOn = aperture(p, Ls, L)
@@ -344,10 +359,8 @@ function spectral(R, n, open, shade, wet, V, L, band, opts = {}) {
     });
   }
   const sunCos = max(dot(n, Ls), 0).mul(sunOn);
-  const gloss = wet.mul(0.04); // water's mirror, about 4% (it shows the sources themselves)
-  const sunSpec = pow(max(dot(n, normalize(Ls.add(V))), 0), 70)
-    .mul(sunOn)
-    .mul(gloss);
+  const sunLobe = lobe(n, V, Ls, m2.add(SUN_RADIUS * SUN_RADIUS));
+  const sunSpec = sunLobe.k.mul(sunOn);
   const flames = L.candleAt.map((pos, k) => {
     const toF = pos.sub(p).toVar();
     const d = length(toF).toVar();
@@ -363,20 +376,24 @@ function spectral(R, n, open, shade, wet, V, L, band, opts = {}) {
         fall.mulAssign(flameReach(q, k, L));
       });
     }
-    return {
-      on: max(dot(n, Lf), 0).mul(fall),
-      spec: pow(max(dot(n, normalize(Lf.add(V))), 0), 60)
-        .mul(fall)
-        .mul(gloss),
-    };
+    const size = L.flameR[k].div(d);
+    const lb = lobe(n, V, Lf, m2.add(size.mul(size)));
+    return { on: max(dot(n, Lf), 0).mul(fall), spec: lb.k.mul(fall), graze: lb.graze };
   });
+  const f0 = float(opts.f0 ?? PAPER_F0);
+  // how much the faces turn back toward grazing (Schlick's): a dielectric's own, a metal's colour
+  const turned = (g, graze) => (opts.metal ? R[g].add(R[g].oneMinus().mul(graze)) : f0.add(f0.oneMinus().mul(graze)));
   const rgb = (opts.ambient ?? vec3(0)).toVar();
   for (let g = 0; g < BIN_GROUPS; g++) {
-    const E = (opts.ambient ? vec4(0) : opts.indirect ? opts.indirect[g] : L.indirect.element(g).mul(open))
-      .add(L.sunE.element(g).mul(sunCos))
-      .add(L.flameI[0].element(g).mul(flames[0].on))
-      .add(L.flameI[1].element(g).mul(flames[1].on));
-    const mirror = L.sunE.element(g).mul(sunSpec).add(L.flameI[0].element(g).mul(flames[0].spec)).add(L.flameI[1].element(g).mul(flames[1].spec));
+    const room = opts.ambient ? vec4(0) : opts.indirect ? opts.indirect[g] : L.indirect.element(g).mul(open);
+    // (a metal has nothing beneath its face: all it gives back of a source is its mirror)
+    const E = opts.metal ? room : room.add(L.sunE.element(g).mul(sunCos)).add(L.flameI[0].element(g).mul(flames[0].on)).add(L.flameI[1].element(g).mul(flames[1].on));
+    const mirror = L.sunE
+      .element(g)
+      .mul(sunSpec)
+      .mul(turned(g, sunLobe.graze))
+      .add(L.flameI[0].element(g).mul(flames[0].spec).mul(turned(g, flames[0].graze)))
+      .add(L.flameI[1].element(g).mul(flames[1].spec).mul(turned(g, flames[1].graze)));
     const rad = R[g].mul(E).div(Math.PI).add(mirror).toVar();
     rgb.addAssign(vec3(dot(L.W[0].element(g), rad), dot(L.W[1].element(g), rad), dot(L.W[2].element(g), rad)));
   }
@@ -413,23 +430,64 @@ const pairUniforms = ({ light, dark }) => {
 // How many cells a pixel covers here (the eye's footprint: crisp up close, averaged far away).
 const footAt = (L) => max(length(positionWorld.sub(cameraPosition)).div(L.pxPerM).mul(L.footK), 1e-4);
 
+// Its faces (matter-fixes §5, light/shine.js): up close (a cell several pixels wide) each
+// cell is its own face, its rise to its +u and +v neighbours (grown, at true scale), a
+// mirror scattered only by what lies below a cell; far away (many cells a pixel) the
+// faces it holds widen the lobe instead. → { n, m2 }
+function facesOf(grow, kind, seedU, pos, foot, normal, axes) {
+  const rough = shine.ROUGH[kind];
+  const n = vec3(...normal).toVar();
+  const m2 = float(rough.m2).toVar();
+  if (!axes) return { n, m2 };
+  If(foot.lessThan(3), () => {
+    const crisp = (p) => grow({ kind: int(kind), m: seedU, pos: p, foot: float(0.5) }).x;
+    const h0 = crisp(pos).toVar();
+    const k = grown.DROP_PX / grown.CELL_PX;
+    const face = normalize(
+      n
+        .sub(
+          vec3(...axes.u).mul(
+            crisp(pos.add(vec2(1, 0)))
+              .sub(h0)
+              .mul(k),
+          ),
+        )
+        .sub(
+          vec3(...axes.v).mul(
+            crisp(pos.add(vec2(0, 1)))
+              .sub(h0)
+              .mul(k),
+          ),
+        ),
+    );
+    const near = smoothstep(3, 1, foot);
+    n.assign(normalize(mix(n, face, near)));
+    m2.assign(mix(m2, float(rough.sub), near));
+  });
+  return { n, m2 };
+}
+
 // A surface of the room (floor, ceiling, a wall, the table): its cells grown from
 // its seed (attribute cellPos: where in its own cells), its tone between its
 // matter's light and dark curves; the room's light from its vertices (ambA + t·ambB:
 // the colours its light and dark curves reflect), the sun and the flames per pixel.
 // spec: { kind (light/surface.js), seed (u32), pair ({ light, dark } curves), normal,
-// top (the table's top: the sheets' shadows fall on it), webgpu }.
-export function roomMaterial(L, { kind, seed, pair, normal, top = false, slab = true, webgpu }) {
+// axes ({ u, v }: its cells' directions, room axes), top (the table's top: the sheets'
+// shadows fall on it), webgpu }.
+export function roomMaterial(L, { kind, seed, pair, normal, axes = null, top = false, slab = true, webgpu }) {
   const m = new MeshBasicNodeMaterial();
   const [light, dark] = pairUniforms(pair);
   const seedU = uniform(seed, 'uint');
   const grow = grower(webgpu);
   m.colorNode = Fn(() => {
-    const ht = grow({ kind: int(kind), m: seedU, pos: attribute('cellPos', 'vec2'), foot: footAt(L) });
+    const pos = attribute('cellPos', 'vec2');
+    const foot = footAt(L).toVar();
+    const ht = grow({ kind: int(kind), m: seedU, pos, foot });
     const t = clamp(ht.y.div(255), 0, 1).toVar();
     const ambient = attribute('ambA', 'vec3').add(attribute('ambB', 'vec3').mul(t));
     const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(toned(light, dark, t), vec3(...normal), float(0), top ? restShade(L, L.rests) : vec3(1), float(0), V, L, null, { ambient, slab: slab && !top });
+    const { n, m2 } = facesOf(grow, kind, seedU, pos, foot, normal, axes);
+    return spectral(toned(light, dark, t), n, float(0), top ? restShade(L, L.rests) : vec3(1), m2, V, L, null, { ambient, slab: slab && !top, f0: shine.f0OfKind(kind) });
   })();
   m.seed = seedU; // a view grows its owner's room (rooms.md §1): engine.js setSeeds
   return m;
@@ -456,7 +514,7 @@ export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
     const V = normalize(cameraPosition.sub(positionWorld));
     const surf = toned(light, dark, t); // (four vec4s, not a uniform array)
     const R = surf.map((r, g) => r.mul(exp(INK[0][g].mul(a.x).add(INK[1][g].mul(a.y)).add(INK[2][g].mul(a.z)).negate())));
-    return spectral(R, vec3(...normal), float(0), vec3(1), float(0), V, L, null, { indirect: E, slab: true });
+    return spectral(R, vec3(...normal), float(0), vec3(1), float(shine.ROUGH[kind].m2), V, L, null, { indirect: E, slab: true, f0: shine.f0OfKind(kind) });
   })();
   m.seed = seedU;
   return m;
@@ -480,10 +538,11 @@ function cellsOn(shape) {
 
 // A thing (a leg, the window's frame, a holder, a candle's wax and wick, the pen,
 // a being): its matter grown cell by cell as the walls are (light/surface.js: wood,
-// brass, wax, wick, cloth, skin; kind null: one even tone), its cells on its own
-// surface (shape: 'box', 'round', 'ball'), lit like the room. Its seed: each mesh's
-// own (userData.seed), else m.seedBase. Its light: the room's where each mesh is
-// (userData.ambient: { A, B }, colours: matter-fixes §4), else m.ambient's.
+// brass, wax, wick, cloth, skin; kind null: one even tone, cloth's faces: a book's
+// cover), its cells on its own surface (shape: 'box', 'round', 'ball'), lit like the
+// room, its faces as scattered as its grower's (brass: a metal, its glint its colour).
+// Its seed: each mesh's own (userData.seed), else m.seedBase. Its light: the room's
+// where each mesh is (userData.ambient: { A, B }, colours: matter-fixes §4), else m.ambient's.
 export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu }) {
   const m = new MeshBasicNodeMaterial();
   const [light, dark] = pairUniforms(pair);
@@ -497,7 +556,9 @@ export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', 
     let t = float(0);
     if (kind !== null) t = clamp(grower(webgpu)({ kind: int(kind), m: seedU, pos: cellsOn(shape), foot: footAt(L) }).y.div(255), 0, 1).toVar();
     const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(toned(light, dark, t), n, float(0), vec3(1), float(0), V, L, null, { ambient: A.add(B.mul(t)), slab: true });
+    const faces = kind ?? grown.CLOTH;
+    const f0 = shine.f0OfKind(faces);
+    return spectral(toned(light, dark, t), n, float(0), vec3(1), float(shine.ROUGH[faces].m2), V, L, null, { ambient: A.add(B.mul(t)), slab: true, f0: f0 ?? undefined, metal: f0 === null });
   })();
   return m;
 }
@@ -619,12 +680,52 @@ export function surfaceBake(L, K, c = null) {
   );
 }
 
+// The faces' scatter about a cell (matter-fixes §5, light/shine.js slopeVariance), in
+// world px²/px²: over the 4 × 4 cells around it, each cell's rise to its +x and +y
+// neighbours at true scale (the relief drawn taller than true makes nothing rougher), and
+// what lies below a cell. Its top is the paper's fibers, or what stands over them where
+// that stands higher: a bead's water lies smooth over them and glints (smooth below a cell
+// too); a thin dry film follows them and is matte. No flag says wet: the heights do.
+function facesScatter(u, detail, texel) {
+  return (q) => {
+    const t = [];
+    const fibers = float(0).toVar();
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const p = q.add(vec2(dx * texel, dy * texel));
+        const h = at(u.H, p).toVar();
+        const paper = h.r.sub(h.g).mul(grown.DROP_PX).add(detail(p).mul(DETAIL_PX)).toVar(),
+          over = h.r.mul(grown.DROP_PX).toVar();
+        fibers.addAssign(step(over, paper));
+        t.push(max(paper, over).toVar());
+      }
+    const sx = float(0).toVar(),
+      sy = float(0).toVar(),
+      sxx = float(0).toVar(),
+      syy = float(0).toVar();
+    for (let y = 0; y < 4; y++)
+      for (let x = 0; x < 4; x++) {
+        const gx = t[y * 5 + x + 1].sub(t[y * 5 + x]).div(u.cellPx);
+        const gy = t[(y + 1) * 5 + x].sub(t[y * 5 + x]).div(u.cellPx);
+        sx.addAssign(gx);
+        sy.addAssign(gy);
+        sxx.addAssign(gx.mul(gx));
+        syy.addAssign(gy.mul(gy));
+      }
+    const vx = sxx.div(16).sub(sx.div(16).mul(sx.div(16)));
+    const vy = syy.div(16).sub(sy.div(16).mul(sy.div(16)));
+    return max(vx.add(vy), 0).add(fibers.div(25).mul(shine.PAPER_SUB));
+  };
+}
+
 // The shade: how lit toward (the sun, candle 1, candle 2); 1 where nothing is in the way.
-// Marched across the height field: 16 steps, each longer than the last.
+// Marched across the height field: 16 steps, each longer than the last. Its fourth
+// channel: how scattered the faces are there (facesScatter), for the shine.
 export function shadeBake(L, K, c = null) {
   const u = chunkNodes(K, c);
   const detail = detailOf(u, K);
   const texel = 1 / K.TEXN;
+  const scatter = facesScatter(u, detail, texel);
   const hPx = (q) => at(u.SF, q).r.mul(L.dropPx).add(detail(q).mul(DETAIL_PX));
   const march = (q0, h0, Ld) => {
     const lit = float(1).toVar();
@@ -658,7 +759,7 @@ export function shadeBake(L, K, c = null) {
       const here = vec3(u.origin.x.add(core.x.mul(u.size)), u.origin.y.sub(core.y.mul(u.size)), h0);
       const lit = [march(q, h0, normalize(L.sunDir))];
       for (const pos of L.candleAt) lit.push(march(q, h0, normalize(pos.sub(here))));
-      return vec4(lit[0], lit[1], lit[2], 1);
+      return vec4(lit[0], lit[1], lit[2], scatter(q));
     })(),
   );
 }
@@ -669,6 +770,7 @@ export function shadeBake(L, K, c = null) {
 export function chunkMaterial(L, K, c = null) {
   const m = new MeshBasicNodeMaterial();
   const u = chunkNodes(K, c);
+  const detail = detailOf(u, K);
   const core = down();
   const toTex = (k) => k.mul(K.CHUNK).add(K.APRON).div(K.TEXN);
   m.positionNode = Fn(() => vec3(positionLocal.x, positionLocal.y, at(u.SF, toTex(core)).r.mul(L.dropPx)))();
@@ -677,10 +779,33 @@ export function chunkMaterial(L, K, c = null) {
     const q = toTex(core).toVar();
     const hf = at(u.H, q).toVar();
     Discard(mod(hf.a, 2).greaterThanEqual(1)); // torn: what is behind shows through
-    const wet = mod(floor(hf.a.div(2)), 2).toVar();
     const sf = at(u.SF, q).toVar();
     const n = vec3(sf.g, sf.b, sqrt(max(float(1).sub(sf.g.mul(sf.g)).sub(sf.b.mul(sf.b)), 0))).toVar();
     const shade = at(u.SH, q).toVar();
+    // its faces (matter-fixes §5): far away, the scatter baked about it widens the lobe; up close
+    // each cell is its own face (its rise to its neighbours, as drawn), scattered only below a cell
+    const m2 = shade.a.toVar();
+    const foot = footAt(L).toVar();
+    If(foot.lessThan(3).and(u.cellPx.lessThan(1)), () => {
+      const texel = 1 / K.TEXN;
+      const drawn = (p) => at(u.H, p).r.mul(L.dropPx).add(detail(p).mul(DETAIL_PX));
+      const h0 = drawn(q).toVar();
+      const face = normalize(
+        vec3(
+          drawn(q.add(vec2(texel, 0)))
+            .sub(h0)
+            .negate()
+            .div(u.cellPx),
+          drawn(q.add(vec2(0, texel)))
+            .sub(h0)
+            .div(u.cellPx),
+          1,
+        ),
+      );
+      const near = smoothstep(3, 1, foot);
+      n.assign(normalize(mix(n, face, near)));
+      m2.assign(mix(m2, float(shine.PAPER_SUB), near));
+    });
     const ink = between(u.C, q, K.TEXN, L).toVar();
     const V = normalize(cameraPosition.sub(positionWorld)).toVar();
     // the ink's absorbance per channel: its look is the light it lets through
@@ -691,7 +816,7 @@ export function chunkMaterial(L, K, c = null) {
     const a = log(through)
       .negate()
       .mul(float(1).add(graze.mul(0.35).mul(hf.b.div(24))));
-    return spectral(reflectance(L.paper, a), n, sf.a, shade, wet, V, L, () => at(u.B, q).r);
+    return spectral(reflectance(L.paper, a), n, sf.a, shade, m2, V, L, () => at(u.B, q).r);
   })();
   return m;
 }
@@ -705,6 +830,7 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
   const G = texture(K.generic);
   const detailScale = each(uniform(new THREE.Vector2(1, 1)), (c) => c.detailScale);
   const cellPx = each(uniform(1), (c) => c.cellPx);
+  const m2 = float(K.genericM2 ?? shine.PAPER_SUB); // its faces as scattered as blank paper's (shadeBake's, of the grain)
   const d = 3 / 256; // three cells of the grain
   const g = (q) => at(G, q).r.mul(DETAIL_PX);
   m.colorNode = Fn(() => {
@@ -713,7 +839,7 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
     const gy = g(q.add(vec2(0, d))).sub(g(q.sub(vec2(0, d))));
     const n = normalize(vec3(gx.negate().div(cellPx.mul(6)), gy.div(cellPx.mul(6)), 1)).toVar(); // (page y down, world y up: as the surface's)
     const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(plainly(L.paper), n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), float(0), V, L, null);
+    return spectral(plainly(L.paper), n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), m2, V, L, null);
   })();
   return m;
 }
@@ -725,9 +851,12 @@ export function cutMaterial(picture) {
   return m;
 }
 
-// A candle's flame: a teardrop facing the eye, white-hot at the core into
-// orange, with a soft glow; added to what is behind it. `brightness` is its
-// strength now, `core` its colour as the eye sees it (light.js), set each frame.
+// A candle's flame (matter-fixes §6): a teardrop facing the eye, its size and
+// place from the candle's state (light.js: candleState flameSize, flameAt), its
+// colour only the black body its light is, as the eye sees it (`core`, light.js
+// seenRgb), brighter toward its middle, where the eye takes it as white, with a
+// soft glow; added to what is behind it. `brightness` is its strength now. (As
+// hot gas in the room's air it waits for world.md 3b.)
 export function flameMaterial() {
   const m = new SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const brightness = uniform(1);
@@ -738,9 +867,7 @@ export function flameMaterial() {
     const body = smoothstep(0.62, 0.18, r);
     const hot = smoothstep(0.3, 0.02, r);
     const glow = smoothstep(1.1, 0.2, length(uv().sub(vec2(0.5, 0.4)).mul(vec2(1.6, 1.1)))).mul(0.25);
-    const col = mix(core.mul(vec3(1, 0.55, 0.25)), max(core, vec3(1, 0.93, 0.75)), hot)
-      .mul(body)
-      .add(core.mul(vec3(1, 0.6, 0.3)).mul(glow));
+    const col = core.mul(body.add(hot.mul(2)).add(glow));
     return vec4(col.mul(brightness), body.add(glow).clamp(0, 1).mul(brightness));
   })();
   m.brightness = brightness;
@@ -749,7 +876,7 @@ export function flameMaterial() {
 }
 
 // The paper's cut edges: its layers, lit.
-export function slabMaterial(L) {
+export function slabMaterial(L, K = {}) {
   const m = new MeshBasicNodeMaterial({ side: THREE.DoubleSide });
   m.colorNode = Fn(() => {
     const layer = float(0.94).add(float(0.06).mul(step(0.5, fract(positionWorld.z.mul(1.4)))));
@@ -759,7 +886,7 @@ export function slabMaterial(L) {
       normalize(normalWorld),
       float(0.8),
       vec3(1),
-      float(0),
+      float(K.genericM2 ?? shine.PAPER_SUB), // (its cut fibers: as scattered as its face, at least)
       V,
       L,
       null,

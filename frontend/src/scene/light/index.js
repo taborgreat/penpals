@@ -63,5 +63,6 @@ export * from './room.js';
 export { directLight, sunAperture } from './direct.js';
 export * from './bounce.js';
 export * as surface from './surface.js';
+export * as shine from './shine.js';
 export { meanTone, roomAbsorption, daySources, settleParts, combine } from './settle.js';
 export * as roomCamera from './roomCamera.js';

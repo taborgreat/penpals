@@ -50,6 +50,8 @@ import { CELLS_PER_UNIT } from 'penpals-law/v1/constants';
 export const CELL_PX = 1 / CELLS_PER_UNIT; // page px a cell: the paper's grain
 export const PX_PER_M = 1400 / 0.2159; // page px a metre (1400 across a letter-width page: ink/nibs.js PX_PER_MM)
 export const CELL_M = CELL_PX / PX_PER_M; // about 77 µm
+export const DROP_PX = 0.004; // a drop of height (the heights' unit) at true scale, page px
+export const DETAIL_PX = 0.35; // the paper's fibers' relief (its grain drawn finer than the law's cells), page px
 
 export const PLASTER = 0;
 export const PLANKS = 1;
@@ -63,7 +65,15 @@ export const KINDS = Object.freeze({ plaster: PLASTER, planks: PLANKS, board: BO
 export const CURVES_OF = Object.freeze(['plaster', 'floor', 'table', 'brass', 'wax', 'wick', 'cloth', 'skin']); // kind → the curve table's light/dark pair
 
 // Hash tags (one stream of randomness per layer).
-const T_CELL = 1, T_BUMP1 = 2, T_BUMP2 = 3, T_TONE1 = 4, T_TONE2 = 5, T_ROW = 6, T_BOARD = 7, T_WOB = 8, T_STREAK = 9;
+const T_CELL = 1,
+  T_BUMP1 = 2,
+  T_BUMP2 = 3,
+  T_TONE1 = 4,
+  T_TONE2 = 5,
+  T_ROW = 6,
+  T_BOARD = 7,
+  T_WOB = 8,
+  T_STREAK = 9;
 const GOLD = 0x9e3779b9;
 
 // --- the fine kinds: plaster, and the things' matter ---
@@ -87,6 +97,20 @@ const FINE = {
   [SKIN]: { b: [2, 2, 5, 5], t: [9, 9, 12, 12], w: [1, 1, 1, 1], jz: 3, jt: 2, base: 48 },
 };
 const FINE_KINDS = Object.keys(FINE).map(Number);
+// What lies below a cell (matter-fixes §5): the relief finer than the grain, each kind's stand-in for its
+// history as its bumps are: how tall (height units, RMS) and how far apart (cells). Polished brass has
+// almost none; troweled plaster, woven cloth and braided wick a great deal; grown wood, poured wax and
+// skin between. It is never drawn as cells; it is how scattered the faces are within one (scene/light/shine.js).
+export const SUB = Object.freeze({
+  [PLASTER]: [30, 0.5],
+  [PLANKS]: [15, 0.5],
+  [BOARD]: [10, 0.5],
+  [BRASS]: [0.5, 0.25],
+  [WAX]: [2, 0.5],
+  [WICK]: [25, 0.25],
+  [CLOTH]: [25, 0.25],
+  [SKIN]: [12, 0.5],
+});
 // a fine kind's constants as the shaders take them
 const fineArgs = (k, u4, u3) => {
   const { b, t, w, jz, jt, base } = FINE[k];
@@ -101,12 +125,18 @@ const WOOD = {
   [PLANKS]: { width: 1536, ends: 1, seam: 12, seamTone: 224, seamZ: -40, base: 64 },
   [BOARD]: { width: 3200, ends: 0, seam: 3, seamTone: 176, seamZ: -8, base: 72 },
 };
-const ROW_MIN = 8192, ROW_MASK = 8191; // board lengths 8192..16383 cells (0.63..1.26 m)
-const RING_MIN = 24, RING_MASK = 31; // ring spacing 24..55 cells (1.8..4.2 mm)
-const RING_TONE = 80, STREAK_TONE = 40; // /256 of ring darkness, streak value, into tone
-const WOB_K = 11, WOB_AMP = 96; // the rings' wobble along the board: lattice step (log2), amplitude (/128 of 0..255)
-const STREAK_KX = 11, STREAK_KY = 2; // streaks: long along the board, narrow across
-const GRAIN_DU = 128, GRAIN_T = 13; // the wobble's rise over GRAIN_DU cells past which the grain turns 11.25°
+const ROW_MIN = 8192,
+  ROW_MASK = 8191; // board lengths 8192..16383 cells (0.63..1.26 m)
+const RING_MIN = 24,
+  RING_MASK = 31; // ring spacing 24..55 cells (1.8..4.2 mm)
+const RING_TONE = 80,
+  STREAK_TONE = 40; // /256 of ring darkness, streak value, into tone
+const WOB_K = 11,
+  WOB_AMP = 96; // the rings' wobble along the board: lattice step (log2), amplitude (/128 of 0..255)
+const STREAK_KX = 11,
+  STREAK_KY = 2; // streaks: long along the board, narrow across
+const GRAIN_DU = 128,
+  GRAIN_T = 13; // the wobble's rise over GRAIN_DU cells past which the grain turns 11.25°
 const WOOD_Z = 24;
 
 // Wellons' lowbias32: a 32-bit integer mixer, the same on every device.
@@ -130,9 +160,7 @@ function fnv(s, h = 0x811c9dc5) {
   return h >>> 0;
 }
 export const defaultSeed = (name) => [fnv(`penpals room ${name}`), fnv(`penpals room ${name}`, 0x2545f491)];
-export const DEFAULT_SEEDS = Object.freeze(Object.fromEntries(
-  ['floor', 'ceiling', 'wall-near', 'wall-far', 'wall-left', 'wall-right', 'table'].map((n) => [n, Object.freeze(defaultSeed(n))]),
-));
+export const DEFAULT_SEEDS = Object.freeze(Object.fromEntries(['floor', 'ceiling', 'wall-near', 'wall-far', 'wall-left', 'wall-right', 'table'].map((n) => [n, Object.freeze(defaultSeed(n))])));
 
 // Integer smoothstep: t 0..256 → 0..256.
 const smooth8 = (t) => (t * t * (768 - 2 * t)) >>> 16;
@@ -143,16 +171,21 @@ const frac8 = (x, k) => {
 };
 // A value-noise lattice (0..255), steps 2^kx along x and 2^ky along y.
 function lattice(t, x, y, kx, ky) {
-  const i = x >>> kx, j = y >>> ky;
-  const wx = smooth8(frac8(x, kx)), wy = smooth8(frac8(y, ky));
-  const n00 = hash(t, i, j) & 255, n10 = hash(t, i + 1, j) & 255;
-  const n01 = hash(t, i, j + 1) & 255, n11 = hash(t, i + 1, j + 1) & 255;
+  const i = x >>> kx,
+    j = y >>> ky;
+  const wx = smooth8(frac8(x, kx)),
+    wy = smooth8(frac8(y, ky));
+  const n00 = hash(t, i, j) & 255,
+    n10 = hash(t, i + 1, j) & 255;
+  const n01 = hash(t, i, j + 1) & 255,
+    n11 = hash(t, i + 1, j + 1) & 255;
   const s = n00 * (256 - wx) * (256 - wy) + n10 * wx * (256 - wy) + n01 * (256 - wx) * wy + n11 * wx * wy;
   return (s + 32768) >>> 16;
 }
 // The same along one axis only (row b of nodes).
 function lattice1(t, x, k, b) {
-  const i = x >>> k, w = smooth8(frac8(x, k));
+  const i = x >>> k,
+    w = smooth8(frac8(x, k));
   return ((hash(t, i, b) & 255) * (256 - w) + (hash(t, i + 1, b) & 255) * w + 128) >>> 8;
 }
 
@@ -161,7 +194,9 @@ function lattice1(t, x, k, b) {
 function boardOf(P, t, x, y) {
   const r = Math.floor(y / P.width);
   const v = y - r * P.width;
-  let U = x, b = 0, L = 0;
+  let U = x,
+    b = 0,
+    L = 0;
   if (P.ends) {
     const hr = hash(t.row, r, 0);
     L = ROW_MIN + (hr & ROW_MASK);
@@ -245,16 +280,23 @@ const smoothstep = (a, b, x) => {
 const fade = (s, foot) => 1 - smoothstep(Math.max(1, s / 2), 2 * s, foot);
 // The lattice as a smooth function of a position in cells (nodes as the crisp one).
 function latticeF(t, x, y, sx, sy) {
-  const qx = Math.max(0, x) / sx, qy = Math.max(0, y) / sy;
-  const i = Math.floor(qx), j = Math.floor(qy);
-  const fx = qx - i, fy = qy - j;
-  const wx = fx * fx * (3 - 2 * fx), wy = fy * fy * (3 - 2 * fy);
+  const qx = Math.max(0, x) / sx,
+    qy = Math.max(0, y) / sy;
+  const i = Math.floor(qx),
+    j = Math.floor(qy);
+  const fx = qx - i,
+    fy = qy - j;
+  const wx = fx * fx * (3 - 2 * fx),
+    wy = fy * fy * (3 - 2 * fy);
   const a = (hash(t, i, j) & 255) * (1 - wx) + (hash(t, i + 1, j) & 255) * wx;
   const b = (hash(t, i, j + 1) & 255) * (1 - wx) + (hash(t, i + 1, j + 1) & 255) * wx;
   return a * (1 - wy) + b * wy;
 }
 function lattice1F(t, x, s, b) {
-  const q = Math.max(0, x) / s, i = Math.floor(q), f = q - i, w = f * f * (3 - 2 * f);
+  const q = Math.max(0, x) / s,
+    i = Math.floor(q),
+    f = q - i,
+    w = f * f * (3 - 2 * f);
   return (hash(t, i, b) & 255) * (1 - w) + (hash(t, i + 1, b) & 255) * w;
 }
 // The share of [c − f/2, c + f/2] covered by strips [kP, kP + s) (a box filter, exact).
@@ -265,7 +307,8 @@ const stripC = (x, P, s) => {
 const strip = (c, f, P, s) => (stripC(c + f / 2, P, s) - stripC(c - f / 2, P, s)) / f;
 // The mean of the sawtooth (x mod P) / P over [c − f/2, c + f/2] (exact).
 const sawC = (x, P) => {
-  const k = Math.floor(x / P), r = x - k * P;
+  const k = Math.floor(x / P),
+    r = x - k * P;
   return (k * P) / 2 + (r * r) / (2 * P);
 };
 const saw = (c, f, P) => (sawC(c + f / 2, P) - sawC(c - f / 2, P)) / f;
@@ -279,7 +322,8 @@ const woodMean = (P) => [WOOD_Z + 127.5 / 16 + 127.5 / 32, P.base + 15.5 + (127.
 // board holding cell (cx, cy). [height, tone].
 function boardMean(P, t, cx, cy, x, y, foot) {
   const B = boardOf(P, t, cx, cy);
-  const U = B.U + (x - cx), v = B.v + (y - cy); // the footprint's centre in this board's frame
+  const U = B.U + (x - cx),
+    v = B.v + (y - cy); // the footprint's centre in this board's frame
   const spacing = RING_MIN + (B.hb & RING_MASK);
   const wob = (lattice1F(t.wob, U - 0.5, 1 << WOB_K, B.id) * WOB_AMP) / 128;
   const ring = 255 * saw(v + ((B.hb >>> 5) & 1023) + wob, foot, spacing);
@@ -291,16 +335,24 @@ function boardMean(P, t, cx, cy, x, y, foot) {
 function rowMean(P, t, cx, cy, x, y, foot) {
   if (!P.ends) return boardMean(P, t, cx, cy, x, y, foot);
   const B = boardOf(P, t, cx, cy);
-  const U = B.U + (x - cx), lo = B.U - B.u, hi = lo + B.L, a = U - foot / 2, b = U + foot / 2;
+  const U = B.U + (x - cx),
+    lo = B.U - B.u,
+    hi = lo + B.L,
+    a = U - foot / 2,
+    b = U + foot / 2;
   const wc = share(a, b, lo, hi, foot);
   const out = boardMean(P, t, cx, cy, x, y, foot).map((v) => v * wc);
   let wn = 0;
   if (a < lo && cx > B.u) {
     wn = share(a, b, lo - B.L, lo, foot);
-    boardMean(P, t, cx - B.u - 1, cy, x, y, foot).forEach((v, i) => { out[i] += v * wn; });
+    boardMean(P, t, cx - B.u - 1, cy, x, y, foot).forEach((v, i) => {
+      out[i] += v * wn;
+    });
   } else if (b > hi) {
     wn = share(a, b, hi, hi + B.L, foot);
-    boardMean(P, t, cx + B.L - B.u, cy, x, y, foot).forEach((v, i) => { out[i] += v * wn; });
+    boardMean(P, t, cx + B.L - B.u, cy, x, y, foot).forEach((v, i) => {
+      out[i] += v * wn;
+    });
   }
   return woodMean(P).map((v, i) => out[i] + v * Math.max(0, 1 - wc - wn));
 }
@@ -308,7 +360,8 @@ function rowMean(P, t, cx, cy, x, y, foot) {
 // The averaged character over a pixel's footprint, centred at (x, y) cells
 // (fractional), `foot` cells across: { height, tone } (floats).
 export function growMean(kind, seed, x, y, foot) {
-  const cx = Math.floor(Math.max(0, x)), cy = Math.floor(Math.max(0, y));
+  const cx = Math.floor(Math.max(0, x)),
+    cy = Math.floor(Math.max(0, y));
   if (foot <= 1) {
     const c = growCell(kind, seed, cx, cy);
     return { height: c.height, tone: c.tone };
@@ -321,24 +374,34 @@ export function growMean(kind, seed, x, y, foot) {
     // cell back; a layer fades as the footprint passes its finer step
     const lay = (tag, kx, ky) => 127.5 + fade(1 << Math.min(kx, ky), foot) * (latticeF(tagOf(m, tag), x - 0.5, y - 0.5, 1 << kx, 1 << ky) - 127.5);
     const { b, t, w } = F;
-    const b1 = lay(T_BUMP1, b[0], b[1]), b2 = lay(T_BUMP2, b[2], b[3]);
-    const t1 = lay(T_TONE1, t[0], t[1]), t2 = lay(T_TONE2, t[2], t[3]);
+    const b1 = lay(T_BUMP1, b[0], b[1]),
+      b2 = lay(T_BUMP2, b[2], b[3]);
+    const t1 = lay(T_TONE1, t[0], t[1]),
+      t2 = lay(T_TONE2, t[2], t[3]);
     return { height: (b1 * w[0] + b2 * w[1]) / 32 + j / (1 << F.jz), tone: F.base + (t1 * w[2] + t2 * w[3]) / 16 + j / (1 << F.jt) };
   }
   // the rows of boards the footprint covers, each by its share: this row, the
   // one it reaches into, and past those the mean
   const P = WOOD[kind];
   const t = tagsOf(m);
-  const W = P.width, lo = Math.floor(cy / W) * W, hi = lo + W, a = y - foot / 2, b = y + foot / 2;
+  const W = P.width,
+    lo = Math.floor(cy / W) * W,
+    hi = lo + W,
+    a = y - foot / 2,
+    b = y + foot / 2;
   const wc = share(a, b, lo, hi, foot);
   const wood = rowMean(P, t, cx, cy, x, y, foot).map((v) => v * wc);
   let wn = 0;
   if (a < lo && lo > 0) {
     wn = share(a, b, lo - W, lo, foot);
-    rowMean(P, t, cx, lo - 1, x, y, foot).forEach((v, i) => { wood[i] += v * wn; });
+    rowMean(P, t, cx, lo - 1, x, y, foot).forEach((v, i) => {
+      wood[i] += v * wn;
+    });
   } else if (b > hi) {
     wn = share(a, b, hi, hi + W, foot);
-    rowMean(P, t, cx, hi, x, y, foot).forEach((v, i) => { wood[i] += v * wn; });
+    rowMean(P, t, cx, hi, x, y, foot).forEach((v, i) => {
+      wood[i] += v * wn;
+    });
   }
   const [height, tone] = woodMean(P).map((v, i) => wood[i] + v * Math.max(0, 1 - wc - wn) + j / (i ? 1 : 4));
   // and the seams over it: across between rows, along at this row's board ends
@@ -352,9 +415,11 @@ export function growMean(kind, seed, x, y, foot) {
 // --- the shaders: the same, in GLSL ES 3.00 and WGSL ---
 // growCell(kind, seedMix, cell) → (height, tone, grain); cellFace → (dh/dx, dh/dy);
 // growMean(kind, seedMix, pos, foot) → (height, tone), pos in cells.
-const PK = WOOD[PLANKS], BK = WOOD[BOARD];
+const PK = WOOD[PLANKS],
+  BK = WOOD[BOARD];
 const fl = (v) => (Number.isInteger(v) ? `${v}.0` : `${v}`); // a float literal
-const [PMH, PMT] = woodMean(PK).map(fl), [BMH, BMT] = woodMean(BK).map(fl);
+const [PMH, PMT] = woodMean(PK).map(fl),
+  [BMH, BMT] = woodMean(BK).map(fl);
 
 export const SURFACE_GLSL = /* glsl */ `
 uint sgMix(uint x) {

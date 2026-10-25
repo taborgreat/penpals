@@ -12,22 +12,26 @@
 //   pores     ‰ of its volume open (a wick: what it holds of the liquid it lifts)
 //   tension   mN/m (a liquid's surface: how high it stands at a dry edge before it runs over)
 //   light     its curve in light-waves (its colour: what it refuses to drink)
+//   ior       ×1000, its refractive index: how much light its surface turns back like a mirror
+//             (((n − 1) / (n + 1))², the scene's shine, matter-fixes §5); null for a metal, whose
+//             surface turns back what its colour does
 // Tabor's to set: these are ordinary values for each matter, not tuned.
 
 export const MATTER = Object.freeze({
-  paper: { density: 800, hardness: 1, strength: 30, friction: 500, heat: { holds: 1340, melts: null, burns: 233 }, light: 'paper' },
-  wax: { density: 900, hardness: 1, strength: 2, friction: 300, heat: { holds: 2140, melts: 60, burns: 200, conducts: 250, fuses: 200000, releases: 44000000 }, tension: 30, light: 'wax' }, // paraffin
-  wick: { density: 1500, hardness: 1, strength: 300, friction: 500, heat: { holds: 1300, melts: null, burns: 250 }, draws: 2000, pores: 500, light: 'paper' }, // braided cotton
-  oak: { density: 750, hardness: 3, strength: 90, friction: 450, heat: { holds: 2000, melts: null, burns: 300 }, light: 'table' },
-  bark: { density: 550, hardness: 2, strength: 20, friction: 650, heat: { holds: 1500, melts: null, burns: 280 }, light: 'table' },
-  leaf: { density: 600, hardness: 1, strength: 5, friction: 400, heat: { holds: 3500, melts: null, burns: 250 }, light: 'table' },
-  fiber: { density: 1300, hardness: 1, strength: 400, friction: 500, heat: { holds: 1300, melts: null, burns: 250 }, light: 'paper' }, // a string's (bark fiber, linen)
-  stone: { density: 2700, hardness: 6, strength: 15, friction: 600, heat: { holds: 790, melts: null, burns: null }, light: 'plaster' }, // granite: hard, brittle in pulling
-  chalk: { density: 2100, hardness: 2, strength: 3, friction: 550, heat: { holds: 900, melts: null, burns: null }, light: 'plaster' }, // a soft stone
-  brass: { density: 8500, hardness: 4, strength: 350, friction: 350, heat: { holds: 380, melts: 930, burns: null }, light: 'brass' },
-  glass: { density: 2500, hardness: 6, strength: 40, friction: 900, heat: { holds: 840, melts: 1400, burns: null }, light: 'glass' },
-  plaster: { density: 1100, hardness: 2, strength: 2, friction: 600, heat: { holds: 1000, melts: null, burns: null }, light: 'plaster' },
-  dirt: { density: 1500, hardness: 1, strength: 0, friction: 700, heat: { holds: 800, melts: null, burns: null }, light: 'floor' },
+  paper: { density: 800, hardness: 1, strength: 30, friction: 500, heat: { holds: 1340, melts: null, burns: 233 }, light: 'paper', ior: 1500 },
+  wax: { density: 900, hardness: 1, strength: 2, friction: 300, heat: { holds: 2140, melts: 60, burns: 200, conducts: 250, fuses: 200000, releases: 44000000 }, tension: 30, light: 'wax', ior: 1440 }, // paraffin
+  wick: { density: 1500, hardness: 1, strength: 300, friction: 500, heat: { holds: 1300, melts: null, burns: 250 }, draws: 2000, pores: 500, light: 'paper', ior: 1500 }, // braided cotton
+  oak: { density: 750, hardness: 3, strength: 90, friction: 450, heat: { holds: 2000, melts: null, burns: 300 }, light: 'table', ior: 1540 },
+  bark: { density: 550, hardness: 2, strength: 20, friction: 650, heat: { holds: 1500, melts: null, burns: 280 }, light: 'table', ior: 1540 },
+  leaf: { density: 600, hardness: 1, strength: 5, friction: 400, heat: { holds: 3500, melts: null, burns: 250 }, light: 'table', ior: 1450 },
+  fiber: { density: 1300, hardness: 1, strength: 400, friction: 500, heat: { holds: 1300, melts: null, burns: 250 }, light: 'paper', ior: 1500 }, // a string's (bark fiber, linen)
+  stone: { density: 2700, hardness: 6, strength: 15, friction: 600, heat: { holds: 790, melts: null, burns: null }, light: 'plaster', ior: 1540 }, // granite: hard, brittle in pulling
+  chalk: { density: 2100, hardness: 2, strength: 3, friction: 550, heat: { holds: 900, melts: null, burns: null }, light: 'plaster', ior: 1600 }, // a soft stone
+  brass: { density: 8500, hardness: 4, strength: 350, friction: 350, heat: { holds: 380, melts: 930, burns: null }, light: 'brass', ior: null },
+  glass: { density: 2500, hardness: 6, strength: 40, friction: 900, heat: { holds: 840, melts: 1400, burns: null }, light: 'glass', ior: 1500 },
+  plaster: { density: 1100, hardness: 2, strength: 2, friction: 600, heat: { holds: 1000, melts: null, burns: null }, light: 'plaster', ior: 1520 },
+  skin: { density: 1100, hardness: 1, strength: 20, friction: 600, heat: { holds: 3500, melts: null, burns: 300 }, light: 'skin', ior: 1440 }, // a being's (outside.md Part 4)
+  dirt: { density: 1500, hardness: 1, strength: 0, friction: 700, heat: { holds: 800, melts: null, burns: null }, light: 'floor', ior: 1500 },
 });
 
 // The room's air, as the heat rule takes it: its temperature (°C), and its film (W/(m²·K)):

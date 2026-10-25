@@ -67,7 +67,7 @@ export function roomMeshes(geom) {
         else index.push(a, d, b, a, c, d);
       }
     }
-    return { id: s.id, matter: s.matter, kind: KIND[s.matter], seed: seedOf(s), normal: s.normal, pos, cellPos, index, touches, top: s.id === 'table-top' };
+    return { id: s.id, matter: s.matter, kind: KIND[s.matter], seed: seedOf(s), normal: s.normal, axes: { u: s.u, v: s.v }, pos, cellPos, index, touches, top: s.id === 'table-top' };
   });
 }
 
