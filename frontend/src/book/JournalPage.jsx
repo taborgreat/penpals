@@ -238,6 +238,7 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           onPose={room?.together?.onPose ?? null}
           tableWriter={room?.together?.tableWriter ?? null}
           focus={room?.together?.focus ?? null}
+          hand={room?.hand ?? null}
           ground
           onFlat={() => {
             setViewChoice('flat');

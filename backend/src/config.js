@@ -102,6 +102,7 @@ export const config = {
         ['wall-right', 'plaster', 3.353, 2.438],
         ['floor', 'wood', 3.048, 3.353],
         ['ceiling', 'plaster', 3.048, 3.353],
+        ['pen', 'wood', 0.12, 0.009], // the pen's top face (rooms.md §3c), wherever it lies
       ].map(([id, matter, w, h]) => [id, { matter, size: [Math.round((w * 1400) / 0.2159), Math.round((h * 1400) / 0.2159)] }]),
     ),
     families: { plaster: { grain: 0, weight: 15, tooth: 0 }, wood: { grain: 15, weight: 4, tooth: 0 } },

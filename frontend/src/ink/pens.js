@@ -3,6 +3,7 @@
 //   pen   round nib: size
 //   flex  hairline when light, up to maxWidth when pressed (pressure pens drive it)
 //   broad an edge of `size` held at `angle`
+import { PRESS_SHAPE } from 'penpals-law/v1/tables';
 import { BROAD_SIZES, FLEX_PRESETS, PEN_SIZES } from './nibs.js';
 
 export const FLOW_DEFAULT = 7; // 0..15: how freely the nib gives ink
@@ -42,4 +43,16 @@ function nibPen(settings, rgb, f) {
     return { nib: 1, size: tenths(hair), flex: Math.min(400, Math.max(0, Math.round((max - hair) * 10))), flow: f, rgb, angle: spread };
   }
   return { nib: 0, size: tenths(settings.size ?? PEN_SIZES.medium), flex: 0, flow: f, rgb, angle: 0 };
+}
+
+// How wide the nib lays its line at pressure p (0..255), in page px: the law's own
+// width (law/v2/sim.js widthAt), so the tines a viewer sees spread are the line it
+// gets (rooms.md §3c). pen: a law pen (lawPen).
+export function lineWidthPx(pen, p) {
+  const q = Math.max(0, Math.min(255, Math.round(p)));
+  let ht; // half-tenths of a unit
+  if (pen.nib === 1) ht = 2 * (pen.size + Math.floor((pen.flex * PRESS_SHAPE[q]) / 256));
+  else if (pen.nib === 2) ht = 2 * pen.size;
+  else ht = Math.floor((2 * pen.size * (224 + Math.floor((q * 64) / 255))) / 256);
+  return ht / 20;
 }

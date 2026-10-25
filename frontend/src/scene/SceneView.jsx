@@ -1,12 +1,15 @@
 import { forwardRef, useContext, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createView, engineReady } from './engine.js';
+import { createView, engineReady, DROP_PX } from './engine.js';
+import { groundOf } from './ground.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
 import { theLight, originOf, withinRoom, returnTo, sunAt, zoned, GEOM } from './light.js';
 import { roomCamera, hit as roomHit, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
-import { surfaceFrame, fromRoom, onSurface, surfaceOfHit } from './surfaces.js';
+import { surfaceFrame, fromRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
 import { poseNow } from '../room/presence.js';
+import { lawPen, lineWidthPx } from '../ink/pens.js';
+import { PEN_SIZES } from '../ink/nibs.js';
 import { shelfLayout, rayBox } from './shelf.js';
 import { isPhone } from './support.js';
 import { sightOf } from './sight.js';
@@ -50,6 +53,10 @@ import { sightOf } from './sight.js';
 //   tableWriter { sheets: [{ sheet, origin: [x, y], size: [w, h] }] (page px), down(sheet, p, ev, type),
 //               move(p, ev), up(p, ev), cancel() }: writing on shared sheets on the table (rooms.md §6),
 //               p in that sheet's own units
+//   hand        { holding, pickables: [{ id, at: [x, y, z] (its foot, room m), r, h }], pick(id),
+//               hover(at), down(at), tiltBy(degrees) }: a thing in the hand (rooms.md §3b): a click on
+//               a pickable picks it up; held, it follows the pointer over the table (at: the point
+//               there, room m), E held makes the mouse tilt it, a click sets it down
 //   focus       { at: [x, y] (page px), size, n }: the eye goes to that place on the table
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
@@ -74,11 +81,19 @@ function storedRelief() {
 const SIGHT_MS = 150; // the view still this long: what it sees is told (and asked for)
 const SETTLE_MS = 40; // while the eye adapts (it is slow: seconds), drawn this often
 const FOV = 40;
-// Look: the head turned in the room (light-waves §9): drag to turn, W A S D Q E to fly.
+// Look: the head turned in the room (light-waves §9): drag to turn, W A S D Q E to fly;
+// F walks instead (gravity holds the being to what is under it), [ and ] make it smaller
+// and larger, down to a bead of ink (rooms.md §4), where the page's own heights are its ground.
 const TURN = 0.25; // degrees a CSS px
 const FLY_KEYS = { w: 'forward', arrowup: 'forward', s: 'back', arrowdown: 'back', a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', q: 'up', e: 'down' };
 const toRoomDir = (d) => [d[0], -d[1], d[2]]; // page frame ↔ the room's (y flips)
 const INSIDE_M = 0.3; // another's head nearer your eye than this (at their size): you are in it, and do not see it
+const SIZE_MIN = 1e-4; // a being as small as a bead of ink
+// The pen in the hand (rooms.md §3c): a writer that says nothing of its nib writes with a medium pen.
+const PLAIN_PEN = lawPen({ nib: 'pen', size: PEN_SIZES.medium }, '#000000');
+const LIFT_M = 0.002; // the nib above the paper between strokes
+// Where the pen lies when set down and nothing says where: on the table, right of the page.
+const penRest = () => [GEOM.pageRect.x1 + 0.06, (GEOM.pageRect.y0 + GEOM.pageRect.y1) / 2, GEOM.table.top];
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
 const SceneView = forwardRef(function SceneView(
@@ -114,6 +129,7 @@ const SceneView = forwardRef(function SceneView(
     onPose = null,
     tableWriter = null,
     focus = null,
+    hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
   },
   ref,
 ) {
@@ -133,6 +149,20 @@ const SceneView = forwardRef(function SceneView(
   const canPen = !!(writer || wallWriter || tableWriter); // the page, the room's surfaces (from Look), shared sheets on the table
   const hand = handChoice ?? !canPen;
   const penMode = canPen && !hand;
+  // the pen picked up while it writes, set down when the hand takes over (place acts: room/carry.js)
+  const penWas = useRef(null);
+  useEffect(() => {
+    if (penWas.current === null) {
+      penWas.current = penMode;
+      return;
+    }
+    if (penWas.current === penMode) return;
+    penWas.current = penMode;
+    if (penMode) carrying?.penUp?.();
+    else carrying?.penDown?.(st.current?.pen?.nib ?? null);
+    if (!penMode && st.current) st.current.pen = null;
+    schedule(); // (drawn again: the pen in the hand, or set down)
+  }, [penMode]); // eslint-disable-line react-hooks/exhaustive-deps
   const [relief, setRelief] = useState(storedRelief);
   const [crisp, setCrisp] = useState(false); // the page close up: smooth between its cells, or each cell crisp
   const [steep, setSteep] = useState(false); // too low to write
@@ -140,6 +170,8 @@ const SceneView = forwardRef(function SceneView(
   const [banded, setBanded] = useState([0, 0]); // cells in a dark band, of all with a moment (shown on the element: data-banded, data-timed)
   const [ready, setReady] = useState(null); // the renderer, once chosen: 'webgpu' | 'webgl2'
   const [looking, setLooking] = useState(false); // Look: the head free in the room
+  const [walking, setWalking] = useState(false); // Look: walking (else flying)
+  const [size, setSize] = useState(1); // the being's size (1 a person)
   const phone = useRef(isPhone()).current;
 
   if (!st.current) {
@@ -171,9 +203,11 @@ const SceneView = forwardRef(function SceneView(
   zoneRef.current = timeZone;
   const origin = () => originOf(page[0], page[1]);
   // A pose as the engine's camera (camera.js 'pose', the page frame).
+  // The page's heights under a small being's feet (scene/ground.js): what the eye sees is what it stands on.
+  const groundNow = () => (S.ground ??= groundOf(S.sheetsNow, { origin: origin(), pxPerM: PX_PER_M, dropPx: DROP_PX, relief: S.reliefNow ?? 1 }));
   function camOfPose(pose) {
     const { forward } = roomCamera.look(pose);
-    const near = roomCamera.nearAt(roomCamera.clearance(GEOM, pose.pos)) * PX_PER_M;
+    const near = roomCamera.nearAt(roomCamera.clearance(GEOM, pose.pos, groundNow())) * PX_PER_M;
     return { mode: 'pose', eye: roomToPage(pose.pos, origin()), forward: toRoomDir(forward), up: [0, 0, 1], fov: FOV, near, target: S.cam.target ?? [page[0] / 2, page[1] / 2] };
   }
   // What the eye is on in Look: the patch of the room its gaze meets (null: the page).
@@ -193,6 +227,10 @@ const SceneView = forwardRef(function SceneView(
   const onPoseRef = useRef(onPose);
   onPoseRef.current = onPose;
   S.beings = beings;
+  if (S.reliefNow !== relief) {
+    S.reliefNow = relief; // (the ground is drawn as tall as the view draws it)
+    S.ground = null;
+  }
 
   const schedule = () => {
     if (!S.raf && S.view) S.raf = requestAnimationFrame(draw);
@@ -255,14 +293,17 @@ const SceneView = forwardRef(function SceneView(
       cam = { ...cam, target: [(x0 + x1) / 2, (y0 + y1) / 2], view: Math.max(1, x1 - x0) };
     }
     if (S.pose) {
-      // Look: fly by the keys held, at a speed that follows the nearest surface
-      if (S.keys.size && !S.glide) {
+      // Look: fly by the keys held, at a speed that follows the nearest surface; or walk,
+      // gravity holding the being to what is under it (falling, it falls until it rests)
+      const walking = S.pose.mode === 'walk';
+      if ((S.keys.size || walking) && !S.glide) {
         const dt = Math.min(0.05, (now - (S.keyT ?? now)) / 1000);
         const has = (k) => [...S.keys].some((x) => FLY_KEYS[x] === k);
         const input = { forward: (has('forward') ? 1 : 0) - (has('back') ? 1 : 0), right: (has('right') ? 1 : 0) - (has('left') ? 1 : 0), up: (has('up') ? 1 : 0) - (has('down') ? 1 : 0) };
-        if (dt > 0) S.pose = roomCamera.fly(GEOM, S.pose, input, dt);
+        if (walking) S.pose = roomCamera.walk(GEOM, S.pose, input, dt, { ground: groundNow() });
+        else if (dt > 0) S.pose = roomCamera.fly(GEOM, S.pose, input, dt, { ground: groundNow() });
         S.keyT = now;
-        S.moveUntil = now + STILL_MS;
+        if (S.keys.size) S.moveUntil = now + STILL_MS;
       }
       if (S.glide) {
         const k = Math.min(1, (now - S.glide.t0) / S.glide.ms);
@@ -314,6 +355,9 @@ const SceneView = forwardRef(function SceneView(
       clearTimeout(S.still);
       S.still = setTimeout(schedule, Math.max(0, S.moveUntil - now) + 20);
     }
+    // the pen (rooms.md §3c): in the hand, at its nib, its tines as wide as its line; else set down
+    if (penMode && S.pen) S.view.setPen(S.pen);
+    else S.view.setPen({ place: penLies });
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     seen(cam, moving);
@@ -324,8 +368,8 @@ const SceneView = forwardRef(function SceneView(
     }
     const low = cam.mode === '3d' && !!(writer || tableWriter) && !canWrite(cam);
     setSteep((was) => (was === low ? was : low));
-    if (S.anim || S.override || S.back || S.glide || (S.pose && S.keys.size) || gliding)
-      schedule(); // moving
+    if (S.anim || S.override || S.back || S.glide || (S.pose && (S.keys.size || (S.pose.mode === 'walk' && S.pose.vz))) || gliding)
+      schedule(); // moving (or falling)
     else if (light.settling && !S.settle) {
       // the room's light settling, the eye adapting: a few frames a second
       S.settle = setTimeout(() => {
@@ -400,6 +444,8 @@ const SceneView = forwardRef(function SceneView(
 
   // the sheets
   useEffect(() => {
+    S.sheetsNow = sheets;
+    S.ground = null;
     const view = S.view;
     if (!view) return;
     const ids = new Set(sheets.map((s) => s.id));
@@ -444,7 +490,7 @@ const SceneView = forwardRef(function SceneView(
   }, [seeds, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ink on the room's surfaces
-  useEffect(() => {
+  const showMarks = () => {
     const view = S.view;
     if (!view) return;
     const list = marks ?? [];
@@ -475,7 +521,20 @@ const SceneView = forwardRef(function SceneView(
       S.marksOn.set(m.id, { spec: m, unsub });
     }
     schedule();
-  }, [marks, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
+  useEffect(showMarks, [marks, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the pen's face (rooms.md §3c) where the pen lies: the ink on it goes with it
+  const penLies = carrying?.penPlace ?? penRest();
+  useEffect(() => {
+    setPenPlace(penLies);
+    for (const [id, a] of S.marksOn) {
+      if (a.spec.surface !== 'pen') continue;
+      a.unsub?.();
+      S.view?.removeMark(id);
+      S.marksOn.delete(id);
+    }
+    showMarks();
+  }, [penLies.join(), ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the shelf's books
   useEffect(() => {
@@ -629,6 +688,26 @@ const SceneView = forwardRef(function SceneView(
       id = surfaceOfHit(GEOM, h.surface);
       t = h.t;
       if (!id || (h.patch !== undefined && h.patch === GEOM.page)) return null; // the page itself: the paper's own pen
+      // the pen lying in front of it: its top face
+      const pf = surfaceFrame(GEOM, 'pen');
+      const down = pf && -(dir[0] * pf.normal[0] + dir[1] * pf.normal[1] + dir[2] * pf.normal[2]);
+      if (down > 0) {
+        const tp = ((o[0] - pf.origin[0]) * pf.normal[0] + (o[1] - pf.origin[1]) * pf.normal[1] + (o[2] - pf.origin[2]) * pf.normal[2]) / down;
+        if (
+          tp > 0 &&
+          tp < t &&
+          onSurface(
+            pf,
+            fromRoom(
+              pf,
+              o.map((v, k) => v + dir[k] * tp),
+            ),
+          )
+        ) {
+          id = 'pen';
+          t = tp;
+        }
+      }
     }
     const f = surfaceFrame(GEOM, id);
     const across = -(dir[0] * f.normal[0] + dir[1] * f.normal[1] + dir[2] * f.normal[2]);
@@ -653,12 +732,53 @@ const SceneView = forwardRef(function SceneView(
     return { az: (fx - 0.5) * 220, el: Math.max(2, Math.min(88, (1 - fy) * 90)) };
   };
 
+  // The pen at the nib (page point p, page px), pressing as the event does (rooms.md §3c).
+  const penAt = (p, ev, down = true) => {
+    if (!p) return;
+    const w = writer?.widthAt ?? tableWriter?.widthAt ?? ((q) => lineWidthPx(PLAIN_PEN, q));
+    const pressure = down ? Math.round(255 * (ev?.pressure > 0 ? ev.pressure : 0.5)) : 0;
+    const nib = pageToRoom([p.x, p.y, 0], origin());
+    if (!down) nib[2] += LIFT_M;
+    S.pen = { nib, spread: w(pressure) / PX_PER_M, across: (writer?.across ?? tableWriter?.across)?.() ?? 0 };
+  };
+  // The room point the pointer is over on the table's plane (the page's), room m.
+  const roomPointOf = (e) => {
+    const p = pageOf(e);
+    return p ? pageToRoom([p.x, p.y, 0], origin()) : null;
+  };
+  // A thing to pick up under the pointer: the nearest whose upright (its foot up h, r round) the ray passes.
+  const pickableAt = (e) => {
+    if (!carrying?.pickables?.length) return null;
+    const { origin: o, dir } = roomRay(e);
+    let best = null;
+    for (const t of carrying.pickables) {
+      const b = [t.at[0] - t.r, t.at[1] - t.r, t.at[2], t.at[0] + t.r, t.at[1] + t.r, t.at[2] + t.h];
+      const d = rayBox(o, dir, b);
+      if (d !== null && (!best || d < best.d)) best = { d, id: t.id };
+    }
+    if (!best) return null;
+    const wall = roomHit(GEOM, o, dir);
+    return wall && wall.t < best.d ? null : best.id; // something stands in front of it
+  };
   const onPointerDown = (e) => {
     const c = canvasRef.current;
     c.setPointerCapture(e.pointerId);
     c.focus({ preventScroll: true }); // (the keys: fly, H)
     S.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     S.press = { x: e.clientX, y: e.clientY };
+    if (carrying && (e.button === 0 || e.pointerType !== 'mouse')) {
+      // the hand: holding something, a click sets it down; else a click on a thing picks it up
+      if (carrying.holding) {
+        const at = roomPointOf(e);
+        if (at && carrying.down(at)) return;
+      } else {
+        const id = pickableAt(e);
+        if (id !== null) {
+          carrying.pick(id);
+          return;
+        }
+      }
+    }
     if (tool === 'light' || e.altKey) {
       S.drag = { kind: 'light' };
       S.override = lightFromPointer(e);
@@ -712,6 +832,7 @@ const SceneView = forwardRef(function SceneView(
         const q = { x: at.x - on.origin[0], y: at.y - on.origin[1] };
         if (tableWriter.down(on.sheet, q, e.nativeEvent, e.pointerType) !== false) {
           S.drag = { kind: 'table', on, last: q };
+          penAt(at, e.nativeEvent);
           return;
         }
       }
@@ -723,6 +844,7 @@ const SceneView = forwardRef(function SceneView(
         writer.penDown?.(S.shown ?? S.cam);
         S.drag = { kind: 'write', last: at };
         writer.down(at, e.nativeEvent, e.pointerType);
+        penAt(at, e.nativeEvent);
         return;
       }
       if (can) {
@@ -740,6 +862,16 @@ const SceneView = forwardRef(function SceneView(
   const onPointerMove = (e) => {
     const p0 = S.pointers.get(e.pointerId);
     if (p0) S.pointers.set(e.pointerId, { ...p0, x: e.clientX, y: e.clientY });
+    if (carrying?.holding && !S.drag) {
+      // the thing in the hand: E held, the mouse tilts it; else it follows the pointer
+      if (S.tilting) carrying.tiltBy((e.clientX - (S.handX ?? e.clientX)) * 0.4);
+      else {
+        const at = roomPointOf(e);
+        if (at) carrying.hover(at);
+      }
+      S.handX = e.clientX;
+      schedule();
+    }
     const d = S.drag;
     if (!d) return;
     if (d.kind === 'light') {
@@ -779,6 +911,7 @@ const SceneView = forwardRef(function SceneView(
         }
         d.last = { x: p.x - d.on.origin[0], y: p.y - d.on.origin[1] };
         tableWriter.move(d.last, ev);
+        penAt(p, ev);
       }
     } else if (d.kind === 'pen-off') {
       const p = pageOf(e);
@@ -799,6 +932,7 @@ const SceneView = forwardRef(function SceneView(
         }
         writer.move(p, ev);
         d.last = p;
+        penAt(p, ev);
       }
     } else if (d.kind === 'two' && S.pointers.size >= 2) {
       const [a, b] = [...S.pointers.values()];
@@ -887,6 +1021,7 @@ const SceneView = forwardRef(function SceneView(
           .catch((err) => console.warn('[cut]', err.message)); // (the scene stays whole)
       }
     } else if (d.kind === 'table') {
+      penAt({ x: d.last.x + d.on.origin[0], y: d.last.y + d.on.origin[1] }, null, false); // lifted
       if (e.type === 'pointercancel') tableWriter.cancel();
       else {
         const p = pageOf(e);
@@ -896,6 +1031,7 @@ const SceneView = forwardRef(function SceneView(
       if (e.type === 'pointercancel') wallWriter.cancel();
       else wallWriter.up(surfaceAt(e, d.surface)?.p ?? d.last, e.nativeEvent);
     } else if (d.kind === 'write') {
+      penAt(d.last, null, false); // lifted
       if (e.type === 'pointercancel') writer.cancel();
       else {
         const p = pageOf(e);
@@ -931,11 +1067,36 @@ const SceneView = forwardRef(function SceneView(
   const onKeyDown = (e) => {
     if (mode !== '3d') return;
     const k = e.key.toLowerCase();
+    if (k === 'e' && carrying?.holding) {
+      // E held: the mouse tilts what the hand holds (rooms.md §3b), and nothing else moves
+      e.preventDefault();
+      S.tilting = true;
+      return;
+    }
     if (k === 'l' && !fixed) {
       look(!S.pose);
       return;
     }
     if (S.pose) {
+      if (k === 'f') {
+        // walk or fly (rooms.md §4): walking, everything falls until it rests
+        S.pose = { ...S.pose, mode: S.pose.mode === 'walk' ? 'fly' : 'walk', vz: 0 };
+        S.keyT = performance.now();
+        setWalking(S.pose.mode === 'walk');
+        schedule();
+        return;
+      }
+      if (k === '[' || k === ']') {
+        // smaller or larger, down to a bead of ink: the feet stay where they are
+        const was = S.pose.size ?? 1;
+        const size = Math.max(SIZE_MIN, Math.min(1, was * (k === ']' ? 2 : 0.5)));
+        const feet = S.pose.pos[2] - roomCamera.EYE * was;
+        S.pose = { ...S.pose, size, pos: S.pose.mode === 'walk' ? [S.pose.pos[0], S.pose.pos[1], feet + roomCamera.EYE * size] : S.pose.pos };
+        setSize(size);
+        S.keyT = performance.now();
+        schedule();
+        return;
+      }
       if (!FLY_KEYS[k]) return;
       e.preventDefault();
       if (!S.keys.size) S.keyT = performance.now();
@@ -970,6 +1131,7 @@ const SceneView = forwardRef(function SceneView(
 
   const onKeyUp = (e) => {
     S.keys.delete(e.key.toLowerCase());
+    if (e.key.toLowerCase() === 'e') S.tilting = false;
   };
 
   // wheel listeners must not be passive to stop the page scrolling
@@ -1077,7 +1239,7 @@ const SceneView = forwardRef(function SceneView(
           {(writer || tableWriter) && !looking
             ? `The pen: drag to write${writer ? '' : ' on a shared sheet'} · right-drag to turn · H for the hand`
             : looking
-              ? 'The pen: write on a wall, the floor, the ceiling · drag the room to turn your head · L to sit'
+              ? `The pen: write on a wall, the floor, the ceiling · drag the room to turn your head · F to ${walking ? 'fly' : 'walk'} · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''} · L to sit`
               : 'L to look around and write on the walls · H for the hand'}
         </p>
       )}

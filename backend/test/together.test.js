@@ -224,3 +224,27 @@ test("seals: the owner presses bo's seal (his signature's face) into warm wax an
   const v = verifyBook(Buffer.from((await ana.c.get('/api/books/ana/download')).data).toString('utf8'));
   assert.equal(v.ok, true, JSON.stringify(v.problems));
 });
+
+test('things: a candle picked up is held (no one else takes it), set down it rests where it was put, and the room remembers it after it sleeps', async () => {
+  const host = await stream(ana, 'ana');
+  await host.until('here');
+  const guest = await stream(bo, 'ana');
+  await guest.until('here');
+  const placeIt = (p, body) => p.c.post('/api/rooms/ana/place', body);
+  assert.equal((await placeIt(ana, { thing: 'candle-0', at: null })).status, 200, 'ana picks it up');
+  const held = await guest.until('thing', (d) => d.thing === 'candle-0' && d.at === null);
+  assert.equal(held.data.by, 'ana');
+  assert.equal((await placeIt(bo, { thing: 'candle-0', at: [1, 1, 0.74] })).status, 409, 'held by ana: bo cannot take it');
+  assert.equal((await placeIt(ana, { thing: 'candle-0', at: [1.2345678, 2.5, 0.74] })).status, 200, 'set down');
+  assert.equal((await placeIt(ana, { thing: 'a-chair', at: [1, 1, 0] })).status, 400, 'not a thing here');
+  assert.equal((await placeIt(ana, { thing: 'pen', at: [1, 1] })).status, 400, 'not a place');
+  assert.equal((await cy.c.post('/api/rooms/ana/place', { thing: 'pen', at: [1, 1, 0.74] })).status, 409, 'cy is not in the room');
+  host.close();
+  guest.close();
+  await settle(200);
+  // asleep, then woken: the candle is where it was set down
+  const back = await stream(bo, 'ana');
+  const here = await back.until('here');
+  assert.deepEqual(here.data.things['candle-0'], { at: [1.235, 2.5, 0.74], by: 'ana' });
+  back.close();
+});
