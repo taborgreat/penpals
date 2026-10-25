@@ -531,13 +531,13 @@ try {
   await page.locator('button.logout').click();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
-  await openWith(page, { unlock: false, way: 'words', secret: words, done: () => panel(page, 'At your table').waitFor({ timeout: 60000 }) });
+  await openWith(page, { unlock: false, way: 'words', secret: words, done: () => panel(page, 'The pen in your hand').waitFor({ timeout: 60000 }) }); // (the eye opens as it did when you registered)
 
   step('a new tab is signed in but must unlock to write: the private key, in the table’s panel');
   const tab = await context.newPage();
   await tab.goto(`${base}/u/tabor`);
   await tab.getByText('Unlock to write').waitFor({ timeout: 20000 });
-  await openWith(tab, { unlock: true, way: 'key', secret: privateKey, done: () => tab.getByRole('button', { name: 'New paper' }).waitFor({ timeout: 60000 }) });
+  await openWith(tab, { unlock: true, way: 'key', secret: privateKey, done: () => panel(tab, 'The pen in your hand').waitFor({ timeout: 60000 }) }); // (unlocked, the pen is in your hand)
   await tab.close();
   console.log('   (letters: not in the world yet; a letter is a sheet carried to a mailbox, one-world.md)');
 
@@ -552,7 +552,7 @@ try {
   await page.locator('button.logout').click();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
-  await openWith(page, { unlock: false, way: 'password', secret: 'correct horse battery', done: () => panel(page, 'At your table').waitFor({ timeout: 60000 }) });
+  await openWith(page, { unlock: false, way: 'password', secret: 'correct horse battery', done: () => panel(page, 'The pen in your hand').waitFor({ timeout: 60000 }) });
   console.log('\nthe whole flow works');
 } catch (err) {
   if (err.ok) {
