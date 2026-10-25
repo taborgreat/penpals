@@ -74,7 +74,6 @@ import {
   code,
   glslFn,
   wgslFn,
-  int,
 } from 'three/tsl';
 import { curves, SUN_RADIUS, surface as grown, shine } from './light/index.js';
 
@@ -381,13 +380,18 @@ function spectral(R, n, open, shade, m2, V, L, band, opts = {}) {
     return { on: max(dot(n, Lf), 0).mul(fall), spec: lb.k.mul(fall), graze: lb.graze };
   });
   const f0 = float(opts.f0 ?? PAPER_F0);
+  const metal = opts.metal === undefined || opts.metal === false ? null : opts.metal === true ? float(1) : float(opts.metal);
   // how much the faces turn back toward grazing (Schlick's): a dielectric's own, a metal's colour
-  const turned = (g, graze) => (opts.metal ? R[g].add(R[g].oneMinus().mul(graze)) : f0.add(f0.oneMinus().mul(graze)));
+  const turned = (g, graze) => {
+    const own = vec4(f0.add(f0.oneMinus().mul(graze)));
+    return metal ? mix(own, R[g].add(R[g].oneMinus().mul(graze)), metal) : own;
+  };
   const rgb = (opts.ambient ?? vec3(0)).toVar();
   for (let g = 0; g < BIN_GROUPS; g++) {
     const room = opts.ambient ? vec4(0) : opts.indirect ? opts.indirect[g] : L.indirect.element(g).mul(open);
     // (a metal has nothing beneath its face: all it gives back of a source is its mirror)
-    const E = opts.metal ? room : room.add(L.sunE.element(g).mul(sunCos)).add(L.flameI[0].element(g).mul(flames[0].on)).add(L.flameI[1].element(g).mul(flames[1].on));
+    const direct = L.sunE.element(g).mul(sunCos).add(L.flameI[0].element(g).mul(flames[0].on)).add(L.flameI[1].element(g).mul(flames[1].on));
+    const E = metal ? room.add(direct.mul(float(1).sub(metal))) : room.add(direct);
     const mirror = L.sunE
       .element(g)
       .mul(sunSpec)
@@ -409,60 +413,59 @@ function spectral(R, n, open, shade, m2, V, L, band, opts = {}) {
 
 // --- the room (light-waves §4: its surfaces grown cell by cell, at the paper's grain) ---
 
-// growMean (light/surface.js) in the shader's own language: → (height, tone).
+// growMean (light/surface.js) in the shader's own language: → (height, tone); and a crisp
+// cell's face (cellFace: its height's rise to its +x and +y neighbours). One copy of the
+// grower's code for both.
+const surfaceCode = {};
+const codeOf = (webgpu) => (surfaceCode[webgpu ? 'wgsl' : 'glsl'] ??= webgpu ? code(grown.SURFACE_WGSL, [], 'wgsl') : code(grown.SURFACE_GLSL, [], 'glsl'));
 const growers = {};
 function grower(webgpu) {
   const key = webgpu ? 'wgsl' : 'glsl';
   growers[key] ??= webgpu
-    ? wgslFn('fn roomGrow(kind: i32, m: u32, pos: vec2<f32>, foot: f32) -> vec2<f32> { return growMean(kind, m, pos, foot); }', [code(grown.SURFACE_WGSL, [], 'wgsl')])
-    : glslFn('vec2 roomGrow(int kind, uint m, vec2 pos, float foot) { return growMean(kind, m, pos, foot); }', [code(grown.SURFACE_GLSL, [], 'glsl')]);
+    ? wgslFn('fn roomGrow(kind: i32, m: u32, pos: vec2<f32>, foot: f32) -> vec2<f32> { return growMean(kind, m, pos, foot); }', [codeOf(true)])
+    : glslFn('vec2 roomGrow(int kind, uint m, vec2 pos, float foot) { return growMean(kind, m, pos, foot); }', [codeOf(false)]);
   return growers[key];
 }
+const facers = {};
+function facer(webgpu) {
+  const key = webgpu ? 'wgsl' : 'glsl';
+  facers[key] ??= webgpu
+    ? wgslFn('fn roomFace(kind: i32, m: u32, pos: vec2<f32>) -> vec2<f32> { return vec2<f32>(cellFace(kind, m, vec2<u32>(max(pos, vec2<f32>(0.0))))); }', [codeOf(true)])
+    : glslFn('vec2 roomFace(int kind, uint m, vec2 pos) { return vec2(cellFace(kind, m, uvec2(max(pos, vec2(0.0))))); }', [codeOf(false)]);
+  return facers[key];
+}
 // A grown surface's reflectance at tone t (0..1): its light curve toward its dark one.
-const toned = (light, dark, t) => [0, 1, 2, 3].map((g) => light.element(g).add(dark.element(g).sub(light.element(g)).mul(t)));
-const pairUniforms = ({ light, dark }) => {
-  const a = spectrumUniform(),
-    b = spectrumUniform();
-  setSpectrum(a, light);
-  setSpectrum(b, dark);
-  return [a, b];
-};
+const toned = (light, dark, t) => [0, 1, 2, 3].map((g) => light[g].add(dark[g].sub(light[g]).mul(t)));
+// A matter's two curves, each as four plain vec4 uniforms (not a uniform array: an array's
+// buffer is named for its own node, so two materials of one kind would make two programs;
+// plain uniforms are named in order, and the same code is compiled once).
+const curveUniforms = (c) => [0, 1, 2, 3].map((g) => uniform(new THREE.Vector4(c[4 * g], c[4 * g + 1], c[4 * g + 2], c[4 * g + 3])));
+const pairUniforms = ({ light, dark }) => [curveUniforms(light), curveUniforms(dark)];
 // How many cells a pixel covers here (the eye's footprint: crisp up close, averaged far away).
 const footAt = (L) => max(length(positionWorld.sub(cameraPosition)).div(L.pxPerM).mul(L.footK), 1e-4);
+
+// A grown kind's own, in the code (each program its kind's grower path only, and its
+// matter's shine); what differs between surfaces of one kind (its seed, which way it
+// faces) is uniforms, so they share one program.
+const kindOf = (kind) => {
+  const rough = shine.ROUGH[kind],
+    f0 = shine.f0OfKind(kind);
+  return { kind: uniform(kind, 'int'), m2: uniform(rough.m2), sub: uniform(rough.sub), f0: uniform(f0 ?? 0), metal: uniform(f0 === null ? 1 : 0) };
+};
 
 // Its faces (matter-fixes §5, light/shine.js): up close (a cell several pixels wide) each
 // cell is its own face, its rise to its +u and +v neighbours (grown, at true scale), a
 // mirror scattered only by what lies below a cell; far away (many cells a pixel) the
-// faces it holds widen the lobe instead. → { n, m2 }
-function facesOf(grow, kind, seedU, pos, foot, normal, axes) {
-  const rough = shine.ROUGH[kind];
-  const n = vec3(...normal).toVar();
-  const m2 = float(rough.m2).toVar();
-  if (!axes) return { n, m2 };
+// faces it holds widen the lobe instead. K: kindOf; normal, u, v: vec3 uniforms. → { n, m2 }
+function facesOf(webgpu, K, seedU, pos, foot, normal, u, v) {
+  const n = vec3(normal).toVar();
+  const m2 = float(K.m2).toVar();
   If(foot.lessThan(3), () => {
-    const crisp = (p) => grow({ kind: int(kind), m: seedU, pos: p, foot: float(0.5) }).x;
-    const h0 = crisp(pos).toVar();
-    const k = grown.DROP_PX / grown.CELL_PX;
-    const face = normalize(
-      n
-        .sub(
-          vec3(...axes.u).mul(
-            crisp(pos.add(vec2(1, 0)))
-              .sub(h0)
-              .mul(k),
-          ),
-        )
-        .sub(
-          vec3(...axes.v).mul(
-            crisp(pos.add(vec2(0, 1)))
-              .sub(h0)
-              .mul(k),
-          ),
-        ),
-    );
+    const rise = facer(webgpu)({ kind: K.kind, m: seedU, pos }).mul(grown.DROP_PX / grown.CELL_PX);
+    const face = normalize(n.sub(u.mul(rise.x)).sub(v.mul(rise.y)));
     const near = smoothstep(3, 1, foot);
     n.assign(normalize(mix(n, face, near)));
-    m2.assign(mix(m2, float(rough.sub), near));
+    m2.assign(mix(m2, K.sub, near));
   });
   return { n, m2 };
 }
@@ -478,16 +481,20 @@ export function roomMaterial(L, { kind, seed, pair, normal, axes = null, top = f
   const m = new MeshBasicNodeMaterial();
   const [light, dark] = pairUniforms(pair);
   const seedU = uniform(seed, 'uint');
+  const K = kindOf(kind);
+  const normalU = uniform(new THREE.Vector3(...normal)),
+    uU = uniform(new THREE.Vector3(...(axes?.u ?? [0, 0, 0]))),
+    vU = uniform(new THREE.Vector3(...(axes?.v ?? [0, 0, 0])));
   const grow = grower(webgpu);
   m.colorNode = Fn(() => {
     const pos = attribute('cellPos', 'vec2');
     const foot = footAt(L).toVar();
-    const ht = grow({ kind: int(kind), m: seedU, pos, foot });
+    const ht = grow({ kind: K.kind, m: seedU, pos, foot });
     const t = clamp(ht.y.div(255), 0, 1).toVar();
     const ambient = attribute('ambA', 'vec3').add(attribute('ambB', 'vec3').mul(t));
     const V = normalize(cameraPosition.sub(positionWorld));
-    const { n, m2 } = facesOf(grow, kind, seedU, pos, foot, normal, axes);
-    return spectral(toned(light, dark, t), n, float(0), top ? restShade(L, L.rests) : vec3(1), m2, V, L, null, { ambient, slab: slab && !top, f0: shine.f0OfKind(kind) });
+    const { n, m2 } = facesOf(webgpu, K, seedU, pos, foot, normalU, uU, vU);
+    return spectral(toned(light, dark, t), n, float(0), top ? restShade(L, L.rests) : vec3(1), m2, V, L, null, { ambient, slab: slab && !top, f0: K.f0, metal: K.metal });
   })();
   m.seed = seedU; // a view grows its owner's room (rooms.md §1): engine.js setSeeds
   return m;
@@ -504,9 +511,11 @@ export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
   const m = new MeshBasicNodeMaterial({ side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   const [light, dark] = pairUniforms(pair);
   const seedU = uniform(seed, 'uint');
+  const K = kindOf(kind);
+  const normalU = uniform(new THREE.Vector3(...normal));
   const inkTex = texture(ink);
   m.colorNode = Fn(() => {
-    const ht = grower(webgpu)({ kind: int(kind), m: seedU, pos: attribute('cellPos', 'vec2'), foot: footAt(L) });
+    const ht = grower(webgpu)({ kind: K.kind, m: seedU, pos: attribute('cellPos', 'vec2'), foot: footAt(L) });
     const t = clamp(ht.y.div(255), 0, 1).toVar();
     const ink4 = at(inkTex, down()).toVar();
     const a = log(max(mix(vec3(1), ink4.rgb, ink4.a), vec3(1 / 512))).negate(); // as a chunk takes its colour (colour to alpha over white)
@@ -514,7 +523,7 @@ export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
     const V = normalize(cameraPosition.sub(positionWorld));
     const surf = toned(light, dark, t); // (four vec4s, not a uniform array)
     const R = surf.map((r, g) => r.mul(exp(INK[0][g].mul(a.x).add(INK[1][g].mul(a.y)).add(INK[2][g].mul(a.z)).negate())));
-    return spectral(R, vec3(...normal), float(0), vec3(1), float(shine.ROUGH[kind].m2), V, L, null, { indirect: E, slab: true, f0: shine.f0OfKind(kind) });
+    return spectral(R, vec3(normalU), float(0), vec3(1), float(K.m2), V, L, null, { indirect: E, slab: true, f0: K.f0, metal: K.metal });
   })();
   m.seed = seedU;
   return m;
@@ -551,14 +560,15 @@ export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', 
     B = uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => (object.userData.ambient ?? m.ambient).B);
   m.seedBase = seed;
   const seedU = uniform(seed, 'uint').onObjectUpdate(({ object }) => object.userData.seed ?? m.seedBase);
+  const K = kindOf(kind ?? grown.CLOTH);
+  const even = uniform(kind === null ? 1 : 0); // (one even tone: no grower's tone, and cloth's faces)
   m.colorNode = Fn(() => {
     const n = normalize(normalWorld).toVar();
-    let t = float(0);
-    if (kind !== null) t = clamp(grower(webgpu)({ kind: int(kind), m: seedU, pos: cellsOn(shape), foot: footAt(L) }).y.div(255), 0, 1).toVar();
+    const t = clamp(grower(webgpu)({ kind: K.kind, m: seedU, pos: cellsOn(shape), foot: footAt(L) }).y.div(255), 0, 1)
+      .mul(float(1).sub(even))
+      .toVar();
     const V = normalize(cameraPosition.sub(positionWorld));
-    const faces = kind ?? grown.CLOTH;
-    const f0 = shine.f0OfKind(faces);
-    return spectral(toned(light, dark, t), n, float(0), vec3(1), float(shine.ROUGH[faces].m2), V, L, null, { ambient: A.add(B.mul(t)), slab: true, f0: f0 ?? undefined, metal: f0 === null });
+    return spectral(toned(light, dark, t), n, float(0), vec3(1), float(K.m2), V, L, null, { ambient: A.add(B.mul(t)), slab: true, f0: K.f0, metal: K.metal });
   })();
   return m;
 }
