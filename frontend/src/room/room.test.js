@@ -11,7 +11,7 @@ import { SURFACE_IDS, THING_SURFACE_IDS, ROOM_SURFACE, PEN_FACE, setPenPlace, su
 import { pieceCorners } from '../scene/marks.js';
 import { roomMeshes, spectrumAt } from '../scene/roomDraw.js';
 import { roomSeedsOf, lobbySeeds, SEED_NAMES } from './seeds.js';
-import { zoned, createLight } from '../scene/light.js';
+import { worldClock, createLight } from '../scene/light.js';
 import { createCapture, strokesToActs } from '../ink/capture.js';
 import { lawOf } from 'penpals-law/laws';
 import { keys as K, b64url } from 'penpals-law';
@@ -186,18 +186,14 @@ test('the eye closes and opens: lids down, the view dark; opening onto the room,
   for (let b = 0; b < N; b++) assert.ok(Math.abs(W[b] - W[N + b]) < 1e-9 && Math.abs(W[N + b] - W[2 * N + b]) < 1e-9, 'black and white: r = g = b');
 });
 
-test("each space keeps its own time: the room's sun is placed by its own clock", () => {
-  const instant = new Date('2026-06-21T18:00:00Z');
-  const denver = zoned(instant, 'America/Denver'),
-    tokyo = zoned(instant, 'Asia/Tokyo');
-  assert.equal(denver.getHours(), 12);
-  assert.equal(tokyo.getHours(), 3);
-  assert.equal(denver.getTime(), instant.getTime(), 'the same instant');
+test('one world, one sun, one clock (rooms.md §1b): every room is lit by Pacific time, whatever the viewer\'s', () => {
+  const noon = worldClock(new Date('2026-06-21T19:00:00Z')),
+    night = worldClock(new Date('2026-06-22T07:00:00Z'));
+  assert.equal(noon.getHours(), 12);
+  assert.equal(night.getHours(), 0);
+  assert.equal(noon.getTime(), Date.parse('2026-06-21T19:00:00Z'), 'the same instant');
   const light = createLight({ settle: null });
-  const day = light.at({ now: 0, date: denver });
-  const night = light.at({ now: 0, date: tokyo });
-  assert.ok(day.sun.el > 60 && night.sun.el < 0, 'noon in one room, night in the other, at once');
-  assert.equal(zoned(instant, 'Not/AZone'), instant, "a zone the clock cannot use: the viewer's own");
+  assert.ok(light.at({ now: 0, date: noon }).sun.el > 60 && light.at({ now: 0, date: night }).sun.el < 0, 'noon, then night, in every room at once');
 });
 
 test('a dip pen (rooms.md §3c): only a dip puts its well in the record; between dips its nib draws on what is left', async () => {

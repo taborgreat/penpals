@@ -4,11 +4,10 @@ import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, client } from './helpers.js';
 import { person, register, FAMILY, K, b64url } from './device.js';
-import { shared as SH } from 'penpals-law';
+import { shared as SH, room as R, candle as C, wax as WX } from 'penpals-law';
 import { lawOf } from 'penpals-law/laws';
 import { record, samplePath } from 'penpals-law/tools/fixtures';
 import { verifyBook } from 'penpals-law/verify';
-import { wax as WX } from 'penpals-law';
 import { roomGeometry, ROOM } from '../../frontend/src/scene/light/room.js';
 import { originIn, slotOf } from '../../frontend/src/room/table.js';
 import { PX_PER_M } from '../../frontend/src/scene/light/index.js';
@@ -18,6 +17,7 @@ let app;
 const ana = person(71, 'ana');
 const bo = person(72, 'bo');
 const cy = person(73, 'cy');
+const dee = person(74, 'dee'); // (registered in the seal test: a room with nothing in it yet)
 let rooms, files, accounts, config; // (the backend's own modules: after startApp has set its data dir)
 
 before(async () => {
@@ -50,6 +50,14 @@ const act = (p, sheet, kind, extra) => {
   return SH.makeSharedAct({ sk: p.sk, pk: p.pk, sheet, k, act: kind, ...extra });
 };
 const post = (p, sheet, made) => p.c.post(`/api/shared/${sheet}/acts`, made);
+// A being's act on a room's things, sealed by its key (law/room.js), counted on per room.
+const roomK = new Map();
+const roomAct = (p, owner, a) => {
+  const id = `${p.username}>${owner.username}`;
+  roomK.set(id, (roomK.get(id) ?? 0) + 1);
+  return R.makeRoomAct({ sk: p.sk, pk: p.pk, room: b64url(owner.pk), k: roomK.get(id), ...a });
+};
+const doIn = (p, owner, made) => p.c.post(`/api/rooms/${owner.username}/act`, made);
 
 // A room's stream, read as it comes: events gathered; `until(kind, test)` waits for one.
 async function stream(p, room) {
@@ -180,9 +188,9 @@ test('beings: entering, moving coarsely (the neck law applied), leaving; an empt
   const moves = 1 + quick.filter((r) => r.data.stamped).length;
   assert.equal((await bo.c.post('/api/rooms/cy/motion', { pose: { pos: [99, 2, 1], yaw: 0, pitch: 0 } })).status, 400);
   guest.close();
-  assert.equal((await host.until('being', (d) => d.kind === 'leave')).data.name, 'bo');
+  assert.equal((await host.until('being', (d) => d.kind === 'leave', rooms.LINGER_MS + 5000)).data.name, 'bo');
   host.close();
-  await settle(200);
+  await settle(rooms.LINGER_MS + 200);
   // asleep: nothing is held for an empty room
   const { findByName } = await import('../src/store/accounts.js');
   assert.equal(rooms.awake(findByName('cy').id), false);
@@ -196,79 +204,89 @@ test('beings: entering, moving coarsely (the neck law applied), leaving; an empt
 });
 
 test("seals: the owner presses bo's seal (his signature's face) into warm wax and bo writes while it lies on her table; another face is refused; broken, he is refused", async () => {
+  // dee lit a candle seven minutes ago (her signed act, stamped then: written here, a test
+  // cannot wait; its pool well melted by now), the first thing in her room
+  dee.c = client(app.base);
+  assert.equal((await register(dee.c, dee)).status, 201);
+  const deeId = accounts.findByName('dee').id;
+  await files.appendLine(path.join(accounts.userDir(deeId), 'room.chain'), JSON.stringify({ n: 1, at: new Date(Date.now() - 435000).toISOString(), ...roomAct(dee, dee, { act: 'light', thing: 'candle-0' }) }));
   const sheet = K.newSheetId();
-  assert.equal((await ana.c.post('/api/shared', SH.makeSharedSheet({ sk: ana.sk, pk: ana.pk, sheet, family: FAMILY }))).status, 201);
-  const sealed = await ana.c.get('/api/signatures/bo/seal');
+  assert.equal((await dee.c.post('/api/shared', SH.makeSharedSheet({ sk: dee.sk, pk: dee.pk, sheet, family: FAMILY }))).status, 201);
+  const sealed = await dee.c.get('/api/signatures/bo/seal');
   assert.equal(sealed.status, 200, JSON.stringify(sealed.data));
   assert.equal(sealed.data.key, b64url(bo.pk));
   assert.ok(sealed.data.w <= 32 && sealed.data.h <= 32);
   assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 403);
   // no one writes a drip
-  assert.equal((await post(ana, sheet, { act: { v: 2, kind: 'shared', sheet, by: b64url(ana.pk), k: 99, act: 'drip', drip: { x: 2000, y: 2000, amt: 400000, heat: 220 } }, seal: 'x' })).status, 400);
-  // hot wax from her candle: night on her room's clock, she has been in her room ten
-  // minutes (its candles lit; written here, a test cannot wait), she picks a candle up
-  // and tilts it with its wick over the sheet; the law regrows what falls
-  const utc = new Date().getUTCHours();
-  let off = (23 - utc + 24) % 24;
-  if (off > 14) off -= 24;
-  assert.equal((await ana.c.post('/api/social/time', { timeZone: off === 0 ? 'Etc/GMT' : `Etc/GMT${off > 0 ? '-' : '+'}${Math.abs(off)}` })).status, 200);
-  const anaId = accounts.findByName('ana').id;
-  const before = await rooms.roomLines(anaId);
-  await files.appendLine(
-    path.join(accounts.userDir(anaId), 'room.chain'),
-    JSON.stringify({ n: (before.at(-1)?.n ?? 0) + 1, at: new Date(Date.now() - 600000).toISOString(), by: 'ana', kind: 'enter' }),
-  );
-  const host = await stream(ana, 'ana');
+  assert.equal((await post(dee, sheet, { act: { v: 2, kind: 'shared', sheet, by: b64url(dee.pk), k: 99, act: 'drip', drip: { x: 2000, y: 2000, amt: 400000, heat: 220 } }, seal: 'x' })).status, 400);
+  // she picks the candle up and tips it with its rim over the sheet; the law regrows what
+  // falls from her acts alone
+  const host = await stream(dee, 'dee');
   await host.until('here');
-  assert.equal((await ana.c.post('/api/rooms/ana/place', { thing: 'candle-0', at: null })).status, 200);
-  const slot = (await rooms.roomLines(anaId)).find((l) => l.kind === 'lay' && l.sheet === sheet).slot;
+  assert.equal((await doIn(dee, dee, roomAct(dee, dee, { act: 'place', thing: 'candle-0', to: null }))).status, 200);
+  const slot = (await rooms.roomLines(deeId)).find((l) => l.kind === 'lay' && l.sheet === sheet).slot;
   const o = originIn(roomGeometry(ROOM), [config.book.pageWidth, config.book.pageHeight]);
   const [sx, sy] = slotOf(slot, config.book.pageWidth);
   const under = [o[0] + (sx + 200) / PX_PER_M, o[1] - (sy + 200) / PX_PER_M]; // (200, 200) on the sheet
-  const h = WX.heightOf(600000);
-  const tilted = await ana.c.post('/api/rooms/ana/tilt', { thing: 'candle-0', pos: [under[0] - Math.sin(Math.PI / 3) * h, under[1], 0.92], deg: 60 });
-  assert.equal(tilted.data.stamped, true, JSON.stringify(tilted.data));
-  await host.until('room', (l) => l.kind === 'tilt');
+  // where its rim is, tipped 60°, from its foot: the candle as the law has it now
+  const lit = WX.createRoomWax({ landing: () => ({ on: 'table' }) });
+  lit.advance(await rooms.roomLines(deeId), Date.now());
+  const rim = C.rimPoint(lit.candle(0).cd, [0, 0, 0.92], 60);
+  const tilted = await doIn(dee, dee, roomAct(dee, dee, { act: 'tilt', thing: 'candle-0', pos: [under[0] - rim[0], under[1] - rim[1], 0.92], deg: 60 }));
+  assert.equal(tilted.status, 200, JSON.stringify(tilted.data));
+  await host.until('room', (l) => l.act?.act === 'tilt');
   await new Promise((r) => setTimeout(r, 400)); // (it pours at its next step)
   // the stamper set to bo, pressed into it while it is warm (each face pixel a cell: within the pour)
   const press = { x: 2000, y: 2000, depth: 220, angle: 0, tiltX: 0, tiltY: 0, cell: 1, w: sealed.data.w, h: sealed.data.h, face: sealed.data.face, for: b64url(bo.pk) };
-  const wrong = await post(ana, sheet, act(ana, sheet, 'press', { press: { ...press, face: b64url(new Uint8Array(sealed.data.w * sealed.data.h).fill(255)) } }));
+  const wrong = await post(dee, sheet, act(dee, sheet, 'press', { press: { ...press, face: b64url(new Uint8Array(sealed.data.w * sealed.data.h).fill(255)) } }));
   assert.equal(wrong.status, 400, 'a face that is not his');
   assert.match(JSON.stringify(wrong.data), /not their seal/);
-  const pressed = await post(ana, sheet, act(ana, sheet, 'press', { press }));
+  const pressed = await post(dee, sheet, act(dee, sheet, 'press', { press }));
   assert.equal(pressed.status, 201, JSON.stringify(pressed.data));
   const wrote = await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }));
   assert.equal(wrote.status, 201, 'his seal took: he writes on her sheet on her table');
   assert.equal((await post(cy, sheet, act(cy, sheet, 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 403, 'no seal of hers');
-  const broke = await post(ana, sheet, act(ana, sheet, 'break', { broke: { seal: pressed.data.line.n, from: [1850, 1900], to: [2150, 2100] } }));
+  const broke = await post(dee, sheet, act(dee, sheet, 'break', { broke: { seal: pressed.data.line.n, from: [1850, 1900], to: [2150, 2100] } }));
   assert.equal(broke.status, 201);
   assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(40, [30, 40, 200]) }))).status, 403, 'broken: refused');
-  // the whole of it in her .book verifies offline: the press took (in the wax the law regrew,
-  // given in its head), the break, the refusals
-  const text = Buffer.from((await ana.c.get('/api/books/ana/download')).data).toString('utf8');
-  assert.ok(JSON.parse(text.slice(0, text.indexOf('\n'))).wax?.[sheet]?.length > 0, 'the wax on her sheet, in her book');
+  // her .book holds no wax (the server's word is not a fact): it verifies offline, what his
+  // seal allowed listed as needing the room's acts to regrow the wax it was pressed into
+  const text = Buffer.from((await dee.c.get('/api/books/dee/download')).data).toString('utf8');
+  assert.equal(JSON.parse(text.slice(0, text.indexOf('\n'))).wax, undefined, 'no wax in her book');
   const v = verifyBook(text);
   assert.equal(v.ok, true, JSON.stringify(v.problems));
+  assert.ok(v.unverified.some((u) => u.includes(sheet)), JSON.stringify(v.unverified));
+  // no one else tilts it; it is not lit twice; she puts it out (her act)
+  assert.equal((await doIn(bo, dee, roomAct(bo, dee, { act: 'tilt', thing: 'candle-0', pos: [1000, 1000, 900].map((v) => v / 1000), deg: 30 }))).status, 409, 'not in her room');
+  assert.equal((await doIn(dee, dee, roomAct(dee, dee, { act: 'light', thing: 'candle-0' }))).status, 409, 'lit already');
+  assert.equal((await doIn(dee, dee, roomAct(dee, dee, { act: 'out', thing: 'candle-0' }))).status, 200);
   host.close();
 });
 
-test('things: a candle picked up is held (no one else takes it), set down it rests where it was put, and the room remembers it after it sleeps', async () => {
+test('things: acts sealed by their being; a candle picked up is held (no one else takes it or tilts it), set down it rests where it was put, and the room remembers it after it sleeps', async () => {
   const host = await stream(ana, 'ana');
   await host.until('here');
   const guest = await stream(bo, 'ana');
   await guest.until('here');
-  const placeIt = (p, body) => p.c.post('/api/rooms/ana/place', body);
-  assert.equal((await placeIt(ana, { thing: 'candle-0', at: null })).status, 200, 'ana picks it up');
+  const place = (p, thing, to) => doIn(p, ana, roomAct(p, ana, { act: 'place', thing, to }));
+  const up = roomAct(ana, ana, { act: 'place', thing: 'candle-0', to: null });
+  assert.equal((await doIn(ana, ana, up)).status, 200, 'ana picks it up');
+  assert.equal((await doIn(ana, ana, up)).status, 409, 'the same act again: stamped already');
   const held = await guest.until('thing', (d) => d.thing === 'candle-0' && d.at === null);
   assert.equal(held.data.by, 'ana');
-  assert.equal((await placeIt(bo, { thing: 'candle-0', at: [1, 1, 0.74] })).status, 409, 'held by ana: bo cannot take it');
-  assert.equal((await placeIt(ana, { thing: 'candle-0', at: [1.2345678, 2.5, 0.74] })).status, 200, 'set down');
-  assert.equal((await placeIt(ana, { thing: 'a-chair', at: [1, 1, 0] })).status, 400, 'not a thing here');
-  assert.equal((await placeIt(ana, { thing: 'pen', at: [1, 1] })).status, 400, 'not a place');
-  assert.equal((await cy.c.post('/api/rooms/ana/place', { thing: 'pen', at: [1, 1, 0.74] })).status, 409, 'cy is not in the room');
+  assert.equal((await place(bo, 'candle-0', [1, 1, 0.74])).status, 409, 'held by ana: bo cannot take it');
+  assert.equal((await doIn(bo, ana, roomAct(bo, ana, { act: 'tilt', thing: 'candle-0', pos: [1, 1, 0.9], deg: 30 }))).status, 409, 'nor tilt it');
+  assert.equal((await doIn(bo, ana, roomAct(ana, ana, { act: 'out', thing: 'candle-1' }))).status, 400, "bo sends ana's act: not his");
+  const forged = roomAct(bo, ana, { act: 'place', thing: 'pen', to: null });
+  assert.equal((await doIn(bo, ana, { act: { ...forged.act, k: forged.act.k + 50 }, seal: forged.seal })).status, 401, 'not sealed as sent');
+  assert.equal((await place(ana, 'candle-0', [1.2345678, 2.5, 0.74])).status, 200, 'set down');
+  const body = { v: 2, kind: 'room', room: b64url(ana.pk), by: b64url(ana.pk), k: 900, act: 'place' };
+  assert.equal((await doIn(ana, ana, { act: { ...body, thing: 'a-chair', to: [1000, 1000, 0] }, seal: forged.seal })).status, 400, 'not a thing here');
+  assert.equal((await doIn(ana, ana, { act: { ...body, thing: 'pen', to: [1000, 1000] }, seal: forged.seal })).status, 400, 'not a place');
+  assert.equal((await doIn(cy, ana, roomAct(cy, ana, { act: 'place', thing: 'pen', to: [1, 1, 0.74] }))).status, 409, 'cy is not in the room');
   host.close();
   guest.close();
-  await settle(200);
+  await settle(rooms.LINGER_MS + 200);
   // asleep, then woken: the candle is where it was set down
   const back = await stream(bo, 'ana');
   const here = await back.until('here');

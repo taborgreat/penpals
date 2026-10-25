@@ -129,19 +129,10 @@ ${JSON.stringify(line)}
   assert.ok(v.problems.some((p) => p.includes("not written on that surface's matter")));
 });
 
-test('each space keeps its own time: the zone of its owner from registration, shown with the room, changed by its owner', async () => {
-  const cy = person(43, 'cy');
-  const c = client(app.base);
-  assert.equal((await register(c, cy, { timeZone: 'Not/AZone' })).status, 400, 'a zone the clock cannot use');
-  app.resetLimits();
-  const dee = person(44, 'dee');
-  const d = client(app.base);
-  assert.equal((await register(d, dee, { timeZone: 'America/Denver' })).status, 201);
-  assert.equal((await app.bo.get('/api/users/dee')).data.user.timeZone, 'America/Denver', 'a visitor sees the room by its clock');
-  assert.equal((await d.post('/api/social/time', { timeZone: 'Asia/Tokyo' })).status, 200);
-  assert.equal((await app.ana.get('/api/users/dee')).data.user.timeZone, 'Asia/Tokyo');
-  assert.equal((await d.post('/api/social/time', { timeZone: 42 })).status, 400);
-  assert.equal((await app.ana.get('/api/users/ana')).data.user.timeZone, null, 'none given: the clock of the viewer stands in');
+test('one world, one clock (rooms.md §1b): no room keeps a zone of its own', async () => {
+  const u = (await app.bo.get('/api/users/ana')).data.user;
+  assert.equal('timeZone' in u, false, 'no zone shown with a room');
+  assert.equal((await app.ana.post('/api/social/time', { timeZone: 'Asia/Tokyo' })).status, 404, 'none to change');
 });
 
 test("doors: writing leads to a page, a surface of the room, or into someone else's room", async () => {

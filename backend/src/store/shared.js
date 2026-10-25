@@ -213,18 +213,6 @@ export async function sealFaceOf(account) {
   return face;
 }
 
-// The wax on each of a person's shared sheets, for their .book: the drips the law
-// regrew from the rooms each lay in (no one's act: the stamper's, as its moments are;
-// anyone with those rooms' chains regrows the same). → { [sheet]: drips }
-export async function waxOfBook(userId) {
-  const out = {};
-  for (const s of ownedBy(userId)) {
-    const drips = await dripsOnSheet(s);
-    if (drips.length) out[s.sheet] = drips;
-  }
-  return out;
-}
-
 // Who a table belongs to, by name → key.
 export const keyOfName = (name) => findByName(name)?.publicKey ?? null;
 export const isKey = (k) => {

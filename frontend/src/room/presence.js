@@ -8,7 +8,7 @@
 // visitors either side), its head turned to what you look at; flying, the head is
 // where your eye is.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { being as B, wax as WX } from 'penpals-law';
+import { being as B, room as R } from 'penpals-law';
 import { api } from '../api.js';
 import { GEOM } from '../scene/light.js';
 import { roomCamera } from '../scene/light/index.js';
@@ -17,7 +17,7 @@ export const GLIDE_MS = 220; // others glide between their acts this long
 
 // Where the room's things are (rooms.md §3b, §3c: the candles, the pen), as its stream
 // tells it: { [thing]: { at: [x, y, z] | null (held), by } }, by room. useThings(name)
-// follows it; placeThing picks one up (at null) or sets it down.
+// follows it; roomAct picks one up or sets it down.
 const things = new Map(); // room name → { now, listeners }
 const thingsIn = (name) => {
   let t = things.get(name);
@@ -39,13 +39,9 @@ export function useThings(name) {
   }, [name]);
   return now;
 }
-export const placeThing = (name, thing, at) => api.post(`/api/rooms/${encodeURIComponent(name)}/place`, { thing, at });
-// The candle in your hand tilted (law/wax.js: a coarse act; its drips are the law's).
-export const tiltThing = (name, thing, pos, deg) => api.post(`/api/rooms/${encodeURIComponent(name)}/tilt`, WX.quantizeTilt({ thing, pos, deg }));
-
-// The room's lines its drips are regrown from (law/wax.js dripsOf: who came and went,
-// things picked up, set down and tilted, sheets laid on its table), by room, as its
-// stream tells them. useRoomLines(name) follows them.
+// The room's lines its drips are regrown from (law/wax.js: the signed acts on its things,
+// who came and went, sheets laid on its table), by room, as its stream tells them.
+// useRoomLines(name) follows them.
 const roomLines = new Map(); // room name → { now, listeners }
 const linesIn = (name) => {
   let t = roomLines.get(name);
@@ -67,6 +63,25 @@ export function useRoomLines(name) {
   }, [name]);
   return now;
 }
+
+// What you do to the room's things (rooms.md §3b, §3c; matter-fixes §2): light a candle or
+// put it out, pick a thing up or set it down ({ act: 'place', thing, to: room m | null }),
+// tilt the candle in your hand ({ act: 'tilt', thing, pos, deg }): an act sealed by your key
+// (law/room.js), counted on from your last in the room's lines, sent one after another.
+// key: yours (keys/session.js); room: its owner's key. keepalive: as the page goes (not queued).
+const sending = new Map(); // room name → { k: the last count sent, queue }
+export function roomAct(name, key, room, act, { keepalive = false } = {}) {
+  const s = sending.get(name) ?? { k: 0, queue: Promise.resolve() };
+  sending.set(name, s);
+  for (const l of linesIn(name).now) if (l.act?.by === key.publicKey) s.k = Math.max(s.k, l.act.k);
+  s.k += 1;
+  const made = R.makeRoomAct({ sk: key.sk, pk: key.pk, room, k: s.k, ...act });
+  const url = `/api/rooms/${encodeURIComponent(name)}/act`;
+  if (keepalive) return fetch(url, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(made) }).catch(() => {});
+  s.queue = s.queue.then(() => api.post(url, made).catch(() => {}));
+  return s.queue;
+}
+
 const SEAT_X = [0, -0.45, 0.45, -0.9, 0.9]; // m from the middle seat (the owner's), along the table
 
 // The i-th seat's eye (room m): 0 the owner's, in front of the page; then either side, then a row behind.

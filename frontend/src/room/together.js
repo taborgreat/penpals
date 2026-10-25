@@ -4,20 +4,22 @@
 // write on (yours, one lying on your table, or one on its owner's table with your
 // seal pressed into it), and the acts that lay a sheet on someone's table, take it
 // back, or lift your stroke. On the table the hand holds the pen or the stamper (set
-// to someone's seal: the next press, then the pen again). A candle is carried and
-// tilted (room/carry.js: tilt acts); what drips from it is the law's, regrown here
-// from the room's chain (law/wax.js), and each sheet grows with what landed on it.
-// Where each sheet lies is read from the chain too (its lay lines: room/table.js).
+// to someone's seal: the next press, then the pen again). The candles are lit and put out
+// by acts (below: by the world's clock), carried and tilted (room/carry.js); each burns
+// down and drips as the law has it, regrown here from the room's chain alone (law/wax.js),
+// and each sheet grows with what landed on it. Where each sheet lies is read from the
+// chain too (its lay lines: room/table.js).
 //
 // → { others, report, body, sheets: [{ view, slot, field, mayWrite, seals }], scene: { sheets,
-//     tableWriter, beings, onPose, focus }, mine (your shared sheets, wherever they lie), tool,
+//     tableWriter, beings, onPose, focus }, candles (law/wax.js createRoomWax: candle(which) →
+//     { cd, lit, holder, pos, deg }, as far as at()), mine (your shared sheets, wherever they lie), tool,
 //     notice, clearNotice, share(family), layOn(view, name), takeBack(view), lift(view), lookAt(view),
 //     useTool('pen'), stamperFor(name), breakSeal(view, n) }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRoom, useRoomLines, seatOf } from './presence.js';
+import { useRoom, useRoomLines, seatOf, roomAct } from './presence.js';
 import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE } from './shared.js';
 import { lyingOn, waxContext } from './table.js';
-import { wax as WX } from 'penpals-law';
+import { wax as WX, room as R } from 'penpals-law';
 import { GEOM } from '../scene/light.js';
 
 // The seals pressed into a sheet, in its order: [{ n, for (key), name, took, broken, at: { x, y } }]
@@ -31,26 +33,47 @@ export function sealsOf(view, took = []) {
 // May `me` write here (law/shared.js mayWrite, read from the view and its seals)?
 export const mayWriteOn = (view, seals, me) => !!me && (view.birth.key === me || view.table === me || (view.table === view.birth.key && seals.some((x) => x.for === me && x.took && !x.broken)));
 import { api } from '../api.js';
+const byHand = { on: false }; // (the e2e lights them itself: globalThis.__candles)
 
-export function useTogether({ name, key, me, mine: myRoom = false, pageW, pageH, timeZone = null, color }) {
+// Which candles burn and which are in someone's hand, by the room's signed acts. → { lit, held } ('01' strings)
+function candlesOf(lines) {
+  const lit = {},
+    held = {};
+  for (const l of lines) {
+    const a = l.act;
+    if (a?.act === 'light' || a?.act === 'out') lit[a.thing] = a.act === 'light';
+    if (a?.act === 'place') held[a.thing] = a.to === null;
+  }
+  return { lit: R.CANDLES.map((c) => (lit[c] ? 1 : 0)).join(''), held: R.CANDLES.map((c) => (held[c] ? 1 : 0)).join('') };
+}
+const CATCH_UP_MS = 120000; // the candles are regrown this much of the room's time at a go, between frames
+
+export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom = false, pageW, pageH, color }) {
   const { beings, sheets, report, body } = useRoom(name, { seat: myRoom ? 0 : seatOf(me) });
-  // the drips the room's candles let fall (law/wax.js), regrown from its chain: anew as its
-  // lines arrive, and as time passes while a candle is in someone's hand
   const lines = useRoomLines(name);
-  const wax = useMemo(() => waxContext({ geom: GEOM, page: [pageW, pageH], timeZone }), [pageW, pageH, timeZone]);
-  const held = useMemo(() => {
-    const inHand = {};
-    for (const l of lines) if (l.kind === 'place') inHand[l.thing] = l.to === null;
-    return Object.values(inHand).some(Boolean);
-  }, [lines]);
-  const [now, setNow] = useState(() => Date.now());
+  const { lit, held } = useMemo(() => candlesOf(lines), [lines]);
+  const burning = lit.includes('1'),
+    inHand = held.includes('1');
+  // The candles and what they let fall (law/wax.js), regrown from the room's chain as its lines
+  // arrive and as time passes: caught up a slice at a time (a candle lit for hours is many
+  // steps), then kept up, often while one is in someone's hand, now and then while one burns.
+  const candles = useMemo(() => WX.createRoomWax(waxContext({ geom: GEOM, page: [pageW, pageH] })), [name, pageW, pageH]);
+  const [wax, setWax] = useState({ drips: [], n: 0 });
   useEffect(() => {
-    if (!held) return undefined;
-    const tick = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(tick);
-  }, [held]);
-  const drips = useMemo(() => (lines.length ? WX.dripsOf(lines, { ...wax, until: Math.max(now, Date.now()) }) : []), [lines, wax, now]);
-  const dripsOf = useCallback((view) => WX.dripsOn(drips, view.sheet, view.born ?? 0), [drips]);
+    if (!lines.length) return undefined;
+    let timer = 0;
+    const go = () => {
+      const now = Date.now();
+      const until = Math.min(now, (candles.at() ?? Date.parse(lines[0].at)) + CATCH_UP_MS);
+      const drips = candles.advance(lines, until);
+      setWax((w) => (w.drips === drips && w.n === drips.length ? w : { drips, n: drips.length }));
+      if (until < now) timer = setTimeout(go, 0);
+      else if (inHand || burning) timer = setTimeout(go, inHand ? 500 : 5000);
+    };
+    go();
+    return () => clearTimeout(timer);
+  }, [candles, lines, inHand, burning]);
+  const dripsOf = useCallback((view) => WX.dripsOn(wax.drips, view.sheet, view.born ?? 0), [wax]);
   const fields = useSharedFields(sheets, dripsOf);
   const lying = useMemo(() => lyingOn(lines), [lines]);
   const myKey = key?.publicKey ?? null;
@@ -223,11 +246,58 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, pageH,
     },
   };
   const others = useMemo(() => beings.filter((b) => b.name !== me), [beings, me]);
+
+  // Lighting the candles and putting them out are acts (matter-fixes §2): while the sun is down
+  // by the world's clock (law/room.js isNight) the first of those here (by name) lights them; by
+  // day it puts them out; the last one to leave puts them out as it goes. (globalThis.__candles,
+  // for the e2e: light(which), out(which) by hand, and the clock leaves them be.)
+  const [night, setNight] = useState(() => R.isNight(Date.now()));
+  useEffect(() => {
+    const t = setInterval(() => setNight(R.isNight(Date.now())), 60000);
+    return () => clearInterval(t);
+  }, []);
+  const tends = body && !!key && !!roomKey && !!me && [me, ...others.map((b) => b.name)].sort()[0] === me;
+  const asked = useRef({}); // candle → what was asked of it, until it is so (an act on its way is not sent twice)
+  useEffect(() => {
+    const want = night ? '1' : '0';
+    if (!tends || byHand.on) return;
+    R.CANDLES.forEach((thing, i) => {
+      if (lit[i] === want) delete asked.current[thing];
+      else if (asked.current[thing] !== want) {
+        asked.current[thing] = want;
+        roomAct(name, key, roomKey, { act: night ? 'light' : 'out', thing });
+      }
+    });
+  }, [tends, night, lit, name, key, roomKey]);
+  const last = useRef({ alone: true, lit });
+  last.current = { alone: !others.length, lit };
+  useEffect(() => {
+    if (!body || !key || !roomKey) return;
+    globalThis.__candles = {
+      light: (which) => ((byHand.on = true), roomAct(name, key, roomKey, { act: 'light', thing: R.CANDLES[which] })),
+      out: (which) => ((byHand.on = true), roomAct(name, key, roomKey, { act: 'out', thing: R.CANDLES[which] })),
+      candle: (which) => candles.candle(which),
+    };
+  }, [name, body, key, roomKey, candles]);
+  useEffect(() => {
+    if (!body || !key || !roomKey) return undefined;
+    const bye = () => {
+      if (byHand.on || !last.current.alone) return;
+      R.CANDLES.forEach((thing, i) => last.current.lit[i] === '1' && roomAct(name, key, roomKey, { act: 'out', thing }, { keepalive: true }));
+    };
+    window.addEventListener('pagehide', bye);
+    return () => {
+      window.removeEventListener('pagehide', bye);
+      bye();
+    };
+  }, [name, body, key, roomKey]);
+
   const scene = useMemo(() => ({ sheets: sceneSheets, tableWriter, beings: others, onPose: report, focus }), [sceneSheets, tableWriter, others, report, focus]);
   return {
     others,
     report,
     body,
+    candles,
     sheets: placed,
     mine,
     notice,

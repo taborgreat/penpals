@@ -210,11 +210,10 @@ export async function createBook(userId, { line, paperFamily }) {
 }
 
 // The whole .book: line 1 is the skeleton with what a verifier needs added (the
-// key it checks every seal against; `more`: the wax on its shared sheets, store/shared.js
-// waxOfBook), then the chain as-is (complete lines only).
-export async function bookBytes(userId, account, more = {}) {
+// key it checks every seal against), then the chain as-is (complete lines only).
+export async function bookBytes(userId, account) {
   const skeleton = await getSkeleton(userId);
-  const head = { book: 2, name: account.username, key: account.publicKey, fingerprint: K.fingerprint(fromB64url(account.publicKey, 32)), law: config.law.current, ...skeleton, ...more };
+  const head = { book: 2, name: account.username, key: account.publicKey, fingerprint: K.fingerprint(fromB64url(account.publicKey, 32)), law: config.law.current, ...skeleton };
   return Buffer.concat([Buffer.from(`${JSON.stringify(head)}\n`), await completeBytes(chainFile(userId))]);
 }
 

@@ -28,7 +28,7 @@ import { CHUNK } from '../scene/engine.js';
 //
 // The room (rooms.md §1, §2): the page lies on its owner's table, in their room.
 // `room`: { surfaces (the book's: skeleton.surfaces), seeds (the owner's grown
-// room, room/seeds.js), timeZone (the room's clock), wallWriter (the owner's pen
+// room, room/seeds.js), wallWriter (the owner's pen
 // on the walls, from Look), live (marks being written now) }. Ink on a surface is
 // drawn on it (scene/marks.js), every piece of it (there are few), whole.
 // `room.together` (room/together.js): the shared sheets on the table beside the
@@ -229,7 +229,6 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           seeds={room?.seeds ?? null}
           marks={marks}
           wallWriter={room?.wallWriter ?? null}
-          timeZone={room?.timeZone ?? null}
           shelf={room?.shelf ?? null}
           doors={doors}
           onDoor={room?.follow ?? ((link) => link.page && onFollow(link.page))}

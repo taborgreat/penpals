@@ -138,12 +138,15 @@ export const verifyActSeal = (act, seal) => verify(fromB64url(seal, 64), sealMsg
 // verifier replays. state: { owner, table, strokes: [{ n, by, lifted }], k: { [by]: last k },
 // seals: [{ n, for, took, broken }], lines (so far: a press is grown to see if it took) }.
 // ctx: { seed, family } (checkBirth), and drips (the drips that landed on it: wax.js
-// dripsOn): without it no press can take.
+// dripsOn; null: not known here, so whether a press took is not known either): without
+// ctx no press can take.
 export const startState = (owner, ctx = null) => ({ owner, table: owner, strokes: [], k: {}, seals: [], lines: [], ctx });
 
 // May `by` write here now: the owner; the one whose table it lies on; anyone whose
 // seal took and is unbroken, while it lies on the owner's table.
-export const mayWrite = (state, by) => by === state.owner || by === state.table || (state.table === state.owner && state.seals.some((x) => x.for === by && x.took && !x.broken));
+export const mayWrite = (state, by) => by === state.owner || by === state.table || (state.table === state.owner && state.seals.some((x) => x.for === by && x.took !== false && !x.broken));
+// (allowed only by a seal whose wax is not known here: unverified)
+const bySealUnknown = (state, by) => by !== state.owner && by !== state.table && !state.seals.some((x) => x.for === by && x.took === true && !x.broken);
 
 // Would this act be allowed as the next one? → null, or why not.
 export function refusal(state, act) {
@@ -176,9 +179,11 @@ export function apply(state, line) {
   if (act.act === 'stroke') next.strokes = [...state.strokes, { n, by: act.by, lifted: false }];
   if (act.act === 'lift') next.strokes = state.strokes.map((s) => (s.n === act.lift ? { ...s, lifted: true } : s));
   if (act.act === 'press') {
-    // did it take? the sheet grown to this press says (with the wax that had landed on it by then)
-    const drips = (state.ctx?.drips ?? []).filter((d) => d.t <= line.at);
-    const took = !!state.ctx && !!growShared(next.lines, { ...state.ctx, drips })?.seals.at(-1)?.took;
+    // did it take? the sheet grown to this press says (with the wax that had landed on it by then;
+    // where that is not known, nor is whether it took)
+    let took = false;
+    if (state.ctx?.drips === null) took = null;
+    else if (state.ctx) took = !!growShared(next.lines, { ...state.ctx, drips: (state.ctx.drips ?? []).filter((d) => d.t <= line.at) })?.seals.at(-1)?.took;
     next.seals = [...state.seals, { n, for: act.press.for, took, broken: false }];
   }
   if (act.act === 'break') next.seals = state.seals.map((x) => (x.n === act.break.seal ? { ...x, broken: true } : x));
@@ -186,10 +191,11 @@ export function apply(state, line) {
 }
 
 // Replay a whole chain of stamped lines: every place in order, every seal, every permission.
-// → { state, problems }
+// → { state, problems, unverified (acts allowed only by a seal whose wax is not known here) }
 export function replay(owner, lines, { seals = true, ctx = null } = {}) {
   let state = startState(owner, ctx);
   const problems = [];
+  const unverified = [];
   lines.forEach((line, i) => {
     try {
       if (line.n !== i + 1) throw bad(`place ${line.n} where ${i + 1} belongs`);
@@ -197,12 +203,13 @@ export function replay(owner, lines, { seals = true, ctx = null } = {}) {
       if (seals && !verifyActSeal(line.act, line.seal)) throw bad("the seal is not its writer's");
       const why = refusal(state, line.act);
       if (why) throw bad(why);
+      if ((line.act.act === 'stroke' || line.act.act === 'lift') && bySealUnknown(state, line.act.by)) unverified.push(`act ${line.n}: by a seal pressed into wax regrown from a room's acts (not here)`);
       state = apply(state, line);
     } catch (err) {
       problems.push(`act ${line.n}: ${err.message}`);
     }
   });
-  return { state, problems };
+  return { state, problems, unverified };
 }
 
 // --- the law: the record a shared sheet's acts make ---

@@ -3,8 +3,7 @@
 // lands drips with this same code (store/shared.js: whether a seal took), so a
 // drip falls on the same sheet, the same spot, for everyone.
 
-import { wax as WX } from 'penpals-law';
-import { landing, wickOf } from './drops.js';
+import { landing } from './drops.js';
 import { PX_PER_M } from '../scene/light/index.js';
 
 export const SHARED_PAGE = { width: 800, height: 600 }; // page units: a shared sheet
@@ -44,13 +43,11 @@ export const originIn = (geom, [pageW, pageH]) => {
   return [(r.x0 + r.x1) / 2 - pageW / 2 / PX_PER_M, (r.y0 + r.y1) / 2 + pageH / 2 / PX_PER_M, geom.pageOrigin[2]];
 };
 
-// What the law needs to regrow a room's drips (law/wax.js dripsOf): the room's clock,
-// the wick of a tilted candle, and what is under a point given the sheets lying there.
-export function waxContext({ geom, page, timeZone = null }) {
+// What the law needs to regrow a room's drips (law/wax.js): what is under a point, given the
+// sheets lying on the table then.
+export function waxContext({ geom, page }) {
   const origin = originIn(geom, page);
   return {
-    night: WX.nightIn(timeZone),
-    wickOf,
     landing: (p, lying) => landing(geom, p, { origin, sheets: lying.map((s) => ({ sheet: s.sheet, origin: slotOf(s.slot, page[0]), size: [SHARED_PAGE.width, SHARED_PAGE.height] })) }),
   };
 }
