@@ -214,9 +214,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
   if (book.status === 'private') return <p className="muted">This journal is private. Only their friends can see it.</p>;
   if (book.status === 'error') return <p className="error">Could not open the book: {book.error}</p>;
-  const size = book.page ?? DEFAULT_PAGE;
-  // Nothing written in the whole book yet, on a page or in the room: visitors see nothing rather than a blank page.
-  if (!editable && !together.sheets.length && Object.values(skeleton.pages).every((p) => !p.items.length) && Object.values(skeleton.surfaces ?? {}).every((f) => !f.items.length)) return null; // (writing on the room's surfaces counts, and sheets on its table)
+  const size = book.page ?? DEFAULT_PAGE; // (a house with nothing written in it is still a house: visitors see its room)
   const missing = pageId && !skeleton.pages[pageId];
 
   function newPage() {
