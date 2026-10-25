@@ -40,7 +40,7 @@ const joinedOf = (key) => pairsWith(key).find((p) => p.state.joined) ?? null;
 // (or who asks), on which side of this room, through what; and where tables stand.
 export function joinViewOf(key) {
   const p = joinedOf(key) ?? pairsWith(key).find((x) => x.state.sides[x.a === key ? x.b : x.a] && !x.state.sides[key]) ?? null;
-  if (!p) return { joined: false };
+  if (!p) return { joined: false, k: Math.max(0, ...pairsWith(key).map((x) => x.state.k[key] ?? 0)) };
   const other = p.a === key ? p.b : p.a;
   const s = p.state;
   return {
@@ -53,6 +53,7 @@ export function joinViewOf(key) {
     openings: { mine: s.openings[key], theirs: s.openings[other] },
     tables: { mine: s.tables[key], theirs: s.tables[other] },
     n: p.lines.length,
+    k: p.state.k[key] ?? 0, // the owner's last act's count in this pair (their next is k + 1)
   };
 }
 

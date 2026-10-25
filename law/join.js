@@ -51,7 +51,8 @@ export function checkJoinAct(body) {
   if (body.v !== 2 || body.kind !== 'join' || !isKey(body.by) || !isKey(body.with) || body.by === body.with || !Number.isInteger(body.k) || body.k < 1) throw bad('a malformed join act');
   if (body.act === 'join' && !SIDES.includes(body.side)) throw bad('a join is along a side wall');
   if (body.act === 'opening' && !OPENINGS.includes(body.opening)) throw bad('the opening is the wall down or a door');
-  if (body.act === 'table' && body.at !== null && !(Array.isArray(body.at) && body.at.length === 2 && body.at.every((v) => Number.isInteger(v) && v >= 0 && v <= 20000))) throw bad('a table stands somewhere in the room (mm)');
+  if (body.act === 'table' && body.at !== null && !(Array.isArray(body.at) && body.at.length === 2 && body.at.every((v) => Number.isInteger(v) && v >= 0 && v <= 20000)))
+    throw bad('a table stands somewhere in the room (mm)');
   return body;
 }
 export const verifyJoinSeal = (act, seal) => verify(fromB64url(seal, 64), sealMsg(joinDigest(act)), fromB64url(act.by, 32));
