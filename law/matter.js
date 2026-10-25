@@ -5,6 +5,8 @@
 //   density   kg/m³ (how hard it falls and how hard it pushes)
 //   hardness  1..10 (which of two touching matters gives way when rubbed: the harder takes the softer)
 //   strength  N/mm² (how far it bends or pulls before it breaks)
+//   stiffness N/mm² (how hard it resists stretching: stretched past strength/stiffness, it cracks)
+//   rots      days for half of it to break down into dirt where it lies
 //   friction  ×1000 (how much it resists sliding against another matter)
 //   heat      { holds (J/(kg·K)), conducts (mW/(m·K)), melts, boils, burns (°C) | null,
 //               fuses (J/kg the melting takes and the setting gives back), releases (J/kg its
@@ -89,6 +91,7 @@ export const MATTER = Object.freeze({
     density: 750,
     hardness: 3,
     strength: 90,
+    stiffness: 11000,
     friction: 450,
     heat: { holds: 2000, conducts: 160, melts: null, boils: null, burns: 300, releases: 18000000, burnRate: 10, leaves: 250, air: 6 },
     becomes: { burnt: 'char' },
@@ -208,6 +211,7 @@ export const MATTER = Object.freeze({
     density: 550,
     hardness: 2,
     strength: 20,
+    stiffness: 300,
     friction: 650,
     heat: { holds: 1500, conducts: 120, melts: null, boils: null, burns: 280, releases: 17000000, burnRate: 12, leaves: 250, air: 6 },
     becomes: { burnt: 'char' },
@@ -219,8 +223,9 @@ export const MATTER = Object.freeze({
     hardness: 1,
     strength: 5,
     friction: 400,
+    rots: 400,
     heat: { holds: 3500, conducts: 300, melts: null, boils: null, burns: 250, releases: 15000000, burnRate: 20, leaves: 50, air: 5 },
-    becomes: { burnt: 'ash' },
+    becomes: { burnt: 'ash', rotted: 'dirt' },
     light: 'leaf',
     ior: 1450,
   },
@@ -311,6 +316,54 @@ export const cellNg = (row, thick) => Math.round(row.density * CELL_M * CELL_M *
 // The room's air, as the heat rule takes it: its temperature (°C), and its film (W/(m²·K)):
 // how fast still air carries heat off a surface warmer than it.
 export const AIR = Object.freeze({ temp: 20, film: 10 });
+
+// The kinds of tree (one-matter.md Phase 7): what each IS, as the tree's law (law/tree.js) reads it.
+// Nothing here draws a shape; the shape is what these do under the sun.
+//   of         its matters: { wood, bark, leaf } (rows above)
+//   seed       g: what a seed holds to start on
+//   sprouts    { water: ‰ of the dirt's pores holding water, warmth: °C }: what wakes the seed
+//   leafOut, leafFall   hours of sun a day at which its buds open (the days lengthening) and its
+//              leaves fall (the days shortening)
+//   leaf       m² of leaves a growing tip carries;  leafMass  g/m²: what they cost to make
+//   yield      g of wood made per MJ of light its leaves take
+//   thirst     g of water breathed out per g of wood made
+//   upkeep     { leaf, skin }  g a day each m² of its leaves, of its living skin (under the bark), burns
+//   pipe       mm² of new wood laid a year all the way down from each m² of its leaves (the pipe
+//              model: the ring is the leaves' water pipes, so it is as wide as the leaves above it)
+//   roots      g of roots under each m² of ground they reach
+//   grows      m a year a tip pushes out at most (its growth rate)
+//   bears      years from sprouting before it bears seed (till then what it has over thickens its wood)
+//   shoot      m: a new shoot's radius;  budEvery  m of shoot between buds;  angle  degrees a bud's
+//              shoot leans from the stem it leaves
+//   leader     ‰: how strongly its leading tip holds back the others, young;  relax  years until
+//              that hold is halved
+//   contrast   its late wood's density over its early wood's (the ring's two bands)
+//   store      how many springs of leaves and years of upkeep it keeps back before it grows
+export const TREES = Object.freeze({
+  oak: {
+    of: { wood: 'wood', bark: 'bark', leaf: 'leaf' },
+    seed: 4,
+    sprouts: { water: 150, warmth: 15 },
+    leafOut: 13,
+    leafFall: 11,
+    leaf: 2,
+    leafMass: 70,
+    yield: 0.3,
+    thirst: 300,
+    upkeep: { leaf: 1.5, skin: 1 },
+    pipe: 8,
+    roots: 100,
+    grows: 0.5,
+    bears: 30,
+    shoot: 0.005,
+    budEvery: 1,
+    angle: 45,
+    leader: 900,
+    relax: 40,
+    contrast: 2,
+    store: 1,
+  }, // the gall oak: its galls are ink's
+});
 
 export const matterOf = (name) => {
   const m = MATTER[name];

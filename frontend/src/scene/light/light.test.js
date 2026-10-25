@@ -120,7 +120,9 @@ test('the air: noon sky blue, low sun gold to red, night zero sun. Computed, not
   assert.ok(lumOf(out([0, 0.7, -0.7])) > 0 && out([0, 0.7, -0.7])[7] > out([0, 0.7, -0.7])[0], 'the field is green-lit ground');
   // placed by the clock
   const at = (h) => sunPlace(new Date(2026, 9, 23, h, 0, 0));
-  assert.ok(at(12).el === NOON_EL && at(8).az < 0 && at(17).az > 0 && at(23).el < 0);
+  assert.ok(at(12).el > at(11).el && at(12).el > at(13).el && at(8).az < 0 && at(17).az > 0 && at(23).el < 0);
+  // by the date: higher at midsummer than at the end of October, at its highest NOON_EL
+  assert.ok(Math.abs(sunPlace(new Date(2026, 5, 21, 12)).el - NOON_EL) < 0.3 && sunPlace(new Date(2026, 5, 21, 12)).el > at(12).el + 30);
 });
 
 test('candles: lit at night while a being is present, out when they leave', () => {

@@ -1,5 +1,6 @@
 // The sun and the air (light-waves §2, §3). The sun is a black body at about
-// 5800 K before the air, placed by the viewer's local clock. The air is thin
+// 5800 K before the air, placed by the world's clock and its day of the year
+// (law/sun.js: the one sun, whose light the trees drink; its facts are the law's). The air is thin
 // matter that scatters by wavelength, short waves far more than long ones and
 // more the longer the path, so the light that comes straight through is white
 // at noon, gold low and red at sunset, and the light it scatters is the sky:
@@ -21,6 +22,7 @@
 // from the seated writer (toward the window), z up; unit vectors toward the
 // light or along the view.
 
+import { SUN, SKY, WORLD, sunToward } from 'penpals-law/sun';
 import { N, HEAT, HEAT_NM, LAMBDA } from './axis.js';
 import { blackbody } from './blackbody.js';
 
@@ -28,14 +30,14 @@ const rad = (d) => (d * Math.PI) / 180;
 const deg = (r) => (r * 180) / Math.PI;
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
-export const SUN_K = 5800;
-export const SUN_RADIUS = 0.00465; // the sun's angular radius, rad (a disk, so the window's patch has soft edges)
-const SUN_DISTANCE = (6.957e8 / 1.495978707e11) ** 2; // (solar radius / one astronomical unit)²
-export const BETA0 = 0.1; // the air's straight-up scattering at 550 nm
-export const HAZE = 0.04; // the haze's straight-up scattering at 550 nm
-const HAZE_FALL = 1.3; // the haze scatters as λ^−1.3
-const HAZE_G = 0.76; // and that far forward (Henyey–Greenstein)
-export const MIN_SIN = 0.05; // the longest path is 20 airs
+export const SUN_K = SUN.temp;
+export const SUN_RADIUS = SUN.radius / SUN.distance; // the sun's angular radius, rad (a disk, so the window's patch has soft edges)
+const SUN_DISTANCE = (SUN.radius / SUN.distance) ** 2; // (solar radius / its distance)²
+export const BETA0 = SKY.scatter; // the air's straight-up scattering at 550 nm
+export const HAZE = SKY.haze; // the haze's straight-up scattering at 550 nm
+const HAZE_FALL = SKY.hazeFall; // the haze scatters as λ^−fall
+const HAZE_G = SKY.hazeForward; // and that far forward (Henyey–Greenstein)
+export const MIN_SIN = SKY.minSin; // the longest path is 20 airs
 export const TWILIGHT_EL = -6; // degrees: the sun this far down leaves the sky nothing to scatter
 
 const nm = (i) => (i === HEAT ? HEAT_NM : LAMBDA[i]);
@@ -64,12 +66,15 @@ export function sunLight(el) {
   return GRANT.map((g, i) => g * Math.exp(-BETA[i] * path) * seen);
 }
 
-// Where the sun stands at a local time: up at 6:00, highest at noon, down at
-// 18:00; from the writer's left in the morning to their right at evening (the
-// same placement as light.js's sunAt). → { az, el } degrees.
+// Where the sun stands on a date at a time (its wall clock: getFullYear, getMonth,
+// getDate, getHours…): the law's sun (law/sun.js) over the world's latitude, the
+// window facing south, so it rises on the writer's left and sets on their right,
+// highest at noon, higher and longer up in the summer. → { az, el } degrees.
 export function sunPlace(date) {
   const h = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
-  return { el: 68 * Math.sin((Math.PI * (h - 6)) / 12), az: -90 + (180 * (h - 6)) / 12 };
+  const doy = (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(date.getFullYear(), 0, 1)) / 86400000;
+  const [east, north, up] = sunToward(doy, h);
+  return { el: deg(Math.asin(Math.max(-1, Math.min(1, up)))), az: deg(Math.atan2(-east, -north)) };
 }
 // The room-frame direction toward a light at azimuth az (0: straight ahead,
 // beyond the window; −90 the writer's left) and elevation el, degrees.
@@ -140,4 +145,4 @@ export function daylight(sunDir) {
   return s.map((v, i) => v + beam[i] * sin);
 }
 
-export const NOON_EL = 68; // the clock's highest sun (sunPlace at 12:00)
+export const NOON_EL = 90 - WORLD.latitude + WORLD.obliquity; // the year's highest sun (noon at midsummer)

@@ -56,11 +56,19 @@ export const sunAt = (date) => sunPlace(date);
 // The world's clock (rooms.md §1b: one world, one sun, one time zone, Pacific): the
 // moment `date` as its wall clock reads it (what sunPlace reads), the instant itself
 // unchanged. Never the viewer's own clock.
-const worldWall = new Intl.DateTimeFormat('en-US', { timeZone: WORLD_ZONE, hour12: false, hour: 'numeric', minute: 'numeric', second: 'numeric' });
+const worldWall = new Intl.DateTimeFormat('en-US', { timeZone: WORLD_ZONE, hour12: false, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
 export function worldClock(date) {
   const parts = Object.fromEntries(worldWall.formatToParts(date).map((x) => [x.type, x.value]));
   const h = Number(parts.hour) % 24;
-  return { getHours: () => h, getMinutes: () => Number(parts.minute), getSeconds: () => Number(parts.second), getTime: () => date.getTime() };
+  return {
+    getFullYear: () => Number(parts.year),
+    getMonth: () => Number(parts.month) - 1,
+    getDate: () => Number(parts.day),
+    getHours: () => h,
+    getMinutes: () => Number(parts.minute),
+    getSeconds: () => Number(parts.second),
+    getTime: () => date.getTime(),
+  };
 }
 
 // Easing a dragged sun back to the clock's.
