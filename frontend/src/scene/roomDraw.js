@@ -34,6 +34,8 @@ const PAIR = {
   water: 'water',
   clay: 'clay',
   ore: 'ore',
+  chitin: 'chitin',
+  feather: 'feather',
 }; // matter → its curve pair
 export const seedOf = (surface) => grown.seedMix(grown.DEFAULT_SEEDS[surface.id.startsWith('table') ? 'table' : surface.id] ?? grown.defaultSeed(surface.id));
 

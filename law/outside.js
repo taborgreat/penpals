@@ -11,13 +11,13 @@
 //   Grass    grows on the dirt everywhere else.
 //   Trees    oaks (law/matter.js TREES), each from its own seed, sprouted some years ago (the seed's),
 //            grown by the tree's law to the day under the place's sun and its rain (law/weather.js:
-//            a year of it, every day's share alike).
+//            a year of it, every day's share alike), as it stands since its leaves last came out or fell.
 //   Houses   stand on their plots: no tree or stone where a house stands, or in the start's clearing.
 //   groundAt(x, y) → m      stonesIn(i, j), treesIn(i, j) → each cell's (OUTSIDE's cells)
 //   waterAt(x, y) → m of water standing there      matterAt(x, y) → 'water' | 'clay' | 'grass'
 //   near(x, y, r, { houses }) → { stones, trees } within r      treeNow(tree, day) → law/tree.js tree
 // World metres: x east, y north (law/world.js: a plot's centre at [i, j] · PLOT_M).
-import { createTree } from './tree.js';
+import { createTree, standsFrom } from './tree.js';
 import { PLOT_M, centreOf } from './world.js';
 import { weatherAt } from './weather.js';
 
@@ -220,17 +220,39 @@ export function dailyRain() {
   }
   return daily;
 }
-const grown = new Map(); // id@day → the tree
+// A tree as it stands on a day: grown to the last day its leaves came out or fell (law/tree.js: its shape
+// is laid only then, so it stands the same every day between), once for each of those days. A tree asked
+// for later than it was last grown grows on from there; each day's is kept as it stood (its own copy).
+const grown = new Map(); // id@day → the tree as it stood
+const growing = new Map(); // id → the tree grown furthest, growing on
+const asItStood = (T) => {
+  const S = {
+    ...T,
+    tips: T.tips.map((t) => ({ ...t, pos: t.pos.slice(), dir: t.dir.slice() })),
+    nodes: T.nodes.map((n) => ({ ...n, base: n.base.slice() })),
+    branches: T.branches.map((b) => ({ ...b, at: b.at.slice() })),
+    shells: T.shells.map((s) => ({ ...s })),
+    season: { ...T.season },
+    litter: new Map(T.litter),
+  };
+  delete S.grow;
+  delete S.waters;
+  return S;
+};
 export function treeNow(t, day) {
-  const key = `${t.id}@${day}`;
+  const from = standsFrom(t.kind, day);
+  const key = `${t.id}@${from}`;
   if (!grown.has(key)) {
-    const T = createTree({ kind: t.kind, day: t.planted, at: [t.at[0], t.at[1]] });
+    let T = growing.get(t.id);
+    if (!T || T.day > from + 1) T = createTree({ kind: t.kind, day: t.planted, at: [t.at[0], t.at[1]] });
     const kg = dailyRain();
     const waters = [];
-    for (let d = t.planted; d < day; d++) waters.push({ day: d, kg });
-    T.grow(day, waters);
-    if (grown.size > 256) grown.clear();
-    grown.set(key, T);
+    for (let d = Math.max(t.planted, T.day); d < from; d++) waters.push({ day: d, kg });
+    T.grow(from, waters);
+    if (growing.size > 512) growing.clear();
+    growing.set(t.id, T);
+    if (grown.size > 512) grown.clear();
+    grown.set(key, asItStood(T));
   }
   return grown.get(key);
 }

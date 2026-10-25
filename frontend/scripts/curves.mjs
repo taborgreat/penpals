@@ -83,6 +83,10 @@ const MATTER = {
   clay: { light: curve((l) => 0.12 + 0.3 * rise(l, 585, 45), 0.5), dark: curve((l) => 0.07 + 0.2 * rise(l, 600, 45), 0.42) },
   ore: { light: curve((l) => 0.06 + 0.22 * rise(l, 600, 35), 0.35), dark: curve((l) => 0.04 + 0.12 * rise(l, 610, 35), 0.3) },
   stone: { light: curve((l) => 0.3 + 0.04 * rise(l, 600, 80), 0.35), dark: curve((l) => 0.16 + 0.03 * rise(l, 600, 80), 0.25) },
+  // the beings (outside.md Part 4): a bug's shell, chitin, dark and brown (its melanin drinks the short
+  // waves most); a bird's feathers, a sparrow's brown, the dark its streaks
+  chitin: { light: curve((l) => 0.04 + 0.12 * rise(l, 610, 40), 0.3), dark: curve((l) => 0.02 + 0.05 * rise(l, 630, 40), 0.25) },
+  feather: { light: curve((l) => 0.1 + 0.3 * rise(l, 580, 50), 0.45), dark: curve((l) => 0.04 + 0.12 * rise(l, 600, 50), 0.35) },
 };
 const PAPER_HEAT = 0.72; // paper's reflectance in the heat bin (its visible curve comes from its colour, matter.js)
 const INK_HEAT = 0; // dyes are clear past the red
@@ -265,6 +269,8 @@ export const MATTER = Object.freeze({
   clay: ${pair(MATTER.clay)},
   ore: ${pair(MATTER.ore)},
   stone: ${pair(MATTER.stone)},
+  chitin: ${pair(MATTER.chitin)},
+  feather: ${pair(MATTER.feather)},
 });
 export const PAPER_HEAT = ${PAPER_HEAT};
 

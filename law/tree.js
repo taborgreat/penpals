@@ -46,7 +46,7 @@
 // law/dmath.js: the same tree everywhere.
 
 import { MATTER, TREES } from './matter.js';
-import { dayOf, yearOf, WORLD } from './sun.js';
+import { dayOf, dayOfYear, yearOf, WORLD } from './sun.js';
 import { exp, sin, cos, log } from './dmath.js';
 
 const TAU = 6.283185307179586;
@@ -392,6 +392,31 @@ export function createTree({ kind = 'oak', day, at = [0, 0], depth = 0.5 }) {
     return T;
   };
   return T;
+}
+
+// The days a kind's leaves are out, by the sun alone (its buds open as the lengthening days pass
+// `leafOut` hours; they fall as the shortening days pass `leafFall`): leafyOn(kind, day) → bool. And the
+// last day on or before `day` they came out or fell: a tree's shape is laid only then (its buds opening,
+// its wood laid and its tips pushed out), so it stands as it was grown that day until the next.
+const LEAFY = new Map();
+export function leafyOn(kind, day) {
+  if (!LEAFY.has(kind)) {
+    const k = TREES[kind];
+    const out = new Uint8Array(366);
+    for (let d = 0, on = false; d < 366; d++) {
+      const D = dayOf(d);
+      if (!on && D.lengthening && D.minutes >= k.leafOut * 60) on = true;
+      else if (on && !D.lengthening && D.minutes <= k.leafFall * 60) on = false;
+      out[d] = on ? 1 : 0;
+    }
+    LEAFY.set(kind, out);
+  }
+  return LEAFY.get(kind)[dayOfYear(day)] === 1;
+}
+export function standsFrom(kind, day) {
+  let d = day;
+  while (d > day - 400 && leafyOn(kind, d) === leafyOn(kind, d - 1)) d--;
+  return d;
 }
 
 // Its facts: a shell of wood a season (and the seed it dropped) and a start a branch (with how thick

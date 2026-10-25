@@ -33,16 +33,18 @@ test('an upright pane takes rain only as the wind slants it; each drop lands as 
 
 test('the glass is bounded: steady rain keeps about as many beads on it, each drop a fixed cost', () => {
   const p = createPane({ width: 1, height: 1.2, seed: 9 });
-  let landed = 0;
   const count = [];
-  const t0 = performance.now();
-  for (let s = 1; s <= 900; s++) {
-    landed += p.step(0.1, { rain: 6, wind: 4, t: s / 10 }).length;
-    if (s % 300 === 0) count.push(p.beads.length);
+  // a drop's cost, early (a dry pane) and late (as many beads as it keeps): the same, however busy the machine
+  const cost = [];
+  for (let third = 0; third < 3; third++) {
+    let landed = 0;
+    const t0 = performance.now();
+    for (let s = third * 300 + 1; s <= (third + 1) * 300; s++) landed += p.step(0.1, { rain: 6, wind: 4, t: s / 10 }).length;
+    cost.push(((performance.now() - t0) * 1000) / landed);
+    count.push(p.beads.length);
   }
-  const usPerDrop = ((performance.now() - t0) * 1000) / landed;
   assert.ok(count[2] < count[1] * 1.3, `beads on the glass: ${count.join(', ')} (joined, run off)`);
-  assert.ok(usPerDrop < 60, `${usPerDrop.toFixed(1)} µs a drop`);
+  assert.ok(cost[2] < cost[0] * 3, `µs a drop, early and late: ${cost.map((c) => c.toFixed(1)).join(', ')}`);
   const h = p.heights(64, 77);
   assert.ok(Math.max(...h) > 0 && Math.max(...h) < 0.004, 'water standing a few mm at most');
 });

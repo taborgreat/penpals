@@ -9,7 +9,7 @@ import { hands as H, outside as O } from 'penpals-law';
 let app;
 const ana = person(71, 'ana');
 const bo = person(72, 'bo');
-const today = Math.floor(Date.UTC(2026, 9, 25) / 86400000) + 719528;
+const today = Math.floor(Date.now() / 86400000) + 719528; // (an act names today: the stamper takes no other)
 const tree = O.near(0, -20, 30).trees.find((t) => O.treeNow(t, today).branches.length > 20);
 const thin = O.treeNow(tree, today)
   .branches.slice(1)

@@ -5,6 +5,7 @@ import { keys as K, b64url } from '../index.js';
 import * as H from '../hands.js';
 import * as MK from '../making.js';
 import { near, treeNow, matterAt } from '../outside.js';
+import * as LIFE from '../life.js';
 
 const today = Math.floor(Date.UTC(2026, 9, 25) / 86400000) + 719528;
 const sk = K.skFromK(new Uint8Array(32).fill(11));
@@ -136,9 +137,11 @@ test('ink: galls and ore crushed into water; too much ore makes ink that eats it
   assert.equal(MK.paperLeft(free, 50), 1, 'its paper, fifty years on, as it was');
   assert.ok(MK.paperLeft(much.free, 50) < 0.5, `too much ore: ${(100 * MK.paperLeft(much.free, 50)).toFixed(0)}% of the paper's strength left after fifty years`);
   assert.ok(MK.paperLeft(much.free, 5) > MK.paperLeft(much.free, 50), 'year by year');
-  // made by hand: a gall picked and crushed, ore crushed, both into a fired cup of water
-  const galls = H.gallsOf(oak, today);
-  assert.ok(galls.length > 0, 'the oak bears galls');
+  // made by hand: a gall picked and crushed, ore crushed, both into a fired cup of water (a gall bug's
+  // gall: one grows only where one laid, law/life.js)
+  const gallOak = around.trees.find((t) => LIFE.gallsOf(t, today).length > 0);
+  assert.ok(gallOak, 'an oak bears galls');
+  const gall = LIFE.gallsOf(gallOak, today)[0];
   const water = find((x, y) => matterAt(x, y) === 'water');
   const clay = find((x, y) => matterAt(x, y) === 'clay');
   const { act, state } = world();
@@ -148,7 +151,10 @@ test('ink: galls and ore crushed into water; too much ore makes ink that eats it
   const cup = act({ act: 'form', thing: act({ act: 'gather', at: clay }) });
   act({ act: 'put', thing: cup, to: at });
   act({ act: 'fire', thing: cup, fire });
-  const g = act({ act: 'pick', tree: oak.id, tip: galls[0], day: today });
+  assert.throws(() => act({ act: 'pick', tree: gallOak.id, tip: gall.tip, laid: gall.laid + 1, day: today }), /no gall grows there/, 'none where none was laid');
+  const g = act({ act: 'pick', tree: gallOak.id, tip: gall.tip, laid: gall.laid, day: today });
+  assert.ok(!LIFE.gallsOf(gallOak, today, state).some((x) => x.tip === gall.tip && x.laid === gall.laid), 'picked: gone from its oak');
+  assert.throws(() => act({ act: 'pick', tree: gallOak.id, tip: gall.tip, laid: gall.laid, day: today }), /picked already/);
   act({ act: 'put', thing: g, to: at });
   act({ act: 'take', thing: stone.id });
   const gp = act({ act: 'crush', tool: stone.id, thing: g });
@@ -191,4 +197,42 @@ test('metal: ore melted in a fired cup in a wood fire runs out of it; poured int
   assert.equal(state.made.get(metal).kind, 'metal', 'set in its form');
   assert.ok(Math.abs(state.made.get(metal).grams - MK.metalOf(state.made.get(op)?.grams ?? state.made.get(metal).grams / 0.3)) < 1e-6);
   assert.ok(MK.wicks('grass'), 'grass draws wax: a wick');
+});
+
+test("a candle: a handful of a hive's comb melted in a cup over a wood fire, and a grass string dipped in it", () => {
+  const clay = find((x, y) => matterAt(x, y) === 'clay');
+  const grass = find((x, y) => matterAt(x, y) === 'grass');
+  const hiveOak = near(0, -30, 80).trees.find((t) => LIFE.lifeOf(t, today).hive?.wax > 0);
+  assert.ok(hiveOak, 'a hive out there, with comb');
+  const before = LIFE.lifeOf(hiveOak, today).hive.wax;
+  const { act, state } = world();
+  const { a, fire: rub } = fireBetween(act);
+  const fire = rub();
+  act({ act: 'put', thing: a, to: at });
+  const cup = act({ act: 'form', thing: act({ act: 'gather', at: clay }) });
+  const wax = act({ act: 'gather', tree: hiveOak.id, day: today });
+  assert.deepEqual([state.made.get(wax).kind, state.made.get(wax).matter], ['wax', 'wax']);
+  assert.ok(Math.abs(LIFE.lifeOf(hiveOak, today, state).hive.wax - (before - state.made.get(wax).grams)) < 1e-9, "the hive's comb less by as much");
+  act({ act: 'mix', cup, thing: wax });
+  act({ act: 'put', thing: cup, to: at });
+  act({ act: 'melt', cup, fire });
+  assert.ok(state.made.get(cup).holding.waxMolten, 'the wood fire past wax melting');
+  const s = act({ act: 'twist', a: act({ act: 'gather', at: grass }), b: act({ act: 'gather', at: grass }) });
+  const candle = act({ act: 'dip', string: s, cup });
+  assert.deepEqual([state.made.get(candle).kind, state.made.get(candle).wick.matter], ['candle', 'grass']);
+  assert.equal(state.made.get(cup).holding.wax, 0, 'the wax all on the wick');
+});
+
+test("a feather fallen under a bird's tree is taken up; one that never fell is not; a harder stone cuts its quill", () => {
+  const birdOak = near(0, -30, 60).trees.find((t) => LIFE.lifeOf(t, today).feathers.length > 0);
+  assert.ok(birdOak, 'feathers under an oak with birds in it');
+  const f = LIFE.lifeOf(birdOak, today).feathers[0];
+  const { act, state } = world();
+  assert.throws(() => act({ act: 'take', thing: `feather:${birdOak.id}/${today + 5}/0`, day: today }), /no such thing/, 'not yet fallen');
+  act({ act: 'take', thing: f.id, day: today });
+  assert.equal(state.things.get(f.id).at, null, 'in the hand');
+  act({ act: 'put', thing: f.id, to: at });
+  act({ act: 'take', thing: stone.id });
+  act({ act: 'carve', thing: f.id, tool: stone.id, from: 0, to: 20, strokes: 3 });
+  assert.ok(H.thinnedAt(state, f.id, 10) > 0, 'its quill cut to a nib');
 });

@@ -18,12 +18,16 @@ export async function loadOutside() {
   return lines.length;
 }
 
-// An act, sealed by its key: checked against the outside as it is, then given the next place.
+// An act, sealed by its key: checked against the outside as it is, then given the next place. An act
+// that names its day (a branch broken, a gall picked, comb gathered, a feather taken up) names today's
+// (a day either side, for the clocks): the outside as it is, not as it was or will be.
+const today = () => Math.floor(Date.now() / 86400000) + 719528;
 export function stampOutside(act, seal) {
   return serial('outside', async () => {
     const bad = H.shapeOf(act);
     if (bad) throw httpError(400, 'bad_outside', `That is ${bad}.`);
     if (!H.sealed(act, seal)) throw httpError(401, 'bad_seal', 'That act is not sealed by its key.');
+    if (act.day !== undefined && Math.abs(act.day - today()) > 1) throw httpError(409, 'outside_refused', 'Not done: that day is not today.');
     const why = H.check(state, act);
     if (why) throw httpError(409, 'outside_refused', `Not done: ${why}.`);
     const line = { n: lines.length + 1, at: new Date().toISOString(), act, seal };
@@ -43,7 +47,8 @@ export const outsideNow = () => ({
   marks: [...state.marks].map(([tree, list]) => ({ tree, list })),
   made: [...state.made].map(([id, m]) => ({ id, ...m })),
   edges: [...state.edges],
-  picked: [...state.picked],
+  picked: [...state.picked].map(([gall, day]) => ({ gall, day })),
+  combs: [...state.combs].map(([tree, list]) => ({ tree, list })),
   k: Object.fromEntries(state.k),
 });
 export const outsideLines = () => lines;

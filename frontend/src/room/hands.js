@@ -17,7 +17,8 @@ const factsOf = (d) => ({
   marks: new Map(d.marks.map(({ tree, list }) => [tree, list])),
   made: new Map((d.made ?? []).map(({ id, ...m }) => [id, m])),
   edges: new Set(d.edges ?? []),
-  picked: new Set(d.picked ?? []),
+  picked: new Map((d.picked ?? []).map(({ gall, day }) => [gall, day])),
+  combs: new Map((d.combs ?? []).map(({ tree, list }) => [tree, list])),
   k: new Map(Object.entries(d.k)),
 });
 

@@ -5,7 +5,12 @@
 // through the opening: beyond its wall, as far as the eye reaches (SIGHT); outside, all around.
 //   frameOf(geom, plot) → { toWorld([x, y, z]), toRoom([X, Y, Z]), floor }
 //   loadedFrom(opens, inside) → which ways the outside is seen: { door, window, around } | null
-//   outsideNear(geom, plot, { opens, at, houses, day, facts }) → { ground, water, clay, stones, sticks, trees, marks, houses } | null
+//   outsideNear(geom, plot, { opens, at, houses, day, facts }) → { ground, water, clay, stones, sticks, trees, marks,
+//     galls, hives, nests, feathers, life, houses } | null
+//     life (outside.md Part 4, law/life.js): each seen oak's beings, as numbers ([{ tree, L }]: drawn frame by frame,
+//     beingsAt); galls (only where a gall bug laid): [{ tree, tip, laid, at, r }]; hives: [{ tree, at, r }] (its comb, as
+//     big as its wax); nests: [{ tree, at, r, eggs: [{ at, r }] }]; feathers: [{ id, at, length, az }] (fallen, or set down);
+//     dead: [{ at, r, matter }] (lying where they fell, at the instant `ms`)
 //     water: [{ at, level }] (a ground cell's middle, its pond's surface, room m); clay: [{ at }] (Phase 6)
 //     facts: what hands have done out there (law/hands.js state): stones taken or set down elsewhere,
 //     branches broken off (gone from their trees, with all that grew from them), sticks lying where
@@ -13,7 +18,8 @@
 //     ground: { x0, y0, step, nx, ny, z: Float32Array } (room m); stones: [{ at, r }]; trees: [{ id, limbs,
 //     leaves }] (room m: law/tree.js limbsOf); houses: [{ at, size }] (the others' houses, room m)
 //   groundOf(geom, plot) → (x, y) → z (room m: the ground under a being outside, from the floor)
-import { outside as O, world as WORLD, hands as H } from 'penpals-law';
+import { outside as O, world as WORLD, hands as H, life as LIFE } from 'penpals-law';
+import { MATTER, BEINGS } from 'penpals-law/matter';
 import { limbsOf } from 'penpals-law/tree';
 
 export const SIGHT = 40; // m the outside is grown out to around what sees it (Tabor's to set)
@@ -36,7 +42,7 @@ export function loadedFrom(opens, inside = true) {
   return ways.door || ways.window ? ways : null;
 }
 
-export function outsideNear(geom, plot, { opens, at = null, houses = [], day, facts = null }) {
+export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms = (day - 719528) * 86400000, facts = null }) {
   const ways = loadedFrom(opens, !at || inBox(geom, at));
   if (!ways) return null;
   const F = frameOf(geom, plot);
@@ -114,7 +120,18 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, fa
     return out;
   };
   const marks = [];
-  const galls = [];
+  const galls = [],
+    hives = [],
+    nests = [],
+    feathers = [],
+    dead = [],
+    life = [];
+  const GALL_R = Math.cbrt((3 * BEINGS.gallbug.gall * 1e-6) / (4 * Math.PI));
+  const EGG_R = ballOf(BEINGS.bird.egg, 'chalk');
+  const QUILL = BEINGS.bird.span / 2; // (a quill: half its wing)
+  const feather = (id, at) => ({ id, at, length: QUILL, az: (([...id].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5) % 360) * Math.PI) / 180 });
+  // the feathers hands took up and set down elsewhere
+  for (const [id, t] of things) if (id.startsWith('feather:') && t.at && near(mm(t.at))) feathers.push(feather(id, mm(t.at)));
   // what hands made (law/making.js), lying where it was set down: its kind, its matter, its place
   const made = [];
   for (const [id, t] of things) {
@@ -133,6 +150,20 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, fa
       .map((t) => ({ t, at: F.toRoom(t.at) }))
       .filter(({ at: p }) => seen(p))
       .map(({ t, at: p }) => {
+        // what lives in it (law/life.js: replayed to today, as the hands left it; before its shape today,
+        // so the oak grows on through its seasons in order)
+        const L = LIFE.lifeOf(t, day, facts);
+        life.push({ tree: t, L });
+        for (const g of L.galls.values()) galls.push({ tree: t.id, tip: g.tip, laid: g.laid, at: F.toRoom(g.at), r: GALL_R });
+        const { hive, nest } = LIFE.nestsOf(t, day, facts);
+        if (hive && hive.wax > 0) hives.push({ tree: t.id, at: F.toRoom(hive.at), r: ballOf(hive.wax, 'wax') });
+        if (nest && nest.grass > 0) {
+          const r = ballOf(nest.grass, 'grass'),
+            at = F.toRoom(nest.at);
+          nests.push({ tree: t.id, at, r, eggs: nest.eggs.map((e, k) => ({ at: [at[0] + r * 0.4 * Math.cos(k * 2.4), at[1] + r * 0.4 * Math.sin(k * 2.4), at[2] + r * 0.3], r: EGG_R })) });
+        }
+        for (const f of L.feathers) if (!things.has(f.id)) feathers.push(feather(f.id, F.toRoom(f.at)));
+        for (const x of LIFE.lyingAt(t, L, ms)) dead.push({ at: F.toRoom(x.at), r: LIFE.bodyOf(x.kind).r, matter: BEINGS[x.kind].of.cover ?? BEINGS[x.kind].of.body });
         const { limbs, leaves } = limbsOf(O.treeNow(t, day));
         const lift = ([x, y, zz]) => [x - t.at[0] + p[0], y - t.at[1] + p[1], zz + p[2]];
         const off = gone(t);
@@ -142,12 +173,6 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, fa
           const a = (m.az * Math.PI) / 180;
           const r = foot ? foot.r : 0.05;
           marks.push({ at: [p[0] + Math.sin(a) * r, p[1] + Math.cos(a) * r, p[2] + (m.from + m.to) / 2000], size: [Math.max(0.005, (m.to - m.from) / 1000), m.depth / 1e6 + 0.002] });
-        }
-        const T0 = O.treeNow(t, day);
-        for (const tip of H.gallsOf(t, day)) {
-          if (facts?.picked?.has(`${t.id}/${tip}`)) continue;
-          const tp = T0.tips.find((x) => x.id === tip);
-          if (tp && !off.has(tp.branch)) galls.push({ tree: t.id, tip, at: lift(tp.pos) });
         }
         return {
           id: t.id,
@@ -159,12 +184,21 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, fa
       }),
     marks,
     made: made.filter((m) => seen(m.at)),
-    galls,
+    galls: galls.filter((g) => seen(g.at)),
+    hives: hives.filter((h) => seen(h.at)),
+    nests: nests.filter((n) => seen(n.at)),
+    feathers: feathers.filter((f) => seen(f.at)),
+    dead: dead.filter((x) => seen(x.at)),
+    life,
     houses: others.map((h) => ({ key: h.key, at: F.toRoom([...WORLD.centreOf(h.plot), O.groundAt(...WORLD.centreOf(h.plot))]), size: geom.size })).filter((h) => seen(h.at)),
   };
 }
 
 export const inBox = (geom, [x, y]) => x >= 0 && y >= 0 && x <= geom.size[0] && y <= geom.size[1];
+// whether a place (room m) is seen the ways the outside is (beyond the door's wall, the window's, all around)
+export const seenFrom = (geom, ways, p) => !!ways && (ways.around || (ways.door && p[1] < 0) || (ways.window && p[1] > geom.size[1]));
+// a ball of `grams` of a matter: its radius (m)
+export const ballOf = (grams, matter) => Math.cbrt((3 * grams) / 1000 / MATTER[matter].density / (4 * Math.PI));
 
 // The ground under a being outside (room m, from the floor).
 export function groundOf(geom, plot) {

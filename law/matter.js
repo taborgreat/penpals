@@ -293,12 +293,40 @@ export const MATTER = Object.freeze({
     hardness: 1,
     strength: 20,
     friction: 600,
+    rots: 10,
     heat: { holds: 3500, conducts: 370, melts: null, boils: null, burns: 300, releases: 20000000, burnRate: 5, leaves: 100, air: 8, shines: 300 },
-    becomes: { burnt: 'char' },
+    becomes: { burnt: 'char', rotted: 'dirt' },
     light: 'skin',
     sound: [250, 250, 250, 350, 420, 460, 500, 500, 500, 500],
     ior: 1440,
   }, // a being's (outside.md Part 4)
+  chitin: {
+    density: 1200,
+    hardness: 2,
+    strength: 50,
+    stiffness: 5000,
+    friction: 400,
+    loss: 30,
+    rots: 60,
+    heat: { holds: 1500, conducts: 200, melts: null, boils: null, burns: 300, releases: 17000000, burnRate: 10, leaves: 150, air: 6, shines: 300 },
+    becomes: { burnt: 'char', rotted: 'dirt' },
+    light: 'chitin',
+    sound: [100, 100, 100, 120, 150, 200, 250, 300, 300, 300],
+    ior: 1560,
+  }, // a bug's shell (outside.md Part 4)
+  feather: {
+    density: 1300,
+    hardness: 2,
+    strength: 200,
+    stiffness: 2500,
+    friction: 400,
+    rots: 500,
+    heat: { holds: 1500, conducts: 200, melts: null, boils: null, burns: 230, releases: 20000000, burnRate: 15, leaves: 100, air: 7, shines: 300 },
+    becomes: { burnt: 'char', rotted: 'dirt' },
+    light: 'feather',
+    sound: [150, 150, 150, 250, 400, 600, 700, 700, 700, 700],
+    ior: 1540,
+  }, // keratin: a bird's cover; its quill a pen
   char: {
     density: 400,
     hardness: 1,
@@ -358,6 +386,8 @@ export const ORDER = Object.freeze([
   'skin',
   'smoke',
   'ore',
+  'chitin',
+  'feather',
 ]);
 export const idOf = (name) => {
   const k = ORDER.indexOf(name);
@@ -423,6 +453,108 @@ export const TREES = Object.freeze({
     contrast: 2,
     store: 1,
   }, // the gall oak: its galls are ink's
+});
+
+// The kinds of being (outside.md Part 4): what each IS, as the life law (law/life.js) reads it; what it
+// does is that law. Near real ones (an oak gall wasp, a bumblebee, a sparrow): Tabor's to set.
+//   of       its matters: { body, cover } (rows above: what it weighs, its colour, how it rots)
+//   mass     g, grown;  span  m, its wings tip to tip;  flaps  its wings' beats a second
+//   muscle   W its wings can be given, a kg of it
+//   rest     W a kg^¾ of it burns sitting still, at 20 °C (Kleiber's)
+//   warm     °C it keeps itself and its young at (null: as warm as the air);  coat  m of still air its
+//            cover holds about it against the cold
+//   above    °C: colder than this it does not fly, nor do its young grow
+//   grows    °C·days over `above` from an egg laid to a grown, winged being
+//   lives    days a grown one lives at most
+//   lays     eggs a day while it lays;  clutch  eggs a season at most (null: while it lives and has room)
+//   egg      g an egg;  in  where it lays: 'bud' (an oak's living tip: the gall grows round the egg: `gall`
+//            cm³ of the bud's own),
+//            'comb' (its nest's wax: an egg a cell, a cell's wax as heavy as the bug grown in it), 'nest'
+//   eats     the matter it fuels from (null: what it grew on);  gut  g of it an hour of light at most;
+//            keeps  ‰ of that matter's burning heat its body gets;  fat  ‰ of its mass it stores
+//   reach    m from home it goes for food and water;  drinks  whether it must have water in reach
+//   rests    s it sits between one flight and the next, about
+//   nest     { matter, grams }: what it builds its nest of, and how much at most
+//   makes    ‰ of its fuel's heat it turns to wax (a hive bug's comb)
+//   quills   its flight feathers, dropped once a year (its moult)
+//   chirp    a bug's song (world.md Phase 6: its rate the air's heat, Dolbear's): its wing's ring (Hz, and
+//            its Q), what a stroke puts into the air (W), a chirp's length (s), how far one strays from its slot
+//   song     a bird's: its voice (Hz, an octave about it; Q), how loud (W), its notes a phrase and each note's
+//            length (s); the dawn chorus (the sun's height it peaks at and how wide, °; how much it sings the
+//            rest of the day); the rain it shelters from (mm/h)
+export const BEINGS = Object.freeze({
+  gallbug: {
+    of: { body: 'chitin' },
+    mass: 0.002,
+    span: 0.008,
+    flaps: 300,
+    muscle: 80,
+    rest: 0.2,
+    warm: null,
+    above: 10,
+    grows: 1500,
+    lives: 10,
+    lays: 5,
+    egg: 0.00005,
+    in: 'bud',
+    gall: 4,
+    eats: null,
+    reach: 10,
+    drinks: false,
+    rests: 120,
+    chirp: { pitch: 4500, q: 30, loud: 1e-6, dur: 0.06, stray: 0.3 },
+  },
+  hivebug: {
+    of: { body: 'chitin' },
+    mass: 0.15,
+    span: 0.03,
+    flaps: 200,
+    muscle: 100,
+    rest: 0.2,
+    warm: null,
+    above: 10,
+    grows: 500,
+    lives: 30,
+    lays: 15,
+    egg: 0.0015,
+    in: 'comb',
+    eats: 'grass',
+    gut: 0.02,
+    keeps: 800,
+    fat: 100,
+    reach: 60,
+    drinks: true,
+    rests: 300,
+    nest: { matter: 'wax', grams: 200 },
+    makes: 370,
+  },
+  bird: {
+    of: { body: 'skin', cover: 'feather' },
+    mass: 30,
+    span: 0.25,
+    flaps: 15,
+    muscle: 40,
+    rest: 1,
+    warm: 40,
+    coat: 0.01,
+    above: 0,
+    grows: 1040,
+    lives: 1500,
+    lays: 1,
+    clutch: 4,
+    egg: 2.5,
+    in: 'nest',
+    eats: 'grass',
+    gut: 0.8,
+    keeps: 750,
+    fat: 100,
+    reach: 50,
+    drinks: true,
+    rests: 90,
+    nest: { matter: 'grass', grams: 30 },
+    quills: 20,
+    song: { pitch: 4000, q: 20, loud: 1e-3, notes: 6, note: 0.12, dawn: { el: 4, width: 8, rest: 0.15 }, shelter: 0.5 },
+  },
 });
 
 export const matterOf = (name) => {

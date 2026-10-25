@@ -4,15 +4,17 @@ import assert from 'node:assert/strict';
 import { roomGeometry, ROOM } from './light/room.js';
 import { candleState, NEW_CANDLE } from './light/candle.js';
 import { hazeOf } from './light/smoke.js';
-import { createRoomAir, AIR_DX, SETTLE_S } from './roomAir.js';
+import { createRoomAir, AIR_DX, AIR_DT, SETTLE_S } from './roomAir.js';
 
 const geom = roomGeometry(ROOM);
 const T0 = 1.75e9;
 const st = candleState(NEW_CANDLE, 0, { lit: true });
 const flameAt = (k) => ({ ...st, lit: true, pos: [geom.candles[k % 2][0] + 0.15 * Math.floor(k / 2), geom.candles[k % 2][1], geom.candles[k % 2][2] + st.flameAt] });
-// burn `flames` for `s` seconds, a second a frame
+// burn `flames` for `s` seconds, a second a frame (and caught up at the end: a busy machine's frames each
+// do only their budget's share, the rest left for the frames after)
 function burn(air, from, s, flames, opts = {}) {
   for (let t = from + 1; t <= from + s; t++) air.to(t, { flames, ...opts });
+  while (air.at + AIR_DT <= from + s) air.to(from + s, { flames, ...opts });
   return from + s;
 }
 // to t, frame after frame until it is there (a frame does a frame's share)

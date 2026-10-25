@@ -17,9 +17,12 @@ import { weatherAt } from 'penpals-law/weather';
 import { thunder } from '../sound/weather.js';
 import { createPane } from './glass.js';
 import { ask, asWeather } from './askWeather.js';
-import { outsideNear, groundOf as outsideGround, inBox, frameOf } from './outside.js';
+import { outsideNear, groundOf as outsideGround, inBox, frameOf, seenFrom } from './outside.js';
 import { reachOutside } from './reach.js';
-import { AIR } from 'penpals-law/matter';
+import { AIR, BEINGS, MATTER } from 'penpals-law/matter';
+import { dayOf, sunAt as sunToward } from 'penpals-law/sun';
+import * as LIFE from 'penpals-law/life';
+import { chirps, songs, singing, wingbeats } from '../sound/life.js';
 import { BAR } from '../sound/music.js';
 import { penHand, recordSounds, dipTap } from '../sound/pen.js';
 import { acoustics } from '../sound/room.js';
@@ -357,7 +360,7 @@ const SceneView = forwardRef(function SceneView(
       // gravity holding the being to what is under it (falling, it falls until it rests)
       const walking = S.pose.mode === 'walk';
       if ((S.keys.size || walking) && !S.glide) {
-        const dt = Math.min(0.05, (now - (S.keyT ?? now)) / 1000);
+        const dt = Math.max(0, Math.min(0.05, (now - (S.keyT ?? now)) / 1000)); // (a key pressed after this frame's time: no time yet, never back)
         const has = (k) => [...S.keys].some((x) => FLY_KEYS[x] === k);
         const input = world
           ? WK.inputOf(S.keys, S.pose.mode === 'fly')
@@ -436,6 +439,52 @@ const SceneView = forwardRef(function SceneView(
       S.beadsShown = false;
     }
     S.paneAt = now;
+    // the outside's beings near (outside.md Part 4, law/life.js): each where it is now, as the seen oaks'
+    // numbers have them; drawn, and heard as it does what it does (a gall bug sitting chirps, a bird
+    // sitting sings, a wing beats while it flies)
+    const lifeNow = S.outsideSpec?.life;
+    if (lifeNow?.length) {
+      const ms = worldS * 1000;
+      const F = frameOf(GEOM, S.outsideNow.plot);
+      const list = [];
+      for (const { tree, L } of lifeNow)
+        for (const b of LIFE.beingsAt(tree, L, ms)) {
+          const at = F.toRoom(b.at);
+          if (seenFrom(GEOM, S.outsideSpec.ways, at)) list.push({ ...b, at });
+        }
+      S.view.setLife(
+        list.map((b) => ({
+          at: b.at,
+          r: LIFE.bodyOf(b.kind).r,
+          matter: BEINGS[b.kind].of.cover ?? BEINGS[b.kind].of.body,
+          flying: b.flying,
+          span: BEINGS[b.kind].span,
+          heading: ((b.seed % 360) * Math.PI) / 180,
+        })),
+      );
+      if (S.lifeHeardTo !== undefined && worldS - S.lifeHeardTo < (2 * FLICKER_MS) / 1000) {
+        const air = dayOf(LIFE.dayAt(ms)).warmth;
+        const share = singing((Math.asin(Math.max(-1, Math.min(1, sunToward(ms)[2]))) * 180) / Math.PI, S.weather?.rain ?? 0);
+        for (const b of list) {
+          if (b.dead) continue;
+          const B = BEINGS[b.kind];
+          const evs = b.flying
+            ? wingbeats({ pos: b.at, flaps: B.flaps, mass: B.mass / 1000, seed: b.seed, q: 1000 / (MATTER[B.of.body].loss ?? 1000) }, S.lifeHeardTo, worldS)
+            : B.chirp
+              ? chirps({ pos: b.at, seed: b.seed, pitch: B.chirp.pitch, loud: B.chirp.loud }, S.lifeHeardTo, worldS, air)
+              : B.song
+                ? songs({ pos: b.at, seed: b.seed }, S.lifeHeardTo, worldS, share)
+                : [];
+          for (const e of evs) hear({ ...e, t: e.t - worldS + soundNow() });
+        }
+      }
+      S.lifeHeardTo = worldS;
+      S.lifeShown = list.length > 0;
+      globalThis.__life = list.map((b) => ({ kind: b.kind, id: b.id, at: b.at, flying: b.flying, dead: b.dead })); // (for the checks: e2e/life.mjs)
+    } else if (S.lifeShown) {
+      S.view.setLife(null);
+      S.lifeShown = false;
+    }
     if (S.outsideNow?.plot && S.pose) loadOutside(); // (it follows the being out of the house, and about out there)
     // the resolution: capped; lower while moving and for the flicker alone (full again once still)
     const moving = !!S.anim || now < S.moveUntil || S.drag?.kind === 'orbit' || S.drag?.kind === 'pan' || S.drag?.kind === 'two';
@@ -473,8 +522,8 @@ const SceneView = forwardRef(function SceneView(
         S.settle = 0;
         schedule();
       }, SETTLE_MS);
-    } else if ((light.night > 0.01 || light.weather?.rain > 0 || S.pane?.beads.length || light.flash) && !S.flicker) {
-      // only the candles flickering, the rain falling (past the window, down its glass), a flash
+    } else if ((light.night > 0.01 || light.weather?.rain > 0 || S.pane?.beads.length || light.flash || S.lifeShown) && !S.flicker) {
+      // only the candles flickering, the rain falling (past the window, down its glass), a flash, the beings out there
       S.flicker = setTimeout(() => {
         S.flicker = 0;
         if (!S.raf) S.flickerOnly = true;
@@ -929,13 +978,13 @@ const SceneView = forwardRef(function SceneView(
     const outside = S.outsideNow;
     const out = S.pose && !inBox(GEOM, S.pose.pos) ? S.pose.pos : null;
     const facts = S.handsNow?.facts ?? null;
-    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in', facts?.n ?? 0].join('|') : 'none';
+    const day = Math.floor(worldClock(new Date()).getTime() / 86400000) + 719528;
+    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in', facts?.n ?? 0, day].join('|') : 'none';
     if (key === S.outsideKey) return;
     S.outsideKey = key;
-    const day = Math.floor(worldClock(new Date()).getTime() / 86400000) + 719528;
     setTimeout(() => {
       if (S.outsideKey !== key) return;
-      const spec = outside?.plot ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day, facts }) : null;
+      const spec = outside?.plot ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day, ms: worldClock(new Date()).getTime(), facts }) : null;
       S.outsideSpec = spec;
       S.view?.setOutside(spec);
       globalThis.__outsideNow = spec && {
@@ -988,7 +1037,15 @@ const SceneView = forwardRef(function SceneView(
       return true;
     }
     if (!mine && hit?.kind === 'gall') {
-      act({ act: 'pick', tree: hit.id, tip: hit.tip, day: dayNow() });
+      act({ act: 'pick', tree: hit.id, tip: hit.tip, laid: hit.laid, day: dayNow() });
+      return true;
+    }
+    if (!mine && hit?.kind === 'hive') {
+      act({ act: 'gather', tree: hit.id, day: dayNow() });
+      return true;
+    }
+    if (!mine && hit?.kind === 'feather') {
+      act({ act: 'take', thing: hit.id, day: dayNow() });
       return true;
     }
     if (!mine && hit?.kind === 'made') {
@@ -1019,7 +1076,7 @@ const SceneView = forwardRef(function SceneView(
       return true;
     };
     const [a, b] = all;
-    const kinds = all.map((id) => madeKind(id)?.kind ?? (id.startsWith('stone:') ? 'stone' : id.startsWith('stick:') ? 'stick' : null));
+    const kinds = all.map((id) => madeKind(id)?.kind ?? (id.startsWith('stone:') ? 'stone' : id.startsWith('stick:') ? 'stick' : id.startsWith('feather:') ? 'feather' : null));
     const has = (k) => all[kinds.indexOf(k)] ?? null;
     if (all.length === 2 && ['fibre', 'string'].includes(kinds[0]) && ['fibre', 'string'].includes(kinds[1])) return act({ act: 'twist', a, b });
     if (has('lump') && !hit) return act({ act: 'form', thing: has('lump') });
@@ -1041,9 +1098,12 @@ const SceneView = forwardRef(function SceneView(
     if (stone && there?.kind === 'gall') return act({ act: 'crush', tool: stone, thing: hit.id });
     if (cup && there?.kind === 'fire') {
       const c = madeKind(cup);
-      return act(c.matter === 'pottery' ? { act: 'melt', cup, fire: hit.id } : { act: 'fire', thing: cup, fire: hit.id });
+      return act(c.matter === 'pottery' || c.holding?.wax ? { act: 'melt', cup, fire: hit.id } : { act: 'fire', thing: cup, fire: hit.id });
     }
-    if (cup && there?.kind === 'powder') return act({ act: 'mix', cup, thing: hit.id });
+    if (cup && (there?.kind === 'powder' || there?.kind === 'wax')) return act({ act: 'mix', cup, thing: hit.id });
+    if (cup && has('wax')) return act({ act: 'mix', cup, thing: has('wax') });
+    // a stone along a feather's quill: its tip cut to a nib (law/hands.js carve, by the matter)
+    if (stone && hit.kind === 'feather') return act({ act: 'carve', thing: hit.id, tool: stone, from: 0, to: 20, strokes: 1 });
     if (cup && there?.kind === 'cup' && madeKind(cup)?.holding?.molten) return act({ act: 'pour', cup, into: hit.id });
     if (string && there?.kind === 'cup' && there.holding?.waxMolten) return act({ act: 'dip', string, cup: hit.id });
     if (string && hit.kind === 'stone') {
@@ -1058,10 +1118,15 @@ const SceneView = forwardRef(function SceneView(
     hit: () => outsideHit(S.lastPointer),
     held: heldOutside,
     facts: () => S.handsNow?.facts && { things: [...S.handsNow.facts.things], broken: [...S.handsNow.facts.broken], cuts: [...S.handsNow.facts.cuts] },
-    // (for the checks, e2e/hands.mjs: the stones and the thin limbs out there, room m)
+    // (for the checks, e2e/hands.mjs, e2e/life.mjs: the stones, the thin limbs, the galls, hives and feathers out there, room m)
     near: () => ({
       stones: S.outsideSpec?.stones ?? [],
       sticks: S.outsideSpec?.sticks ?? [],
+      galls: S.outsideSpec?.galls ?? [],
+      hives: S.outsideSpec?.hives ?? [],
+      nests: S.outsideSpec?.nests ?? [],
+      feathers: S.outsideSpec?.feathers ?? [],
+      dead: S.outsideSpec?.dead ?? [],
       trees: (S.outsideSpec?.trees ?? []).map((t) => ({ id: t.id, at: t.at, limbs: t.limbs.filter((l) => l.branch !== 0) })),
     }),
   };

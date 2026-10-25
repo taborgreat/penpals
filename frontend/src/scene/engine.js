@@ -457,11 +457,56 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     clay: outMat('clay', grown.PLASTER),
     metal: outMat('brass', grown.BRASS),
     wax: outMat('wax', grown.WAX),
+    chitin: outMat('chitin'),
+    feather: outMat('feather'),
   };
   const outsideGroup = new THREE.Group();
   roomGroup.add(outsideGroup);
   const pebble = new THREE.IcosahedronGeometry(1, 1);
   const rod = new THREE.CylinderGeometry(1, 1, 1, 6).rotateX(Math.PI / 2); // (along z)
+  // The beings near (law/life.js beingsAt), moved each frame: each body a ball of what it is seen to be made
+  // of (a bird its feathers, a bug its shell), its wings spread while it flies.
+  const lifeGroup = new THREE.Group();
+  roomGroup.add(lifeGroup);
+  const lifeMeshes = new Map();
+  const lifeMesh = (key, geom, mat, n) => {
+    let im = lifeMeshes.get(key);
+    if (!im || im.instanceMatrix.count < n) {
+      if (im) {
+        lifeGroup.remove(im);
+        im.dispose();
+      }
+      im = new THREE.InstancedMesh(geom, mat, Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(1, n)))));
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      im.frustumCulled = false;
+      lifeGroup.add(im);
+      lifeMeshes.set(key, im);
+    }
+    return im;
+  };
+  function placeLife(list) {
+    const by = new Map();
+    for (const b of list ?? []) {
+      if (!by.has(b.matter)) by.set(b.matter, []);
+      by.get(b.matter).push(b);
+    }
+    for (const [k, im] of lifeMeshes) if (!by.has(k.split(' ')[0])) im.count = 0;
+    const m4 = new THREE.Matrix4(),
+      q = new THREE.Quaternion(),
+      zUp = new THREE.Vector3(0, 0, 1);
+    for (const [matter, bs] of by) {
+      const mat = outMats[matter] ?? outMats.wood;
+      const body = lifeMesh(matter, pebble, mat, bs.length);
+      bs.forEach((b, i) => body.setMatrixAt(i, m4.compose(new THREE.Vector3(...b.at), q.identity(), new THREE.Vector3(b.r, b.r, b.r))));
+      body.count = bs.length;
+      body.instanceMatrix.needsUpdate = true;
+      const flying = bs.filter((b) => b.flying);
+      const wings = lifeMesh(`${matter} wings`, box, mat, flying.length);
+      flying.forEach((b, i) => wings.setMatrixAt(i, m4.compose(new THREE.Vector3(...b.at), q.setFromAxisAngle(zUp, b.heading), new THREE.Vector3(b.span / 6, b.span, b.r / 4))));
+      wings.count = flying.length;
+      wings.instanceMatrix.needsUpdate = true;
+    }
+  }
   function placeOutside(o) {
     for (const c of [...outsideGroup.children]) {
       outsideGroup.remove(c);
@@ -533,8 +578,28 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       },
     );
     instanced(box, outMats.mark, o.marks ?? [], (m) => m4.compose(new THREE.Vector3(...m.at), q.identity(), new THREE.Vector3(m.size[1] * 4, m.size[1] * 4, m.size[0])));
-    // the galls on the oaks, small and brown
-    instanced(pebble, outMats.wood, o.galls ?? [], (g) => m4.compose(new THREE.Vector3(...g.at), q.identity(), new THREE.Vector3(0.015, 0.015, 0.015)));
+    // the galls on the oaks (as big as a gall bug's grows: law/matter.js BEINGS), small and brown; a hive's comb
+    // on its trunk, as big as its wax; a nest of grass in its fork, its eggs in it; feathers fallen under the trees
+    instanced(pebble, outMats.wood, o.galls ?? [], (g) => m4.compose(new THREE.Vector3(...g.at), q.identity(), new THREE.Vector3(g.r, g.r, g.r)));
+    instanced(pebble, outMats.wax, o.hives ?? [], (h) => m4.compose(new THREE.Vector3(...h.at), q.identity(), new THREE.Vector3(h.r, h.r, h.r)));
+    instanced(pebble, outMats.ground, o.nests ?? [], (n) => m4.compose(new THREE.Vector3(...n.at), q.identity(), new THREE.Vector3(n.r, n.r, n.r / 2)));
+    instanced(
+      pebble,
+      outMats.chalk,
+      (o.nests ?? []).flatMap((n) => n.eggs),
+      (e) => m4.compose(new THREE.Vector3(...e.at), q.identity(), new THREE.Vector3(e.r, e.r, e.r * 1.3)),
+    );
+    instanced(box, outMats.feather, o.feathers ?? [], (f) =>
+      m4.compose(new THREE.Vector3(f.at[0], f.at[1], f.at[2] + 0.002), q.setFromAxisAngle(zUp, f.az), new THREE.Vector3(f.length, f.length / 8, 0.002)),
+    );
+    // the dead lying where they fell, each a ball of what it is seen to be made of
+    for (const m of ['chitin', 'feather'])
+      instanced(
+        pebble,
+        outMats[m],
+        (o.dead ?? []).filter((x) => x.matter === m),
+        (x) => m4.compose(new THREE.Vector3(x.at[0], x.at[1], x.at[2] + x.r), q.identity(), new THREE.Vector3(x.r, x.r, x.r)),
+      );
     // what hands made, lying: a fibre or a string a thin rod; a lump, a gall, powder a heap; a cup, a
     // candle upright; metal a bar; an axe its stick with its stone; a fire, its wood glowing
     const SIZE = {
@@ -1186,6 +1251,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     // shutters open or shut
     setOutside(o) {
       placeOutside(o);
+      if (!o) placeLife(null);
+    },
+    // the beings near, where each is now: [{ at (room m), r, matter, flying, span, heading }]
+    setLife(list) {
+      placeLife(list);
     },
     setOpens({ door = false, shutters = true } = {}) {
       doorMesh.visible = !door;
