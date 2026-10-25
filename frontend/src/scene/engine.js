@@ -305,7 +305,7 @@ const keyOf = (cx, cy) => (cy + 32768) * 65536 + (cx + 32768); // a chunk's numb
 // A view: `target` the 2D canvas it shows in (and takes the pointer); `host` the
 // element the renderer's own canvas goes in when this view is drawn straight
 // into; `invalidate()` asks for a frame (when how it is drawn changes).
-export function createView(target, { host = null, invalidate = () => {}, seeds = null, room: roomName = 'room', seedsB = null } = {}) {
+export function createView(target, { host = null, invalidate = () => {}, seeds = null } = {}) {
   if (!shared) throw new Error('the scene: engineReady() first');
   const { renderer, gpu } = shared;
   const ctx = target.getContext('2d');
@@ -357,19 +357,17 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   lights.thick.value = SLAB_PX;
   // the room: the table the paper rests on (the sheets' shadows on its top), the
   // floor, the walls, the ceiling, the window and what stands about, all grown
-  const GEOM = geomOf(roomName); // this view's room: its own, or two joined (rooms.md §7)
-  const R = theRoom(roomName);
+  const GEOM = geomOf();
+  const R = theRoom();
   const roomGroup = new THREE.Group(); // metres; placed by setLight so this view's page lies on the room's page
   // whose room this is: its surfaces grown from its owner's key (rooms.md §1;
   // seeds by name, as light/surface.js names them), else the shared defaults
   let roomSeeds = seeds;
-  const seedOf = (name) =>
-    name.startsWith('b:') ? grown.seedMix(seedsB?.[name.slice(2)] ?? grown.defaultSeed(name)) : grown.seedMix(roomSeeds?.[name] ?? grown.DEFAULT_SEEDS[name] ?? grown.defaultSeed(name)); // ('b:': the joined room's, its owner's)
-  const seedNameOf = (id) => (id.startsWith('b:') ? `b:${SEED_NAME(id.slice(2))}` : SEED_NAME(id));
+  const seedOf = (name) => grown.seedMix(roomSeeds?.[name] ?? grown.DEFAULT_SEEDS[name] ?? grown.defaultSeed(name));
   const roomMats = [];
   R.meshes.forEach((m, i) => {
-    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: seedOf(seedNameOf(m.id)), pair: pairOf(m.matter), normal: m.normal, top: m.top, webgpu: own });
-    mat.seedName = seedNameOf(m.id);
+    const mat = gpu.roomMaterial(lights, { kind: m.kind, seed: seedOf(SEED_NAME(m.id)), pair: pairOf(m.matter), normal: m.normal, top: m.top, webgpu: own });
+    mat.seedName = SEED_NAME(m.id);
     roomMats.push(mat);
     const mesh = new THREE.Mesh(R.geos[i], mat);
     if (m.top) mesh.renderOrder = -3; // first of all: the sheets' paper (which writes no depth) goes over it
