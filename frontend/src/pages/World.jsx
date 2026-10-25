@@ -6,16 +6,23 @@ import Lobby from './Lobby.jsx';
 import Journal from '../book/Journal.jsx';
 import { RoomContext } from '../room/RoomContext.js';
 import { roomSeedsOf } from '../room/seeds.js';
+import { placeHouse } from '../room/world.js';
+import { useKey } from '../keys/session.js';
 
 // The site is one page, and it is the world (one-world.md). Before you are
 // in, it is the lobby (rooms.md §1a); once the eye opens you are in your
-// house. `/u/<name>` opens the world at that person's house. A house is its
+// house, on its plot near the start (room/world.js). `/u/<name>` opens the
+// world at that person's house. A house is its
 // owner's space (rooms.md §1): every scene in it is grown from their key and
 // lies under their clock. Who can come in follows the profile's privacy and
 // block rules (rooms.md §4): a house closed to you shows only its closed door.
 export default function World() {
   const { username } = useParams();
   const { user, loading } = useAuth();
+  const key = useKey(user);
+  useEffect(() => {
+    if (key) placeHouse(key).catch(() => {}); // a house that never landed when you registered lands now
+  }, [key]);
   if (loading) return null;
   if (!username && !user) return <Lobby />;
   const name = username ?? user.username;

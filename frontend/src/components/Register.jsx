@@ -3,6 +3,7 @@ import { keys as K, record as R } from 'penpals-law';
 import { api } from '../api.js';
 import { keyFromK, newSheet } from '../keys/session.js';
 import { register, makeKey, settleOn } from '../keys/account.js';
+import { placeHouse } from '../room/world.js';
 import { useLiveInk } from '../ink/useLiveInk.js';
 import Pad from './Pad.jsx';
 import Hand from './Hand.jsx';
@@ -88,6 +89,7 @@ export default function Register({ onDone }) {
       const sheet0 = newSheet(key, K.SHEET_ZERO);
       const settled = await settleOn(signatures[K.SIGNATURES - 1], sheet0.seed, FAMILY);
       const user = await register({ key, username, password: backup ? password : '', signature: { family: FAMILY, seed: sheet0.seed, settled } });
+      await placeHouse(key).catch(() => {}); // your house drops near the start (one-world.md); if not now, when you are next in
       onDone?.(user);
     } catch (err) {
       setError(err.message);
