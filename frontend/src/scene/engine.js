@@ -28,7 +28,8 @@ import { toHalf } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
 import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { geomOf, worldOf } from './light.js';
-import { roomMeshes, vertexLight, meanLight, pairOf } from './roomDraw.js';
+import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf } from './roomDraw.js';
+import { createShadows } from './shadows.js';
 import { createMarks } from './marks.js';
 import { SEED_NAME } from './surfaces.js';
 import { shelfLayout } from './shelf.js';
@@ -312,8 +313,26 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   const scene = new THREE.Scene();
   const persp = new THREE.PerspectiveCamera(40, 1, 0.5, 60000);
   const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -60000, 60000);
-  const lights = gpu.lightUniforms(paperCurve(PAPER), DROP_PX);
+  // what the room's things leave of each source (matter-fixes §4: shadows.js)
+  const shadows = createShadows(gpu);
+  const lights = gpu.lightUniforms(paperCurve(PAPER), DROP_PX, shadows.maps);
   lights.pxPerM.value = PX_PER_M;
+  shadows.use(lights);
+  let shadowSrc = null; // where the sources are now (setLight)
+  // Each thing takes the room's light where it is (matter-fixes §4), not the room's mean:
+  // the nearest patches' (roomDraw.js lightAt), as its matter's two colours. at: room m.
+  let lightNow = null; // { ambient, W } (setLight)
+  const E = new Float64Array(N);
+  const lightHere = (meshes, at) => {
+    if (!lightNow) return;
+    lightAt(GEOM, lightNow.ambient, at, E);
+    for (const mesh of meshes) {
+      const { A, B } = colorsOf(E, lightNow.W, mesh.material.matter);
+      const a = (mesh.userData.ambient ??= { A: new THREE.Vector3(), B: new THREE.Vector3() });
+      a.A.set(...A);
+      a.B.set(...B);
+    }
+  };
   const K = { APRON, CHUNK, TEXN, generic: generic(), blank: blank() };
   // each kind of material once, for every chunk (a chunk's own textures and numbers go
   // per object); with WebGPU, each chunk and sheet its own (nodes.js says why)
@@ -377,18 +396,20 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   for (const g of R.panes) roomGroup.add(new THREE.Mesh(g, paneMat));
   const box = new THREE.BoxGeometry(1, 1, 1);
   const disc = new THREE.CylinderGeometry(1, 1, 1, 32).rotateX(Math.PI / 2);
+  // the room's things (matter-fixes §3): each its matter grown on its own surface from
+  // its own seed (the room's, and its name), so it looks the same to everyone
+  const thingSeedOf = (name) => grown.thingSeed(seedOf('table'), name);
+  const KIND_OF = { table: grown.BOARD, brass: grown.BRASS, wax: grown.WAX, wick: grown.WICK, cloth: grown.CLOTH, skin: grown.SKIN };
+  const thingMat = (matter, thing, shape = 'box') =>
+    Object.assign(gpu.objectMaterial(lights, { kind: KIND_OF[matter], seed: thing ? thingSeedOf(thing) : 0, pair: pairOf(matter), shape, webgpu: own }), { matter, thing });
   const objectMats = [];
   const objectMeshes = new Map(); // id → mesh (a holder goes where its candle is carried)
   for (const o of GEOM.objects) {
-    const brass = o.matter === 'brass';
-    const mat = gpu.objectMaterial(
-      lights,
-      brass ? { pair: { light: curves.MATTER.brass, dark: curves.MATTER.brass } } : { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf(o.matter), webgpu: own },
-    );
-    mat.matter = o.matter;
+    const mat = thingMat(o.matter, o.id, o.box ? 'box' : 'round');
     objectMats.push(mat);
     const mesh = new THREE.Mesh(o.box ? box : disc, mat);
     objectMeshes.set(o.id, mesh);
+    shadows.add(mesh);
     if (o.box) {
       const [x0, y0, z0, x1, y1, z1] = o.box;
       mesh.scale.set(x1 - x0, y1 - y0, z1 - z0);
@@ -413,14 +434,12 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // its nib is on the paper and its tines spread as wide as the line it lays; set down,
   // it lies on the table. (room m, in the room's group)
   const PEN = { length: 0.12, thick: 0.009, tine: 0.012, tineW: 0.0012 };
-  const penMats = {
-    body: Object.assign(gpu.objectMaterial(lights, { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf('table'), webgpu: own }), { matter: 'table' }),
-    tine: Object.assign(gpu.objectMaterial(lights, { pair: { light: curves.MATTER.brass, dark: curves.MATTER.brass } }), { matter: 'brass' }),
-  };
+  const penMats = { body: thingMat('table', 'pen'), tine: thingMat('brass', 'nib') };
   const pen = new THREE.Group();
   const penBody = new THREE.Mesh(box, penMats.body);
   const penTines = [new THREE.Mesh(box, penMats.tine), new THREE.Mesh(box, penMats.tine)];
   pen.add(penBody, ...penTines);
+  for (const m of [penBody, ...penTines]) shadows.add(m);
   pen.visible = false;
   roomGroup.add(pen);
   const upZ = new THREE.Vector3(0, 0, 1);
@@ -436,20 +455,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // Their matter is made once for the view: a being coming, hiding or going makes no new shaders.
   const ball = new THREE.SphereGeometry(1, 24, 16);
   const beings = new Map(); // name → { group, body, head, face, hands, pen }
-  const beingMat = (curve, matter) => Object.assign(gpu.objectMaterial(lights, { pair: { light: curve, dark: curve } }), { matter: matter ?? { light: curve, dark: curve } });
-  const beingMats = {
-    cloth: [
-      [96, 40, 44],
-      [44, 70, 96],
-      [70, 90, 52],
-      [92, 70, 40],
-      [70, 52, 88],
-    ].map((c) => beingMat(paperCurve(c))),
-    skin: beingMat(paperCurve([214, 178, 150])),
-    dark: beingMat(curves.MATTER.wick),
-    pen: beingMat(curves.MATTER.brass, 'brass'),
-  };
-  const allBeingMats = [...beingMats.cloth, beingMats.skin, beingMats.dark, beingMats.pen];
+  // Each is matter, grown (matter-fixes §3): cloth, skin, its face's dark cotton, a brass pen,
+  // each part from the being's own seed (its name's), so it looks the same in every room.
+  const beingMats = { cloth: thingMat('cloth', null, 'ball'), skin: thingMat('skin', null, 'ball'), dark: thingMat('wick', null, 'ball'), pen: thingMat('brass') };
+  const allBeingMats = Object.values(beingMats);
+  const beingSeed = (name, part) => grown.thingSeed(grown.seedMix(grown.defaultSeed(`being ${name}`)), part);
   // their shaders made now, while the room loads, on specks no one sees: one built when
   // someone first comes in would stall the pen mid-stroke
   const specks = new THREE.Group();
@@ -462,18 +472,26 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   roomGroup.add(specks);
   const made = () => roomGroup.remove(specks);
   (renderer.compileAsync?.(specks, persp, scene) ?? Promise.resolve()).then(made, made);
-  const clothOf = (name) => beingMats.cloth[[...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % beingMats.cloth.length];
   function beingOf(name) {
     let b = beings.get(name);
     if (b) return b;
-    const mats = { body: clothOf(name), skin: beingMats.skin, dark: beingMats.dark, pen: beingMats.pen };
     const group = new THREE.Group();
-    const part = (geo, m) => {
+    const part = (geo, m, id) => {
       const mesh = new THREE.Mesh(geo, m);
+      mesh.userData.seed = beingSeed(name, id);
       group.add(mesh);
+      shadows.add(mesh);
       return mesh;
     };
-    b = { group, body: part(ball, mats.body), head: part(ball, mats.skin), face: part(ball, mats.dark), hands: [part(ball, mats.skin), part(ball, mats.skin)], pen: part(box, mats.pen) };
+    const M = beingMats;
+    b = {
+      group,
+      body: part(ball, M.cloth, 'body'),
+      head: part(ball, M.skin, 'head'),
+      face: part(ball, M.dark, 'face'),
+      hands: [part(ball, M.skin, 'hand-0'), part(ball, M.skin, 'hand-1')],
+      pen: part(box, M.pen, 'pen'),
+    };
     roomGroup.add(group);
     beings.set(name, b);
     return b;
@@ -482,9 +500,13 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   const marks = createMarks({ gpu, lights, group: roomGroup, geom: GEOM, meshes: R.meshes, seedOf, webgpu: own });
   // two candles standing on it, either side of the page: wax, a wick, a flame
   const cylinder = new THREE.CylinderGeometry(1, 1, 1, 28).rotateX(Math.PI / 2).translate(0, 0, 0.5);
-  const candles = [0, 1].map(() => {
-    const wax = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, curves.MATTER.wax));
-    const wick = new THREE.Mesh(cylinder, gpu.waxMaterial(lights, curves.MATTER.wick));
+  const candleMats = [];
+  const candles = [0, 1].map((i) => {
+    const wax = new THREE.Mesh(cylinder, thingMat('wax', `candle-${i}`, 'round'));
+    const wick = new THREE.Mesh(cylinder, thingMat('wick', `wick-${i}`, 'round'));
+    candleMats.push(wax.material, wick.material);
+    shadows.add(wax);
+    shadows.add(wick); // (the flame itself, hot gas, blocks nothing)
     const flame = new THREE.Sprite(gpu.flameMaterial());
     flame.center.set(0.5, 0.18); // its foot on the wick
     flame.renderOrder = 10;
@@ -924,11 +946,13 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lights.slabMax.value.set(...W([t.x1, t.y1, t.top]));
       lightRoom(l, performance.now(), R);
       marks.light(l.ambient);
-      for (const m of [...objectMats, ...shelf.mats, ...allBeingMats, penMats.body, penMats.tine]) {
+      // (what a thing not yet placed takes)
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, penMats.body, penMats.tine]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
-        m.ambient.A.value.set(...A);
-        m.ambient.B.value.set(...B);
+        m.ambient.A.set(...A);
+        m.ambient.B.set(...B);
       }
+      lightNow = { ambient: l.ambient, W: l.W };
       lights.sunDir.value.set(...l.sun.dir); // the room's axes are the world's
       gpu.setSpectrum(lights.sunE, l.sun.E);
       const g = l.geom;
@@ -970,7 +994,22 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         flame.scale.set(fh * 0.42, fh, 1);
         flame.material.brightness.value = fl.lit ? 1 : 0;
         flame.material.core.value.setRGB(...fl.seen);
+        lightHere([wax], [fl.foot[0], fl.foot[1], fl.foot[2] + fl.height / 2]);
+        lightHere([wick], fl.pos);
       });
+      // each thing, lit where it stands
+      for (const mesh of objectMeshes.values()) lightHere([mesh], mesh.position.toArray());
+      for (const mesh of shelf.group.children) lightHere([mesh], mesh.position.toArray());
+      if (pen.visible) lightHere([penBody, ...penTines], penBody.position.toArray());
+      for (const b of beings.values()) lightHere(b.group.children, b.body.position.toArray());
+      // the sources, for what blocks them
+      const sunUp = l.sun.E.some((v) => v > 0);
+      shadowSrc = {
+        flames: l.flames.map((fl, i) => ({ at: lights.candleAt[i].value, lit: fl.lit })),
+        sun: { dir: lights.sunDir.value, lit: sunUp },
+        mid: new THREE.Vector3(...W([g.size[0] / 2, g.size[1] / 2, g.size[2] / 2])),
+        pxPerM: PX_PER_M,
+      };
       // the shade is baked again when the light has really moved (not for the flicker)
       lightKey = l.key;
     },
@@ -979,7 +1018,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setSeeds(next) {
       roomSeeds = next;
       for (const m of roomMats) m.seed.value = seedOf(m.seedName);
-      for (const m of objectMats) if (m.seed) m.seed.value = seedOf('table');
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, penMats.body, penMats.tine]) if (m.thing) m.seedBase = thingSeedOf(m.thing);
       marks.reseed();
     },
     // The others in the room (rooms.md §4): [{ name, pose: { pos (the head, room m), yaw,
@@ -1017,10 +1056,12 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         const [qx, qy] = ahead(by + Math.PI / 2, 0.16 * s);
         b.pen.position.set(x + px + qx, y + py + qy, z - 0.33 * s);
         b.pen.scale.set(0.008 * s, 0.008 * s, 0.13 * s);
+        lightHere(b.group.children, b.body.position.toArray());
       }
       for (const [name, b] of beings) {
         if (here.has(name)) continue;
         roomGroup.remove(b.group);
+        for (const m of b.group.children) shadows.remove(m);
         beings.delete(name);
       }
     },
@@ -1036,6 +1077,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         const [x, y, z] = p.place;
         lay(penBody, [x, y, z + T / 2], [-1, 0, 0], L, T, T);
         penTines.forEach((m, k) => lay(m, [x + L / 2 + TL / 2, y + (k ? 1 : -1) * TW, z + T / 2], [1, 0, 0], TL, TW, TW));
+        lightHere([penBody, ...penTines], penBody.position.toArray());
         return;
       }
       // in the hand: rising from the nib toward the writer, 50° up
@@ -1058,10 +1100,14 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
           TW,
         );
       });
+      lightHere([penBody, ...penTines], penBody.position.toArray());
     },
     // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], their cloth's colour.
     setShelf(books) {
-      for (const o of [...shelf.group.children]) shelf.group.remove(o);
+      for (const o of [...shelf.group.children]) {
+        shelf.group.remove(o);
+        shadows.remove(o);
+      }
       for (const m of shelf.mats) m.dispose();
       shelf.mats = [];
       if (!books?.length) return;
@@ -1071,9 +1117,10 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         mesh.scale.set(b[3] - b[0], b[4] - b[1], b[5] - b[2]);
         mesh.position.set((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2);
         shelf.group.add(mesh);
+        shadows.add(mesh);
+        lightHere([mesh], mesh.position.toArray());
       };
-      const wood = gpu.objectMaterial(lights, { kind: grown.BOARD, seed: seedOf('table'), pair: pairOf('table'), webgpu: own });
-      wood.matter = 'table';
+      const wood = thingMat('table', 'shelf');
       shelf.mats.push(wood);
       put(board, wood);
       boxes.forEach((b, k) => {
@@ -1218,6 +1265,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       if (groundSize) rests[0].set(0, -groundSize[1], groundSize[0], 0);
       const t1 = performance.now();
       prepare();
+      shadows.update(renderer, shadowSrc);
       const t2 = performance.now();
       renderer.setClearColor(CLEAR, 0);
       renderer.render(scene, camera);
@@ -1269,6 +1317,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       view.setBeings(null);
       penMats.body.dispose();
       penMats.tine.dispose();
+      shadows.dispose();
       for (const m of allBeingMats) m.dispose();
       ball.dispose();
       view.setGround(null);
@@ -1291,6 +1340,15 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     },
     get camera() {
       return cam3;
+    },
+    // Where the light comes from (for the checks, e2e/shadows.mjs): each flame (world px), the
+    // room in the world (world = room m × scale + at), and the sheets.
+    sources() {
+      return {
+        flames: lights.candleAt.map((u) => u.value.toArray()),
+        room: { scale: roomGroup.scale.x, at: roomGroup.position.toArray() },
+        sheets: [...sheets.values()].map((sh) => ({ x0: sh.origin[0], y0: sh.origin[1], w: sh.w * sh.cellPx, h: sh.h * sh.cellPx })), // (page px: world x, −y)
+      };
     },
     host,
     invalidate,

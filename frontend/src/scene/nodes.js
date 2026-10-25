@@ -37,10 +37,13 @@ import {
   uniform,
   uniformArray,
   texture,
+  cubeTexture,
   uv,
   positionLocal,
   positionWorld,
+  normalLocal,
   normalWorld,
+  modelScale,
   cameraPosition,
   vec2,
   vec3,
@@ -50,6 +53,7 @@ import {
   clamp,
   normalize,
   dot,
+  cross,
   max,
   min,
   abs,
@@ -74,7 +78,7 @@ import {
 } from 'three/tsl';
 import { curves, SUN_RADIUS, surface as grown } from './light/index.js';
 
-export { WebGPURenderer, ClippingGroup } from 'three/webgpu';
+export { WebGPURenderer, ClippingGroup, CubeRenderTarget } from 'three/webgpu';
 
 const at = (t, q) => t.sample(q).level(0);
 // The one row order. Every texture here holds its rows top down, row 0 at the
@@ -160,8 +164,8 @@ const binsOf = (curve) => [0, 1, 2, 3].map((g) => vec4(curve[4 * g], curve[4 * g
 const INK = curves.INK.map(binsOf); // what each of the law's three channels drinks, per bin
 
 // The light as uniforms (light.js, in the world: page px with the room's axes),
-// and the height scale.
-export function lightUniforms(paper, dropPx) {
+// and the height scale. maps: the shadows' depth maps (shadows.js), when things block light.
+export function lightUniforms(paper, dropPx, maps = null) {
   const L = {
     sunDir: uniform(new THREE.Vector3(0, 0, 1)),
     sunE: spectrumUniform(), // W / m² per bin, normal to the beam, through the glass
@@ -192,7 +196,74 @@ export function lightUniforms(paper, dropPx) {
   setSpectrum(L.paper, paper);
   // the flames' places (world px): the shade is marched toward them
   L.candleAt = [new THREE.Vector3(), new THREE.Vector3()].map((v) => uniform(v));
+  // what blocks each source (matter-fixes §4): (sun, flame 1, flame 2) drawn; the sun's view
+  if (maps) {
+    L.shadow = {
+      on: uniform(new THREE.Vector3()),
+      sun: texture(maps.sun),
+      sunSize: maps.sunSize,
+      sunVP: uniform(new THREE.Matrix4()),
+      sunAt: uniform(new THREE.Vector3()),
+      sunDir: uniform(new THREE.Vector3(0, 0, 1)), // (the steady places the maps were drawn from: shadows.js)
+      flames: maps.flames.map((t) => cubeTexture(t)),
+      flameAt: [new THREE.Vector3(), new THREE.Vector3()].map((v) => uniform(v)),
+      cube: maps.cube,
+    };
+  }
   return L;
+}
+
+// What the shadow maps hold (shadows.js): each thing's distance (m) from a flame at
+// m.at (world px), or (plane) from the sun's camera's plane, m.at its place and m.dir
+// toward the sun.
+export function distanceMaterial(L, plane = false) {
+  const m = new NodeMaterial();
+  m.blending = THREE.NoBlending; // (one channel: nothing to blend by)
+  const at = uniform(new THREE.Vector3()),
+    dir = uniform(new THREE.Vector3(0, 0, 1));
+  m.fragmentNode = Fn(() => vec4((plane ? dot(at.sub(positionWorld), dir) : length(positionWorld.sub(at))).div(L.pxPerM), 0, 0, 1))();
+  m.at = at.value;
+  m.dir = dir.value;
+  return m;
+}
+
+// How much of a source reaches q (matter-fixes §4): its depth map holds, in q's
+// direction, how far the nearest thing is; light reaches q only if nothing lies
+// nearer than q itself. Several taps over a small disk, so a shadow's edge is soft
+// (as a flame's is: it is not a point), not stepped by the map's texels. 0..1.
+const LIFT_M = 0.002; // a point is tested this far off its surface (no surface shades itself)
+const disk = (n, r) => Array.from({ length: n }, (_, i) => [r * Math.sqrt((i + 0.5) / n) * Math.cos(i * 2.39996), r * Math.sqrt((i + 0.5) / n) * Math.sin(i * 2.39996)]);
+const SUN_TAPS = disk(4, 1.2), // texels
+  FLAME_TAPS = disk(4, 1.8);
+function sunReach(q, L) {
+  const S = L.shadow;
+  const c = S.sunVP.mul(vec4(q, 1)).toVar();
+  const at0 = vec2(c.x.mul(0.5).add(0.5), c.y.mul(-0.5).add(0.5)).toVar(); // (v 0 the top row of the view)
+  const d = dot(S.sunAt.sub(q), S.sunDir).div(L.pxPerM).sub(0.02).toVar(); // (a texel's slant, and a little)
+  const lit = float(0).toVar();
+  for (const [a, b] of SUN_TAPS) {
+    const s = at(S.sun, at0.add(vec2(a / S.sunSize, b / S.sunSize))).r;
+    lit.addAssign(select(s.greaterThan(0).and(s.lessThan(d)), float(0), float(1 / SUN_TAPS.length)));
+  }
+  const inside = at0.x.greaterThan(0).and(at0.x.lessThan(1)).and(at0.y.greaterThan(0)).and(at0.y.lessThan(1));
+  return select(inside, lit, float(1));
+}
+function flameReach(q, k, L) {
+  const S = L.shadow;
+  const toQ = q.sub(S.flameAt[k]).toVar();
+  const d = length(toQ).toVar();
+  const dm = d.div(L.pxPerM);
+  const ref = dm.sub(dm.mul(0.012).add(0.006)).toVar(); // (a few texels' slant, and a little)
+  const side = select(abs(toQ.z).greaterThan(d.mul(0.9)), vec3(1, 0, 0), vec3(0, 0, 1));
+  const texel = d.mul(2 / S.cube); // a texel there
+  const u = normalize(cross(toQ, side)).mul(texel).toVar();
+  const v = normalize(cross(toQ, u)).mul(texel).toVar();
+  const lit = float(0).toVar();
+  for (const [a, b] of FLAME_TAPS) {
+    const s = S.flames[k].sample(toQ.add(u.mul(a)).add(v.mul(b))).level(0).r;
+    lit.addAssign(select(s.greaterThan(0).and(s.lessThan(ref)), float(0), float(1 / FLAME_TAPS.length)));
+  }
+  return lit;
 }
 
 // What a point reflects per bin: its surface's curve through the ink's
@@ -265,6 +336,13 @@ function spectral(R, n, open, shade, wet, V, L, band, opts = {}) {
     .mul(shade.x)
     .mul(opts.slab ? underSlab(p, Ls, 1e9, L) : float(1))
     .toVar();
+  // what the room's things leave of each source (matter-fixes §4), asked only where it shines
+  const q = L.shadow ? p.add(n.mul(L.pxPerM.mul(LIFT_M))).toVar() : null;
+  if (L.shadow) {
+    If(L.shadow.on.x.greaterThan(0.5).and(sunOn.greaterThan(0)).and(dot(n, Ls).greaterThan(0)), () => {
+      sunOn.mulAssign(sunReach(q, L));
+    });
+  }
   const sunCos = max(dot(n, Ls), 0).mul(sunOn);
   const gloss = wet.mul(0.04); // water's mirror, about 4% (it shows the sources themselves)
   const sunSpec = pow(max(dot(n, normalize(Ls.add(V))), 0), 70)
@@ -280,6 +358,11 @@ function spectral(R, n, open, shade, wet, V, L, band, opts = {}) {
       .mul(k === 0 ? shade.y : shade.z)
       .mul(opts.slab ? underSlab(p, Lf, d, L) : float(1))
       .toVar();
+    if (L.shadow) {
+      If((k ? L.shadow.on.z : L.shadow.on.y).greaterThan(0.5).and(dot(n, Lf).greaterThan(0)), () => {
+        fall.mulAssign(flameReach(q, k, L));
+      });
+    }
     return {
       on: max(dot(n, Lf), 0).mul(fall),
       spec: pow(max(dot(n, normalize(Lf.add(V))), 0), 60)
@@ -379,29 +462,43 @@ export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
   return m;
 }
 
-// An object (a leg, the window's frame, a candle's holder): its matter (grown
-// wood, or brass), lit like the room; its cells along its own faces. ambient:
-// { A, B } uniforms (the room's mean light, as colours).
-export function objectMaterial(L, { kind = null, seed = 0, pair, webgpu }) {
+// A thing's cells where the pixel is, on its own surface (light/surface.js
+// objectCells, the same): counted from its own corner in its own units, scaled by
+// its size, so its grain goes where it goes.
+function cellsOn(shape) {
+  const p = positionLocal,
+    n = normalLocal;
+  const s = modelScale.mul(1 / grown.CELL_PX);
+  if (shape === 'box') {
+    const q = p.add(0.5).mul(s);
+    return select(abs(n.z).greaterThan(0.5), q.xy, select(abs(n.x).greaterThan(0.5), q.yz, q.xz));
+  }
+  if (shape === 'ball') return vec2(atan(p.z, p.x).add(Math.PI).mul(s.x), p.y.add(1).mul(s.y));
+  const side = vec2(atan(p.y, p.x).add(Math.PI).mul(s.x), p.z.add(1).mul(s.z));
+  return select(abs(n.z).greaterThan(0.5), p.xy.add(1).mul(s.xy), side);
+}
+
+// A thing (a leg, the window's frame, a holder, a candle's wax and wick, the pen,
+// a being): its matter grown cell by cell as the walls are (light/surface.js: wood,
+// brass, wax, wick, cloth, skin; kind null: one even tone), its cells on its own
+// surface (shape: 'box', 'round', 'ball'), lit like the room. Its seed: each mesh's
+// own (userData.seed), else m.seedBase. Its light: the room's where each mesh is
+// (userData.ambient: { A, B }, colours: matter-fixes §4), else m.ambient's.
+export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu }) {
   const m = new MeshBasicNodeMaterial();
   const [light, dark] = pairUniforms(pair);
-  const A = uniform(new THREE.Vector3()),
-    B = uniform(new THREE.Vector3());
-  const seedU = uniform(seed, 'uint');
+  m.ambient = { A: new THREE.Vector3(), B: new THREE.Vector3() };
+  const A = uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => (object.userData.ambient ?? m.ambient).A),
+    B = uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => (object.userData.ambient ?? m.ambient).B);
+  m.seedBase = seed;
+  const seedU = uniform(seed, 'uint').onObjectUpdate(({ object }) => object.userData.seed ?? m.seedBase);
   m.colorNode = Fn(() => {
     const n = normalize(normalWorld).toVar();
     let t = float(0);
-    if (kind !== null) {
-      // cells along the face (CELL_PX = half a page px), from far out so they stay positive
-      const w = positionWorld.mul(2).add(1e5);
-      const pos = select(abs(n.z).greaterThan(0.5), w.xy, select(abs(n.x).greaterThan(0.5), w.yz, w.xz));
-      t = clamp(grower(webgpu)({ kind: int(kind), m: seedU, pos, foot: footAt(L) }).y.div(255), 0, 1).toVar();
-    }
+    if (kind !== null) t = clamp(grower(webgpu)({ kind: int(kind), m: seedU, pos: cellsOn(shape), foot: footAt(L) }).y.div(255), 0, 1).toVar();
     const V = normalize(cameraPosition.sub(positionWorld));
     return spectral(toned(light, dark, t), n, float(0), vec3(1), float(0), V, L, null, { ambient: A.add(B.mul(t)), slab: true });
   })();
-  m.ambient = { A, B };
-  m.seed = seedU;
   return m;
 }
 
@@ -625,18 +722,6 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
 export function cutMaterial(picture) {
   const m = new MeshBasicNodeMaterial({ transparent: true, side: THREE.DoubleSide });
   m.colorNode = texture(picture, down());
-  return m;
-}
-
-// A candle's wax or wick (its matter's curve, N values): lit like everything else.
-export function waxMaterial(L, curve) {
-  const m = new MeshBasicNodeMaterial();
-  const R = spectrumUniform();
-  setSpectrum(R, curve);
-  m.colorNode = Fn(() => {
-    const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(plainly(R), normalize(normalWorld), float(1), vec3(1), float(0), V, L, null);
-  })();
   return m;
 }
 

@@ -15,6 +15,9 @@
 //            rings (a sawtooth: earlywood darkening into latewood, then a
 //            sharp return), grain streaks, its own tone
 //   board    the table top: wide boards glued edge to edge, no ends
+// and the things' matter (matter-fixes §3), grown as plaster is, each by its own
+// constants (FINE): brass, wax, wick, cloth, skin. A thing's cells are on its
+// own surface (objectCells), so they go where it goes.
 //
 // Grown, never stored: a cell is a function of (kind, seed, x, y) only.
 // Crisp cells use only 32-bit unsigned integer operations (Wellons'
@@ -51,16 +54,45 @@ export const CELL_M = CELL_PX / PX_PER_M; // about 77 µm
 export const PLASTER = 0;
 export const PLANKS = 1;
 export const BOARD = 2;
-export const KINDS = Object.freeze({ plaster: PLASTER, planks: PLANKS, board: BOARD });
-export const CURVES_OF = Object.freeze(['plaster', 'floor', 'table']); // kind → the curve table's light/dark pair
+export const BRASS = 3;
+export const WAX = 4;
+export const WICK = 5;
+export const CLOTH = 6;
+export const SKIN = 7;
+export const KINDS = Object.freeze({ plaster: PLASTER, planks: PLANKS, board: BOARD, brass: BRASS, wax: WAX, wick: WICK, cloth: CLOTH, skin: SKIN });
+export const CURVES_OF = Object.freeze(['plaster', 'floor', 'table', 'brass', 'wax', 'wick', 'cloth', 'skin']); // kind → the curve table's light/dark pair
 
 // Hash tags (one stream of randomness per layer).
 const T_CELL = 1, T_BUMP1 = 2, T_BUMP2 = 3, T_TONE1 = 4, T_TONE2 = 5, T_ROW = 6, T_BOARD = 7, T_WOB = 8, T_STREAK = 9;
 const GOLD = 0x9e3779b9;
 
-// --- plaster ---
-const PL_TONE = 48; // tone base: plaster sits about 48..94, around 71
-const PL_BUMP1 = 4, PL_BUMP2 = 7, PL_TONE1 = 11, PL_TONE2 = 14; // lattice steps, log2 cells
+// --- the fine kinds: plaster, and the things' matter ---
+// Two lattices of bumps and two of tone, each its steps along x and y (log2
+// cells); how much of each (heights: /32; tones: /16); how far the cell's own
+// jitter is shifted down into the height and the tone; the tone's base.
+//   plaster  troweled: small bumps (16 and 128 cells), slow tone shifts (2048 and
+//            16384 cells); about 48..94, around 71
+//   brass    turned and polished: fine scratches along x (64 cells long, a cell
+//            wide: around a holder, the lathe's) and pits, low; tarnish in slow patches
+//   wax      poured: faint bumps, its tone barely moving
+//   wick     braided cotton: threads across, charred in patches
+//   cloth    woven: warp and weft threads four cells wide
+//   skin     smooth, with fine pores
+const FINE = {
+  [PLASTER]: { b: [4, 4, 7, 7], t: [11, 11, 14, 14], w: [3, 5, 1, 1], jz: 1, jt: 0, base: 48 },
+  [BRASS]: { b: [6, 0, 2, 2], t: [9, 9, 12, 12], w: [1, 1, 2, 2], jz: 3, jt: 2, base: 16 },
+  [WAX]: { b: [4, 4, 7, 7], t: [10, 10, 13, 13], w: [1, 1, 1, 1], jz: 4, jt: 2, base: 48 },
+  [WICK]: { b: [0, 2, 2, 2], t: [3, 3, 6, 6], w: [4, 4, 2, 2], jz: 1, jt: 0, base: 64 },
+  [CLOTH]: { b: [2, 0, 0, 2], t: [8, 8, 11, 11], w: [4, 4, 1, 1], jz: 2, jt: 1, base: 56 },
+  [SKIN]: { b: [2, 2, 5, 5], t: [9, 9, 12, 12], w: [1, 1, 1, 1], jz: 3, jt: 2, base: 48 },
+};
+const FINE_KINDS = Object.keys(FINE).map(Number);
+// a fine kind's constants as the shaders take them
+const fineArgs = (k, u4, u3) => {
+  const { b, t, w, jz, jt, base } = FINE[k];
+  const us = (a) => a.map((v) => `${v}u`).join(', ');
+  return `${u4}(${us(b)}), ${u4}(${us(t)}), ${u4}(${us(w)}), ${u3}(${us([jz, jt, base])})`;
+};
 
 // --- wood ---
 // Per kind: board width across (cells), whether boards end (staggered ends
@@ -144,12 +176,14 @@ const tagsOf = (m) => ({ row: tagOf(m, T_ROW), board: tagOf(m, T_BOARD), wob: ta
 export function growCell(kind, seed, x, y) {
   const m = mixOf(seed);
   const j = hash(tagOf(m, T_CELL), x, y) & 15;
-  if (kind === PLASTER) {
-    const b1 = lattice(tagOf(m, T_BUMP1), x, y, PL_BUMP1, PL_BUMP1);
-    const b2 = lattice(tagOf(m, T_BUMP2), x, y, PL_BUMP2, PL_BUMP2);
-    const t1 = lattice(tagOf(m, T_TONE1), x, y, PL_TONE1, PL_TONE1);
-    const t2 = lattice(tagOf(m, T_TONE2), x, y, PL_TONE2, PL_TONE2);
-    return { height: ((b1 * 3 + b2 * 5 + 16) >>> 5) + (j >>> 1), tone: PL_TONE + ((t1 + t2 + 8) >>> 4) + j, grain: 0 };
+  const F = FINE[kind];
+  if (F) {
+    const { b, t, w } = F;
+    const b1 = lattice(tagOf(m, T_BUMP1), x, y, b[0], b[1]);
+    const b2 = lattice(tagOf(m, T_BUMP2), x, y, b[2], b[3]);
+    const t1 = lattice(tagOf(m, T_TONE1), x, y, t[0], t[1]);
+    const t2 = lattice(tagOf(m, T_TONE2), x, y, t[2], t[3]);
+    return { height: ((b1 * w[0] + b2 * w[1] + 16) >>> 5) + (j >>> F.jz), tone: F.base + ((t1 * w[2] + t2 * w[3] + 8) >>> 4) + (j >>> F.jt), grain: 0 };
   }
   const P = WOOD[kind];
   const t = tagsOf(m);
@@ -177,6 +211,30 @@ export function cellFace(kind, seed, x, y) {
 
 // Metres in a surface's frame → its cell.
 export const cellOf = (u, v) => [Math.floor(u / CELL_M), Math.floor(v / CELL_M)];
+
+// A thing's cells (matter-fixes §3): on its own surface, counted from its own
+// corner, so its grain goes where it goes (the shader's, nodes.js objectMaterial).
+//   shape   'box' (a unit box about its middle: each face its two axes), 'round'
+//           (a cylinder of radius 1 about its z axis: around it, the arc from its
+//           back, and up it; its caps flat) or 'ball' (a sphere of radius 1, about its y)
+//   local   the point in the shape's own units; normal its face's (local)
+//   scale   the thing's size: page px a local unit, along each axis
+// → [x, y] cells (fractional, ≥ 0)
+export function objectCells(shape, [x, y, z], normal, [sx, sy, sz]) {
+  const k = 1 / CELL_PX;
+  if (shape === 'box') {
+    if (Math.abs(normal[2]) > 0.5) return [(x + 0.5) * sx * k, (y + 0.5) * sy * k];
+    if (Math.abs(normal[0]) > 0.5) return [(y + 0.5) * sy * k, (z + 0.5) * sz * k];
+    return [(x + 0.5) * sx * k, (z + 0.5) * sz * k];
+  }
+  if (shape === 'ball') return [(Math.atan2(z, x) + Math.PI) * sx * k, (y + 1) * sy * k];
+  if (Math.abs(normal[2]) > 0.5) return [(x + 1) * sx * k, (y + 1) * sy * k];
+  return [(Math.atan2(y, x) + Math.PI) * sx * k, (z + 1) * sz * k];
+}
+
+// Each thing's own seed (matter-fixes §3), from the room's (its owner's key) and the
+// thing's name: the same thing grows the same for everyone who sees it.
+export const thingSeed = (roomMix, name) => lowbias((roomMix ^ fnv(`penpals thing ${name}`)) >>> 0);
 
 // --- far away: the averaged character ---
 const smoothstep = (a, b, x) => {
@@ -257,12 +315,15 @@ export function growMean(kind, seed, x, y, foot) {
   }
   const m = mixOf(seed);
   const j = 7.5 + fade(1, foot) * ((hash(tagOf(m, T_CELL), cx, cy) & 15) - 7.5);
-  if (kind === PLASTER) {
-    // a crisp cell's value is its lattice at its corner: the smooth one is read half a cell back
-    const lay = (tag, k) => 127.5 + fade(1 << k, foot) * (latticeF(tagOf(m, tag), x - 0.5, y - 0.5, 1 << k, 1 << k) - 127.5);
-    const b1 = lay(T_BUMP1, PL_BUMP1), b2 = lay(T_BUMP2, PL_BUMP2);
-    const t1 = lay(T_TONE1, PL_TONE1), t2 = lay(T_TONE2, PL_TONE2);
-    return { height: (b1 * 3 + b2 * 5) / 32 + j / 2, tone: PL_TONE + (t1 + t2) / 16 + j };
+  const F = FINE[kind];
+  if (F) {
+    // a crisp cell's value is its lattice at its corner: the smooth one is read half a
+    // cell back; a layer fades as the footprint passes its finer step
+    const lay = (tag, kx, ky) => 127.5 + fade(1 << Math.min(kx, ky), foot) * (latticeF(tagOf(m, tag), x - 0.5, y - 0.5, 1 << kx, 1 << ky) - 127.5);
+    const { b, t, w } = F;
+    const b1 = lay(T_BUMP1, b[0], b[1]), b2 = lay(T_BUMP2, b[2], b[3]);
+    const t1 = lay(T_TONE1, t[0], t[1]), t2 = lay(T_TONE2, t[2], t[3]);
+    return { height: (b1 * w[0] + b2 * w[1]) / 32 + j / (1 << F.jz), tone: F.base + (t1 * w[2] + t2 * w[3]) / 16 + j / (1 << F.jt) };
   }
   // the rows of boards the footprint covers, each by its share: this row, the
   // one it reaches into, and past those the mean
@@ -333,16 +394,18 @@ SgBoard sgBoardOf(int kind, uint m, uint x, uint y) {
   B.id = B.r * 64u + B.b;
   return B;
 }
+// a fine kind's cell: b, t its lattices' steps (x, y; x, y), w their weights, s (jz, jt, base)
+ivec3 sgFine(uint m, uint x, uint y, uint j, uvec4 b, uvec4 t, uvec4 w, uvec3 s) {
+  uint b1 = sgLattice(sgTag(m, ${T_BUMP1}u), x, y, b.x, b.y);
+  uint b2 = sgLattice(sgTag(m, ${T_BUMP2}u), x, y, b.z, b.w);
+  uint t1 = sgLattice(sgTag(m, ${T_TONE1}u), x, y, t.x, t.y);
+  uint t2 = sgLattice(sgTag(m, ${T_TONE2}u), x, y, t.z, t.w);
+  return ivec3(int(((b1 * w.x + b2 * w.y + 16u) >> 5u) + (j >> s.x)), int(s.z + ((t1 * w.z + t2 * w.w + 8u) >> 4u) + (j >> s.y)), 0);
+}
 ivec3 growCell(int kind, uint m, uvec2 cell) {
   uint x = cell.x, y = cell.y;
   uint j = sgHash(sgTag(m, ${T_CELL}u), x, y) & 15u;
-  if (kind == ${PLASTER}) {
-    uint b1 = sgLattice(sgTag(m, ${T_BUMP1}u), x, y, ${PL_BUMP1}u, ${PL_BUMP1}u);
-    uint b2 = sgLattice(sgTag(m, ${T_BUMP2}u), x, y, ${PL_BUMP2}u, ${PL_BUMP2}u);
-    uint t1 = sgLattice(sgTag(m, ${T_TONE1}u), x, y, ${PL_TONE1}u, ${PL_TONE1}u);
-    uint t2 = sgLattice(sgTag(m, ${T_TONE2}u), x, y, ${PL_TONE2}u, ${PL_TONE2}u);
-    return ivec3(int(((b1 * 3u + b2 * 5u + 16u) >> 5u) + (j >> 1u)), int(${PL_TONE}u + ((t1 + t2 + 8u) >> 4u) + j), 0);
-  }
+${FINE_KINDS.map((k) => `  if (kind == ${k}) return sgFine(m, x, y, j, ${fineArgs(k, 'uvec4', 'uvec3')});`).join('\n')}
   bool planks = kind == ${PLANKS};
   SgBoard B = sgBoardOf(kind, m, x, y);
   if (B.v < (planks ? ${PK.seam}u : ${BK.seam}u) || (planks && B.u < ${PK.seam}u)) {
@@ -409,18 +472,20 @@ vec2 sgRowMean(int kind, uint m, uvec2 c, vec2 pos, float foot) {
   }
   return acc + max(0.0, 1.0 - wc - wn) * vec2(${PMH}, ${PMT});
 }
+float sgLay(uint t, vec2 p, uint kx, uint ky, float foot) {
+  return 127.5 + sgFade(float(1u << min(kx, ky)), foot) * (sgLatticeF(t, p, vec2(float(1u << kx), float(1u << ky))) - 127.5);
+}
+vec2 sgFineMean(uint m, vec2 pos, float foot, float j, uvec4 b, uvec4 t, uvec4 w, uvec3 s) {
+  vec2 p = pos - 0.5;
+  float b1 = sgLay(sgTag(m, ${T_BUMP1}u), p, b.x, b.y, foot), b2 = sgLay(sgTag(m, ${T_BUMP2}u), p, b.z, b.w, foot);
+  float t1 = sgLay(sgTag(m, ${T_TONE1}u), p, t.x, t.y, foot), t2 = sgLay(sgTag(m, ${T_TONE2}u), p, t.z, t.w, foot);
+  return vec2((b1 * float(w.x) + b2 * float(w.y)) / 32.0 + j / float(1u << s.x), float(s.z) + (t1 * float(w.z) + t2 * float(w.w)) / 16.0 + j / float(1u << s.y));
+}
 vec2 growMean(int kind, uint m, vec2 pos, float foot) {
   uvec2 c = uvec2(floor(max(pos, vec2(0.0))));
   if (foot <= 1.0) return vec2(growCell(kind, m, c).xy);
   float j = 7.5 + sgFade(1.0, foot) * (float(sgHash(sgTag(m, ${T_CELL}u), c.x, c.y) & 15u) - 7.5);
-  if (kind == ${PLASTER}) {
-    vec2 p = pos - 0.5;
-    float b1 = 127.5 + sgFade(${1 << PL_BUMP1}.0, foot) * (sgLatticeF(sgTag(m, ${T_BUMP1}u), p, vec2(${1 << PL_BUMP1}.0)) - 127.5);
-    float b2 = 127.5 + sgFade(${1 << PL_BUMP2}.0, foot) * (sgLatticeF(sgTag(m, ${T_BUMP2}u), p, vec2(${1 << PL_BUMP2}.0)) - 127.5);
-    float t1 = 127.5 + sgFade(${1 << PL_TONE1}.0, foot) * (sgLatticeF(sgTag(m, ${T_TONE1}u), p, vec2(${1 << PL_TONE1}.0)) - 127.5);
-    float t2 = 127.5 + sgFade(${1 << PL_TONE2}.0, foot) * (sgLatticeF(sgTag(m, ${T_TONE2}u), p, vec2(${1 << PL_TONE2}.0)) - 127.5);
-    return vec2((b1 * 3.0 + b2 * 5.0) / 32.0 + j / 2.0, ${PL_TONE}.0 + (t1 + t2) / 16.0 + j);
-  }
+${FINE_KINDS.map((k) => `  if (kind == ${k}) return sgFineMean(m, pos, foot, j, ${fineArgs(k, 'uvec4', 'uvec3')});`).join('\n')}
   bool planks = kind == ${PLANKS};
   uint Wu = planks ? ${PK.width}u : ${BK.width}u;
   uint loU = (c.y / Wu) * Wu;
@@ -488,16 +553,17 @@ fn sgBoardOf(kind: i32, m: u32, x: u32, y: u32) -> SgBoard {
   B.id = B.r * 64u + B.b;
   return B;
 }
+fn sgFine(m: u32, x: u32, y: u32, j: u32, b: vec4<u32>, t: vec4<u32>, w: vec4<u32>, s: vec3<u32>) -> vec3<i32> {
+  let b1 = sgLattice(sgTag(m, ${T_BUMP1}u), x, y, b.x, b.y);
+  let b2 = sgLattice(sgTag(m, ${T_BUMP2}u), x, y, b.z, b.w);
+  let t1 = sgLattice(sgTag(m, ${T_TONE1}u), x, y, t.x, t.y);
+  let t2 = sgLattice(sgTag(m, ${T_TONE2}u), x, y, t.z, t.w);
+  return vec3<i32>(i32(((b1 * w.x + b2 * w.y + 16u) >> 5u) + (j >> s.x)), i32(s.z + ((t1 * w.z + t2 * w.w + 8u) >> 4u) + (j >> s.y)), 0);
+}
 fn growCell(kind: i32, m: u32, cell: vec2<u32>) -> vec3<i32> {
   let x = cell.x; let y = cell.y;
   let j = sgHash(sgTag(m, ${T_CELL}u), x, y) & 15u;
-  if (kind == ${PLASTER}) {
-    let b1 = sgLattice(sgTag(m, ${T_BUMP1}u), x, y, ${PL_BUMP1}u, ${PL_BUMP1}u);
-    let b2 = sgLattice(sgTag(m, ${T_BUMP2}u), x, y, ${PL_BUMP2}u, ${PL_BUMP2}u);
-    let t1 = sgLattice(sgTag(m, ${T_TONE1}u), x, y, ${PL_TONE1}u, ${PL_TONE1}u);
-    let t2 = sgLattice(sgTag(m, ${T_TONE2}u), x, y, ${PL_TONE2}u, ${PL_TONE2}u);
-    return vec3<i32>(i32(((b1 * 3u + b2 * 5u + 16u) >> 5u) + (j >> 1u)), i32(${PL_TONE}u + ((t1 + t2 + 8u) >> 4u) + j), 0);
-  }
+${FINE_KINDS.map((k) => `  if (kind == ${k}) { return sgFine(m, x, y, j, ${fineArgs(k, 'vec4<u32>', 'vec3<u32>')}); }`).join('\n')}
   let planks = kind == ${PLANKS};
   let B = sgBoardOf(kind, m, x, y);
   if (B.v < select(${BK.seam}u, ${PK.seam}u, planks) || (planks && B.u < ${PK.seam}u)) {
@@ -565,18 +631,20 @@ fn sgRowMean(kind: i32, m: u32, c: vec2<u32>, pos: vec2<f32>, foot: f32) -> vec2
   }
   return acc + max(0.0, 1.0 - wc - wn) * vec2<f32>(${PMH}, ${PMT});
 }
+fn sgLay(t: u32, p: vec2<f32>, kx: u32, ky: u32, foot: f32) -> f32 {
+  return 127.5 + sgFade(f32(1u << min(kx, ky)), foot) * (sgLatticeF(t, p, vec2<f32>(f32(1u << kx), f32(1u << ky))) - 127.5);
+}
+fn sgFineMean(m: u32, pos: vec2<f32>, foot: f32, j: f32, b: vec4<u32>, t: vec4<u32>, w: vec4<u32>, s: vec3<u32>) -> vec2<f32> {
+  let p = pos - 0.5;
+  let b1 = sgLay(sgTag(m, ${T_BUMP1}u), p, b.x, b.y, foot); let b2 = sgLay(sgTag(m, ${T_BUMP2}u), p, b.z, b.w, foot);
+  let t1 = sgLay(sgTag(m, ${T_TONE1}u), p, t.x, t.y, foot); let t2 = sgLay(sgTag(m, ${T_TONE2}u), p, t.z, t.w, foot);
+  return vec2<f32>((b1 * f32(w.x) + b2 * f32(w.y)) / 32.0 + j / f32(1u << s.x), f32(s.z) + (t1 * f32(w.z) + t2 * f32(w.w)) / 16.0 + j / f32(1u << s.y));
+}
 fn growMean(kind: i32, m: u32, pos: vec2<f32>, foot: f32) -> vec2<f32> {
   let c = vec2<u32>(floor(max(pos, vec2<f32>(0.0))));
   if (foot <= 1.0) { return vec2<f32>(growCell(kind, m, c).xy); }
   let j = 7.5 + sgFade(1.0, foot) * (f32(sgHash(sgTag(m, ${T_CELL}u), c.x, c.y) & 15u) - 7.5);
-  if (kind == ${PLASTER}) {
-    let p = pos - 0.5;
-    let b1 = 127.5 + sgFade(${1 << PL_BUMP1}.0, foot) * (sgLatticeF(sgTag(m, ${T_BUMP1}u), p, vec2<f32>(${1 << PL_BUMP1}.0)) - 127.5);
-    let b2 = 127.5 + sgFade(${1 << PL_BUMP2}.0, foot) * (sgLatticeF(sgTag(m, ${T_BUMP2}u), p, vec2<f32>(${1 << PL_BUMP2}.0)) - 127.5);
-    let t1 = 127.5 + sgFade(${1 << PL_TONE1}.0, foot) * (sgLatticeF(sgTag(m, ${T_TONE1}u), p, vec2<f32>(${1 << PL_TONE1}.0)) - 127.5);
-    let t2 = 127.5 + sgFade(${1 << PL_TONE2}.0, foot) * (sgLatticeF(sgTag(m, ${T_TONE2}u), p, vec2<f32>(${1 << PL_TONE2}.0)) - 127.5);
-    return vec2<f32>((b1 * 3.0 + b2 * 5.0) / 32.0 + j / 2.0, ${PL_TONE}.0 + (t1 + t2) / 16.0 + j);
-  }
+${FINE_KINDS.map((k) => `  if (kind == ${k}) { return sgFineMean(m, pos, foot, j, ${fineArgs(k, 'vec4<u32>', 'vec3<u32>')}); }`).join('\n')}
   let planks = kind == ${PLANKS};
   let Wu = select(${BK.width}u, ${PK.width}u, planks);
   let loU = (c.y / Wu) * Wu;

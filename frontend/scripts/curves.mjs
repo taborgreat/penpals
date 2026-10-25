@@ -14,9 +14,10 @@
 //             palette colour under noon daylight, through the eye settled on a
 //             white page, matches its swatch
 //   GALL      oak gall's own curve at full darkness, fitted to its swatch
-//   MATTER    reflectances: plaster, the floor's and the table's wood (each a
-//             light and a dark curve the grown cells mix between), wax, wick,
-//             grass, leaves, brass, and the window glass's transmittance
+//   MATTER    reflectances: plaster, the floor's and the table's wood, and the
+//             things' matter (brass, wax, wick, cloth, skin), each a light and a
+//             dark curve the grown cells mix between; grass, leaves, and the
+//             window glass's transmittance
 //   DRUNK     how much of the reference daylight each ink channel (and gall)
 //             drinks, per unit absorbance, ×256 with a mean of 256 (fade.js)
 
@@ -60,9 +61,17 @@ const MATTER = {
   floor: { light: curve((l) => 0.1 + 0.45 * rise(l, 590, 55), 0.55), dark: curve((l) => 0.05 + 0.3 * rise(l, 610, 55), 0.45) },
   // walnut table: darker still
   table: { light: curve((l) => 0.06 + 0.26 * rise(l, 615, 60), 0.42), dark: curve((l) => 0.03 + 0.14 * rise(l, 630, 60), 0.32) },
-  wax: curve((l) => 0.68 + 0.14 * rise(l, 470, 25), 0.6), // a cream candle
-  wick: curve(() => 0.05, 0.05),
-  brass: curve((l) => 0.3 + 0.55 * rise(l, 545, 38), 0.92), // the candles' holders: a metal, gold because it drinks the blue
+  // the things (matter-fixes §3): grown like the walls, each between its light and dark
+  // a cream candle; the dark its deeper pours
+  wax: { light: curve((l) => 0.68 + 0.14 * rise(l, 470, 25), 0.6), dark: curve((l) => 0.58 + 0.17 * rise(l, 485, 28), 0.56) },
+  // cotton, charred: grey where the flame has not reached, black where it has
+  wick: { light: curve(() => 0.14, 0.12), dark: curve(() => 0.04, 0.05) },
+  // the candles' holders, the nib: a metal, gold because it drinks the blue; tarnish is darker and browner
+  brass: { light: curve((l) => 0.3 + 0.55 * rise(l, 545, 38), 0.92), dark: curve((l) => 0.12 + 0.3 * rise(l, 575, 42), 0.85) },
+  // the beings' cloth: undyed wool, warm grey; the dark its denser threads
+  cloth: { light: curve((l) => 0.32 + 0.16 * rise(l, 560, 60), 0.5), dark: curve((l) => 0.14 + 0.1 * rise(l, 580, 60), 0.42) },
+  // their head and hands: skin drinks the blue and some green (its blood), lets the red back
+  skin: { light: curve((l) => 0.3 + 0.38 * rise(l, 575, 30), 0.62), dark: curve((l) => 0.18 + 0.3 * rise(l, 595, 30), 0.56) },
   // living matter drinks red and blue: chlorophyll, and the bright near-infrared past the red edge
   grass: curve((l) => 0.04 + 0.09 * bump(l, 550, 32) + 0.4 * rise(l, 715, 10), 0.45),
   leaf: curve((l) => 0.025 + 0.06 * bump(l, 550, 30) + 0.3 * rise(l, 715, 10), 0.35),
@@ -233,9 +242,11 @@ export const MATTER = Object.freeze({
   plaster: ${pair(MATTER.plaster)},
   floor: ${pair(MATTER.floor)},
   table: ${pair(MATTER.table)},
-  wax: ${arr(MATTER.wax)},
-  wick: ${arr(MATTER.wick)},
-  brass: ${arr(MATTER.brass)},
+  wax: ${pair(MATTER.wax)},
+  wick: ${pair(MATTER.wick)},
+  brass: ${pair(MATTER.brass)},
+  cloth: ${pair(MATTER.cloth)},
+  skin: ${pair(MATTER.skin)},
   grass: ${arr(MATTER.grass)},
   leaf: ${arr(MATTER.leaf)},
   glass: ${arr(MATTER.glass)},

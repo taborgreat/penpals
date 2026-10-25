@@ -16,7 +16,7 @@ import { N, curves, surface as grown } from './light/index.js';
 const { CELL_M } = grown;
 
 const KIND = { plaster: grown.PLASTER, floor: grown.PLANKS, table: grown.BOARD };
-const PAIR = { plaster: 'plaster', floor: 'floor', table: 'table' }; // matter → its curve pair
+const PAIR = { plaster: 'plaster', floor: 'floor', table: 'table', brass: 'brass', wax: 'wax', wick: 'wick', cloth: 'cloth', skin: 'skin' }; // matter → its curve pair
 export const seedOf = (surface) => grown.seedMix(grown.DEFAULT_SEEDS[surface.id.startsWith('table') ? 'table' : surface.id] ?? grown.defaultSeed(surface.id));
 
 // Every surface's mesh: vertices at its grid's line crossings (room m), each
@@ -135,11 +135,31 @@ export function spectrumAt(geom, meshes, si, u, v, ambient, out = new Float64Arr
   return out;
 }
 
-// The objects' (and anything else's) ambient: the room's mean over its patches, as A, B for a matter.
-export function meanLight(ambient, n, W, matter) {
-  const E = new Float64Array(N);
-  for (let p = 0; p < n; p++) for (let b = 0; b < N; b++) E[b] += ambient[p * N + b] / n;
-  const { light, dark } = typeof matter === 'object' ? matter : matter === 'brass' ? { light: curves.MATTER.brass, dark: curves.MATTER.brass } : pairOf(matter); // (or a pair of its own: a book's cloth)
+// The room's settled light at a point in it, room m (matter-fixes §4: a thing takes the
+// light where it is, not the room's mean): the k patches nearest it that face it, each by
+// the inverse square of its distance (softened by the patch's own size). → out (N values).
+export function lightAt(geom, ambient, p, out = new Float64Array(N), k = 6) {
+  const near = [];
+  geom.patches.forEach((pa, i) => {
+    const d = [p[0] - pa.center[0], p[1] - pa.center[1], p[2] - pa.center[2]];
+    if (d[0] * pa.normal[0] + d[1] * pa.normal[1] + d[2] * pa.normal[2] < 0) return; // behind it: it does not see p
+    const w = 1 / (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] + pa.area / 4);
+    if (near.length < k || w > near[near.length - 1][0]) {
+      near.push([w, i]);
+      near.sort((a, b) => b[0] - a[0]);
+      if (near.length > k) near.pop();
+    }
+  });
+  out.fill(0);
+  const total = near.reduce((t, [w]) => t + w, 0);
+  for (const [w, i] of near) for (let b = 0; b < N; b++) out[b] += (w / total) * ambient[i * N + b];
+  return out;
+}
+
+// A spectrum of light E on a matter, as the eye's two colours (A: what its light curve
+// reflects; B: what its dark curve adds, a cell of tone t showing A + t·B).
+export function colorsOf(E, W, matter) {
+  const { light, dark } = typeof matter === 'object' ? matter : pairOf(matter); // (or a pair of its own: a book's cloth)
   const A = [0, 0, 0],
     B = [0, 0, 0];
   for (let c = 0; c < 3; c++) {
@@ -150,4 +170,11 @@ export function meanLight(ambient, n, W, matter) {
     }
   }
   return { A, B };
+}
+
+// The room's mean light over its patches, as A, B for a matter (what a thing not yet placed takes).
+export function meanLight(ambient, n, W, matter) {
+  const E = new Float64Array(N);
+  for (let p = 0; p < n; p++) for (let b = 0; b < N; b++) E[b] += ambient[p * N + b] / n;
+  return colorsOf(E, W, matter);
 }
