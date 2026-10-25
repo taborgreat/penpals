@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { httpError } from '../files.js';
-import { findByName, getAccount } from '../store/accounts.js';
+import { findByName } from '../store/accounts.js';
 import { getSkeleton, inkLine } from '../store/books.js';
 import { take, ipKey } from '../limits.js';
 import { sendLook } from './books.js';

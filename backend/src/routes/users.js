@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { requireAuth } from '../auth.js';
 import { allAccounts, findByName } from '../store/accounts.js';
 import { allLetters, at } from '../store/letters.js';
 import { letterJson } from './letters.js';

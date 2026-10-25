@@ -24,5 +24,6 @@ export * as room from './room.js';
 export * as candle from './candle.js';
 export * as world from './world.js';
 export * as outside from './outside.js';
+export * as hands from './hands.js';
 export { T, jcs, b64url, fromB64url, hex, fromHex, concat } from './tags.js';
 export const LAW = Object.freeze({ current: 2, accept: Object.freeze([1, 2]) });

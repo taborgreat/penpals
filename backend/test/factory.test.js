@@ -11,6 +11,7 @@ import { roomsRouter, sharedRouter } from '../src/routes/rooms.js';
 import { socialRouter } from '../src/routes/social.js';
 import { usersRouter } from '../src/routes/users.js';
 import { worldRouter } from '../src/routes/world.js';
+import { outsideRouter } from '../src/routes/outside.js';
 import { signaturesRouter } from '../src/routes/signatures.js';
 import { lawRouter } from '../src/routes/law.js';
 
@@ -25,6 +26,10 @@ const WORLD = {
   'POST /api/shared': ['a shared sheet laid on a table', 'law/room.js: permission by possession'],
   'POST /api/shared/:sheet/acts': ['acts on a shared sheet, sealed by each hand', 'the ink law; the seal press (law/v2/sim.js)'],
   'POST /api/world/acts': ['a house placed or moved', 'law/world.js: the next free plot, in chain order'],
+  'POST /api/outside/acts': [
+    "a being's hands on the outside: a stone taken or put, a branch broken, a stick or a tree carved",
+    'law/hands.js: the wood breaks past its strength, the harder takes the softer, possession',
+  ],
   'POST /api/letters': ['a letter written: its acts, sealed', 'the ink law'],
 };
 // owed: paths that change the world without an act and a rule of the law yet, and what they wait for
@@ -62,6 +67,7 @@ const MOUNTS = [
   ['/api/social', socialRouter],
   ['/api/users', usersRouter],
   ['/api/world', worldRouter],
+  ['/api/outside', outsideRouter],
   ['/api/signatures', signaturesRouter],
   ['/api/law', lawRouter],
 ];

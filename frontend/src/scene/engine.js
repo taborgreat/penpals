@@ -443,7 +443,19 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   skyMesh.visible = false;
   roomGroup.add(skyMesh);
   const outMat = (matter, kind = null) => Object.assign(gpu.objectMaterial(lights, { kind, seed: 0, pair: pairOf(matter), shape: 'box', webgpu: own, open: true }), { matter });
-  const outMats = { ground: outMat('grass'), stone: outMat('stone', grown.PLASTER), wood: outMat('bark', grown.BOARD), leaf: outMat('leaf'), house: outMat('plaster', grown.PLASTER) };
+  const outMats = {
+    ground: outMat('grass'),
+    stone: outMat('stone', grown.PLASTER),
+    chalk: outMat('plaster', grown.PLASTER),
+    ore: outMat('ore', grown.PLASTER),
+    wood: outMat('bark', grown.BOARD),
+    leaf: outMat('leaf'),
+    house: outMat('plaster', grown.PLASTER),
+    mark: outMat('ink'),
+    stick: outMat('table', grown.BOARD),
+    water: outMat('water'),
+    clay: outMat('clay', grown.PLASTER),
+  };
   const outsideGroup = new THREE.Group();
   roomGroup.add(outsideGroup);
   const pebble = new THREE.IcosahedronGeometry(1, 1);
@@ -484,7 +496,17 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       im.frustumCulled = false;
       outsideGroup.add(im);
     };
-    instanced(pebble, outMats.stone, o.stones, (s) => m4.compose(new THREE.Vector3(...s.at), q.identity(), new THREE.Vector3(s.r, s.r, s.r * 0.6)));
+    for (const m of ['stone', 'chalk', 'ore'])
+      instanced(
+        pebble,
+        outMats[m],
+        o.stones.filter((s) => (s.matter ?? 'stone') === m),
+        (s) => m4.compose(new THREE.Vector3(...s.at), q.identity(), new THREE.Vector3(s.r, s.r, s.r * 0.6)),
+      );
+    // the ground's matter: ponds standing level, clay at their edges (a cell each)
+    const flat = new THREE.PlaneGeometry(o.ground.step, o.ground.step);
+    instanced(flat, outMats.water, o.water ?? [], (w) => m4.compose(new THREE.Vector3(w.at[0], w.at[1], w.level), q.identity(), new THREE.Vector3(1, 1, 1)));
+    instanced(flat, outMats.clay, o.clay ?? [], (c) => m4.compose(new THREE.Vector3(c.at[0], c.at[1], c.at[2] + 0.01), q.identity(), new THREE.Vector3(1, 1, 1)));
     const limbs = o.trees.flatMap((t) => t.limbs.filter((l) => l.r > 0));
     instanced(rod, outMats.wood, limbs, (l) => {
       const a = new THREE.Vector3(...l.from),
@@ -494,6 +516,21 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       q.setFromUnitVectors(zUp, along.normalize());
       m4.compose(a.add(b).multiplyScalar(0.5), q, new THREE.Vector3(l.r, l.r, len));
     });
+    // the sticks hands broke off and laid down, their wood as it was carved; the marks cut into trees
+    instanced(
+      rod,
+      outMats.stick,
+      (o.sticks ?? []).flatMap((s) => s.limbs.filter((l) => l.r > 0)),
+      (l) => {
+        const a = new THREE.Vector3(...l.from),
+          b = new THREE.Vector3(...l.to);
+        const along = b.clone().sub(a);
+        const len = Math.max(along.length(), 1e-4);
+        q.setFromUnitVectors(zUp, along.normalize());
+        m4.compose(a.add(b).multiplyScalar(0.5), q, new THREE.Vector3(l.r, l.r, len));
+      },
+    );
+    instanced(box, outMats.mark, o.marks ?? [], (m) => m4.compose(new THREE.Vector3(...m.at), q.identity(), new THREE.Vector3(m.size[1] * 4, m.size[1] * 4, m.size[0])));
     const leaves = o.trees.flatMap((t) => t.leaves);
     instanced(pebble, outMats.leaf, leaves, (l) => {
       const r = Math.sqrt(l.area / Math.PI);

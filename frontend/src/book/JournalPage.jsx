@@ -225,6 +225,7 @@ export default function JournalPage({ page, size, inks, onFollow, lookSrc, scene
           heard={room?.together?.heard ?? null}
           space={room?.space ?? null}
           outside={room?.outside ?? null}
+          hands={room?.hands ?? null}
           focus={room?.together?.focus ?? null}
           hand={room?.hand ?? null}
           writer={room?.paperWriter ?? null}

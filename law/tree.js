@@ -439,8 +439,8 @@ export function limbsOf(T) {
   for (const n of T.nodes) if (n.parent >= 0 && T.nodes[n.parent].branch === n.branch) end.set(n.parent, n.base);
   for (const t of T.tips) if (!end.has(t.node)) end.set(t.node, t.pos);
   return {
-    limbs: T.nodes.map((n) => ({ from: n.base, to: end.get(n.id) ?? n.base, r: radius(n.area), alive: n.alive })),
-    leaves: T.tips.filter((t) => t.alive && t.leaf > 0).map((t) => ({ at: t.pos, area: t.leaf })),
+    limbs: T.nodes.map((n) => ({ from: n.base, to: end.get(n.id) ?? n.base, r: radius(n.area), alive: n.alive, branch: n.branch })),
+    leaves: T.tips.filter((t) => t.alive && t.leaf > 0).map((t) => ({ at: t.pos, area: t.leaf, branch: t.branch })),
   };
 }
 

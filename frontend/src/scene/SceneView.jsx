@@ -17,7 +17,8 @@ import { weatherAt } from 'penpals-law/weather';
 import { thunder } from '../sound/weather.js';
 import { createPane } from './glass.js';
 import { ask, asWeather } from './askWeather.js';
-import { outsideNear, groundOf as outsideGround, inBox } from './outside.js';
+import { outsideNear, groundOf as outsideGround, inBox, frameOf } from './outside.js';
+import { reachOutside } from './reach.js';
 import { AIR } from 'penpals-law/matter';
 import { BAR } from '../sound/music.js';
 import { penHand, recordSounds, dipTap } from '../sound/pen.js';
@@ -69,6 +70,9 @@ import * as WK from './keys.js';
 //   space       whose space this is (its owner's key): the music of its matter is in its key (world.md 3c)
 //   outside     { plot, houses } (law/world.js): where this house stands among the others, so the outside
 //               (outside.md Phase 4) is grown around it when its door or shutters let it in
+//   hands       { facts, act(a), me } (room/hands.js): what hands have done out there, and yours: E takes
+//               up a stone or a stick, pulls at a branch (law/hands.js: it breaks or it holds), sets down
+//               what is in the hand; with a stone in it, rubbing along a stick or a trunk carves it
 //   heard       { on(fn) }: others' strokes as they come, fn({ origin (the sheet's, page px), rec, seed }):
 //               each heard from where it was written (world.md Phase 2). Writers' nib?() (the pen, the
 //               matter it is on, its ink's reservoir and drops thrown) is how your own pen is heard
@@ -158,6 +162,7 @@ const SceneView = forwardRef(function SceneView(
     heard = null,
     space = null,
     outside = null,
+    hands = null,
     focus = null,
     hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
     sheetHand = null,
@@ -868,6 +873,11 @@ const SceneView = forwardRef(function SceneView(
   const opensKey = JSON.stringify(opens);
   S.opensNow = opens; // (as they are now, for the frames: the loop's closures are older)
   S.outsideNow = outside;
+  S.handsNow = hands;
+  useEffect(() => {
+    S.outsideKey = null; // (what hands have done changed: the outside again)
+    loadOutside();
+  }, [hands?.facts?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const o = opens ?? { door: false, shutters: true };
     S.view?.setOpens(o);
@@ -918,13 +928,15 @@ const SceneView = forwardRef(function SceneView(
     const o = S.opensNow ?? { door: false, shutters: true };
     const outside = S.outsideNow;
     const out = S.pose && !inBox(GEOM, S.pose.pos) ? S.pose.pos : null;
-    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in'].join('|') : 'none';
+    const facts = S.handsNow?.facts ?? null;
+    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in', facts?.n ?? 0].join('|') : 'none';
     if (key === S.outsideKey) return;
     S.outsideKey = key;
     const day = Math.floor(worldClock(new Date()).getTime() / 86400000) + 719528;
     setTimeout(() => {
       if (S.outsideKey !== key) return;
-      const spec = outside?.plot ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day }) : null;
+      const spec = outside?.plot ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day, facts }) : null;
+      S.outsideSpec = spec;
       S.view?.setOutside(spec);
       globalThis.__outsideNow = spec && {
         ways: spec.ways,
@@ -938,6 +950,57 @@ const SceneView = forwardRef(function SceneView(
   // (for the checks, e2e/outside.mjs: what is open now, and the opening under the pointer)
   globalThis.__opens = () => ({ opens: carrying?.opens ?? null, under: openingAt(S.lastPointer) });
   globalThis.__eyeNow = () => ({ gaze: gazeOf(), eye: theLight().state.eye });
+  // What the hand reaches outside under the pointer (scene/reach.js): through an open opening, or out there.
+  function outsideHit(e) {
+    if (!e || !S.outsideSpec || !S.outsideWalk || !S.pose) return null;
+    const { origin: o, dir } = roomRay(e);
+    if (inBox(GEOM, S.pose.pos)) {
+      const h = roomHit(GEOM, o, dir);
+      if (h && h.opening === undefined) return null; // (a wall between)
+    }
+    return reachOutside(S.outsideSpec, o, dir, S.outsideWalk.ground);
+  }
+  // what is in this being's hand outside (law/hands.js things: held, by you), or null
+  const heldOutside = () => {
+    const h = S.handsNow;
+    if (!h?.facts || !h.me) return null;
+    for (const [id, t] of h.facts.things) if (t.at === null && t.by === h.me) return id;
+    return null;
+  };
+  const worldMm = (p) =>
+    frameOf(GEOM, S.outsideNow.plot)
+      .toWorld(p)
+      .map((v) => Math.round(v * 1000));
+  const dayNow = () => Math.floor(worldClock(new Date()).getTime() / 86400000) + 719528;
+  // E outside: set down what is in the hand; else take up a stone or a stick, or pull at a branch
+  function handsE(e) {
+    const h = S.handsNow;
+    if (!h?.act) return false;
+    const hit = outsideHit(e);
+    const mine = heldOutside();
+    if (mine) {
+      if (!hit) return false;
+      const on = hit.kind === 'ground' ? hit.at : [hit.at[0], hit.at[1], S.outsideWalk.ground(hit.at[0], hit.at[1])];
+      h.act({ act: 'put', thing: mine, to: worldMm(on) }).catch((err) => console.warn('[hands]', err.message));
+      return true;
+    }
+    if (!hit || hit.kind === 'ground') return false;
+    const a = hit.kind === 'limb' ? { act: 'break', tree: hit.id, branch: hit.branch, day: dayNow() } : { act: 'take', thing: hit.id };
+    if (hit.kind === 'limb' && hit.branch === 0) return false; // (a trunk is not pulled off)
+    h.act(a).catch((err) => console.warn('[hands]', err.message));
+    return true;
+  }
+  globalThis.__hands = {
+    hit: () => outsideHit(S.lastPointer),
+    held: heldOutside,
+    facts: () => S.handsNow?.facts && { things: [...S.handsNow.facts.things], broken: [...S.handsNow.facts.broken], cuts: [...S.handsNow.facts.cuts] },
+    // (for the checks, e2e/hands.mjs: the stones and the thin limbs out there, room m)
+    near: () => ({
+      stones: S.outsideSpec?.stones ?? [],
+      sticks: S.outsideSpec?.sticks ?? [],
+      trees: (S.outsideSpec?.trees ?? []).map((t) => ({ id: t.id, at: t.at, limbs: t.limbs.filter((l) => l.branch !== 0) })),
+    }),
+  };
   // the opening under the pointer: 'door' | 'window' | null (E opens it, or shuts it)
   const openingAt = (e) => {
     if (!e || !carrying?.setOpen) return null;
@@ -1041,6 +1104,15 @@ const SceneView = forwardRef(function SceneView(
       return;
     }
     const leftish = e.button === 0 || e.pointerType === 'pen' || e.pointerType === 'touch';
+    if (S.pose && leftish) {
+      // a stone in the hand, rubbed along a stick or a trunk out there: carving (outside.md Phase 5)
+      const tool = heldOutside();
+      const hit = tool && tool.startsWith('stone:') ? outsideHit(e) : null;
+      if (hit && (hit.kind === 'stick' || (hit.kind === 'limb' && hit.branch === 0))) {
+        S.drag = { kind: 'carve', tool, hit, lo: hit.at, hi: hit.at, last: [e.clientX, e.clientY], dir: 0, strokes: 1 };
+        return;
+      }
+    }
     if (S.pose) {
       // Look: the pen (with a surface to write on) lays ink on what it points at; else drag turns the head
       const at = wallWriter && penMode && leftish && !e.shiftKey && !S.glide ? surfaceAt(e) : null;
@@ -1127,6 +1199,22 @@ const SceneView = forwardRef(function SceneView(
     } else if (d.kind === 'cut') {
       const p = pageOf(e);
       if (p) d.b = [p.x, p.y];
+    } else if (d.kind === 'carve') {
+      // each pass along it a stroke: the drag turned back is the next
+      const dx = e.clientX - d.last[0],
+        dy = e.clientY - d.last[1];
+      if (Math.hypot(dx, dy) > 3) {
+        const dir = Math.abs(dx) > Math.abs(dy) ? Math.sign(dx) : Math.sign(dy) * 2;
+        if (d.dir && dir !== d.dir) d.strokes++;
+        d.dir = dir;
+        d.last = [e.clientX, e.clientY];
+        const hit = outsideHit(e);
+        if (hit && hit.id === d.hit.id) {
+          const z = (p) => (d.hit.kind === 'stick' ? p[0] : p[2]);
+          if (z(hit.at) < z(d.lo)) d.lo = hit.at;
+          if (z(hit.at) > z(d.hi)) d.hi = hit.at;
+        }
+      }
     } else if (d.kind === 'turn' && S.pose) {
       S.pose = roomCamera.turn(S.pose, (e.clientX - d.x) * TURN, -(e.clientY - d.y) * TURN);
       d.x = e.clientX;
@@ -1295,6 +1383,21 @@ const SceneView = forwardRef(function SceneView(
         const p = pageOf(e);
         tableWriter.up(inSheet(d.on, p) ? { x: p.x - d.on.origin[0], y: p.y - d.on.origin[1] } : d.last, e.nativeEvent);
       }
+    } else if (d.kind === 'carve') {
+      const h = S.handsNow;
+      const t = d.hit;
+      let a;
+      if (t.kind === 'stick') {
+        const s = S.outsideSpec?.sticks.find((x) => x.id === t.id);
+        const mm = (p) => Math.max(0, Math.round((p[0] - (s?.at[0] ?? p[0])) * 1000)); // (along it, from its foot)
+        a = { act: 'carve', thing: t.id, tool: d.tool, from: mm(d.lo), to: Math.max(mm(d.lo), mm(d.hi)), strokes: d.strokes };
+      } else {
+        const foot = S.outsideSpec?.trees.find((x) => x.id === t.id)?.at ?? t.at;
+        const up = (p) => Math.max(0, Math.round((p[2] - foot[2]) * 1000));
+        const az = Math.round(((Math.atan2(t.at[0] - foot[0], t.at[1] - foot[1]) * 180) / Math.PI + 360) % 360) % 360;
+        a = { act: 'carve', tree: t.id, tool: d.tool, from: up(d.lo), to: Math.max(up(d.lo), up(d.hi)), az, strokes: d.strokes };
+      }
+      h?.act(a).catch((err) => console.warn('[hands]', err.message));
     } else if (d.kind === 'wall') {
       penHeard('up', wallWriter, d.last, surfaceNib(d.surface, d.last), e.nativeEvent);
       if (e.type === 'pointercancel') wallWriter.cancel();
@@ -1371,6 +1474,7 @@ const SceneView = forwardRef(function SceneView(
         S.eDown = { t: now, tilted: false };
         return;
       }
+      if (handsE(S.lastPointer)) return; // (outside: the hands, outside.md Phase 5)
       const p = S.lastPointer ? pageOf(S.lastPointer) : null; // the point on the page under the pointer
       if (sheetHand?.held) {
         if (onPage(p)) {
@@ -1617,7 +1721,7 @@ const SceneView = forwardRef(function SceneView(
       {world && !steep && (
         <p className="scene-hint quiet">
           {looking
-            ? `W A S D ${walking ? 'walk' : 'fly'} · Space ${walking ? 'jump, twice to fly' : 'rise, twice to fall'} · Shift ${walking ? 'crouch' : 'lower'} · drag to turn your head · scroll to look closer · E picks up, sets down, opens the window, sits at the chair · R rain, G wind for a while · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''}`
+            ? `W A S D ${walking ? 'walk' : 'fly'} · Space ${walking ? 'jump, twice to fly' : 'rise, twice to fall'} · Shift ${walking ? 'crouch' : 'lower'} · drag to turn your head · scroll to look closer · E picks up, sets down, opens the window and the door, pulls at a branch, sits at the chair; a stone in hand, rub to carve · R rain, G wind for a while · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''}`
             : `${penMode ? 'The pen: drag to write · ' : ''}W A S D to stand up · scroll to look closer · E picks up and sets down${canPen ? ` · H ${penMode ? 'sets the pen down' : 'for the pen'}` : ''}`}
         </p>
       )}

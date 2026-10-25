@@ -39,6 +39,7 @@
 //   wetting   { angle, hysteresis } (°): how water stands on its face (a bead's edge, to it) and how much
 //             more the edge must lean before it moves (what pins a bead on a pane until its weight wins)
 //   soot      ppm of what burns that leaves as soot (the grains in its smoke that darken the air)
+//   metal     ‰ of an ore that is metal (what runs out of it, melted)
 //   grains    { size (nm), density (kg/m³), ior, absorbs (×1000: the real and imaginary parts of their
 //             refractive index) }: the solid grains a smoke carries (how they settle, stick and
 //             drink light)
@@ -217,6 +218,17 @@ export const MATTER = Object.freeze({
     light: 'floor',
     ior: 1500,
   }, // where water meets dirt; fired, it is hard
+  ore: {
+    density: 4000,
+    hardness: 5,
+    strength: 12,
+    friction: 650,
+    heat: { holds: 700, conducts: 2500, melts: 1100, boils: null, burns: null, fuses: 300000 },
+    becomes: { melted: 'metal' },
+    metal: 300,
+    light: 'ore',
+    ior: 1800,
+  }, // stone that holds metal (its share ‰): melted, the metal runs out of it
   pottery: {
     density: 1900,
     hardness: 5,
@@ -343,6 +355,7 @@ export const ORDER = Object.freeze([
   'fiber',
   'skin',
   'smoke',
+  'ore',
 ]);
 export const idOf = (name) => {
   const k = ORDER.indexOf(name);

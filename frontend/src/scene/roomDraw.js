@@ -28,8 +28,12 @@ const PAIR = {
   ink: 'ink',
   grass: 'grass',
   leaf: 'leaf',
-  stone: 'plaster',
+  stone: 'stone',
+  chalk: 'plaster',
   bark: 'table',
+  water: 'water',
+  clay: 'clay',
+  ore: 'ore',
 }; // matter → its curve pair
 export const seedOf = (surface) => grown.seedMix(grown.DEFAULT_SEEDS[surface.id.startsWith('table') ? 'table' : surface.id] ?? grown.defaultSeed(surface.id));
 

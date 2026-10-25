@@ -76,6 +76,13 @@ const MATTER = {
   grass: curve((l) => 0.04 + 0.09 * bump(l, 550, 32) + 0.4 * rise(l, 715, 10), 0.45),
   leaf: curve((l) => 0.025 + 0.06 * bump(l, 550, 30) + 0.3 * rise(l, 715, 10), 0.35),
   glass: curve((l) => 0.9 - 0.02 * bump(l, 400, 30) - 0.015 * rise(l, 650, 30), 0.75), // transmittance
+  // the ground's matter (outside.md Phase 6): still water seen from above (its face turns back a little
+  // of every wave; what goes in, its depth drinks, the red most); clay, reddened by its iron; ore, rust
+  // red-brown and dark; plain stone, grey, the dark its weathered faces
+  water: curve((l) => 0.03 + 0.03 * bump(l, 500, 60), 0.02),
+  clay: { light: curve((l) => 0.12 + 0.3 * rise(l, 585, 45), 0.5), dark: curve((l) => 0.07 + 0.2 * rise(l, 600, 45), 0.42) },
+  ore: { light: curve((l) => 0.06 + 0.22 * rise(l, 600, 35), 0.35), dark: curve((l) => 0.04 + 0.12 * rise(l, 610, 35), 0.3) },
+  stone: { light: curve((l) => 0.3 + 0.04 * rise(l, 600, 80), 0.35), dark: curve((l) => 0.16 + 0.03 * rise(l, 600, 80), 0.25) },
 };
 const PAPER_HEAT = 0.72; // paper's reflectance in the heat bin (its visible curve comes from its colour, matter.js)
 const INK_HEAT = 0; // dyes are clear past the red
@@ -254,6 +261,10 @@ export const MATTER = Object.freeze({
   leaf: ${arr(MATTER.leaf)},
   glass: ${arr(MATTER.glass)},
   ink: ${pair(MATTER.ink)},
+  water: ${arr(MATTER.water)},
+  clay: ${pair(MATTER.clay)},
+  ore: ${pair(MATTER.ore)},
+  stone: ${pair(MATTER.stone)},
 });
 export const PAPER_HEAT = ${PAPER_HEAT};
 

@@ -18,6 +18,7 @@ import { createWallInk } from '../room/wallInk.js';
 import { useTogether } from '../room/together.js';
 import { useCarry } from '../room/carry.js';
 import { worldNow } from '../room/world.js';
+import { useHands } from '../room/hands.js';
 import { SHARED_PAGE } from '../room/shared.js';
 import TogetherBar from '../room/TogetherBar.jsx';
 import Panel from '../components/Panel.jsx';
@@ -270,6 +271,9 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   }, [book.key]);
   const plot = houses?.find((h) => h.key === book.key)?.plot ?? null;
   const outside = useMemo(() => (plot ? { plot, houses } : null), [plot?.join(), houses]); // eslint-disable-line react-hooks/exhaustive-deps
+  // what hands have done outside, and yours (outside.md Phase 5)
+  const handsNow = useHands({ key: fromFile ? null : key });
+  const hands = useMemo(() => ({ ...handsNow, me: key?.publicKey ?? null }), [handsNow.facts, handsNow.act, key?.publicKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const together = useTogether({
     name: fromFile ? null : name,
     key,
@@ -308,8 +312,9 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       world,
       space: book.key ?? null, // whose space (world.md 3c: its key, its music)
       outside,
+      hands,
     }),
-    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, sheetHand, world, book.key, outside],
+    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, sheetHand, world, book.key, outside, hands],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
