@@ -31,6 +31,7 @@
 //   flameOf(state) → { fed (0..1), burntS }: what the drawn flame reads (scene/light/candle.js)
 
 import { MATTER, AIR } from './matter.js';
+import { phaseOf } from './heat.js';
 import { COSSIN_Q14 } from './v1/tables.js';
 import { floorDiv, isqrt } from './v1/int.js';
 
@@ -76,16 +77,9 @@ const FOOT = Math.round((CANDLE.flameFoot / DR) * SUB);
 const SECTORS = 36; // (a tilted pool, looked at every 10° about the candle: the law's sine table's whole degrees)
 
 const capOf = (m) => m * C_UG; // nJ / K
-// A cell's heat above the air (mK) and how much of it is liquid (of 65536).
-function stateOf(c) {
-  if (c.m === 0) return [0, 0];
-  const C = capOf(c.m);
-  const Es = floorDiv(C * MELT, 1000);
-  if (c.E <= Es) return [floorDiv(c.E * 1000, C), 0];
-  const Lm = c.m * FUSE;
-  if (c.E <= Es + Lm) return [MELT, floorDiv((c.E - Es) * 65536, Lm)];
-  return [MELT + floorDiv((c.E - Es - Lm) * 1000, C), 65536];
-}
+// A cell's heat above the air (mK) and how much of it is liquid (of 65536): the one rule for
+// heat and phase (law/heat.js phaseOf, one-matter.md Phase 5), applied to wax.
+const stateOf = (c) => phaseOf(WAX, c.m, c.E);
 // the heat a µg of a cell's liquid carries with it (nJ)
 const liquidHeat = (T) => floorDiv(C_UG * Math.max(T, MELT), 1000) + FUSE;
 
