@@ -33,6 +33,7 @@ import { room as RL } from 'penpals-law';
 import * as shine from './light/shine.js';
 import { geomOf, worldOf, cloudOf } from './light.js';
 import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf } from './roomDraw.js';
+import { SIGHT } from './outside.js';
 import { createShadows } from './shadows.js';
 import { createMarks } from './marks.js';
 import { SEED_NAME } from './surfaces.js';
@@ -216,15 +217,17 @@ function theRoom(name = 'room') {
     g.computeBoundingSphere();
     return g;
   });
-  const panes = GEOM.openings.map((o) => {
-    const sf = GEOM.surfaces[o.surface];
-    const [u0, u1, v0, v1] = o.rect;
-    const at = (a, b) => [0, 1, 2].map((k) => sf.origin[k] + sf.u[k] * a + sf.v[k] * b);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute([...at(u0, v0), ...at(u1, v0), ...at(u1, v1), ...at(u0, v1)], 3));
-    g.setIndex([0, 1, 2, 0, 2, 3]);
-    return g;
-  });
+  const panes = GEOM.openings
+    .filter((o) => o.kind !== 'door')
+    .map((o) => {
+      const sf = GEOM.surfaces[o.surface];
+      const [u0, u1, v0, v1] = o.rect;
+      const at = (a, b) => [0, 1, 2].map((k) => sf.origin[k] + sf.u[k] * a + sf.v[k] * b);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute([...at(u0, v0), ...at(u1, v0), ...at(u1, v1), ...at(u0, v1)], 3));
+      g.setIndex([0, 1, 2, 0, 2, 3]);
+      return g;
+    });
   const outside = new THREE.DataTexture(new Uint16Array(OUT_W * OUT_H * 4), OUT_W, OUT_H, THREE.RGBAFormat, THREE.HalfFloatType);
   outside.colorSpace = THREE.NoColorSpace;
   outside.magFilter = outside.minFilter = THREE.LinearFilter;
@@ -413,6 +416,93 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   for (const g of R.panes) roomGroup.add(new THREE.Mesh(g, paneMat));
   const box = new THREE.BoxGeometry(1, 1, 1);
   const disc = new THREE.CylinderGeometry(1, 1, 1, 32).rotateX(Math.PI / 2);
+  // the door and the window's shutters (outside.md Phase 4): wood; open, out of the way (the door swung
+  // out, the shutters folded back: not drawn)
+  const doorMat = Object.assign(gpu.objectMaterial(lights, { kind: grown.BOARD, seed: grown.thingSeed(seedOf('table'), 'door'), pair: pairOf('table'), webgpu: own }), { matter: 'table' });
+  const doorMesh = new THREE.Mesh(box, doorMat);
+  if (GEOM.door) {
+    const d = GEOM.door;
+    doorMesh.scale.set(d.x1 - d.x0, 0.04, d.z1 - d.z0);
+    doorMesh.position.set((d.x0 + d.x1) / 2, 0, (d.z0 + d.z1) / 2);
+    roomGroup.add(doorMesh);
+    shadows.add(doorMesh);
+  }
+  const shutterMat = Object.assign(gpu.objectMaterial(lights, { kind: grown.BOARD, seed: grown.thingSeed(seedOf('table'), 'shutters'), pair: pairOf('table'), webgpu: own }), { matter: 'table' });
+  const shutterMesh = new THREE.Mesh(box, shutterMat);
+  {
+    const w = GEOM.window;
+    shutterMesh.scale.set(w.x1 - w.x0, 0.03, w.z1 - w.z0);
+    shutterMesh.position.set((w.x0 + w.x1) / 2, GEOM.size[1] - 0.03, (w.z0 + w.z1) / 2);
+    shutterMesh.visible = false;
+    roomGroup.add(shutterMesh);
+  }
+  // the outside, when it is seen (scene/outside.js): the sky all round, drawn first behind everything;
+  // the dirt, its stones, its trees (their wood as limbs, their leaves at their tips), the others' houses
+  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(4 * SIGHT, 32, 16), gpu.windowMaterial(R.outside, lights, beadsTex, { sky: true }));
+  skyMesh.renderOrder = -10;
+  skyMesh.visible = false;
+  roomGroup.add(skyMesh);
+  const outMat = (matter, kind = null) => Object.assign(gpu.objectMaterial(lights, { kind, seed: 0, pair: pairOf(matter), shape: 'box', webgpu: own, open: true }), { matter });
+  const outMats = { ground: outMat('grass'), stone: outMat('stone', grown.PLASTER), wood: outMat('bark', grown.BOARD), leaf: outMat('leaf'), house: outMat('plaster', grown.PLASTER) };
+  const outsideGroup = new THREE.Group();
+  roomGroup.add(outsideGroup);
+  const pebble = new THREE.IcosahedronGeometry(1, 1);
+  const rod = new THREE.CylinderGeometry(1, 1, 1, 6).rotateX(Math.PI / 2); // (along z)
+  function placeOutside(o) {
+    for (const c of [...outsideGroup.children]) {
+      outsideGroup.remove(c);
+      if (c.geometry !== pebble && c.geometry !== rod && c.geometry !== box) c.geometry.dispose();
+      c.dispose?.();
+    }
+    skyMesh.visible = !!o;
+    if (!o) return;
+    // the dirt: its heights on a grid
+    const g = o.ground;
+    const pos = new Float32Array(g.nx * g.ny * 3);
+    for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) pos.set([g.x0 + i * g.step, g.y0 + j * g.step, g.z[j * g.nx + i]], 3 * (j * g.nx + i));
+    const idx = [];
+    for (let j = 0; j < g.ny - 1; j++)
+      for (let i = 0; i < g.nx - 1; i++) {
+        const a = j * g.nx + i;
+        idx.push(a, a + 1, a + g.nx + 1, a, a + g.nx + 1, a + g.nx);
+      }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    outsideGroup.add(new THREE.Mesh(geo, outMats.ground));
+    const m4 = new THREE.Matrix4(),
+      q = new THREE.Quaternion(),
+      zUp = new THREE.Vector3(0, 0, 1);
+    const instanced = (geom, mat, list, set) => {
+      if (!list.length) return;
+      const im = new THREE.InstancedMesh(geom, mat, list.length);
+      list.forEach((it, k) => {
+        set(it);
+        im.setMatrixAt(k, m4);
+      });
+      im.frustumCulled = false;
+      outsideGroup.add(im);
+    };
+    instanced(pebble, outMats.stone, o.stones, (s) => m4.compose(new THREE.Vector3(...s.at), q.identity(), new THREE.Vector3(s.r, s.r, s.r * 0.6)));
+    const limbs = o.trees.flatMap((t) => t.limbs.filter((l) => l.r > 0));
+    instanced(rod, outMats.wood, limbs, (l) => {
+      const a = new THREE.Vector3(...l.from),
+        b = new THREE.Vector3(...l.to);
+      const along = b.clone().sub(a);
+      const len = Math.max(along.length(), 1e-4);
+      q.setFromUnitVectors(zUp, along.normalize());
+      m4.compose(a.add(b).multiplyScalar(0.5), q, new THREE.Vector3(l.r, l.r, len));
+    });
+    const leaves = o.trees.flatMap((t) => t.leaves);
+    instanced(pebble, outMats.leaf, leaves, (l) => {
+      const r = Math.sqrt(l.area / Math.PI);
+      m4.compose(new THREE.Vector3(...l.at), q.identity(), new THREE.Vector3(r, r, r * 0.7));
+    });
+    instanced(box, outMats.house, o.houses, (h) =>
+      m4.compose(new THREE.Vector3(h.at[0] + h.size[0] / 2, h.at[1] + h.size[1] / 2, h.at[2] + h.size[2] / 2), q.identity(), new THREE.Vector3(...h.size)),
+    );
+  }
   // the room's things (matter-fixes §3): each its matter grown on its own surface from
   // its own seed (the room's, and its name), so it looks the same to everyone
   const thingSeedOf = (name) => grown.thingSeed(seedOf('table'), name);
@@ -1015,6 +1105,15 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     // The light at this moment (light.js), for a view whose page starts at
     // `origin` in the room (light.js originOf): the sun through the window, each
     // flame where its candle has burnt down to, the room's light at the page, the eye.
+    // the outside as it is seen (scene/outside.js outsideNear: null when nothing is), and the door and the
+    // shutters open or shut
+    setOutside(o) {
+      placeOutside(o);
+    },
+    setOpens({ door = false, shutters = true } = {}) {
+      doorMesh.visible = !door;
+      shutterMesh.visible = !shutters;
+    },
     // the beads on the window (glass.js heights: m, w × h over the window, top row first)
     setBeads(h, w, hh) {
       const d = beadsTex.image.data;
@@ -1042,7 +1141,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lightRoom(l, performance.now(), R);
       marks.light(l.ambient);
       // (what a thing not yet placed takes)
-      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, ...penBodyMats, penMats.tine, jarMat, stamperMats.handle, stamperMats.face]) {
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, ...penBodyMats, penMats.tine, jarMat, stamperMats.handle, stamperMats.face, doorMat, shutterMat]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
         m.ambient.A.set(...A);
         m.ambient.B.set(...B);
@@ -1058,6 +1157,14 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lights.window.value.set(x0, x1, z0, z1);
       lights.wallY.value = W([0, g.size[1], 0])[1];
       gpu.setSpectrum(lights.indirect, l.indirect);
+      // what lies outside takes the sky's light (on a level face: the light's), and the sun straight
+      if (l.sunOut) gpu.setSpectrum(lights.sunOut, l.sunOut);
+      if (l.skyE)
+        for (const m of Object.values(outMats)) {
+          const c = colorsOf(l.skyE, l.W, m.matter);
+          m.ambient.A.set(...c.A);
+          m.ambient.B.set(...c.B);
+        }
       if (l.haze) {
         gpu.setSpectrum(lights.haze, l.haze.ext);
         gpu.setSpectrum(lights.haze, l.haze.sca, 1, gpu.BIN_GROUPS);

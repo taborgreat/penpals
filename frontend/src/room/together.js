@@ -17,7 +17,7 @@
 //     notice, clearNotice, share(family), layOn(view, name), takeBack(view), lift(view), lookAt(view),
 //     useTool('pen'), stamperFor(name), breakSeal(view, n) }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRoom, useRoomLines, seatOf, roomAct } from './presence.js';
+import { useRoom, useRoomLines, useThings, seatOf, roomAct } from './presence.js';
 import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE } from './shared.js';
 import { lyingOn, waxContext } from './table.js';
 import { wax as WX, room as R, candle as C, shared as SH, fromB64url } from 'penpals-law';
@@ -290,11 +290,14 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   // goes. A candle someone lit or put out by hand (one-world.md, its panel: lightCandle) is left as
   // they had it until the sun turns again. (globalThis.__candles, for the e2e: light(which),
   // out(which) by hand, and the clock leaves them be.)
-  const [night, setNight] = useState(() => R.isNight(Date.now()));
+  const [dusk, setNight] = useState(() => R.isNight(Date.now()));
   useEffect(() => {
     const t = setInterval(() => setNight(R.isNight(Date.now())), 60000);
     return () => clearInterval(t);
   }, []);
+  // shut up (the door and the shutters shut: outside.md Phase 4) no daylight comes in: as at night
+  const things = useThings(name);
+  const night = dusk || (!R.openNow(things, 'door') && !R.openNow(things, 'shutters'));
   const tends = body && !!key && !!roomKey && !!me && [me, ...others.map((b) => b.name)].sort()[0] === me;
   const asked = useRef({}); // candle → what was asked of it, until it is so (an act on its way is not sent twice)
   const byOwnHand = useRef({ night, things: new Set() }); // the candles someone tended by hand since the sun last turned

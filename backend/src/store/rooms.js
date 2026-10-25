@@ -165,7 +165,7 @@ export async function act(ownerId, userId, owner, { act: a, seal } = {}) {
   if (a.act === 'set' && (!held || held.at !== null || held.by !== b.name)) return { why: 'Only the one holding a pen sets it.', status: 409 };
   if (a.act === 'light' && r.lit[a.thing]) return { why: 'It is lit already.', status: 409 };
   if (a.act === 'out' && !r.lit[a.thing]) return { why: 'It is out already.', status: 409 };
-  if ((a.act === 'open' || a.act === 'shut') && !!r.things[a.thing]?.open === (a.act === 'open')) return { why: a.act === 'open' ? 'It is open already.' : 'It is shut already.', status: 409 };
+  if ((a.act === 'open' || a.act === 'shut') && R.openNow(r.things, a.thing) === (a.act === 'open')) return { why: a.act === 'open' ? 'It is open already.' : 'It is shut already.', status: 409 };
   r.counted.add(count);
   if (a.act === 'place') r.things[a.thing] = { ...r.things[a.thing], at: a.to === null ? null : metres(a.to), by: b.name };
   if (a.act === 'set') r.things[a.thing] = { ...r.things[a.thing], set: a.set };

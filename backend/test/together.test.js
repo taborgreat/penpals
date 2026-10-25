@@ -343,3 +343,15 @@ test('the window: opened and shut by acts (anyone in the room), told to everyone
   assert.equal((await back.until('here')).data.things.window.open, true, 'still open');
   back.close();
 });
+
+test('the shutters stand open and the door shut until someone does otherwise; each by an act', async () => {
+  const host = await stream(ana, 'ana');
+  await host.until('here');
+  const act = (a, thing) => doIn(ana, ana, roomAct(ana, ana, { act: a, thing }));
+  assert.equal((await act('open', 'shutters')).status, 409, 'open already');
+  assert.equal((await act('shut', 'door')).status, 409, 'shut already');
+  assert.equal((await act('shut', 'shutters')).status, 200);
+  assert.equal((await act('open', 'door')).status, 200);
+  assert.equal((await host.until('thing', (d) => d.thing === 'door')).data.open, true);
+  host.close();
+});

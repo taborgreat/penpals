@@ -122,7 +122,11 @@ export function fly(geom, pose, { forward = 0, right = 0, up = 0 } = {}, dt, { g
 // --- walking ---
 // The highest surface under (x, y) no higher than `limit` (feet height): the
 // floor, a box's top, the paper and the page's heights.
-export function supportAt(geom, x, y, limit, ground = null) {
+export function supportAt(geom, x, y, limit, ground = null, outside = null) {
+  const [W, D] = geom.size;
+  if (outside && (x < 0 || y < 0 || x > W || y > D)) {
+    return outside.ground(x, y); // (out of the house: the outside's dirt, outside.md Phase 4)
+  }
   let s = 0;
   const heights = !!ground && onPage(geom, x, y);
   solids(geom).forEach((b, k) => {
@@ -135,10 +139,21 @@ export function supportAt(geom, x, y, limit, ground = null) {
   return s;
 }
 // Whether something rises in the way of a being standing at (x, y) with its
-// feet at `feet`: a box, the page's heights or the room's walls.
-function blocked(geom, x, y, feet, eyeH, ground) {
+// feet at `feet`: a box, the page's heights or the room's walls. outside ({ door
+// (open or not), ground(x, y) }): the house's door, and the world beyond it
+// (outside.md Phase 4): through the open door's way, out onto the dirt, where
+// only the house's walls stand in the way.
+function blocked(geom, x, y, feet, eyeH, ground, outside = null) {
   const [W, D] = geom.size;
   const r = 0.15 * eyeH;
+  if (outside) {
+    const d = geom.door;
+    const doorway = !!d && outside.door && x >= d.x0 + r && x <= d.x1 - r && y > -r && y < r;
+    if (doorway) return false;
+    const out = x < -r || y < -r || x > W + r || y > D + r;
+    if (out) return outside.ground(x, y) > feet + STEP * eyeH; // (the dirt rises too steeply)
+    if (x < r || y < r || x > W - r || y > D - r) return true; // the walls, from either side
+  }
   if (x < r || y < r || x > W - r || y > D - r) return true;
   const top = feet + STEP * eyeH;
   const heights = !!ground && onPage(geom, x, y);
@@ -147,7 +162,7 @@ function blocked(geom, x, y, feet, eyeH, ground) {
 }
 
 // input: { forward, right } −1..1 along the ground (the head's pitch does not matter).
-export function walk(geom, pose, { forward = 0, right = 0 } = {}, dt, { ground = null } = {}) {
+export function walk(geom, pose, { forward = 0, right = 0 } = {}, dt, { ground = null, outside = null } = {}) {
   const eyeH = EYE * pose.size;
   let feet = pose.pos[2] - eyeH;
   let [x, y] = pose.pos;
@@ -157,10 +172,10 @@ export function walk(geom, pose, { forward = 0, right = 0 } = {}, dt, { ground =
   if (len > 1) d = d.map((v) => v / len);
   if (len > 1e-12) {
     const nx = x + d[0] * WALK * pose.size * dt, ny = y + d[1] * WALK * pose.size * dt;
-    if (!blocked(geom, nx, ny, feet, eyeH, ground)) [x, y] = [nx, ny];
+    if (!blocked(geom, nx, ny, feet, eyeH, ground, outside)) [x, y] = [nx, ny];
   }
   // up a step at once; down by falling
-  const under = supportAt(geom, x, y, feet + STEP * eyeH, ground);
+  const under = supportAt(geom, x, y, feet + STEP * eyeH, ground, outside);
   let vz = pose.vz ?? 0;
   if (under >= feet) {
     feet = under;

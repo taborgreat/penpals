@@ -51,15 +51,17 @@ test('room build: what i sees of j and j of i agree by area (reciprocity), withi
   assert.ok(diff / all < 0.05, `reciprocity off by ${diff / all}`);
 });
 
-test('the room is a few hundred patches; the page is exactly one; the window is 3 × 3 openings', () => {
+test('the room is a few hundred patches; the page is exactly one; the window is 3 × 3 openings, the door 1 × 2', () => {
   assert.ok(n >= 150 && n <= 500, `${n} patches`);
-  assert.equal(m, 9);
+  assert.equal(m, 11);
+  assert.equal(geom.openings.filter((o) => o.kind === 'window').length, 9);
+  assert.equal(geom.openings.filter((o) => o.kind === 'door').length, 2);
   const page = geom.patches.filter((p) => p.kind === 'page');
   assert.equal(page.length, 1);
   assert.equal(geom.patches[geom.page].kind, 'page');
   assert.equal(geom.patches[geom.page].matter, 'paper');
   assert.ok(Math.abs(geom.patches[geom.page].area - ROOM.page.size[0] * ROOM.page.size[1]) < 1e-12);
-  assert.ok(geom.openings.every((o) => o.matter === 'glass'));
+  assert.ok(geom.openings.every((o) => o.matter === (o.kind === 'door' ? 'wood' : 'glass')));
   // the patches cover each surface exactly (holes included)
   for (const [k, s] of geom.surfaces.entries()) {
     const covered = [...geom.patches, ...geom.openings].filter((p) => p.surface === k).reduce((t, p) => t + p.area, 0);

@@ -16,7 +16,21 @@ import { N, curves, surface as grown } from './light/index.js';
 const { CELL_M } = grown;
 
 const KIND = { plaster: grown.PLASTER, floor: grown.PLANKS, table: grown.BOARD };
-const PAIR = { plaster: 'plaster', floor: 'floor', table: 'table', brass: 'brass', wax: 'wax', wick: 'wick', cloth: 'cloth', skin: 'skin', ink: 'ink' }; // matter → its curve pair
+const PAIR = {
+  plaster: 'plaster',
+  floor: 'floor',
+  table: 'table',
+  brass: 'brass',
+  wax: 'wax',
+  wick: 'wick',
+  cloth: 'cloth',
+  skin: 'skin',
+  ink: 'ink',
+  grass: 'grass',
+  leaf: 'leaf',
+  stone: 'plaster',
+  bark: 'table',
+}; // matter → its curve pair
 export const seedOf = (surface) => grown.seedMix(grown.DEFAULT_SEEDS[surface.id.startsWith('table') ? 'table' : surface.id] ?? grown.defaultSeed(surface.id));
 
 // Every surface's mesh: vertices at its grid's line crossings (room m), each
@@ -72,7 +86,10 @@ export function roomMeshes(geom) {
 }
 
 // A matter's light and dark curves (N values each).
-export const pairOf = (matter) => curves.MATTER[PAIR[matter]];
+export const pairOf = (matter) => {
+  const c = curves.MATTER[PAIR[matter]];
+  return c.light ? c : { light: c, dark: c }; // (a matter of one curve: grass, a leaf)
+};
 
 // Each vertex's ambient colours (A, B: linear r, g, b) from the room's
 // ambient light per patch (n × N) and the eye's weights (3 × N): into

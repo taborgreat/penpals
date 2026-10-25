@@ -46,7 +46,7 @@ export function roomAbsorption(room, { page = paperCurve([0xf7, 0xf3, 0xea]), se
 export function daySources(sun) {
   const sunDir = toward(sun.az, sun.el);
   const { through } = deckOf(sun.cloud);
-  return { sunDir, sun: sunLight(sun.el).map((v) => v * through), outside: outsideAt(sunDir, { cloud: sun.cloud ?? 0 }), glass: MATTER.glass };
+  return { sunDir, sun: sunLight(sun.el).map((v) => v * through), outside: outsideAt(sunDir, { cloud: sun.cloud ?? 0 }), glass: MATTER.glass, opens: sun.opens ?? null };
 }
 // A sky of unit radiance every way (outside.js evenSky): what the room settles to under it, scaled
 // for a flash in the clouds.

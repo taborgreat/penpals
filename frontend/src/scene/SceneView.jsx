@@ -17,6 +17,7 @@ import { weatherAt } from 'penpals-law/weather';
 import { thunder } from '../sound/weather.js';
 import { createPane } from './glass.js';
 import { ask, asWeather } from './askWeather.js';
+import { outsideNear, groundOf as outsideGround, inBox } from './outside.js';
 import { AIR } from 'penpals-law/matter';
 import { BAR } from '../sound/music.js';
 import { penHand, recordSounds, dipTap } from '../sound/pen.js';
@@ -66,6 +67,8 @@ import * as WK from './keys.js';
 //               move(p, ev), up(p, ev), cancel() }: writing on shared sheets on the table (rooms.md §6),
 //               p in that sheet's own units
 //   space       whose space this is (its owner's key): the music of its matter is in its key (world.md 3c)
+//   outside     { plot, houses } (law/world.js): where this house stands among the others, so the outside
+//               (outside.md Phase 4) is grown around it when its door or shutters let it in
 //   heard       { on(fn) }: others' strokes as they come, fn({ origin (the sheet's, page px), rec, seed }):
 //               each heard from where it was written (world.md Phase 2). Writers' nib?() (the pen, the
 //               matter it is on, its ink's reservoir and drops thrown) is how your own pen is heard
@@ -154,6 +157,7 @@ const SceneView = forwardRef(function SceneView(
     tableWriter = null,
     heard = null,
     space = null,
+    outside = null,
     focus = null,
     hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
     sheetHand = null,
@@ -257,7 +261,14 @@ const SceneView = forwardRef(function SceneView(
   // What the eye is on in Look: the patch of the room its gaze meets (null: the page).
   function gazeOf() {
     if (!S.pose) return null;
+    if (S.outsideNow?.plot && !inBox(GEOM, S.pose.pos)) return 'outside'; // (out of the house: the field in daylight)
     const h = roomHit(GEOM, S.pose.pos, roomCamera.look(S.pose).forward);
+    if (h?.opening !== undefined) {
+      // looking out through an opening that is open: the outside's light (shut, its wood: the room's)
+      const kind = GEOM.openings[h.opening]?.kind;
+      const o = S.opensNow ?? { door: false, shutters: true };
+      return (kind === 'door' ? o.door : o.shutters !== false) ? 'outside' : null;
+    }
     return h?.patch ?? null;
   }
   // The pose the page camera is in now (turning it into Look keeps the view).
@@ -346,7 +357,7 @@ const SceneView = forwardRef(function SceneView(
         const input = world
           ? WK.inputOf(S.keys, S.pose.mode === 'fly')
           : { forward: (has('forward') ? 1 : 0) - (has('back') ? 1 : 0), right: (has('right') ? 1 : 0) - (has('left') ? 1 : 0), up: (has('up') ? 1 : 0) - (has('down') ? 1 : 0) };
-        if (walking) S.pose = roomCamera.walk(GEOM, S.pose, input, dt, { ground: groundNow() });
+        if (walking) S.pose = roomCamera.walk(GEOM, S.pose, input, dt, { ground: groundNow(), outside: S.outsideWalk ?? null });
         else if (dt > 0) S.pose = roomCamera.fly(GEOM, S.pose, input, dt, { ground: groundNow() });
         S.keyT = now;
         if (S.keys.size) S.moveUntil = now + STILL_MS;
@@ -420,6 +431,7 @@ const SceneView = forwardRef(function SceneView(
       S.beadsShown = false;
     }
     S.paneAt = now;
+    if (S.outsideNow?.plot && S.pose) loadOutside(); // (it follows the being out of the house, and about out there)
     // the resolution: capped; lower while moving and for the flicker alone (full again once still)
     const moving = !!S.anim || now < S.moveUntil || S.drag?.kind === 'orbit' || S.drag?.kind === 'pan' || S.drag?.kind === 'two';
     if (!S.flickerOnly) S.lastFull = now;
@@ -850,6 +862,20 @@ const SceneView = forwardRef(function SceneView(
   // the room the ear is in: its size and faces, the window open or shut (world.md Phase 3)
   useEffect(() => spaceIs(space), [space]);
   const windowOpen = !!carrying?.windowOpen;
+  // the door and the shutters (outside.md Phase 4): drawn shut or out of the way; what lets the outside
+  // in, to the light and to what is grown out there; the being walks out through the open door
+  const opens = carrying?.opens ?? null;
+  const opensKey = JSON.stringify(opens);
+  S.opensNow = opens; // (as they are now, for the frames: the loop's closures are older)
+  S.outsideNow = outside;
+  useEffect(() => {
+    const o = opens ?? { door: false, shutters: true };
+    S.view?.setOpens(o);
+    theLight().setOpens(o);
+    S.outsideWalk = outside?.plot ? { door: !!o.door, ground: outsideGround(GEOM, outside.plot) } : null;
+    S.outsideKey = null;
+    loadOutside();
+  }, [opensKey, outside?.plot?.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     roomIs(acoustics(GEOM, { open: windowOpen }));
     theLight().setWindow(windowOpen); // (the room's air: what it lets out, world.md 3b)
@@ -885,11 +911,39 @@ const SceneView = forwardRef(function SceneView(
       weatherIs(null);
     };
   }, [space, windowOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-  // the window under the pointer (E opens it, or shuts it)
-  const windowAt = (e) => {
-    if (!e || !carrying?.openWindow) return false;
+  // the outside grown around the house as it is seen (scene/outside.js): again as the openings change,
+  // or the being goes out, or far from where it was grown
+  function loadOutside() {
+    if (!S.view) return;
+    const o = S.opensNow ?? { door: false, shutters: true };
+    const outside = S.outsideNow;
+    const out = S.pose && !inBox(GEOM, S.pose.pos) ? S.pose.pos : null;
+    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in'].join('|') : 'none';
+    if (key === S.outsideKey) return;
+    S.outsideKey = key;
+    const day = Math.floor(worldClock(new Date()).getTime() / 86400000) + 719528;
+    setTimeout(() => {
+      if (S.outsideKey !== key) return;
+      const spec = outside?.plot ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day }) : null;
+      S.view?.setOutside(spec);
+      globalThis.__outsideNow = spec && {
+        ways: spec.ways,
+        stones: spec.stones.map((x) => ({ id: x.id, at: x.at })),
+        trees: spec.trees.map((t) => ({ id: t.id, at: t.at })),
+        houses: spec.houses.length,
+      }; // (for the checks: e2e/outside.mjs)
+      schedule();
+    }, 0);
+  }
+  // (for the checks, e2e/outside.mjs: what is open now, and the opening under the pointer)
+  globalThis.__opens = () => ({ opens: carrying?.opens ?? null, under: openingAt(S.lastPointer) });
+  globalThis.__eyeNow = () => ({ gaze: gazeOf(), eye: theLight().state.eye });
+  // the opening under the pointer: 'door' | 'window' | null (E opens it, or shuts it)
+  const openingAt = (e) => {
+    if (!e || !carrying?.setOpen) return null;
     const { origin: o, dir } = roomRay(e);
-    return roomHit(GEOM, o, dir)?.opening !== undefined;
+    const h = roomHit(GEOM, o, dir);
+    return h?.opening === undefined ? null : GEOM.openings[h.opening]?.kind === 'door' ? 'door' : 'window';
   };
   useEffect(
     () =>
@@ -1341,8 +1395,17 @@ const SceneView = forwardRef(function SceneView(
         sheetHand.pick(it.id, p);
         S.view?.liftSheet(it.sheet, [0, 0], HAND_PX);
         schedule();
-      } else if (windowAt(S.lastPointer)) carrying.openWindow(!carrying.windowOpen);
-      else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit
+      } else if (openingAt(S.lastPointer) === 'door') carrying.setOpen('door', !carrying.opens.door);
+      else if (openingAt(S.lastPointer) === 'window') {
+        // the window, round: its sash opened; shut, and its shutters shut; the shutters opened again
+        const { window: sash, shutters } = carrying.opens;
+        if (!shutters) carrying.setOpen('shutters', true);
+        else if (!sash) carrying.setOpen('window', true);
+        else {
+          carrying.setOpen('window', false);
+          carrying.setOpen('shutters', false);
+        }
+      } else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit
       return;
     }
     if (k === 'h' && canPen) {

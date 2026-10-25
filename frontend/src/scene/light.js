@@ -48,6 +48,7 @@ import {
   screenWeights,
   grownCurve,
   deckOf,
+  levelLight,
   N,
 } from './light/index.js';
 
@@ -173,6 +174,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     open: false, // the window (an act: room/carry.js)
     outside: 0, // the outside air's heat, °C above the room's (the weather's: world.md Phase 4)
     weather: null, // law/weather.js weatherAt, now
+    opens: { door: false, shutters: true }, // what lets the outside in (outside.md Phase 4: a shut one is a wall)
     even: null, // the room under an even sky of unit radiance (the solver's; asked once)
   };
   // The room's light in parts (the worker's settle): the day and each flame
@@ -184,7 +186,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     S.asked = key;
     const candles = [0, 1].map((which) => ({ ...(S.candles?.[which] ?? NEW_CANDLE), lit: undefined, which, at: S.candleAt[which] ?? undefined }));
     const cloud = cloudOf(S.weather);
-    settle({ sun: sun.el > -6 ? { az: sun.az, el: sun.el, cloud } : null, present: true, direct: true, even: !S.even, candles }).then(
+    const closed = !S.opens.door && !S.opens.shutters; // (shut up: no daylight comes in)
+    settle({ sun: sun.el > -6 && !closed ? { az: sun.az, el: sun.el, cloud, opens: S.opens } : null, present: true, direct: true, even: !S.even, candles }).then(
       (r) => {
         if (r.even) S.even = r.even;
         if (S.asked !== key) return; // a newer one is coming
@@ -243,6 +246,12 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     get air() {
       return S.air;
     },
+    // What lets the outside in: { door, shutters } (open or shut: the room's acts)
+    setOpens(o) {
+      const was = JSON.stringify(S.opens);
+      S.opens = { door: !!o?.door, shutters: o?.shutters !== false };
+      if (JSON.stringify(S.opens) !== was) for (const fn of S.listeners) fn(); // (the room's light settles anew)
+    },
     // The weather over the room now (law/weather.js weatherAt): its clouds, its strikes
     setWeather(w) {
       const was = cloudOf(S.weather);
@@ -255,10 +264,12 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       const place = override ?? sunAt(date);
       const sun = { az: place.az, el: place.el, dir: toward(place.az, place.el) };
       const { through: beamThrough } = deckOf(cloudOf(S.weather));
-      sun.E = sunLight(place.el).map((v, b) => v * MATTER_GLASS[b] * beamThrough); // through the clouds and the glass, normal to the beam
+      sun.E = sunLight(place.el).map((v, b) => (S.opens.shutters ? v * MATTER_GLASS[b] * beamThrough : 0)); // through the clouds and the glass, normal to the beam (shuttered: none)
+      const level = place.el > -6 ? levelLight(sun.dir, cloudOf(S.weather)) : null;
+      const skyE = level ? level.sky : new Float64Array(N); // (what lies outside takes the sky's light)
       // the candles: lit as the room's acts have them (where no chain says: at night while someone
       // is here); their flames shiver by the hour's clock
-      const dark = candleLit({ sunEl: place.el, present });
+      const dark = candleLit({ sunEl: !S.opens.door && !S.opens.shutters ? -90 : place.el, present }); // (shut up: as at night)
       const clock = date.getTime() / 1000;
       const flames = [0, 1].map((which) => {
         const c = S.candles?.[which] ?? NEW_CANDLE;
@@ -279,6 +290,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       // the room's light at the page, less what comes straight from the sun and the flames (drawn per pixel)
       const lit = flames.some((f) => f.lit);
       const key = [
+        S.opens.door ? 1 : 0,
+        S.opens.shutters ? 1 : 0,
         cloudOf(S.weather),
         Math.round(place.az * 2),
         Math.round(place.el * 2),
@@ -314,8 +327,12 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       // the eye on the page: settled on the room's light the first time it is
       // there (before that, an eye at an ordinary indoor level), then adapting
       let seen = pageLight.map((v, b) => (v * S.page[b]) / Math.PI);
-      const on = gaze !== null && gaze !== S.geom.page && S.parts ? S.geom.patches[gaze] : null;
-      if (on) {
+      const on = gaze !== null && gaze !== 'outside' && gaze !== S.geom.page && S.parts ? S.geom.patches[gaze] : null;
+      if (gaze === 'outside') {
+        // looking out: the daylight itself (the sky's and the sun's on a level face), as a white face gives it
+        // back: as the eye settles on the page indoors (an eye takes the light for white, not the grass)
+        seen = skyE.map((v, b) => (v + (level ? level.beam[b] * Math.max(0, sun.dir[2]) : 0)) / Math.PI);
+      } else if (on) {
         // a surface of the room: all the light it takes, what its matter gives back
         const at = gaze * N;
         const R = grownCurve(on.matter, on.matter === 'plaster' ? 72 : 150);
@@ -343,6 +360,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         sun,
         flames,
         haze,
+        skyE,
+        sunOut: level ? level.beam : new Float64Array(N), // (the sun outside: through the clouds, no glass)
         flash, // (the sky's radiance a strike adds, per bin, or null)
         weather: S.weather,
         indirect,

@@ -158,9 +158,12 @@ export function useCarry({ name, me, key = null, room = null, page, sheets = [],
       penUp() {
         placeThing(penHeld, null);
       },
-      // the window: open or shut (its last open or shut act), and opened or shut
-      windowOpen: !!things.window?.open,
+      // the window (its sash), its shutters and the door: open or shut (their last open or shut acts), and
+      // opened or shut
+      windowOpen: R.openNow(things, 'window'),
       openWindow: (open) => act({ act: open ? 'open' : 'shut', thing: 'window' }),
+      opens: Object.fromEntries(R.OPENINGS.map((t) => [t, R.openNow(things, t)])),
+      setOpen: (thing, open) => act({ act: open ? 'open' : 'shut', thing }),
       down(p) {
         const h = held.current;
         if (!h) return false;

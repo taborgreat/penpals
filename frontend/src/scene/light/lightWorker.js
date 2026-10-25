@@ -47,7 +47,7 @@ export function handle(msg) {
     const direct = {};
     if (msg.direct) {
       const day = msg.sun && msg.sun.el > -6 && (msg.present ?? true) ? daySources(msg.sun) : null;
-      direct.sunDirect = day ? Float32Array.from(directLight(room, { sunDir: day.sunDir, sun: day.sun, glass: day.glass })) : new Float32Array(parts.day.length);
+      direct.sunDirect = day ? Float32Array.from(directLight(room, { sunDir: day.sunDir, sun: day.sun, glass: day.glass, opens: day.opens })) : new Float32Array(parts.day.length);
       direct.flameDirect = flames.map((f) => Float32Array.from(directLight(room, { flames: [f] })));
     }
     return {

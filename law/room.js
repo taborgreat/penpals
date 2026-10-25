@@ -8,7 +8,8 @@
 //            act 'light' | 'out'   thing: a candle
 //            act 'place'           thing, to: [x, y, z] (mm, room: where it rests) | null (held: in by's hand)
 //            act 'tilt'            thing: the candle in by's hand, pos: [x, y, z] (mm: its foot), deg (0..90, toward +x)
-//            act 'open' | 'shut'   thing: the window (world.md Phase 3: what comes in through it)
+//            act 'open' | 'shut'   thing: the window (its sash: world.md Phase 3, what comes in through it),
+//                                  its shutters, or the door (outside.md Phase 4: shut, each is a wall)
 //            act 'set'             thing: a pen, set: its settings (its facts: one-world.md, the panel for the pen
 //                                  in hand): what its nib is set to, its flow and spatter, its ink, and whether it
 //                                  is a dip pen (its line fading until it is dipped in the jar: rooms.md §3c)
@@ -27,7 +28,11 @@ import { sunAt } from './sun.js';
 export const PENS = ['pen', 'pen-flex', 'pen-broad'];
 export const NIB_OF = Object.freeze({ pen: 'pen', 'pen-flex': 'flex', 'pen-broad': 'broad' });
 export const CANDLES = ['candle-0', 'candle-1'];
-export const OPENINGS = ['window'];
+export const OPENINGS = ['window', 'shutters', 'door'];
+// As each is until an act opens or shuts it: the window's sash shut (its glass), its shutters open, the
+// door shut. openNow(things, thing): as the room's acts have it now (things: the backend's fold).
+export const OPEN_AT_FIRST = Object.freeze({ window: false, shutters: true, door: false });
+export const openNow = (things, thing) => things?.[thing]?.open ?? OPEN_AT_FIRST[thing];
 export const THINGS = [...CANDLES, ...PENS, 'jar', 'stamper', ...OPENINGS];
 export const ACTS = ['light', 'out', 'place', 'tilt', 'set', 'open', 'shut'];
 export const TILT_MAX = 90;
@@ -75,7 +80,7 @@ export function checkRoomAct(body) {
   if (body.v !== 2 || body.kind !== 'room' || !isKey(body.room) || !isKey(body.by) || !Number.isInteger(body.k) || body.k < 1) throw bad('a malformed room act');
   if (!THINGS.includes(body.thing)) throw bad('not a thing in a room');
   if ((body.act === 'light' || body.act === 'out' || body.act === 'tilt') && !CANDLES.includes(body.thing)) throw bad('only a candle is lit, put out or tilted');
-  if ((body.act === 'open' || body.act === 'shut') !== OPENINGS.includes(body.thing)) throw bad('only a window is opened or shut, and it is only opened or shut');
+  if ((body.act === 'open' || body.act === 'shut') !== OPENINGS.includes(body.thing)) throw bad('only a window, its shutters or a door is opened or shut, and they are only opened or shut');
   if (body.act === 'place' && body.to !== null && !inRoom(body.to)) throw bad('not a place in the room');
   if (body.act === 'tilt' && (!inRoom(body.pos) || !Number.isInteger(body.deg) || body.deg < 0 || body.deg > TILT_MAX)) throw bad('a malformed tilt');
   if (body.act === 'set') {

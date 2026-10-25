@@ -17,6 +17,7 @@ import { roomSeedsOf } from '../room/seeds.js';
 import { createWallInk } from '../room/wallInk.js';
 import { useTogether } from '../room/together.js';
 import { useCarry } from '../room/carry.js';
+import { worldNow } from '../room/world.js';
 import { SHARED_PAGE } from '../room/shared.js';
 import TogetherBar from '../room/TogetherBar.jsx';
 import Panel from '../components/Panel.jsx';
@@ -256,6 +257,19 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   // the shelf: the owner's own book (their journal), until Tabor rules which others stand there
   const shelf = useMemo(() => ({ books: [{ id: 'journal', color: clothOf(seeds) }], onOpen: () => setReading(true) }), [seeds]);
   // together in this room: who else is here, the shared sheets on its table
+  // where the house stands among the others (law/world.js): the outside is grown around it (outside.md Phase 4)
+  const [houses, setHouses] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    worldNow()
+      .then((w) => alive && setHouses(w.houses ?? []))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [book.key]);
+  const plot = houses?.find((h) => h.key === book.key)?.plot ?? null;
+  const outside = useMemo(() => (plot ? { plot, houses } : null), [plot?.join(), houses]); // eslint-disable-line react-hooks/exhaustive-deps
   const together = useTogether({
     name: fromFile ? null : name,
     key,
@@ -293,8 +307,9 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       sheetHand,
       world,
       space: book.key ?? null, // whose space (world.md 3c: its key, its music)
+      outside,
     }),
-    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, sheetHand, world, book.key],
+    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, sheetHand, world, book.key, outside],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;

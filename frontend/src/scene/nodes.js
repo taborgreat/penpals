@@ -171,6 +171,7 @@ export function lightUniforms(paper, dropPx, maps = null) {
   const L = {
     sunDir: uniform(new THREE.Vector3(0, 0, 1)),
     sunE: spectrumUniform(), // W / m² per bin, normal to the beam, through the glass
+    sunOut: spectrumUniform(), // and outside (through the clouds only): what lies out there takes
     window: uniform(new THREE.Vector4()), // the window's opening (world px): x0, x1, z0, z1
     wallY: uniform(1e9), // and the wall it is in (world y)
     flameI: [spectrumUniform(), spectrumUniform()], // each flame's light now, W / sr per bin
@@ -372,6 +373,7 @@ function lobe(n, V, Ld, m2) {
 function spectral(R, n, open, shade, m2, V, L, band, opts = {}) {
   const p = positionWorld;
   const toEye = cameraPosition.sub(p).toVar();
+  // (outside, opts.open: the sun reaches it as the sky lets it, no window between)
   const dEye = length(toEye).div(L.pxPerM).toVar(); // m
   const along = toEye
     .div(max(length(toEye), 1e-6))
@@ -386,7 +388,7 @@ function spectral(R, n, open, shade, m2, V, L, band, opts = {}) {
       .div(h.mul(4 * Math.PI));
   });
   const Ls = normalize(L.sunDir).toVar();
-  const sunOn = aperture(p, Ls, L)
+  const sunOn = (opts.open ? float(1) : aperture(p, Ls, L))
     .mul(shade.x)
     .mul(opts.slab ? underSlab(p, Ls, 1e9, L) : float(1))
     .toVar();
@@ -430,9 +432,10 @@ function spectral(R, n, open, shade, m2, V, L, band, opts = {}) {
   for (let g = 0; g < BIN_GROUPS; g++) {
     const room = opts.ambient ? vec4(0) : opts.indirect ? opts.indirect[g] : L.indirect.element(g).mul(open);
     // (a metal has nothing beneath its face: all it gives back of a source is its mirror)
-    const direct = L.sunE.element(g).mul(sunCos).add(L.flameI[0].element(g).mul(flames[0].on)).add(L.flameI[1].element(g).mul(flames[1].on));
+    const sunE = opts.open ? L.sunOut : L.sunE;
+    const direct = sunE.element(g).mul(sunCos).add(L.flameI[0].element(g).mul(flames[0].on)).add(L.flameI[1].element(g).mul(flames[1].on));
     const E = metal ? room.add(direct.mul(float(1).sub(metal))) : room.add(direct);
-    const mirror = L.sunE
+    const mirror = sunE
       .element(g)
       .mul(sunSpec)
       .mul(turned(g, sunLobe.graze))
@@ -600,7 +603,7 @@ function cellsOn(shape) {
 // room, its faces as scattered as its grower's (brass: a metal, its glint its colour).
 // Its seed: each mesh's own (userData.seed), else m.seedBase. Its light: the room's
 // where each mesh is (userData.ambient: { A, B }, colours: matter-fixes §4), else m.ambient's.
-export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu }) {
+export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu, open = false }) {
   const m = new MeshBasicNodeMaterial();
   const [light, dark] = pairUniforms(pair);
   m.ambient = { A: new THREE.Vector3(), B: new THREE.Vector3() };
@@ -616,7 +619,7 @@ export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', 
       .mul(float(1).sub(even))
       .toVar();
     const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(toned(light, dark, t), n, float(0), vec3(1), float(K.m2), V, L, null, { ambient: A.add(B.mul(t)), slab: true, f0: K.f0, metal: K.metal });
+    return spectral(toned(light, dark, t), n, float(0), vec3(1), float(K.m2), V, L, null, { ambient: A.add(B.mul(t)), slab: !open, f0: K.f0, metal: K.metal, open });
   })();
   return m;
 }
@@ -629,8 +632,24 @@ export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', 
 // rain falling past (m.rain: how many of the view's columns hold a falling drop, how fast it falls
 // across the view, the clock), and the beads on the glass (m.beads: their water's depth over the
 // window, mm), each a lens turning the view by its slope as water's index does.
-export function windowMaterial(outside, L, beads) {
-  const m = new MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+// sky: the look out drawn all round (the sky about a house whose outside is seen: outside.md Phase 4),
+// no glass, so no beads and no rain streaks on it.
+export function windowMaterial(outside, L, beads, { sky = false } = {}) {
+  const m = new MeshBasicNodeMaterial({ side: sky ? THREE.BackSide : THREE.DoubleSide });
+  if (sky) {
+    m.depthWrite = false;
+    m.colorNode = Fn(() => {
+      const d = normalize(positionWorld.sub(cameraPosition)).toVar();
+      const q = vec2(
+        atan(d.x, d.y)
+          .div(2 * Math.PI)
+          .add(0.5),
+        float(0.5).sub(asin(clamp(d.z, -1, 1)).div(Math.PI)),
+      );
+      return eyeTone(texture(outside, q).rgb);
+    })();
+    return m;
+  }
   m.flash = uniform(new THREE.Vector3());
   m.rain = uniform(new THREE.Vector4());
   const BEND = LAW.water.ior / 1000 - 1; // (water's index, less the air's)

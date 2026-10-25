@@ -60,12 +60,14 @@ function samplesOf(geom, p) {
 //   outside  dir → radiance (N values) seen looking out along dir (the sky above, the ground below), or null
 //   flames   [{ pos: [x, y, z] (m), intensity: W / sr per bin (N values) }]
 //   glass    the window's transmittance (N values; default clear)
-export function directLight(geom, { sunDir = [0, 0, -1], sun = null, outside = null, flames = [], glass = null } = {}) {
+// opens: which openings let the outside in ({ door, shutters }: outside.md Phase 4; a shut one is a wall)
+export function directLight(geom, { sunDir = [0, 0, -1], sun = null, outside = null, flames = [], glass = null, opens = null } = {}) {
   const n = geom.patches.length, m = geom.openings.length;
+  const letsIn = (o) => (o.kind === 'door' ? !!opens?.door : opens?.shutters !== false);
   const E = new Float64Array(n * N);
   const pass = glass ?? new Float64Array(N).fill(1);
   const far = geom.surfaces.findIndex((s) => s.id === 'wall-far');
-  const sunUp = sun && sunDir[2] > 0 && sunDir[1] > 0;
+  const sunUp = sun && sunDir[2] > 0 && sunDir[1] > 0 && opens?.shutters !== false;
   for (let i = 0; i < n; i++) {
     const p = geom.patches[i];
     const nr = p.normal;
@@ -90,7 +92,7 @@ export function directLight(geom, { sunDir = [0, 0, -1], sun = null, outside = n
     if (outside && geom.W) {
       for (let w = 0; w < m; w++) {
         const f = geom.W[i * m + w];
-        if (!(f > 0)) continue;
+        if (!(f > 0) || !letsIn(geom.openings[w])) continue;
         const c = geom.openings[w].center;
         const d = [c[0] - p.center[0], c[1] - p.center[1], c[2] - p.center[2]];
         const len = Math.hypot(...d);

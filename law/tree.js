@@ -432,6 +432,18 @@ export function cutTrunk(facts, h) {
   return { rings, knots };
 }
 
+// Its wood as limbs (what the scene draws): each stem from its foot to where the next on its branch
+// begins (or its tip is), as thick as its pipes; and its leaves, at each living tip (m² of them).
+export function limbsOf(T) {
+  const end = new Map();
+  for (const n of T.nodes) if (n.parent >= 0 && T.nodes[n.parent].branch === n.branch) end.set(n.parent, n.base);
+  for (const t of T.tips) if (!end.has(t.node)) end.set(t.node, t.pos);
+  return {
+    limbs: T.nodes.map((n) => ({ from: n.base, to: end.get(n.id) ?? n.base, r: radius(n.area), alive: n.alive })),
+    leaves: T.tips.filter((t) => t.alive && t.leaf > 0).map((t) => ({ at: t.pos, area: t.leaf })),
+  };
+}
+
 // Its shape now: how tall, how wide (m), its living tips.
 export function shapeOf(T) {
   let top = 0,

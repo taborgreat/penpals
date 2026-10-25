@@ -37,6 +37,7 @@ const freeze = (o) => {
 export const ROOM = freeze({
   size: [3.048, 3.353, 2.438], // across, from the seat's wall to the window's, floor to ceiling
   window: { width: 1.0, sill: 0.9, head: 2.1, split: [3, 3] }, // a thin wall: no reveal
+  door: { x: 0.35, width: 0.9, height: 2.03, split: [1, 2] }, // in the wall behind the seat, on its left (outside.md Phase 4)
   table: { width: 1.4, depth: 0.75, top: 0.74, thick: 0.04, gap: 0.02 }, // gap: from the far wall
   page: { size: [0.2159, 0.2794], fromNear: 0.1 }, // letter; its near edge from the table's near edge
   candles: [[-0.35, 0.45], [1.35, 0.45]], // light.js candlesAt: fractions of the page's width and height
@@ -71,6 +72,7 @@ export function roomGeometry(spec = ROOM) {
   const [W, D, H] = spec.size;
   const cx = W / 2;
   const win = { x0: cx - spec.window.width / 2, x1: cx + spec.window.width / 2, z0: spec.window.sill, z1: spec.window.head };
+  const door = spec.door ? { x0: spec.door.x, x1: spec.door.x + spec.door.width, z0: 0, z1: spec.door.height } : null;
   const t = spec.table;
   const tb = { x0: cx - t.width / 2, x1: cx + t.width / 2, y1: D - t.gap, y0: D - t.gap - t.depth, top: t.top, bottom: t.top - t.thick };
   const [pw, ph] = spec.page.size;
@@ -82,7 +84,7 @@ export function roomGeometry(spec = ROOM) {
   const surfaces = [
     S('floor', 'floor', 'floor', [0, 0, 0], Y, X, [D, W], Z), // the boards run the room's length
     S('ceiling', 'ceiling', 'plaster', [0, 0, H], X, Y, [W, D], neg(Z)),
-    S('wall-near', 'wall', 'plaster', [0, 0, 0], X, Z, [W, H], Y),
+    S('wall-near', 'wall', 'plaster', [0, 0, 0], X, Z, [W, H], Y, door ? [[door.x0, door.x1, door.z0, door.z1, 'door', spec.door.split]] : []),
     S('wall-far', 'wall', 'plaster', [0, D, 0], X, Z, [W, H], neg(Y), [[win.x0, win.x1, win.z0, win.z1, 'window', spec.window.split]]),
     S('wall-left', 'wall', 'plaster', [0, 0, 0], Y, Z, [D, H], X),
     S('wall-right', 'wall', 'plaster', [W, 0, 0], Y, Z, [D, H], neg(X)),
@@ -113,9 +115,9 @@ export function roomGeometry(spec = ROOM) {
           normal: s.normal,
           area: (rect[1] - rect[0]) * (rect[3] - rect[2]),
           kind: hole ? hole[4] : s.kind,
-          matter: hole ? (hole[4] === 'window' ? 'glass' : 'paper') : s.matter,
+          matter: hole ? (hole[4] === 'window' ? 'glass' : hole[4] === 'door' ? 'wood' : 'paper') : s.matter,
         };
-        if (hole?.[4] === 'window') {
+        if (hole?.[4] === 'window' || hole?.[4] === 'door') {
           cells.push(-1 - openings.length);
           openings.push(p);
         } else if (hole?.[4] === 'page') {
@@ -139,7 +141,7 @@ export function roomGeometry(spec = ROOM) {
     const [x, y] = pageToRoom([fx * PAGE_PX_W, fy * pageH, 0], pageOrigin);
     return [x, y, tb.top]; // standing on the table, beside the paper
   });
-  return { units: 'm', size: [W, D, H], window: win, table: tb, pageRect: pg, pageOrigin, pxPerM: PX_PER_M, surfaces: out, patches, openings, page, candles, objects: objectsOf(spec, win, tb, candles) };
+  return { units: 'm', size: [W, D, H], window: win, door, table: tb, pageRect: pg, pageOrigin, pxPerM: PX_PER_M, surfaces: out, patches, openings, page, candles, objects: objectsOf(spec, win, tb, candles) };
 }
 
 // The room's things that the light's geometry leaves out (too small to matter

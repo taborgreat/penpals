@@ -63,6 +63,15 @@ export function deckOf(cloud = 0) {
   return { through, glow: Math.max(0, 1 - cloud - through) };
 }
 
+// The sky's light on a level face outside (W/m² per bin, the deck's leave), and the sun's beam.
+export function levelLight(sunDir, cloud = 0) {
+  const deck = deckOf(cloud);
+  const clearSky = skyIrradiance([0, 0, 1], sunDir);
+  const clearBeam = sunLight(elevationOf(sunDir));
+  const top = clearSky.map((v, i) => v + clearBeam[i] * Math.max(0, sunDir[2]));
+  return { sky: clearSky.map((v, i) => v * deck.through + top[i] * deck.glow), beam: clearBeam.map((v) => v * deck.through) };
+}
+
 export function outsideAt(sunDir, { seed = TREES_SEED, cloud = 0 } = {}) {
   const el = elevationOf(sunDir);
   const deck = deckOf(cloud);

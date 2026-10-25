@@ -141,7 +141,7 @@ export function useRoom(name, { seat = 0 } = {}) {
         setLines(name, () => d.lines ?? []);
         setBeings(new Map(d.beings.map((b) => [b.name, { name: b.name, from: b.pose, to: b.pose, t0: performance.now() }])));
       });
-      on('thing', (d) => setThings(name, (t) => ({ ...t, [d.thing]: { at: d.at, by: d.by, set: d.set } })));
+      on('thing', ({ thing, ...now }) => setThings(name, (t) => ({ ...t, [thing]: now }))); // (all the room says of it: where, whose, its settings, open or shut)
       on('room', (l) => setLines(name, (ls) => (ls.some((x) => x.n === l.n) ? ls : [...ls, l].sort((a, b) => a.n - b.n))));
       on('being', (d) => {
         if (d.kind === 'leave')
