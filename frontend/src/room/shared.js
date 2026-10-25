@@ -214,4 +214,10 @@ export async function shareSheet(key, family) {
 export async function moveSheet(key, view, toKey, k = Math.max(0, ...view.lines.filter((l) => l.act.by === key.publicKey).map((l) => l.act.k)) + 1) {
   return api.post(`/api/shared/${view.sheet}/acts`, SH.makeSharedAct({ sk: key.sk, pk: key.pk, sheet: view.sheet, k, act: 'move', to: toKey }));
 }
+// The mail (one-world.md; law/shared.js): post your sheet into someone's mailbox (by their key), or take the
+// oldest letter out of yours (it then lies on your table). k: your next count on that sheet.
+const nextK = (key, view) => Math.max(0, ...view.lines.filter((l) => l.act.by === key.publicKey).map((l) => l.act.k)) + 1;
+export const postSheet = (key, view, toKey, k = nextK(key, view)) =>
+  api.post(`/api/shared/${view.sheet}/acts`, SH.makeSharedAct({ sk: key.sk, pk: key.pk, sheet: view.sheet, k, act: 'post', to: toKey }));
+export const takeSheet = (key, view, k = nextK(key, view)) => api.post(`/api/shared/${view.sheet}/acts`, SH.makeSharedAct({ sk: key.sk, pk: key.pk, sheet: view.sheet, k, act: 'take' }));
 export const keyOfName = async (name) => (await api.get(`/api/users/${encodeURIComponent(name)}`)).user?.publicKey ?? null;

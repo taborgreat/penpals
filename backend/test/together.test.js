@@ -142,6 +142,29 @@ test('possession: an act on a sheet not on your table is rejected; laid on it, y
   assert.ok(v.results.some((r) => r.kind === 'shared-sheet' && r.regrown === true));
 });
 
+test("the mail (one-world.md): a sheet posted into someone's mailbox raises its flag; only they take letters out, the oldest first, onto their table", async () => {
+  const sheets = [K.newSheetId(), K.newSheetId()];
+  for (const sheet of sheets) assert.equal((await ana.c.post('/api/shared', SH.makeSharedSheet({ sk: ana.sk, pk: ana.pk, sheet, family: FAMILY }))).status, 201);
+  const flag = async () => (await cy.c.get(`/api/shared/mailbox/${b64url(bo.pk)}`)).data.letters;
+  assert.equal(await flag(), 0, 'an empty mailbox');
+  assert.equal((await post(bo, sheets[0], act(bo, sheets[0], 'post', { to: b64url(cy.pk) }))).status, 403, 'only its owner sends a sheet');
+  for (const sheet of sheets) assert.equal((await post(ana, sheet, act(ana, sheet, 'post', { to: b64url(bo.pk) }))).status, 201);
+  assert.equal(await flag(), 2, 'two letters wait: anyone passing sees its flag up');
+  assert.equal((await post(ana, sheets[0], act(ana, sheets[0], 'stroke', { stroke: strokeAt(20, [200, 30, 30]) }))).status, 403, 'in the mailbox: no one writes on it');
+  assert.deepEqual(
+    (await bo.c.get('/api/shared/mailbox')).data.sheets.map((v) => v.sheet),
+    sheets,
+    'in the order they came',
+  );
+  assert.equal((await post(cy, sheets[0], act(cy, sheets[0], 'take', {}))).status, 403, "not cy's mailbox");
+  assert.equal((await post(bo, sheets[1], act(bo, sheets[1], 'take', {}))).status, 409, 'the oldest comes out first');
+  assert.equal((await post(bo, sheets[0], act(bo, sheets[0], 'take', {}))).status, 201, 'bo takes the oldest out');
+  assert.equal(await flag(), 1);
+  assert.equal((await ana.c.get(`/api/shared/${sheets[0]}`)).data.on, 'bo', 'it lies on his table now');
+  assert.equal((await post(bo, sheets[0], act(bo, sheets[0], 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 201, 'and he writes on it');
+  assert.equal((await bo.c.get('/api/shared/mailbox')).data.sheets[0].sheet, sheets[1], 'the next one waits');
+});
+
 test('writing together: a sheet laid on your table arrives in your room; each act reaches everyone there as stamped', async () => {
   const sheet = K.newSheetId();
   assert.equal((await ana.c.post('/api/shared', SH.makeSharedSheet({ sk: ana.sk, pk: ana.pk, sheet, family: FAMILY }))).status, 201);

@@ -521,6 +521,11 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           <p className="meta">Tap E to set it down where the pointer is.</p>
         </Panel>
       )}
+      {world && panel === 'letter' && (
+        <Panel title="A letter in your hand">
+          <p className="meta">Take it to someone's mailbox, by their door, and tap E there to post it. In your house, E sets it down on your table.</p>
+        </Panel>
+      )}
       {world && panel === 'pen' && (
         <Panel title="The pen in your hand">
           <PenPanel pen={pen}>

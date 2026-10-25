@@ -11,6 +11,8 @@
 //     beingsAt); galls (only where a gall bug laid): [{ tree, tip, laid, at, r }]; hives: [{ tree, at, r }] (its comb, as
 //     big as its wax); nests: [{ tree, at, r, eggs: [{ at, r }] }]; feathers: [{ id, at, length, az }] (fallen, or set down);
 //     dead: [{ at, r, matter }] (lying where they fell, at the instant `ms`)
+//     mailboxes: [{ key, at, letters }] (one-world.md: one by each house's door, its own and the others'; letters:
+//     how many wait in it, `letters` Map(key → n): its flag up)
 //     water: [{ at, level }] (a ground cell's middle, its pond's surface, room m); clay: [{ at }] (Phase 6)
 //     facts: what hands have done out there (law/hands.js state): stones taken or set down elsewhere,
 //     branches broken off (gone from their trees, with all that grew from them), sticks lying where
@@ -24,6 +26,9 @@ import { limbsOf } from 'penpals-law/tree';
 
 export const SIGHT = 40; // m the outside is grown out to around what sees it (Tabor's to set)
 export const GROUND_STEP = 1; // m between the ground's drawn heights (a drawing's grain)
+// A house's mailbox (one-world.md): where it stands from the house's corner (m: beside its door, a step out
+// from the wall the door is in), how big its box is and how high on its post. Tabor's to set.
+export const MAILBOX = Object.freeze({ at: [2, -1.2], box: [0.25, 0.4, 0.25], post: 1.0 });
 
 export function frameOf(geom, plot) {
   const [W, D] = geom.size;
@@ -42,7 +47,7 @@ export function loadedFrom(opens, inside = true) {
   return ways.door || ways.window ? ways : null;
 }
 
-export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms = (day - 719528) * 86400000, facts = null }) {
+export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms = (day - 719528) * 86400000, facts = null, letters = null }) {
   const ways = loadedFrom(opens, !at || inBox(geom, at));
   if (!ways) return null;
   const F = frameOf(geom, plot);
@@ -191,6 +196,15 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms
     dead: dead.filter((x) => seen(x.at)),
     life,
     houses: others.map((h) => ({ key: h.key, at: F.toRoom([...WORLD.centreOf(h.plot), O.groundAt(...WORLD.centreOf(h.plot))]), size: geom.size })).filter((h) => seen(h.at)),
+    // a mailbox by each house's door (its own, and the others': each house's corner the same way from its middle)
+    mailboxes: [...houses]
+      .map((h) => {
+        const c = F.toRoom([...WORLD.centreOf(h.plot), 0]);
+        const p = [c[0] - geom.size[0] / 2 + MAILBOX.at[0], c[1] - geom.size[1] / 2 + MAILBOX.at[1]];
+        const [wx, wy] = F.toWorld(p);
+        return { key: h.key, at: [p[0], p[1], O.groundAt(wx, wy) - F.floor], letters: letters?.get(h.key) ?? 0 };
+      })
+      .filter((m) => seen(m.at) && Math.hypot(m.at[0] - centre[0], m.at[1] - centre[1]) <= SIGHT),
   };
 }
 

@@ -15,10 +15,13 @@
 //     (its sheet's slot), rec (decoded), seed }) }, candles (law/wax.js createRoomWax: candle(which) →
 //     { cd, lit, holder, pos, deg }, as far as at()), mine (your shared sheets, wherever they lie), tool,
 //     notice, clearNotice, share(family), layOn(view, name), takeBack(view), lift(view), lookAt(view),
-//     useTool('pen'), stamperFor(name), breakSeal(view, n) }
+//     useTool('pen'), stamperFor(name), breakSeal(view, n), and the mail (one-world.md): letter (the sheet
+//     in your hand, to post: your own, off the table while you hold it), hold(sheet), letGo(), post(key)
+//     (into the mailbox of that key), take() (the oldest out of yours: on your table, in your hand),
+//     letters(keys) → Map(key → how many wait in each mailbox) }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, useRoomLines, useThings, seatOf, roomAct } from './presence.js';
-import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE } from './shared.js';
+import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, postSheet, takeSheet, keyOfName, SHARED_PAGE } from './shared.js';
 import { lyingOn, waxContext } from './table.js';
 import { wax as WX, room as R, candle as C, shared as SH, fromB64url } from 'penpals-law';
 import { lawOf } from 'penpals-law/laws';
@@ -93,6 +96,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   const active = useRef(null); // the writer the pen is on
   const [notice, setNotice] = useState(null);
   const [mine, setMine] = useState([]);
+  const [letter, setLetter] = useState(null); // the sheet in your hand to post (one-world.md: the mail)
   const [focus, setFocus] = useState(null);
   const [tool, setTool] = useState('pen'); // 'pen' | { seal: { name, key, w, h, face } }
   const toolRef = useRef(tool);
@@ -181,20 +185,22 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   const guesses = useRef(new Map()); // sheet → { writer, field, live }
   const sceneSheets = useMemo(
     () =>
-      placed.map((p) => {
-        const w = writers.get(p.view.sheet);
-        let live;
-        if (w) {
-          const g = guesses.current.get(p.view.sheet);
-          if (g?.writer === w && g.field === p.field) live = g.live;
-          else {
-            live = guessOver(w.live, p.field);
-            guesses.current.set(p.view.sheet, { writer: w, field: p.field, live });
+      placed
+        .filter((p) => p.view.sheet !== letter) // (the letter in your hand is not on the table)
+        .map((p) => {
+          const w = writers.get(p.view.sheet);
+          let live;
+          if (w) {
+            const g = guesses.current.get(p.view.sheet);
+            if (g?.writer === w && g.field === p.field) live = g.live;
+            else {
+              live = guessOver(w.live, p.field);
+              guesses.current.set(p.view.sheet, { writer: w, field: p.field, live });
+            }
           }
-        }
-        return { ...sceneSheetOf(p.view.sheet, p.slot), field: p.field ?? undefined, live };
-      }),
-    [placed, writers],
+          return { ...sceneSheetOf(p.view.sheet, p.slot), field: p.field ?? undefined, live };
+        }),
+    [placed, writers, letter],
   );
   const writable = placed.filter((p) => p.mayWrite);
   const rects = writable.map((p) => `${p.view.sheet}@${p.slot.join()}`).join('|');
@@ -277,6 +283,34 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       if (!w || !at) return fail(new Error('Only its owner breaks a seal.'));
       return w.breakSeal(n, at);
     },
+    // the mail: a sheet of yours taken up off the table, carried to a mailbox and posted; the oldest letter
+    // taken out of your own (it lies on your table, and is in your hand until you set it down)
+    hold: (sheet) => setLetter(sheet),
+    letGo: () => setLetter(null),
+    async post(toKey) {
+      const view = mine.find((v) => v.sheet === letter);
+      if (!view) return fail(new Error('That letter is not yours to send.'));
+      return postSheet(key, view, toKey, kFor(view)).then(() => {
+        setLetter(null);
+        refreshMine();
+      }, fail);
+    },
+    async take() {
+      const [view] = (await api.get('/api/shared/mailbox').catch(fail))?.sheets ?? [];
+      if (!view) return fail(new Error('Your mailbox is empty.'));
+      return takeSheet(key, view).then(() => setLetter(view.sheet), fail);
+    },
+    letters: async (keys) =>
+      new Map(
+        await Promise.all(
+          keys.map((k) =>
+            api.get(`/api/shared/mailbox/${k}`).then(
+              (r) => [k, r.letters],
+              () => [k, 0],
+            ),
+          ),
+        ),
+      ),
     lookAt(view) {
       const p = placed.find((x) => x.view.sheet === view.sheet);
       if (p) setFocus((f) => ({ at: [p.slot[0] + SHARED_PAGE.width / 2, p.slot[1] + SHARED_PAGE.height / 2], size: SHARED_PAGE.width, n: (f?.n ?? 0) + 1 }));
@@ -337,7 +371,12 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     };
   }, [name, body, key, roomKey]);
 
-  const scene = useMemo(() => ({ sheets: sceneSheets, tableWriter, beings: others, onPose: report, focus, heard }), [sceneSheets, tableWriter, others, report, focus, heard]);
+  // the mail, for the scene: the letter in your hand, and what E does at a mailbox (scene/SceneView.jsx)
+  const mail = useMemo(
+    () => ({ letter, mine: mine.map((v) => v.sheet), hold: actions.hold, letGo: actions.letGo, post: actions.post, take: actions.take, letters: actions.letters }),
+    [letter, mine, key],
+  );
+  const scene = useMemo(() => ({ sheets: sceneSheets, tableWriter, beings: others, onPose: report, focus, heard, mail }), [sceneSheets, tableWriter, others, report, focus, heard, mail]);
   return {
     others,
     report,
@@ -352,6 +391,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     candles,
     sheets: placed,
     mine,
+    letter,
     notice,
     clearNotice: () => setNotice(null),
     tool,

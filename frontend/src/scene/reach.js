@@ -1,7 +1,9 @@
 // What a hand reaches for outside (outside.md Phase 5): the nearest thing the pointer's ray meets, out
 // of the outside as it is drawn (scene/outside.js outsideNear), within an arm's reach of the head.
-//   reachOutside(spec, origin, dir, ground, { reach }) → { kind: 'stone' | 'stick' | 'made' | 'gall' | 'hive' | 'feather' |
+//   reachOutside(spec, origin, dir, ground, { reach }) → { kind: 'stone' | 'stick' | 'made' | 'gall' | 'hive' | 'feather' | 'mailbox' |
 //     'limb' | 'ground', id, tree?, branch?, tip?, laid?, at (room m: where the ray meets it), t (m along the ray), limb? } | null
+import { MAILBOX } from './outside.js';
+
 export const ARM = 1.8; // m a hand reaches from the head: down to the ground at the feet, a being bending (Tabor's to set)
 export const DOWN = 3; // m to the ground a thing is set down on (at the feet, or a step off)
 
@@ -57,6 +59,10 @@ export function reachOutside(spec, o, d, ground, { reach = ARM } = {}) {
   for (const h of spec.hives ?? []) {
     const t = ball(o, d, h.at, Math.max(h.r, 0.03));
     if (t) take({ kind: 'hive', id: h.tree, at: along(o, d, t), t });
+  }
+  for (const m of spec.mailboxes ?? []) {
+    const t = ball(o, d, [m.at[0], m.at[1], m.at[2] + MAILBOX.post + MAILBOX.box[2] / 2], Math.max(...MAILBOX.box) / 2 + 0.05);
+    if (t) take({ kind: 'mailbox', id: m.key, key: m.key, at: along(o, d, t), t });
   }
   for (const f of spec.feathers ?? []) {
     const t = ball(o, d, f.at, f.length / 2);

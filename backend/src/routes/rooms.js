@@ -4,7 +4,7 @@ import { httpError } from '../files.js';
 import { findByName, findByKey, getAccount } from '../store/accounts.js';
 import { canSeeProfile } from '../social.js';
 import { join, part, move, beingsIn, act } from '../store/rooms.js';
-import { createShared, stamp, sheetOf, onTable, viewOf, onShared, ownedBy } from '../store/shared.js';
+import { createShared, stamp, sheetOf, onTable, viewOf, onShared, ownedBy, mailboxOf, isKey } from '../store/shared.js';
 import { being as B } from 'penpals-law';
 
 // Rooms and writing together (rooms.md §4, §5, §6).
@@ -105,6 +105,16 @@ sharedRouter.post('/', requireAuth, json, async (req, res) => {
 
 sharedRouter.get('/mine', requireAuth, (req, res) => {
   res.json({ sheets: ownedBy(req.user.id).map(viewOf) });
+});
+
+// Your mailbox (one-world.md): the letters in it, the oldest first (the one your next take brings out).
+sharedRouter.get('/mailbox', requireAuth, (req, res) => {
+  res.json({ sheets: mailboxOf(req.user.publicKey).map(viewOf) });
+});
+// Anyone's mailbox, as it is seen at their door: how many letters wait in it (its flag up, or down).
+sharedRouter.get('/mailbox/:key', (req, res) => {
+  if (!isKey(req.params.key)) throw httpError(400, 'bad_key', 'A mailbox is named by its key.');
+  res.json({ letters: mailboxOf(req.params.key).length });
 });
 
 sharedRouter.get('/:sheet', (req, res) => {

@@ -8,6 +8,8 @@
 //            act 'stroke'  stroke: b64url(PNKA of one stroke, in the sheet's own frame)
 //            act 'lift'    lift: n   (lift my stroke: rooms.md §6, undo on a shared sheet)
 //            act 'move'    to: b64url(pk)   (the owner lays the sheet on someone's table: §5)
+//            act 'post'    to: b64url(pk)   (the owner puts the sheet in someone's mailbox: one-world.md, a letter)
+//            act 'take'                     (the mailbox's owner takes it out: it lies on their table)
 //            act 'press'   press: { x, y, depth, angle, tiltX, tiltY, cell, w, h, face, for }   the owner
 //                          presses the stamper, set to someone's seal (face: b64url relief, for: their key)
 //            act 'break'   break: { seal: n, from: [x, y], to: [x, y] }   the owner breaks the seal pressed at n
@@ -19,7 +21,10 @@
 // anyone else only while the sheet lies on their table (the last move before
 // their act put it there), or while it lies on the owner's table and their seal
 // is pressed into wax on it, took, and is unbroken (§5). Whether a press took is
-// the law's: the sheet grown to that act (law 3: soft enough, deep enough).
+// the law's: the sheet grown to that act (law 3: soft enough, deep enough). A sheet
+// in a mailbox lies on no table: no one writes on it, nor moves it, until the
+// mailbox's owner takes it out (which of their letters comes out first, the oldest
+// delivered, is the stamper's: it knows every sheet in that mailbox).
 //
 // The law of a shared sheet: its strokes and its wax, in the stamper's order, are
 // one record grown by law 3, so inks mix across writers where both are wet. Each
@@ -48,7 +53,7 @@ import { lawOf } from './laws.js';
 
 export const SHARED_LAW = 3; // the law a shared sheet's record grows under (wax: rooms.md §3b)
 export const LIFT_WINDOW = 8; // a writer's last strokes that can still be lifted (Tabor's to set)
-export const ACTS = ['stroke', 'lift', 'move', 'press', 'break'];
+export const ACTS = ['stroke', 'lift', 'move', 'press', 'break', 'post', 'take'];
 
 const sign = (sk, msg) => ed25519.sign(msg, sk);
 const bad = (msg) => Object.assign(new Error(msg), { code: 'bad_shared', status: 400 });
@@ -70,7 +75,7 @@ export function makeSharedAct({ sk, pk, sheet, k, act, stroke = null, lift = nul
   const body = { v: 2, kind: 'shared', sheet, by: b64url(pk), k, act };
   if (act === 'stroke') body.stroke = b64url(stroke);
   if (act === 'lift') body.lift = lift;
-  if (act === 'move') body.to = to;
+  if (act === 'move' || act === 'post') body.to = to;
   if (act === 'press') body.press = { ...press, face: typeof press.face === 'string' ? press.face : b64url(press.face) };
   if (act === 'break') body.break = { seal: broke.seal, from: [...broke.from], to: [...broke.to] };
   checkSharedAct(body);
@@ -87,6 +92,8 @@ export function checkSharedAct(body) {
     stroke: 'act,by,k,kind,sheet,stroke,v',
     lift: 'act,by,k,kind,lift,sheet,v',
     move: 'act,by,k,kind,sheet,to,v',
+    post: 'act,by,k,kind,sheet,to,v',
+    take: 'act,by,k,kind,sheet,v',
     press: 'act,by,k,kind,press,sheet,v',
     break: 'act,break,by,k,kind,sheet,v',
   }[body.act];
@@ -98,6 +105,7 @@ export function checkSharedAct(body) {
   }
   if (body.act === 'lift' && (!Number.isInteger(body.lift) || body.lift < 1)) throw bad('a lift names a stroke by its place');
   if (body.act === 'move' && !isKey(body.to)) throw bad('a move names a table by its key');
+  if (body.act === 'post' && !isKey(body.to)) throw bad('a letter names its mailbox by its key');
   if (body.act === 'press' || body.act === 'break') checkWax(body);
   return body;
 }
@@ -135,23 +143,27 @@ export function checkBirth(birth, { seal, open }) {
 export const verifyActSeal = (act, seal) => verify(fromB64url(seal, 64), sealMsg(sharedDigest(act)), fromB64url(act.by, 32));
 
 // Who may do what, read from the chain: a state the stamper keeps and a
-// verifier replays. state: { owner, table, strokes: [{ n, by, lifted }], k: { [by]: last k },
+// verifier replays. state: { owner, table (null: in a mailbox), box (whose mailbox it is in, or null),
+// strokes: [{ n, by, lifted }], k: { [by]: last k },
 // seals: [{ n, for, took, broken }], lines (so far: a press is grown to see if it took) }.
 // ctx: { seed, family } (checkBirth), and drips (the drips that landed on it: wax.js
 // dripsOn; null: not known here, so whether a press took is not known either): without
 // ctx no press can take.
-export const startState = (owner, ctx = null) => ({ owner, table: owner, strokes: [], k: {}, seals: [], lines: [], ctx });
+export const startState = (owner, ctx = null) => ({ owner, table: owner, box: null, strokes: [], k: {}, seals: [], lines: [], ctx });
 
 // May `by` write here now: the owner; the one whose table it lies on; anyone whose
-// seal took and is unbroken, while it lies on the owner's table.
-export const mayWrite = (state, by) => by === state.owner || by === state.table || (state.table === state.owner && state.seals.some((x) => x.for === by && x.took !== false && !x.broken));
+// seal took and is unbroken, while it lies on the owner's table. In a mailbox: no one.
+export const mayWrite = (state, by) =>
+  !state.box && (by === state.owner || by === state.table || (state.table === state.owner && state.seals.some((x) => x.for === by && x.took !== false && !x.broken)));
 // (allowed only by a seal whose wax is not known here: unverified)
 const bySealUnknown = (state, by) => by !== state.owner && by !== state.table && !state.seals.some((x) => x.for === by && x.took === true && !x.broken);
 
 // Would this act be allowed as the next one? → null, or why not.
 export function refusal(state, act) {
   if ((state.k[act.by] ?? 0) >= act.k) return 'that act was stamped already';
-  if (act.act === 'move') return act.by === state.owner ? null : 'only the owner moves the sheet';
+  if (act.act === 'take') return state.box === act.by ? null : 'it is not in your mailbox';
+  if (state.box) return 'it is in a mailbox';
+  if (act.act === 'move' || act.act === 'post') return act.by === state.owner ? null : act.act === 'post' ? 'only its owner sends a sheet' : 'only the owner moves the sheet';
   if (act.act === 'press' || act.act === 'break') {
     if (act.by !== state.owner) return 'only the owner presses or breaks a seal';
     if (act.act === 'break' && !state.seals.some((x) => x.n === act.break.seal && !x.broken)) return 'there is no such seal to break';
@@ -176,6 +188,8 @@ export function apply(state, line) {
   const { n, act } = line;
   const next = { ...state, strokes: state.strokes, k: { ...state.k, [act.by]: act.k }, lines: [...state.lines, line] };
   if (act.act === 'move') next.table = act.to;
+  if (act.act === 'post') [next.table, next.box] = [null, act.to];
+  if (act.act === 'take') [next.table, next.box] = [act.by, null];
   if (act.act === 'stroke') next.strokes = [...state.strokes, { n, by: act.by, lifted: false }];
   if (act.act === 'lift') next.strokes = state.strokes.map((s) => (s.n === act.lift ? { ...s, lifted: true } : s));
   if (act.act === 'press') {

@@ -18,6 +18,7 @@ import { thunder } from '../sound/weather.js';
 import { createPane } from './glass.js';
 import { ask, asWeather } from './askWeather.js';
 import { outsideNear, groundOf as outsideGround, inBox, frameOf, seenFrom } from './outside.js';
+import { SHARED_PAGE } from '../room/table.js';
 import { reachOutside } from './reach.js';
 import { AIR, BEINGS, MATTER } from 'penpals-law/matter';
 import { dayOf, sunAt as sunToward } from 'penpals-law/sun';
@@ -163,6 +164,7 @@ const SceneView = forwardRef(function SceneView(
     onPose = null,
     tableWriter = null,
     heard = null,
+    mail = null, // the mail (one-world.md; room/together.js): the letter in your hand, and the mailboxes
     space = null,
     outside = null,
     hands = null,
@@ -255,7 +257,8 @@ const SceneView = forwardRef(function SceneView(
   const headNow = () => (S.pose ? WK.headOf(S.pose, crouched()) : null);
   const eyeNow = () => WK.eyeOf(headNow(), world ? S.zoom : null);
   // The world: where the being is and what it holds, told to the room when it changes (the panel follows it: room/panel.js).
-  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.kind ?? (sheetHand?.held ? 'sheet' : null), pen: penMode };
+  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.kind ?? (sheetHand?.held ? 'sheet' : mail?.letter ? 'letter' : null), pen: penMode };
+  S.mailNow = mail;
   function tellPlace() {
     const b = S.beingIn;
     if (!b.world || !b.onBeing) return;
@@ -979,12 +982,14 @@ const SceneView = forwardRef(function SceneView(
     const out = S.pose && !inBox(GEOM, S.pose.pos) ? S.pose.pos : null;
     const facts = S.handsNow?.facts ?? null;
     const day = Math.floor(worldClock(new Date()).getTime() / 86400000) + 719528;
-    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in', facts?.n ?? 0, day].join('|') : 'none';
+    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in', facts?.n ?? 0, day, S.mailN ?? 0].join('|') : 'none';
     if (key === S.outsideKey) return;
     S.outsideKey = key;
-    setTimeout(() => {
+    // how many letters wait in each house's mailbox (its flag), read before the outside is folded
+    const asked = outside?.plot && S.mailNow ? S.mailNow.letters((outside.houses ?? []).map((h) => h.key)).catch(() => null) : Promise.resolve(null);
+    asked.then((letters) => {
       if (S.outsideKey !== key) return;
-      const spec = outside?.plot ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day, ms: worldClock(new Date()).getTime(), facts }) : null;
+      const spec = outside?.plot ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day, ms: worldClock(new Date()).getTime(), facts, letters }) : null;
       S.outsideSpec = spec;
       S.view?.setOutside(spec);
       globalThis.__outsideNow = spec && {
@@ -994,7 +999,7 @@ const SceneView = forwardRef(function SceneView(
         houses: spec.houses.length,
       }; // (for the checks: e2e/outside.mjs)
       schedule();
-    }, 0);
+    });
   }
   // (for the checks, e2e/outside.mjs: what is open now, and the opening under the pointer)
   globalThis.__opens = () => ({ opens: carrying?.opens ?? null, under: openingAt(S.lastPointer) });
@@ -1032,6 +1037,16 @@ const SceneView = forwardRef(function SceneView(
     const all = heldAll();
     const mine = all.length >= 2 || (down && all.length) ? all.at(-1) : null;
     const act = (a) => h.act(a).catch((err) => console.warn('[hands]', err.message));
+    if (hit?.kind === 'mailbox' && S.mailNow) {
+      const m = S.mailNow;
+      const done = () => {
+        S.mailN = (S.mailN ?? 0) + 1; // (its flag read again)
+        loadOutside();
+      };
+      if (m.letter) m.post(hit.key).then(done);
+      else if (hit.key === h.me) m.take().then(done);
+      return true;
+    }
     if (!mine && hit?.kind === 'ground') {
       act({ act: 'gather', at: worldMm(hit.at).slice(0, 2) });
       return true;
@@ -1127,8 +1142,17 @@ const SceneView = forwardRef(function SceneView(
       nests: S.outsideSpec?.nests ?? [],
       feathers: S.outsideSpec?.feathers ?? [],
       dead: S.outsideSpec?.dead ?? [],
+      mailboxes: S.outsideSpec?.mailboxes ?? [],
       trees: (S.outsideSpec?.trees ?? []).map((t) => ({ id: t.id, at: t.at, limbs: t.limbs.filter((l) => l.branch !== 0) })),
     }),
+  };
+  // (for the checks, e2e/mail.mjs: the letter in the hand, and where the shared sheets lie on the table, room m)
+  globalThis.__mail = {
+    letter: () => S.mailNow?.letter ?? null,
+    sheets: () =>
+      (sheets ?? [])
+        .filter((x) => x.id?.startsWith('shared:'))
+        .map((x) => ({ sheet: x.id.slice('shared:'.length), at: pageToRoom([x.origin[0] + SHARED_PAGE.width / 2, x.origin[1] + SHARED_PAGE.height / 2, 0], origin()) })),
   };
   // the opening under the pointer: 'door' | 'window' | null (E opens it, or shuts it)
   const openingAt = (e) => {
@@ -1601,6 +1625,12 @@ const SceneView = forwardRef(function SceneView(
       }
       if (handsE(S.lastPointer, e.shiftKey)) return; // (outside: the hands, outside.md Phase 5)
       const p = S.lastPointer ? pageOf(S.lastPointer) : null; // the point on the page under the pointer
+      if (mail?.letter && inBox(GEOM, S.pose?.pos ?? [0, 0]) && !openingAt(S.lastPointer)) return mail.letGo(); // (the letter set down on its table again)
+      const letter =
+        p && mail && !sheetHand?.held
+          ? sheets.find((s) => s.id?.startsWith('shared:') && p.x >= s.origin[0] && p.y >= s.origin[1] && p.x <= s.origin[0] + SHARED_PAGE.width && p.y <= s.origin[1] + SHARED_PAGE.height)
+          : null;
+      if (letter && mail.mine?.includes(letter.id.slice('shared:'.length))) return mail.hold(letter.id.slice('shared:'.length)); // (yours: taken up, to post)
       if (sheetHand?.held) {
         if (onPage(p)) {
           const it = sheetHand.items.find((x) => x.id === sheetHand.held);

@@ -248,3 +248,20 @@ test('one copy: a sheet lies on exactly one table at a time, and only its owner 
   assert.deepEqual(tables, [bo.id, bo.id, cy.id, cy.id, ana.id], 'one table each moment: only the owner moved it');
   assert.deepEqual(replay(ana.id, s.lines).problems, []);
 });
+
+test("a letter (one-world.md): its owner posts it into someone's mailbox; there no one writes on it or moves it, until that one takes it out onto their table", () => {
+  const s = stamper(ana.id);
+  assert.equal(s.act(ana, 'stroke', 1000, { stroke: strokeBytes([20, 20], [60, 20], RED) }), null, 'written at home');
+  assert.match(s.act(bo, 'post', 1500, { to: cy.id }), /only its owner sends/);
+  assert.equal(s.act(ana, 'post', 2000, { to: bo.id }), null, "into bo's mailbox");
+  assert.match(s.act(ana, 'stroke', 2100, { stroke: strokeBytes([20, 30], [60, 30], RED) }), /in a mailbox/, 'in the mailbox: not even its owner writes on it');
+  assert.match(s.act(ana, 'move', 2200, { to: ana.id }), /in a mailbox/, 'nor takes it back out of their mailbox');
+  assert.match(s.act(ana, 'post', 2250, { to: cy.id }), /in a mailbox/, 'nor sends it on');
+  assert.match(s.act(cy, 'take', 2300), /not in your mailbox/, "it is not cy's to take");
+  assert.equal(s.act(bo, 'take', 3000), null, 'bo takes it out');
+  assert.equal(s.act(bo, 'stroke', 3100, { stroke: strokeBytes([20, 40], [60, 40], BLUE) }), null, 'on their table now: they write on it');
+  assert.match(s.act(bo, 'take', 3200), /not in your mailbox/, 'once');
+  const v = replay(ana.id, s.lines);
+  assert.deepEqual(v.problems, []);
+  assert.deepEqual([v.state.table, v.state.box], [bo.id, null]);
+});

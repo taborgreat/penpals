@@ -14,8 +14,10 @@
 // In the owner's ink.chain (store/books.js):
 //   { id, made, share: { birth, seal, open } }        a shared sheet, born open
 //   { id, made, shared: <sheet>, n, at, act, seal }    a stamped act
-// The index here (which table each sheet lies on, every sheet's lines and the
-// replayed state) is rebuilt from the chains at start; nothing else is kept.
+// The index here (which table each sheet lies on, which mailbox each letter is in and
+// in what order they came, every sheet's lines and the replayed state) is rebuilt
+// from the chains at start; nothing else is kept. A letter (one-world.md) is a shared
+// sheet its owner posted into someone's mailbox; that one takes them out oldest first.
 
 import { httpError } from '../files.js';
 import { getAccount, findByName, findByKey, usersDir } from './accounts.js';
@@ -28,9 +30,11 @@ import { dripsOnSheet } from './wax.js';
 
 const sheets = new Map(); // sheet → { sheet, ownerId, owner (key), birth, seal, open, born (ms), lines, state }
 const tables = new Map(); // key (b64url) → Set(sheet): the shared sheets lying on that person's table
+const boxes = new Map(); // key (b64url) → [sheet]: the letters in that person's mailbox, in the order they came
 const listeners = new Set(); // (event) => void: { kind: 'shared', sheet, line, table } | { kind: 'table', key, sheet, on }
 
 const lieOn = (key, sheet, on) => {
+  if (!key) return; // (in a mailbox: on no table)
   let set = tables.get(key);
   if (!set) tables.set(key, (set = new Set()));
   if (on) set.add(sheet);
@@ -55,12 +59,21 @@ function remember(ownerId, line) {
     const s = sheets.get(line.shared);
     if (!s) return;
     const stamped = { n: line.n, at: line.at, act: line.act, seal: line.seal };
-    const before = s.state.table;
+    const before = s.state.table,
+      was = s.state.box;
     s.state = SH.apply(s.state, stamped);
     s.lines.push(stamped);
     if (s.state.table !== before) {
       lieOn(before, s.sheet, false);
       lieOn(s.state.table, s.sheet, true);
+    }
+    if (s.state.box !== was) {
+      if (was)
+        boxes.set(
+          was,
+          (boxes.get(was) ?? []).filter((x) => x !== s.sheet),
+        );
+      if (s.state.box) boxes.set(s.state.box, [...(boxes.get(s.state.box) ?? []), s.sheet]);
     }
   }
 }
@@ -70,6 +83,7 @@ function remember(ownerId, line) {
 export async function loadShared() {
   sheets.clear();
   tables.clear();
+  boxes.clear();
   const acts = []; // [ownerId, line]: the stamped acts, once every sheet is known
   for (const id of await listDirs(usersDir)) {
     if (!getAccount(id)) continue;
@@ -90,6 +104,8 @@ export async function loadShared() {
 export const sheetOf = (sheet) => sheets.get(sheet) ?? null;
 export const onTable = (key) => [...(tables.get(key) ?? [])].map((s) => sheets.get(s)).filter(Boolean);
 export const ownedBy = (userId) => [...sheets.values()].filter((s) => s.ownerId === userId);
+// The letters in a person's mailbox (by key), the oldest first.
+export const mailboxOf = (key) => (boxes.get(key) ?? []).map((s) => sheets.get(s)).filter(Boolean);
 // A sheet as anyone in its room sees it (`on`: whose table it lies on, by name).
 export const viewOf = (s) => ({
   sheet: s.sheet,
@@ -101,6 +117,7 @@ export const viewOf = (s) => ({
   lines: s.lines,
   table: s.state.table,
   on: findByKey(s.state.table)?.username ?? null,
+  box: s.state.box, // (in whose mailbox it is, if it is a letter not yet taken out)
   names: namesIn(s), // who the keys in it are: its writers, and whom its seals are for
 });
 const namesIn = (s) =>
@@ -146,6 +163,8 @@ export async function stamp(userId, { act, seal }) {
   return serialSheet(s.sheet, async () => {
     const why = SH.refusal(s.state, act);
     if (why) throw httpError(403, 'not_yours', why === 'the sheet is not on your table' ? 'That sheet is not on your table.' : why);
+    if (act.act === 'take' && mailboxOf(act.by)[0]?.sheet !== s.sheet) throw httpError(409, 'not_oldest', 'The oldest letter comes out first.');
+    if (act.act === 'post' && !findByKey(act.to)) throw httpError(404, 'no_mailbox', 'No one has that mailbox.');
     // a press: did it take? the sheet grown with the wax that had landed on it by now
     if (act.act === 'press') s.state.ctx.drips = await dripsOnSheet(s);
     const line = { n: s.lines.length + 1, at: Math.max(0, Date.now() - s.born), act, seal };
@@ -165,6 +184,7 @@ export async function stamp(userId, { act, seal }) {
         [before, false],
         [s.state.table, true],
       ]) {
+        if (!key) continue; // (in a mailbox: on no table)
         const holder = findByKey(key);
         if (holder) await lay(holder.id, s.sheet, on);
         tell({ kind: 'table', key, sheet: s.sheet, on });

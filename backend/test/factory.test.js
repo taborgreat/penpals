@@ -24,7 +24,10 @@ const WORLD = {
   'POST /api/rooms/:name/motion': ["a being's move", 'law/beings.js: the neck law, at most so many a second'],
   'POST /api/rooms/:name/act': ['an act on a thing in the room: light, out, pick up, tilt, set down', 'law/room.js: the candle law (law/candle.js), possession'],
   'POST /api/shared': ['a shared sheet laid on a table', 'law/room.js: permission by possession'],
-  'POST /api/shared/:sheet/acts': ['acts on a shared sheet, sealed by each hand', 'the ink law; the seal press (law/v2/sim.js)'],
+  'POST /api/shared/:sheet/acts': [
+    "acts on a shared sheet, sealed by each hand: strokes, lifts, moves, seals pressed and broken; a letter posted into someone's mailbox, taken out by them",
+    'the ink law; the seal press (law/v2/sim.js); permission by possession, the mailbox oldest first (law/shared.js)',
+  ],
   'POST /api/world/acts': ['a house placed or moved', 'law/world.js: the next free plot, in chain order'],
   'POST /api/outside/acts': [
     "a being's hands on the outside: a stone taken or put, a branch broken, a stick or a tree carved; gathered, twisted, struck, bound, swung, rubbed, formed, fired, picked, crushed, mixed, melted, poured, dipped",

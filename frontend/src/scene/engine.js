@@ -33,7 +33,7 @@ import { room as RL } from 'penpals-law';
 import * as shine from './light/shine.js';
 import { geomOf, worldOf, cloudOf } from './light.js';
 import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf } from './roomDraw.js';
-import { SIGHT } from './outside.js';
+import { SIGHT, MAILBOX } from './outside.js';
 import { createShadows } from './shadows.js';
 import { createMarks } from './marks.js';
 import { SEED_NAME } from './surfaces.js';
@@ -591,6 +591,15 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     );
     instanced(box, outMats.feather, o.feathers ?? [], (f) =>
       m4.compose(new THREE.Vector3(f.at[0], f.at[1], f.at[2] + 0.002), q.setFromAxisAngle(zUp, f.az), new THREE.Vector3(f.length, f.length / 8, 0.002)),
+    );
+    // the mailboxes (one-world.md): a box on a post by each door, its flag up while letters wait in it
+    const mb = o.mailboxes ?? [];
+    instanced(rod, outMats.stick, mb, (m) => m4.compose(new THREE.Vector3(m.at[0], m.at[1], m.at[2] + MAILBOX.post / 2), q.identity(), new THREE.Vector3(0.03, 0.03, MAILBOX.post)));
+    instanced(box, outMats.stick, mb, (m) => m4.compose(new THREE.Vector3(m.at[0], m.at[1], m.at[2] + MAILBOX.post + MAILBOX.box[2] / 2), q.identity(), new THREE.Vector3(...MAILBOX.box)));
+    instanced(box, outMats.metal, mb, (m) =>
+      m.letters > 0
+        ? m4.compose(new THREE.Vector3(m.at[0] + MAILBOX.box[0] / 2 + 0.01, m.at[1], m.at[2] + MAILBOX.post + MAILBOX.box[2] + 0.06), q.identity(), new THREE.Vector3(0.01, 0.05, 0.14))
+        : m4.compose(new THREE.Vector3(m.at[0] + MAILBOX.box[0] / 2 + 0.01, m.at[1] + 0.06, m.at[2] + MAILBOX.post + MAILBOX.box[2] / 2), q.identity(), new THREE.Vector3(0.01, 0.14, 0.05)),
     );
     // the dead lying where they fell, each a ball of what it is seen to be made of
     for (const m of ['chitin', 'feather'])
