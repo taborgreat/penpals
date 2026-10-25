@@ -74,3 +74,32 @@ export function isTiltAct(last, lastAt, next, now) {
   const moved = Math.hypot(...next.pos.map((v, k) => v - last.pos[k]));
   return moved > STEP_M || Math.abs(next.deg - last.deg) >= TILT_STEP || (next.deg === 0) !== (last.deg === 0);
 }
+
+// Light is the clock for aging (rooms.md §1b): a room is lit only while a being is in it (the sun
+// through its window by day, its candles by night); empty, day or night, it is a tomb and its ink
+// rests. → the ms of [from, to] during which at least one being was in the room, read from its
+// chain's comings and goings ({ at, by, kind: 'enter' | 'leave' }, in order; other lines pass by).
+// Someone still in it at `to` is lit to `to`.
+export function litMs(lines, from, to) {
+  const here = new Set();
+  let since = null;
+  let sum = 0;
+  const add = (a, b) => {
+    const lo = Math.max(a, from),
+      hi = Math.min(b, to);
+    if (hi > lo) sum += hi - lo;
+  };
+  for (const l of lines) {
+    if (l.kind !== 'enter' && l.kind !== 'leave') continue;
+    const t = Date.parse(l.at);
+    if (l.kind === 'enter') {
+      if (!here.size) since = t;
+      here.add(l.by);
+    } else if (here.delete(l.by) && !here.size) {
+      add(since, t);
+      since = null;
+    }
+  }
+  if (here.size) add(since, to);
+  return sum;
+}

@@ -1,4 +1,5 @@
-// Law v2 on the server: looks age (oak gall darkens) and fade (exposure) at
+// Law v2 on the server: looks age (oak gall darkens, by the light its house has
+// had: rooms.md §1b, lit only while a being is in it) and fade (exposure) at
 // view time only, a view counts once per viewer per day, nothing runs or is
 // written for a sheet nobody looks at, side and relief views are the writer's
 // (or anyone's once the sheet is open), and law 1 ink still lands and looks
@@ -50,8 +51,13 @@ const userDirOf = (name) => {
   );
 };
 
-test('oak gall darkens with age at view time; the record and its facts never change', async () => {
+// Someone came into a house (or left it) at `ms`: a line of its room's chain, as the stamper writes it.
+let roomN = 0;
+const goes = (name, by, kind, ms) => fs.appendFileSync(path.join(userDirOf(name), 'room.chain'), `${JSON.stringify({ n: ++roomN, at: new Date(ms).toISOString(), by, kind })}\n`);
+
+test('oak gall darkens with the light its house has had, at view time; the record and its facts never change', async () => {
   app.setClockOffset(0);
+  goes('ana', 'ana', 'enter', Date.now() - 60000); // ana is home (and stays): her house is lit all along
   const res = await writeInk(app.ana, ana, { acts: fixtureV2Bytes('gallLine').bytes });
   assert.equal(res.status, 201, JSON.stringify(res.data));
   assert.equal(res.ink.line.ink.law, 2, 'new writing is law 2');
@@ -85,6 +91,21 @@ test('oak gall darkens with age at view time; the record and its facts never cha
   assert.equal(later.png, month.png, 'and the look with it');
   const chainAfter = (await app.ana.get('/api/books/ana/ink')).data.toString('utf8');
   assert.equal(chainAfter, chainBefore, 'the chain (and its facts) is the same at every age');
+});
+
+test('light is the clock: in a house nobody is in, oak gall rests; it darkens only while someone is there', async () => {
+  app.setClockOffset(0);
+  const res = await writeInk(app.bo, bo, { acts: fixtureV2Bytes('gallLine').bytes });
+  const id = res.data.ink;
+  // bo comes home on day 31, for a day, and leaves again
+  goes('bo', 'bo', 'enter', Date.now() + 31 * DAY);
+  goes('bo', 'bo', 'leave', Date.now() + 32 * DAY);
+  const look = async (days) => {
+    app.setClockOffset(days * DAY);
+    return (await app.bo.get(`/api/books/bo/look/${id}`)).headers.get('etag');
+  };
+  assert.match(await look(30), /.L2-a0-/, 'a month in an empty house: a tomb, unchanged');
+  assert.match(await look(40), /.L2-a24-/, 'one day lit: one day of darkening');
 });
 
 test('ink without gall does not age; views count once per viewer per day and fade it in steps', async () => {

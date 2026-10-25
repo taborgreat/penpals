@@ -127,3 +127,20 @@ test('a room act: sealed by its being, a candle in the room, whole millimetres a
   assert.ok(R.isTiltAct(last, 0, { pos: [1, 0.5, 0.9], deg: 0 }, 1000), 'upright again');
   assert.ok(!R.isTiltAct(last, 0, { pos: [1, 0.5, 0.9], deg: 40 }, 100), 'too soon');
 });
+
+test('light is the clock for aging: lit only while a being is in the room; empty, a tomb', () => {
+  const H = 3600000;
+  const ms = (h) => Date.UTC(2026, 9, 1) + h * H;
+  const at = (h) => new Date(ms(h)).toISOString();
+  const lines = [
+    { at: at(1), by: 'ana', kind: 'enter' },
+    { at: at(2), by: 'bo', kind: 'enter' },
+    { at: at(3), by: 'ana', kind: 'move' },
+    { at: at(4), by: 'ana', kind: 'leave' }, // bo still here
+    { at: at(5), by: 'bo', kind: 'leave' }, // empty from 5 to 8
+    { at: at(8), by: 'ana', kind: 'enter' },
+  ];
+  assert.equal(R.litMs(lines, ms(0), ms(10)) / H, 4 + 2); // 1 to 5, then 8 to now
+  assert.equal(R.litMs(lines, ms(6), ms(8)) / H, 0); // ink made while the room was empty rests
+  assert.equal(R.litMs(lines, ms(4.5), ms(9)) / H, 1.5);
+});

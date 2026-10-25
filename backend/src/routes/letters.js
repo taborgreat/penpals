@@ -30,6 +30,13 @@ import { blockedEitherWay, blockedIds, canSeeProfile, hasBlocked, relation } fro
 import { take, ipKey } from '../limits.js';
 import { confirmFacts, settleOnServer, decodeField, viewOf } from '../services.js';
 import { countView } from '../store/exposure.js';
+import { litHours } from '../store/rooms.js';
+
+// How long a letter's ink has aged (rooms.md §1b, light is the clock): in its writer's house from
+// when it was written until it was sent; sealed, it rests (a tomb); opened, in its reader's house.
+const letterLitH = async (letter, line) =>
+  (await litHours(letter.senderId, Date.parse(line.made ?? letter.createdAt), Date.parse(letter.sentAt ?? letter.createdAt))) +
+  (letter.openedAt ? await litHours(letter.recipientId, Date.parse(letter.openedAt)) : 0);
 import { lookName } from '../store/cache.js';
 import { sendFilm } from './books.js';
 import { sightOf, windowed } from '../sight.js';
@@ -338,7 +345,7 @@ lettersRouter.get('/:id/look', async (req, res) => {
     // the scene's field (law/v2/scene.js): heights and colours as the letter looks now, never its seed or paper
     if (law < 2) throw httpError(400, 'no_depth', 'Ink written before depth (law 1) has no scene.');
     const sight = sightOf(req.query);
-    const view = viewOf(line.ink, line.made ?? letter.createdAt, 0);
+    const view = viewOf(line.ink, await letterLitH(letter, line), 0);
     const p = path.join(lookDir(letter.id), `${lookName('ink', 64, law, view)}-scene.pnks`);
     let whole = await fs.readFile(p).catch(() => null);
     if (!whole) {
@@ -364,7 +371,7 @@ lettersRouter.get('/:id/look', async (req, res) => {
   }
   const { lod } = sightOf(req.query, { window: false });
   const views = law >= 2 ? await countView('letter', letter.id, 'ink', req.user?.id ?? ipKey(req), { keep: () => exists(letter.id) }) : 0;
-  const view = viewOf(line.ink, line.made ?? letter.createdAt, views);
+  const view = viewOf(line.ink, await letterLitH(letter, line), views);
   const p = path.join(lookDir(letter.id), `${lookName('ink', 64, law, view)}${lod ? `-l${lod}` : ''}.png`);
   let png = await fs.readFile(p).catch(() => null);
   if (!png) {

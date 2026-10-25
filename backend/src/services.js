@@ -1,7 +1,6 @@
 import { keys as K, laws as Laws, fromB64url, hex } from 'penpals-law';
 import { httpError } from './files.js';
 import { config } from './config.js';
-import { now as clock } from './clock.js';
 
 // Shared services the routes use: the render pool, and the one place every
 // sealed upload is checked against the law.
@@ -25,11 +24,13 @@ export function filmOnServer({ law, acts, seed, family, box, key }) {
   return pool.run({ film: true, law, acts, paperKey: K.paperKeyOf(seed), family, box }, { key, priority: 'view', timeout: config.render.timeoutMs.letter });
 }
 
-// The moment a record's look is drawn at: hours since it was made and how
-// often it has been seen, in the buckets looks are cached under (law 1: one).
-// Whether its look can age at all (oak gall) is read from its acts once.
+// The moment a record's look is drawn at: how long it has aged and how often it
+// has been seen, in the buckets looks are cached under (law 1: one). Light is
+// the clock for aging (rooms.md §1b): litH, the hours the space it lay in was
+// lit (store/rooms.js litHours), not the calendar's. Whether its look can age at
+// all (oak gall) is read from its acts once.
 const agesCache = new Map();
-export function viewOf(body, made, views, now = clock()) {
+export function viewOf(body, litH, views) {
   if (body.law < 2) return { ageH: 0, views: 0 };
   const id = `${body.key}:${body.sheet}:${body.facts}`; // a record, by what names it (never its acts: they can be large)
   let ages = agesCache.get(id);
@@ -39,8 +40,7 @@ export function viewOf(body, made, views, now = clock()) {
     if (agesCache.size > 5000) agesCache.clear();
     agesCache.set(id, ages);
   }
-  const ageH = Math.max(0, (now - Date.parse(made)) / 3600000);
-  return Laws.viewBuckets(body.law, { ageH: Number.isFinite(ageH) ? ageH : 0, views, ages });
+  return Laws.viewBuckets(body.law, { ageH: Number.isFinite(litH) ? Math.max(0, litH) : 0, views, ages });
 }
 
 // The writer's device grew the ink and sealed what settled; the server grows it

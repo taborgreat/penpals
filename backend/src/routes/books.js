@@ -10,6 +10,7 @@ import { sheetUsedInLetters } from '../store/letters.js';
 import { readCached, writeCached, lookPath, lookName, filmPath, scenePath } from '../store/cache.js';
 import { sightOf, windowed } from '../sight.js';
 import { countView, viewsOf } from '../store/exposure.js';
+import { litHours } from '../store/rooms.js';
 import fs from 'node:fs/promises';
 import { writeAtomic } from '../files.js';
 import { canSeeProfile, hasBlocked } from '../social.js';
@@ -123,7 +124,7 @@ async function sendDepth(req, res, account, line, scale) {
   if (line.ink.law < 2) throw httpError(400, 'no_depth', 'Ink written before depth (law 1) has no side view or scene.');
   const open = await openSeed(account.id, line.ink.sheet);
   if (req.user?.id !== account.id && !open && !config.book.depthForVisitors) throw httpError(403, 'closed_sheet', 'Only the writer sees into a closed sheet.');
-  const view = viewOf(line.ink, line.made, await viewsOf('user', account.id, line.id));
+  const view = viewOf(line.ink, await litHours(account.id, Date.parse(line.made)), await viewsOf('user', account.id, line.id));
   const name = `${lookName(line.id, scale, line.ink.law, view)}-${mode}${cut ? `-${cut.join('_')}` : ''}`;
   const etag = `"${name}${sight?.tag ?? ''}"`;
   res.set('ETag', etag);
@@ -190,7 +191,7 @@ export async function sendFilm(req, res, file, body, seedText, key, keep = () =>
 export async function sendLook(req, res, account, line, scale, { cacheControl = 'private, max-age=300', lod = 0 } = {}) {
   const law = line.ink.law;
   const views = law >= 2 ? await countView('user', account.id, line.id, req.user?.id ?? ipKey(req)) : 0;
-  const view = viewOf(line.ink, line.made, views);
+  const view = viewOf(line.ink, await litHours(account.id, Date.parse(line.made)), views);
   const etag = `"${lookName(line.id, scale, law, view)}${lod ? `-l${lod}` : ''}"`;
   res.set('ETag', etag);
   res.set('Cache-Control', cacheControl);

@@ -19,6 +19,7 @@ import path from 'node:path';
 import { appendLine, readLines, serial } from '../files.js';
 import { userDir, findByKey, getAccount } from './accounts.js';
 import { being as B, room as R } from 'penpals-law';
+import { now as clock } from '../clock.js';
 import { lyingOn, freeSlot } from '../../../frontend/src/room/table.js';
 
 export const MAX_BEINGS = 8; // how many may be in a room at once (Tabor's to set)
@@ -70,6 +71,7 @@ function record(ownerId, r, line) {
     r.n += 1;
     const out = { n: r.n, at: new Date().toISOString(), ...line };
     await appendLine(roomFile(ownerId), JSON.stringify(out));
+    if (out.kind === 'enter' || out.kind === 'leave') goings.get(ownerId)?.push(goingOf(out));
     if (waxy(out)) tellAll(r, 'room', out);
     return out;
   });
@@ -191,3 +193,16 @@ export function tellRoom(ownerId, event, data) {
 export const awake = (ownerId) => rooms.has(ownerId);
 export const beingsIn = (ownerId) => [...(rooms.get(ownerId)?.beings.values() ?? [])].map((b) => ({ name: b.name, pose: b.pose }));
 export const roomLines = (ownerId) => readLines(roomFile(ownerId)).then((ls) => ls.map((l) => JSON.parse(l)));
+
+// Light is the clock for aging (rooms.md §1b; law/room.js litMs): the hours of [from, to] (ms) a
+// house was lit, that is, had a being in it. Its comings and goings are read once and kept as
+// they are stamped.
+const goings = new Map(); // ownerId → [{ at, by, kind }]
+const goingOf = ({ at, by, kind }) => ({ at, by, kind });
+const goingsOf = (ownerId) =>
+  goings.get(ownerId) ??
+  serial(`room:${ownerId}`, async () => {
+    if (!goings.has(ownerId)) goings.set(ownerId, (await roomLines(ownerId)).filter((l) => l.kind === 'enter' || l.kind === 'leave').map(goingOf));
+    return goings.get(ownerId);
+  });
+export const litHours = async (ownerId, from, to = clock()) => (ownerId && Number.isFinite(from) ? R.litMs(await goingsOf(ownerId), from, to) / 3600000 : 0);
