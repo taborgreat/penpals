@@ -33,7 +33,8 @@ const TAG_CELL = 33;
 const TAG_RING = 34;
 
 // The grower of a body of `matter` (a row of law/matter.js with `ink`), from its key (32 bytes).
-export function makeGrower(matter, paperKey) {
+// tilt: [rise a cell along x, along y] (height units): its face a slope (the ground), from `at` at cell 0.
+export function makeGrower(matter, paperKey, { tilt = null, at = 0 } = {}) {
   if (matter === 'paper') throw new Error('paper grows by its own grower (v2/paper.js makePaper)');
   const row = MATTER[matter];
   if (!row?.ink) throw new Error(`no ink properties for ${matter}`);
@@ -74,7 +75,7 @@ export function makeGrower(matter, paperKey) {
           H(TAG_RING, floorDiv(across, 48), 0, h);
           zz += (((across % 48) * ink.rough) >> 3) + (h[1] & 3) * ink.rough;
         }
-        z[i] = zz;
+        z[i] = tilt ? clamp(zz + at + tilt[0] * (cx0 + x) + tilt[1] * (cy0 + y), 0, 65535) : zz;
       }
     }
     if (ink.fibers === 'grain') {

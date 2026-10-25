@@ -128,7 +128,21 @@ test('Phase 3: the same stroke on paper, wood, plaster, wax and metal settles fi
 
 // A nib scrubbed back and forth over a short line, dry (no ink), pressing as hard as `press` (0..255).
 const scrub = (press, passes, units = 30) =>
-  record([{ path: samplePath((u) => [units * Math.abs(((u * passes) % 2) - 1), 0], () => 200, { pressure: () => press }), pen: { ...PENS.medium, flow: 0 }, start: 0, hasP: true }], [10, 10]);
+  record(
+    [
+      {
+        path: samplePath(
+          (u) => [units * Math.abs(((u * passes) % 2) - 1), 0],
+          () => 200,
+          { pressure: () => press },
+        ),
+        pen: { ...PENS.medium, flow: 0 },
+        start: 0,
+        hasP: true,
+      },
+    ],
+    [10, 10],
+  );
 const onTable = () => stackGrower(makeGrower('wood', key), [{ grower: paperGrower(testPaperKey('a sheet'), FAMILY), x0: 0, y0: 0, x1: 400, y1: 400 }]);
 
 test('Phase 4: a hard scrape wears through the paper, then cuts the table: fluff, then shavings; every ng accounted for', () => {
@@ -136,11 +150,18 @@ test('Phase 4: a hard scrape wears through the paper, then cuts the table: fluff
   const { cuts } = g.res;
   const looseOn = (id) => g.cells.filter((c) => c[20] === id).reduce((n, c) => n + c[19], 0);
   assert.ok(cuts.byMatter[idOf('paper')] > 0, 'paper fluff');
-  assert.ok(g.cells.some((c) => c[18] === idOf('wood') && c[6] > 0), 'worn through, the table beneath is dented');
+  assert.ok(
+    g.cells.some((c) => c[18] === idOf('wood') && c[6] > 0),
+    'worn through, the table beneath is dented',
+  );
   assert.ok(cuts.byMatter[idOf('wood')] > 0, 'and its shavings');
   // matter is never deleted: what was taken off the cells lies loose, every ng of it
   assert.equal(cuts.removed, cuts.loose);
-  assert.equal(g.cells.reduce((n, c) => n + c[19], 0), cuts.loose, 'all of it lying on the cells');
+  assert.equal(
+    g.cells.reduce((n, c) => n + c[19], 0),
+    cuts.loose,
+    'all of it lying on the cells',
+  );
   assert.equal(looseOn(idOf('paper')) + looseOn(idOf('wood')), cuts.loose);
 });
 
@@ -149,7 +170,10 @@ test('Phase 4: a light scrape leaves only paper fluff; the paper holds', () => {
   const { cuts } = g.res;
   assert.ok(cuts.byMatter[idOf('paper')] > 0, 'some fibers come off');
   assert.equal(cuts.byMatter[idOf('wood')] ?? 0, 0, 'nothing of the table');
-  assert.ok(g.cells.every((c) => c[18] === idOf('paper')), 'not worn through anywhere');
+  assert.ok(
+    g.cells.every((c) => c[18] === idOf('paper')),
+    'not worn through anywhere',
+  );
   assert.equal(cuts.removed, cuts.loose);
 });
 
@@ -160,4 +184,36 @@ test('Phase 4: a nib cuts only what is softer than it: metal and stone give the 
   }
   const wax = grow(scrub(255, 40), { matter: 'wax' });
   assert.ok(wax.res.cuts.byMatter[idOf('wax')] > 0, 'wax is cut');
+});
+
+// Water poured from a vessel onto one spot: a pour mark every 50 ms for `ms`.
+const pour = (ms, amt = 10000) => ({ orgX: 10, orgY: 10, strokes: [], marks: Array.from({ length: ms / 50 }, (_, k) => ({ kind: 'pour', t: k * 50, x: 400, y: 2000, amt })) });
+// Dirt lying flat, or falling toward +x: 100 height units a cell (about 38°: at the law's grain, a
+// cell is 77 µm, well under water's capillary length, so only a steep slope outweighs its surface)
+const ground = (tilt) => makeGrower('dirt', key, { tilt: [tilt, 0], at: 60000 });
+
+test('Phase 6: water poured on a slope of dirt cuts where it runs and lays a fan where it slows; every grain kept; the same everywhere', () => {
+  const run = (tilt) => grow(pour(4000), { matter: 'dirt', paper: ground(tilt) });
+  const bed = (c) => c[21];
+  // how far downhill (+x, cells) the grains the water lifted went, on the whole: Σ x · rise over Σ rise
+  const moved = (g) => g.cells.reduce((n, c) => n + c[1] * bed(c), 0) / g.cells.reduce((n, c) => n + Math.max(0, bed(c)), 0);
+  const g = run(-100);
+  const cut = g.cells.filter((c) => bed(c) < 0).length;
+  const laid = g.cells.filter((c) => bed(c) > 0).length;
+  assert.ok(cut > 10, `cut: ${cut} cells`);
+  assert.ok(laid > 10, `laid down: ${laid} cells`);
+  // on the slope what the water lifted where it ran is laid down downhill, where it slowed
+  // on the slope what the water lifted where it ran is laid down downhill, where it slowed; the
+  // steeper, the farther. On flat ground the same pour heaps it all round (a crater and its rim)
+  const flat = moved(run(0)),
+    steep = moved(run(-200));
+  assert.ok(Math.abs(flat) < 0.15, `on flat ground the grains went ${flat.toFixed(2)} cells`);
+  assert.ok(moved(g) > 0.25, `on the slope ${moved(g).toFixed(2)} cells downhill`);
+  assert.ok(steep > moved(g), `steeper, farther: ${steep.toFixed(2)}`);
+  // grains only move: what left the bed is what was laid down again
+  assert.equal(
+    g.cells.reduce((n, c) => n + bed(c), 0),
+    0,
+  );
+  assert.equal(run(-100).facts, g.facts, 'the same pour, the same ground');
 });

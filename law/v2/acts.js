@@ -24,6 +24,9 @@
 //   A format-3 record may have no strokes (wax alone), but then has marks; its first
 //   stroke's gap is when it starts on the record's clock (wax may land before it).
 //
+// Format 4 (law 4 only: one-matter.md Phase 6): format 3 and one more mark.
+//     4 pour:  varint amt                                   water landing (drops), poured from a vessel
+//
 // flags: bit0 hasP (a real pressure reading per act), bits1-2 kind (0 mouse,
 // 1 touch, 2 pen, 3 other), bit3 synthetic p (computed by the nib model).
 // x, y in tenths of an ink unit relative to (orgX, orgY) whole units; t in ms.
@@ -40,7 +43,8 @@ export const PEN_KEYS = ['nib', 'size', 'flex', 'flow', 'rgb', 'angle', 'spatter
 export const SPATTER_MAX = 15;
 const SPATTER = 0x40;
 const WELL = 0x80;
-export const MARK_KINDS = ['drip', 'press', 'break'];
+export const MARK_KINDS = ['drip', 'press', 'break', 'pour'];
+export const POUR_MAX = 1 << 20; // drops a pour mark lands at most (more is several marks)
 const bad = (msg) => new LawError('acts', msg);
 
 const zz = (n) => (n >= 0 ? 2 * n : -2 * n - 1);
@@ -102,7 +106,7 @@ export function encodeActs(rec) {
   const w = new Writer();
   for (const b of MAGIC) w.byte(b);
   const masks = rec.strokes.flatMap((s) => s.pens.map((pen) => pen.mask ?? penMask(pen)));
-  const format = rec.marks?.length || !rec.strokes.length || masks.some((m) => m & WELL) ? 3 : masks.some((m) => m & SPATTER) ? 2 : 1;
+  const format = rec.marks?.some((m) => m.kind === 'pour') ? 4 : rec.marks?.length || !rec.strokes.length || masks.some((m) => m & WELL) ? 3 : masks.some((m) => m & SPATTER) ? 2 : 1;
   w.byte(format);
   w.varint(rec.orgX);
   w.varint(rec.orgY);
@@ -142,7 +146,7 @@ export function encodeActs(rec) {
     }
     prevEnd = s.t[n - 1];
   });
-  if (format === 3) {
+  if (format >= 3) {
     const marks = rec.marks ?? [];
     w.varint(marks.length);
     let prevT = 0;
@@ -158,6 +162,8 @@ export function encodeActs(rec) {
       } else if (m.kind === 'press') {
         for (const v of [m.depth, m.angle, zz(m.tiltX), zz(m.tiltY), m.cell, m.w, m.h]) w.byte(v);
         for (const v of m.face) w.byte(v);
+      } else if (m.kind === 'pour') {
+        w.varint(m.amt);
       } else {
         w.varint(m.x1);
         w.varint(m.y1);
@@ -184,19 +190,19 @@ function penMask(pen) {
 
 // --- decode (validates every canonical rule) ---
 
-// maxFormat: the highest format the reader's law takes (2 for law 2, 3 for law 3).
+// maxFormat: the highest format the reader's law takes (2 for law 2, 3 for law 3, 4 for law 4).
 export function decodeActs(bytes, { maxFormat = 2 } = {}) {
   if (!(bytes instanceof Uint8Array)) throw bad('acts are bytes');
   const r = new Reader(bytes);
   for (const b of MAGIC) if (r.byte() !== b) throw bad('not PNKA');
   const format = r.byte();
-  if (format < 1 || format > Math.min(3, maxFormat)) throw bad('unknown PNKA format');
+  if (format < 1 || format > Math.min(4, maxFormat)) throw bad('unknown PNKA format');
   const reserved = format === 1 ? 0xc0 : format === 2 ? 0x80 : 0;
   const orgX = r.varint();
   const orgY = r.varint();
   if (orgX > MAX_ORG || orgY > MAX_ORG) throw bad('origin out of range');
   const nStrokes = r.varint();
-  if (nStrokes < (format === 3 ? 0 : 1) || nStrokes > MAX_STROKES) throw bad('stroke count out of range');
+  if (nStrokes < (format >= 3 ? 0 : 1) || nStrokes > MAX_STROKES) throw bad('stroke count out of range');
   const strokes = [];
   let total = 0;
   let clock = 0;
@@ -284,13 +290,13 @@ export function decodeActs(bytes, { maxFormat = 2 } = {}) {
     if (clock > MAX_DURATION) throw bad('too long');
     strokes.push({ gap, hasP, kind: (flags >>> 1) & 3, synthP: (flags & 8) === 8, x, y, t, p, pens });
   }
-  const marks = format === 3 ? readMarks(r) : undefined;
+  const marks = format >= 3 ? readMarks(r, format) : undefined;
   if (format === 3 && !nStrokes && !marks.length) throw bad('nothing in it');
   if (r.o !== bytes.length) throw bad('trailing bytes');
   return { orgX, orgY, strokes, acts: total, duration: clock, format, ...(marks ? { marks } : {}) };
 }
 
-function readMarks(r) {
+function readMarks(r, format) {
   const n = r.varint();
   if (n > MAX_MARKS) throw bad('too many marks');
   const marks = [];
@@ -302,7 +308,7 @@ function readMarks(r) {
   };
   for (let k = 0; k < n; k++) {
     const kind = MARK_KINDS[r.byte() - 1];
-    if (!kind) throw bad('unknown mark');
+    if (!kind || (kind === 'pour' && format < 4)) throw bad('unknown mark');
     t += r.varint();
     if (t > MAX_DURATION) throw bad('too long');
     const m = { kind, t, x: coord(), y: coord() };
@@ -310,6 +316,9 @@ function readMarks(r) {
       m.amt = r.varint();
       m.heat = r.byte();
       if (m.amt < 1 || m.amt > WAX_DRIP_MAX) throw bad('drip out of range');
+    } else if (kind === 'pour') {
+      m.amt = r.varint();
+      if (m.amt < 1 || m.amt > POUR_MAX) throw bad('pour out of range');
     } else if (kind === 'press') {
       m.depth = r.byte();
       m.angle = r.byte();

@@ -60,6 +60,15 @@
 //      the table), the body is its face from then on, and the nib cuts that: its dent deepens
 //      and what it takes is shavings. Nothing is deleted: what is removed lies loose on its cell
 //      (looseA: ng, looseM: its matter), and every ng removed is counted (removed, loose).
+//  15. water and loose ground (one-matter.md Phase 6; law 4): water is ink's flow. Over loose
+//      matter (its row's strength 0: dirt, sand, ash) the water standing on top carries grains
+//      as it carries pigment, as many as its depth and how fast it is leaving can hold (the
+//      grains' weight in water and their friction: their row's); short of that it lifts them
+//      off the bed, past it it lays them down. The bed's rise and fall is the face the water
+//      runs over, so running water cuts channels and builds banks, and drops its load as a
+//      fan where it slows; drying, it lays down all it carried. A thrown drop landing on loose
+//      ground lifts grains as it splashes. Every grain is the bed's or the water's: their sum
+//      never changes.
 //
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry), under the nib (stamp), or over warm
@@ -303,7 +312,23 @@ function frontFor(t, i, w) {
   const d = w - dentL(t, i) * DENT_CAP;
   return d <= 0 || t.cap[i] === 0 ? 0 : Math.min(DEPTH_TOP, ceilDiv(d * DEPTH_TOP, t.cap[i]));
 }
-const zE = (t, i) => t.z[i] - dentL(t, i) * DENT_Z + t.cockle[i] - t.rim[i] * RIM_Z + (t.wax ? t.wax[i] - t.waxDent[i] : 0);
+const zE = (t, i) => t.z[i] - dentL(t, i) * DENT_Z + t.cockle[i] - t.rim[i] * RIM_Z + (t.wax ? t.wax[i] - t.waxDent[i] : 0) + (t.bedA ? t.bedA[i] : 0);
+// (law 4) loose ground: its grains carried in the water above it, and how far its bed has risen (−: fallen)
+function grainsOn(t) {
+  if (!t.S) {
+    t.S = new Int32Array(TT);
+    t.dS = new Int32Array(TT);
+    t.bedA = new Int32Array(TT);
+    t.outQ = new Int32Array(TT);
+  }
+}
+const looseGround = (t, i) => {
+  const r = matterAt(t, i);
+  return r.strength === 0 && !!r.ink?.drinks;
+};
+// how much of a loose matter's grains (height units of its bed) a drop's worth of water can lift:
+// the grains' weight in water (water's density over theirs) less their friction against each other
+const liftOf = (r) => floorDiv(MATTER.water.density * (1000 - r.friction) * 1024, r.density * 1000); // /1024
 const washed = (t, i) => Math.min(SOAK_FULL, t.soakA[i] >> 8);
 const thirstE = (t, i) => clamp(t.siz[i] + floorDiv(washed(t, i) * SOAK_THIRST - dentL(t, i) * DENT_THIRST, 256), 0, 15);
 
@@ -324,7 +349,8 @@ function hasFacts(t) {
       (t.FG && t.FG[i]) ||
       t.filmA[i] >> FILM_SHIFT ||
       (t.wax && t.wax[i]) ||
-      (t.looseA && t.looseA[i])
+      (t.looseA && t.looseA[i]) ||
+      (t.bedA && t.bedA[i])
     )
       return true;
   }
@@ -385,7 +411,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     t.enter.slice(),
     t.wax ? [t.wax.slice(), t.waxQ.slice(), t.waxDent.slice(), t.waxF.slice(), t.hot] : null,
     // (law 4) what has come loose, and a stack's faces (a sheet worn through changes its cell)
-    t.looseA || t.goneA ? [t.looseA?.slice() ?? null, t.looseM?.slice() ?? null, t.goneA?.slice() ?? null] : null,
+    t.looseA || t.goneA || t.S ? [t.looseA?.slice() ?? null, t.looseM?.slice() ?? null, t.goneA?.slice() ?? null, t.S?.slice() ?? null, t.bedA?.slice() ?? null] : null,
     t.under ? [t.cap.slice(), t.hold.slice(), t.siz.slice(), t.z.slice(), t.link.slice(), t.mat.slice(), t.under.has.slice()] : null,
   ];
   function cow(t) {
@@ -471,6 +497,10 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   // a soaked cell drying buckles along the paper's ridges.
   function snapCell(t, i) {
     const { P, F } = t;
+    if (t.S && t.S[i]) {
+      t.bedA[i] += t.S[i]; // (15) drying, the water lays down all it carried
+      t.S[i] = 0;
+    }
     for (let ch = 0; ch < 3; ch++) {
       const k = 3 * i + ch;
       if (P[k] > 0) {
@@ -761,6 +791,13 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       if (g <= 0) continue;
       if (t.W[i] === 0) becameWet(t, i);
       t.W[i] += g;
+      if (cutting && drop && looseGround(t, i)) {
+        // (15) a drop landing on loose ground lifts grains as it splashes
+        grainsOn(t);
+        const lift = floorDiv(g * liftOf(m), 1024);
+        t.S[i] += lift;
+        t.bedA[i] -= lift;
+      }
       if (penGall) {
         gallOn(t);
         t.G[i] += floorDiv(g * GALL_ABS, 256);
@@ -890,6 +927,9 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           P1 = P[3 * i + 1],
           P2 = P[3 * i + 2];
         const Gi = G ? G[i] : 0;
+        const Si = t.S ? t.S[i] : 0;
+        let outS = 0,
+          outQs = 0;
         let outW = 0,
           out0 = 0,
           out1 = 0,
@@ -914,8 +954,21 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           let gp = tn.cap[j] === 0 ? 0 : diag(dryJ ? G_WICK + SOAK_WICK * washed(tn, j) : G_PORE + SOAK_PORE * sl, n) + lk; // (nothing goes into pores it has not got)
           if (gs + gp > G_MAX) gp = G_MAX - gs;
           const qp = floorDiv(Math.min(d, inP) * gp, 4096); // through the pores
-          const q = floorDiv(Math.min(d, sPos) * gs, 4096) + qp; // and over the top
+          const qs = floorDiv(Math.min(d, sPos) * gs, 4096);
+          const q = qs + qp; // and over the top
           if (q <= 0) continue;
+          if (cutting && qs > 0) {
+            // (15) the grains ride on what runs over the top
+            outQs += qs;
+            if (Si) {
+              const ms = floorDiv(Si * qs, Wi);
+              if (ms) {
+                grainsOn(tn);
+                tn.dS[j] += ms;
+                outS += ms;
+              }
+            }
+          }
           const m0 = floorDiv(P0 * q, Wi);
           const m1 = floorDiv(P1 * q, Wi);
           const m2 = floorDiv(P2 * q, Wi);
@@ -938,6 +991,11 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           if (tn !== t) touch(tn);
           if (instrument && link[i * 8 + n]) instrument.fiber(t, i, n, floorDiv(Math.min(d, inP) * lk, 4096));
         }
+        if (outQs) {
+          grainsOn(t);
+          t.outQ[i] += outQs;
+          if (outS) t.dS[i] -= outS;
+        }
         if (outW) {
           dW[i] -= outW;
           dP[3 * i] -= out0;
@@ -959,6 +1017,13 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       const { W, P, dW, dP, dWp } = t;
       const G = t.G;
       const dG = t.dG;
+      if (t.dS) {
+        for (let i = 0; i < TT; i++)
+          if (t.dS[i]) {
+            t.S[i] += t.dS[i];
+            t.dS[i] = 0;
+          }
+      }
       for (let i = 0; i < TT; i++) {
         const dw = dW[i];
         const dp0 = dP[3 * i],
@@ -999,6 +1064,29 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       t.touched = false;
     }
     touched.length = 0;
+  }
+
+  // (15) Loose ground under running water: the water lifts grains off the bed up to what it can carry
+  // (its depth on top, the share of it leaving this tick, the grains' lift), and lays down what it
+  // cannot. (Grains only change place between the bed and the water: their sum is fixed.)
+  function grains() {
+    for (const t of wetTiles) {
+      const { W } = t;
+      for (let i = 0; i < TT; i++) {
+        const Wi = W[i];
+        if (Wi <= 0 || !looseGround(t, i)) continue;
+        grainsOn(t);
+        const s = Math.max(0, Wi - heldE(t, i));
+        const cap = floorDiv(floorDiv(s * t.outQ[i], Wi) * liftOf(matterAt(t, i)), 1024);
+        t.outQ[i] = 0;
+        const d = cap - t.S[i];
+        if (d === 0) continue;
+        if (journals.length) cow(t);
+        t.S[i] += d;
+        t.bedA[i] -= d;
+        if (dirty) dirty.add(t);
+      }
+    }
   }
 
   // Pigment (and gall) diffuses between wet 4-neighbours, toward the lower concentration.
@@ -1271,6 +1359,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     work += wetCells;
     if (work > MAX_WORK) throw new LawError('cost', 'this writing takes too long to settle');
     flow();
+    if (cutting) grains();
     if (k % DRY_EVERY === DRY_EVERY - 1) {
       mix();
       settle();
@@ -1345,11 +1434,32 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     return { wax, level, liquid: wax > 0 && level >= WAX_MELT, soft: wax > 0 && level >= WAX_SOFTEN };
   }
 
-  // A mark at its moment (on the record's clock): a drip, a press or a break.
+  // A mark at its moment (on the record's clock): a drip, a press, a break, or (law 4) water poured.
   function mark(m) {
     if (batch) flushTick();
     runUntil(floorDiv(m.t, TICK_MS));
     const [cx, cy] = cellOf(m.x, m.y);
+    if (m.kind === 'pour') {
+      // (15) water landing where it is poured: on its cell, and as much as that holds on each ring
+      // about it, out to where it has all landed (it lands on top, as ink does)
+      if (!cutting) throw new LawError('acts', 'a pour is law 4');
+      if (m.t > lastT) lastT = m.t; // (the water settles from its last landing)
+      let left = m.amt;
+      for (let r = 0; left > 0 && r <= WAX_R_MAX; r++)
+        for (let dy = -r; dy <= r && left > 0; dy++)
+          for (let dx = -r; dx <= r && left > 0; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const [t, i] = cellAt(cx + dx, cy + dy);
+            if (t.flags[i] & TORN) continue;
+            const g = Math.min(left, W_SAT - t.W[i]);
+            if (g <= 0) continue;
+            if (t.W[i] === 0) becameWet(t, i);
+            t.W[i] += g;
+            put.drops += g;
+            left -= g;
+          }
+      return;
+    }
     if (m.kind === 'drip') {
       // a dome of wax, wider the more of it and the more liquid it is
       const R = clamp(sc(isqrt(floorDiv(m.amt * (128 + m.heat), WAX_SPREAD))), 1, WAX_R_MAX);
@@ -1560,6 +1670,11 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       t.looseA = loose?.[0] ? loose[0].slice() : null;
       t.looseM = loose?.[1] ? loose[1].slice() : null;
       t.goneA = loose?.[2] ? loose[2].slice() : null;
+      if (loose?.[3]) {
+        grainsOn(t);
+        t.S.set(loose[3]);
+        t.bedA.set(loose[4]);
+      } else if (t.S) t.S = t.dS = t.bedA = t.outQ = null;
       if (faces) {
         t.cap.set(faces[0]);
         t.hold.set(faces[1]);

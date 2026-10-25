@@ -65,12 +65,13 @@ export function settledCells(tiles, { law = LAW } = {}) {
       const film = filmLevel(t.filmA[i]);
       const wax = w3 && t.wax ? t.wax[i] : 0;
       const loose = law >= 4 && t.looseA ? t.looseA[i] : 0;
-      if (!(f0 || f1 || f2 || fg || dent || depth || peak || soak || wear || flags || cockle || film || wax || loose)) continue;
+      const bed = law >= 4 && t.bedA ? t.bedA[i] : 0;
+      if (!(f0 || f1 || f2 || fg || dent || depth || peak || soak || wear || flags || cockle || film || wax || loose || bed)) continue;
       const x = t.tx * TILE + (i % TILE);
       const y = t.ty * TILE + Math.floor(i / TILE);
       const c = [y, x, f0, f1, f2, fg, dent, depth, peak, soak, wear, flags, cockle, film];
       if (w3) c.push(0, wax, wax ? t.waxDent[i] : 0, wax ? t.waxF[i] : 0);
-      if (law >= 4) c.push(t.mat ? t.mat[i] : 0, loose, loose ? t.looseM[i] : 0); // its matter (law/matter.js ORDER: a sheet lying on a body is paper over it); ng loose on it, and of what
+      if (law >= 4) c.push(t.mat ? t.mat[i] : 0, loose, loose ? t.looseM[i] : 0, bed); // its matter (law/matter.js ORDER: a sheet lying on a body is paper over it); ng loose on it, and of what; its bed's rise (−: cut)
       cells.push(c);
     }
   }
@@ -208,7 +209,8 @@ export function factsDigest({ cells, box, actsBytes, family, scale = SCALE_ONE, 
       wrow[3] = c[17];
       h.update(wrow);
     }
-    if (law >= 4) h.update(Uint8Array.of(c[18], c[19] >>> 24, (c[19] >>> 16) & 255, (c[19] >>> 8) & 255, c[19] & 255, c[20]));
+    if (law >= 4)
+      h.update(Uint8Array.of(c[18], c[19] >>> 24, (c[19] >>> 16) & 255, (c[19] >>> 8) & 255, c[19] & 255, c[20], (c[21] >>> 24) & 255, (c[21] >>> 16) & 255, (c[21] >>> 8) & 255, c[21] & 255));
   }
   return h.digest();
 }
