@@ -4,8 +4,11 @@
 // Light is a range of waves (scene/light/): the sun is a black body through the
 // air, placed by the world's clock (Pacific); it comes into the room only through
 // the window, as the direct sun (a disk: the window's patch is soft-edged) and
-// the sky. Two candles stand either side of the page; at night, while someone is
-// there, they burn (their wax goes down, their flames shiver by their wick). The
+// the sky. Two candles stand either side of the page. They burn in the law (law/
+// candle.js), lit and put out by acts on the room's chain (law/wax.js regrows them:
+// setCandles); drawn here as the law has them (their wax down, their flames fed and
+// shivering by their wick). Where no chain says (the lobby), they burn at night while
+// someone looks, and never go down. The
 // room's light settles between its walls (a worker: the bounce solver over the
 // room's patches); the page takes what reaches it. The eye adapts to what it
 // sees and turns radiance into the screen's colours. The viewer can drag the
@@ -29,8 +32,7 @@ import {
   paperCurve,
   candleState,
   flameLight,
-  newCandle,
-  burn,
+  NEW_CANDLE,
   candleLit,
   settledOn,
   createEye,
@@ -103,24 +105,6 @@ export function withinRoom(cam, pageW, pageH, geom = GEOM) {
 // Room m → the engine's world (page px, the room's axes), for a view whose page starts at `origin`.
 export const worldOf = (p, origin) => [(p[0] - origin[0]) * PX_PER_M, (p[1] - origin[1]) * PX_PER_M, (p[2] - origin[2]) * PX_PER_M];
 
-const KEEP = 'penpals:candles';
-function loadCandles() {
-  try {
-    const c = JSON.parse(sessionStorage.getItem(KEEP) ?? 'null');
-    if (Array.isArray(c) && c.length === 2 && c.every((x) => Number.isFinite(x?.litMs) && Number.isInteger(x?.generation))) return c;
-  } catch {
-    /* none kept */
-  }
-  return [newCandle(), newCandle()];
-}
-function keepCandles(c) {
-  try {
-    sessionStorage.setItem(KEEP, JSON.stringify(c));
-  } catch {
-    /* memory only */
-  }
-}
-
 const INDOORS = createEye(); // the eye before the room's light has settled
 
 // A radiance spectrum through the eye's weights: linear r, g, b toned (the shader's eyeTone).
@@ -137,13 +121,13 @@ export function seenRgb(W, radiance) {
 // The light of one room (one being, one eye, two candles). `settle(msg)` →
 // Promise<{ day, flames, scales }>: the room's light in parts (light/lightWorker.js),
 // given the decoded room first with `setRoom`.
-export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER, candles = null, keep = () => {} } = {}) {
+export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER } = {}) {
   const S = {
     geom,
     room: null, // decoded, with its form factors: settling can begin
     parts: null, // { key, day: page N, flames: [page N], unit: [flame N at unit strength] }
     asked: null, // the key being settled
-    candles: candles ?? [newCandle(), newCandle()],
+    candles: null, // the room's candles as the law has them: [{ lit, height, fed, burntS, spent }] (setCandles); null: no chain says
     candleAt: [null, null], // where a candle stands when it has been carried (rooms.md §3b): its foot, room m
     candleTilt: [0, 0], // how far a held candle leans (degrees, toward +x)
     eye: null,
@@ -158,7 +142,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
   function request(key, sun) {
     if (!settle || !S.room || S.asked === key) return;
     S.asked = key;
-    settle({ sun: sun.el > -6 ? { az: sun.az, el: sun.el } : null, present: true, direct: true, candles: S.candles.map((c, which) => ({ ...c, which, at: S.candleAt[which] ?? undefined })) }).then(
+    const candles = [0, 1].map((which) => ({ ...(S.candles?.[which] ?? NEW_CANDLE), lit: undefined, which, at: S.candleAt[which] ?? undefined }));
+    settle({ sun: sun.el > -6 ? { az: sun.az, el: sun.el } : null, present: true, direct: true, candles }).then(
       (r) => {
         if (S.asked !== key) return; // a newer one is coming
         S.parts = { key, day: r.day, flames: r.flames, sunDirect: r.sunDirect, flameDirect: r.flameDirect };
@@ -201,11 +186,11 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
       S.candleTilt[which] = tilt;
       for (const fn of S.listeners) fn();
     },
-    // The candle's melt pool as its burning has made it (rooms.md §3b): { litMs (this burning, or
-    // the last), outMs (since it went out; 0 while it burns) }, for law/wax.js poolOf.
-    pool(now = performance.now()) {
-      if (S.litSince === undefined) return { litMs: 0, outMs: 0 };
-      return S.burning ? { litMs: now - S.litSince, outMs: 0 } : { litMs: (S.outSince ?? now) - S.litSince, outMs: now - (S.outSince ?? now) };
+    // The room's candles as the law has regrown them from its chain (room/together.js):
+    // [{ lit, height (m), fed (0..1), burntS, spent }] (law/candle.js heightOf, flameOf), or null.
+    setCandles(list) {
+      S.candles = list;
+      for (const fn of S.listeners) fn();
     },
     at({ now, date, override = null, present = true, eye = { lids: 1, color: 1 }, gaze = null }) {
       const dt = S.t === null ? 0 : Math.min(1, Math.max(0, (now - S.t) / 1000));
@@ -213,25 +198,21 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
       const place = override ?? sunAt(date);
       const sun = { az: place.az, el: place.el, dir: toward(place.az, place.el) };
       sun.E = sunLight(place.el).map((v, b) => v * MATTER_GLASS[b]); // through the glass, normal to the beam
-      // the candles: burning only at night while someone is here; their flames shiver by the hour's clock
-      const lit = !override && candleLit({ sunEl: place.el, present });
-      // this burning, and how long since it went out (the melt pool: law/wax.js poolOf)
-      if (lit && !S.burning) S.litSince = now;
-      if (!lit && S.burning) S.outSince = now;
-      S.burning = lit;
-      if (lit && dt > 0) {
-        S.candles = S.candles.map((c, which) => burn(c, dt * 1000, true, { which }));
-        keep(S.candles);
-      }
+      // the candles: lit as the room's acts have them (where no chain says: at night while someone
+      // is here); their flames shiver by the hour's clock
+      const dark = candleLit({ sunEl: place.el, present });
       const clock = date.getTime() / 1000;
-      const flames = S.candles.map((c, which) => {
-        const st = candleState(c.litMs, clock, { which, generation: c.generation, lit });
+      const flames = [0, 1].map((which) => {
+        const c = S.candles?.[which] ?? NEW_CANDLE;
+        const lit = !override && (S.candles ? !!c.lit : dark);
+        const st = candleState(c, clock, { which, lit });
         const foot = S.candleAt[which] ?? S.geom.candles[which];
         const tilt = S.candleTilt[which] ?? 0;
         const a = (tilt * Math.PI) / 180; // (leaning, its flame is where its wick is)
         return { ...st, which, foot, tilt, pos: [foot[0] + Math.sin(a) * st.flameAt, foot[1], foot[2] + Math.cos(a) * st.flameAt], I: flameLight(st), lit: lit && !st.spent };
       });
       // the room's light at the page, less what comes straight from the sun and the flames (drawn per pixel)
+      const lit = flames.some((f) => f.lit);
       const key = [Math.round(place.az * 2), Math.round(place.el * 2), ...flames.map((f) => [Math.round(f.height * 2000), ...f.pos.map((v) => Math.round(v * 200))].join(':')), lit ? 1 : 0].join();
       if (!S.parts || S.parts.key !== key) request(key, sun);
       // each patch's ambient light now (its flames at their strength now), and all that reaches the page
@@ -316,7 +297,7 @@ export function theLight() {
       waiting.set(id, { resolve, reject });
       worker.postMessage({ type: 'settle', id, ...msg });
     });
-  shared = createLight({ settle, candles: loadCandles(), keep: keepCandles });
+  shared = createLight({ settle });
   globalThis.__sceneLight = shared; // (for the benches and checks: what the room's light is now)
   Promise.all([fetch('/room/room.json').then((r) => r.text()), fetch('/room/room.ff').then((r) => r.arrayBuffer())])
     .then(([json, bin]) => {

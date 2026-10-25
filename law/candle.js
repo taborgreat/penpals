@@ -28,6 +28,7 @@
 //
 //   newCandle() → state     stepCandle(state, { lit, deg }) → [{ m (µg), T (mK above the air), upright }]
 //   heightOf(state) (m)     liquidOf(state) (µg)     massOf(state) (µg)     rimPoint(state, foot, deg)
+//   flameOf(state) → { fed (0..1), burntS }: what the drawn flame reads (scene/light/candle.js)
 
 import { MATTER, AIR } from './matter.js';
 import { COSSIN_Q14 } from './v1/tables.js';
@@ -94,6 +95,7 @@ export function newCandle() {
     wick: WICK_HOLDS, // µg of wax in the wick (a new candle's wick is waxed)
     burnt: 0,
     dripped: 0,
+    fed: 0, // µg its flame burnt in the last step (0 out; less than the wick draws while it starves)
   };
 }
 // the wax a new candle is made of (µg): what burns, drips and is left always add up to it
@@ -120,6 +122,9 @@ function topLiquid(ring) {
   return sum;
 }
 export const liquidOf = (cd) => cd.rings.reduce((a, r) => a + topLiquid(r), 0);
+// Its flame as the scene draws it (matter-fixes §6): how well fed it was in the last step (0..1, of
+// what the wick draws) and how long it has burnt in all (s, at that draw), for its wick's cycles.
+export const flameOf = (cd) => ({ fed: (cd.fed ?? 0) / DRAW, burntS: cd.burnt / DRAW });
 
 // Take up to `m` µg of liquid off a ring's top. → [µg taken, nJ it carried]
 function takeLiquid(ring, m) {
@@ -215,10 +220,12 @@ function seen(cd) {
 export function stepCandle(cd, { lit, deg = 0 }) {
   // the flame: the wick burns what it holds, as fast as it draws, and lifts again from its foot
   let heat = 0;
+  cd.fed = 0;
   if (lit && !spent(cd)) {
     const burn = Math.min(DRAW, cd.wick);
     cd.wick -= burn;
     cd.burnt += burn;
+    cd.fed = burn;
     heat = burn * POOL_SHARE;
     const [lifted] = takeLiquid(cd.rings[0], Math.min(DRAW, WICK_HOLDS - cd.wick));
     cd.wick += lifted;

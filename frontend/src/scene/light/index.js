@@ -10,7 +10,7 @@
 //   matter.js     what matter drinks: ink by the basis, gall, paper, grown surfaces
 //   color.js      from XYZ to the screen: adaptation, tone, sRGB; ΔE
 //   eye.js        the eye's own reactions: pupil, gain, colour, lids; toScreen
-//   candle.js     candles burn: candleState, lit time, the flame's light
+//   candle.js     candles burn (the law's candle, drawn): candleState, the flame's light
 //   fade.js       fading by absorbed light
 //   room.js       the room's shape and its baked form factors (scripts/room.mjs bakes them)
 //   direct.js     what each patch receives straight from the sun, the sky and the flames
@@ -40,9 +40,10 @@
 //      in the shader: surface.js SURFACE_GLSL / SURFACE_WGSL growCell up close,
 //      growMean beyond (foot from roomCamera.footprint), tone mixing
 //      curves.MATTER[kind].light → .dark; the sun's window patch is direct.js sunAperture.
-//   4. Candles: candleState(litMs, t, { which }) each frame (flameAt, flameSize,
-//      intensity for the object and its light; intensity is combine's scale);
-//      burn(candle, dt, candleLit({ sunEl, present })) keeps each one's lit time.
+//   4. Candles: candleState(the law's candle, t, { lit, which }) each frame (flameAt,
+//      flameSize, intensity for the object and its light; intensity is combine's
+//      scale). The candle itself burns in the law (law/candle.js), regrown from the
+//      room's chain (law/wax.js); where no chain says, candleLit({ sunEl, present }).
 //   5. The camera: roomCamera.js seat / fly / walk / glide; pageView gives the
 //      engine's page-px eye, axes and near plane; inView picks the chunks drawn.
 //   6. Fading: fade.js fadedInk(abs, gall, views, depth) where look.js's flat fadeOf was.

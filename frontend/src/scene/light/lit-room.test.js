@@ -13,7 +13,7 @@ import { outsideAt } from './outside.js';
 import { CMF, MATTER } from './curves.js';
 import { xyzOf, LUMENS } from './color.js';
 import { paperCurve, grownCurve, patchAbsorption, pageCurve } from './matter.js';
-import { candleState, flameLight } from './candle.js';
+import { candleState, flameLight, NEW_CANDLE } from './candle.js';
 import { settledOn, toScreen } from './eye.js';
 import { decodeRoom, roomGeometry, formFactors, encodeRoom, ROOM } from './room.js';
 import { directLight, sunAperture } from './direct.js';
@@ -42,8 +42,8 @@ function day(hour) {
   const sunDir = toward(az, el);
   return { sunDir, sun: sunLight(el), outside: outsideAt(sunDir), glass: MATTER.glass };
 }
-const flames = (litMs = 3600e3, t = 0) => room.candles.map((c, which) => {
-  const s = candleState(litMs, t, { which });
+const flames = (t = 0) => room.candles.map((c, which) => {
+  const s = candleState(NEW_CANDLE, t, { which });
   return { pos: [c[0], c[1], c[2] + s.flameAt], intensity: flameLight(s) };
 });
 const settle = (sources, page) => solve(room.patches, room.F, absorption(page), directLight(room, sources));

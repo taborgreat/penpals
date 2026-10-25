@@ -12,7 +12,8 @@ import { CMF, DAYLIGHT, INK } from './curves.js';
 import { xyzOf, xyzToLinear, srgbToLab, hexToSrgb, deltaE, decode, LUMENS, brightness } from './color.js';
 import { cellReflectance, paperCurve, inkAbsorbance } from './matter.js';
 import { createEye, settledOn, step, toScreen, exposureOf, adaptationOf, screenWeights, tone, encode } from './eye.js';
-import { candleLit, candleState, burn, newCandle, lifeMs, flameLight, BURN_HOURS, WAX } from './candle.js';
+import { candleLit, candleState, flameLight, NEW_CANDLE } from './candle.js';
+import * as C from 'penpals-law/candle';
 import { fadeByLight, fadedInk } from './fade.js';
 import { solve } from './bounce.js';
 import { SIGNATURE_COLORS } from '../../hand/colors.js';
@@ -38,7 +39,7 @@ function adaptedTo(E, seconds = 60) {
 const inkSeen = (E, rgb) => pageUnder(E).map((v, i) => v * cellReflectance(WHITE, absOf(rgb))[i]);
 // Two candles by the page, about where candlesAt sets them (a quarter metre off).
 const candlelight = () => {
-  const I = flameLight(candleState(H, 0));
+  const I = flameLight(candleState(NEW_CANDLE, 0));
   return I.map((v) => (2 * v) / 0.25 ** 2);
 };
 
@@ -128,69 +129,52 @@ test('candles: lit at night while a being is present, out when they leave', () =
   assert.equal(candleLit({ sunEl: 30, present: true }), false, 'none by day');
 });
 
-test('candles: height falls only with lit time and carries across nights; replaced only when spent', () => {
-  // two nights and the day between: present and absent, by night and by day
-  const sessions = [
-    { ms: 2 * H, sunEl: -20, present: true },
-    { ms: 5 * H, sunEl: -20, present: false },
-    { ms: 8 * H, sunEl: 40, present: true },
-    { ms: 1 * H, sunEl: -15, present: true },
-  ];
-  let c = newCandle();
-  const heights = [candleState(c.litMs).height];
-  for (const s of sessions) {
-    c = burn(c, s.ms, candleLit(s));
-    heights.push(candleState(c.litMs).height);
-  }
-  assert.equal(c.litMs, 3 * H, 'only the lit hours count');
-  assert.ok(heights[1] < heights[0], 'the first night burns it down');
-  assert.equal(heights[2], heights[1], 'away: it waits');
-  assert.equal(heights[3], heights[2], 'by day: it waits');
-  assert.ok(heights[4] < heights[3], 'the next night it burns on from where it was');
-  // never up, whatever the clock
-  let last = Infinity;
-  for (let ms = 0; ms <= lifeMs(); ms += 0.05 * H) {
-    const h = candleState(ms, ms / 777).height;
-    assert.ok(h <= last + 1e-12);
-    assert.equal(h, candleState(ms, 99).height, 'the flicker never moves the wax');
-    last = h;
-  }
-  assert.ok(candleState(1 * H).flameAt > candleState(10 * H).flameAt, 'the flame sits lower as it sinks');
-  // spent only at the end of its wax; then a new one
-  const life = lifeMs();
-  assert.ok(Math.abs(life - BURN_HOURS * H) < 0.05 * H, 'its wax lasts about its burn time');
-  assert.equal(burn(newCandle(), life - 60e3, true).generation, 0);
-  const next = burn(newCandle(), life + H, true);
-  assert.equal(next.generation, 1, 'spent: replaced');
-  assert.ok(Math.abs(next.litMs - H) < 1, 'the new one burns on');
-  assert.ok(candleState(next.litMs, 0, { generation: 1 }).height > 0.9 * candleState(0).height);
-  const kept = burn(newCandle(), life + H, true, { replace: false });
-  assert.ok(kept.generation === 0 && candleState(kept.litMs).spent, 'or left spent');
+// A law candle (law/candle.js) lit for `steps` seconds, as the room's chain would have it burn.
+function burnt(steps, cd = C.newCandle()) {
+  for (let k = 0; k < steps; k++) C.stepCandle(cd, { lit: true });
+  return cd;
+}
+const drawn = (cd, lit = true) => ({ lit, height: C.heightOf(cd), ...C.flameOf(cd), spent: C.spent(cd) });
+
+test("candles: what is drawn is the law's candle: its height, its flame as fed as the law burns it; the flicker never moves the wax", () => {
+  const fresh = C.newCandle();
+  assert.equal(candleState(drawn(fresh)).height, C.heightOf(fresh));
+  const cd = burnt(1800); // half an hour lit
+  const st = candleState(drawn(cd), 0);
+  assert.equal(st.height, C.heightOf(cd), "the height is the law's, nothing of its own");
+  assert.ok(st.height < C.heightOf(fresh), 'lit, it has burnt down');
+  assert.ok(st.flameAt < candleState(drawn(fresh), 0).flameAt + 0.01, 'the flame sits where the wax is');
+  for (const t of [0, 1.7, 99.2]) assert.equal(candleState(drawn(cd), t).height, st.height, 'the flicker never moves the wax');
+  // out, it gives nothing; just lit, before its pool melts, its wick starves and its flame is small
+  assert.equal(candleState(drawn(cd, false), 0).intensity, 0);
+  const starved = { ...drawn(cd), fed: 0.2 };
+  assert.ok(candleState(starved, 5).flameSize < candleState(drawn(cd), 5).flameSize, 'a starved flame is smaller');
+  assert.equal(candleState({ ...drawn(cd), spent: true }, 0).intensity, 0, 'spent: nothing');
 });
 
-test('candles: smoke rate is positive only while lit; the burnt wax all leaves as smoke', () => {
-  assert.ok(candleState(H, 0, { lit: true }).smokeRate > 0);
-  assert.equal(candleState(H, 0, { lit: false }).smokeRate, 0);
-  assert.equal(candleState(lifeMs() + 1, 0).smokeRate, 0, 'spent');
-  assert.equal(candleState(H, 0, { lit: false }).intensity, 0);
-  assert.ok(candleState(H, 0).heatRate > 50 && candleState(H, 0).heatRate < 150, 'a candle gives off about 80 W');
-  // the smoke over a burn adds up to the wax that went
-  let smoke = 0;
-  const dt = 10e3;
-  for (let ms = 0; ms < 3 * H; ms += dt) smoke += candleState(ms + dt / 2, 0).smokeRate * (dt / 1000);
-  const wentG = (candleState(0).height - candleState(3 * H).height) / candleState(0).height;
-  assert.ok(Math.abs(smoke - wentG * WAX) / (wentG * WAX) < 0.01);
-  // the flicker comes from the wick: a long wick shivers more than a trimmed one, the same for everyone
-  const spread = (ms) => {
-    const s = Array.from({ length: 200 }, (_, k) => candleState(ms, 1000 + k * 0.05).flameSize);
-    return Math.max(...s) - Math.min(...s);
+test('candles: the smoke it gives is the wax the law burnt; a long wick shivers more; two candles not in step', () => {
+  const cd = C.newCandle();
+  let smoke = 0; // g, a second at a time
+  for (let k = 0; k < 600; k++) {
+    C.stepCandle(cd, { lit: true });
+    smoke += candleState(drawn(cd), k).smokeRate;
+  }
+  assert.ok(Math.abs(smoke * 1e6 - cd.burnt) <= 1, `smoke ${(smoke * 1e6).toFixed(0)} µg, burnt ${cd.burnt} µg`);
+  assert.equal(candleState(drawn(cd, false), 0).smokeRate, 0, 'out: no smoke');
+  const fed = candleState(drawn(cd), 0);
+  assert.ok(fed.heatRate > 50 && fed.heatRate < 150, `a candle gives off about 80 W (${fed.heatRate.toFixed(0)})`);
+  // the flicker comes from the wick, which grows and trims through its cycles as the candle burns
+  const at = (s) => ({ ...drawn(cd), burntS: s, fed: 1 });
+  const spread = (s) => {
+    const sizes = Array.from({ length: 200 }, (_, k) => candleState(at(s), 1000 + k * 0.05).flameSize);
+    return Math.max(...sizes) - Math.min(...sizes);
   };
-  const states = Array.from({ length: 60 }, (_, k) => candleState(k * 60e3));
-  const longest = states.reduce((a, s, k) => (s.wick > states[a].wick ? k : a), 0);
-  const shortest = states.reduce((a, s, k) => (s.wick < states[a].wick ? k : a), 0);
-  assert.ok(spread(longest * 60e3) > 2 * spread(shortest * 60e3), 'a long wick is restless');
-  assert.deepEqual(candleState(5 * H, 1234.5, { which: 1 }), candleState(5 * H, 1234.5, { which: 1 }));
-  assert.notEqual(candleState(5 * H, 1234.5, { which: 0 }).flameSize, candleState(5 * H, 1234.5, { which: 1 }).flameSize, 'two candles, not in step');
+  const states = Array.from({ length: 60 }, (_, k) => candleState(at(k * 60)));
+  const longest = states.reduce((a, x, k) => (x.wick > states[a].wick ? k : a), 0);
+  const shortest = states.reduce((a, x, k) => (x.wick < states[a].wick ? k : a), 0);
+  assert.ok(spread(longest * 60) > 2 * spread(shortest * 60), 'a long wick is restless');
+  assert.deepEqual(candleState(at(5000), 1234.5, { which: 1 }), candleState(at(5000), 1234.5, { which: 1 }));
+  assert.notEqual(candleState(at(5000), 1234.5, { which: 0 }).flameSize, candleState(at(5000), 1234.5, { which: 1 }).flameSize, 'two candles, not in step');
 });
 
 test('eye: after a step from dark to bright, exposure overshoots then settles within about a second', () => {
@@ -306,7 +290,7 @@ test('record untouched: facts and digests identical under any light, time, candl
       toScreen(pageUnder(E), eye);
       fadedInk([c[2], c[3], c[4]], c[5], 1000 * h, c[7]);
     }
-    candleState(h * H, h, { lit: h > 18 });
+    candleState(NEW_CANDLE, h, { lit: h > 18 });
   }
   // a room of any size and any bin count through the general solver
   for (const bins of [N, 8, 3]) {

@@ -19,8 +19,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, useRoomLines, seatOf, roomAct } from './presence.js';
 import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE } from './shared.js';
 import { lyingOn, waxContext } from './table.js';
-import { wax as WX, room as R } from 'penpals-law';
-import { GEOM } from '../scene/light.js';
+import { wax as WX, room as R, candle as C } from 'penpals-law';
+import { GEOM, theLight } from '../scene/light.js';
 
 // The seals pressed into a sheet, in its order: [{ n, for (key), name, took, broken, at: { x, y } }]
 // (took: the sheet grown to that press, its i-th seal; until then, not yet).
@@ -57,8 +57,10 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   // The candles and what they let fall (law/wax.js), regrown from the room's chain as its lines
   // arrive and as time passes: caught up a slice at a time (a candle lit for hours is many
   // steps), then kept up, often while one is in someone's hand, now and then while one burns.
+  // The light draws them as they are (scene/light.js setCandles): lit or out, how far down, how fed.
   const candles = useMemo(() => WX.createRoomWax(waxContext({ geom: GEOM, page: [pageW, pageH] })), [name, pageW, pageH]);
   const [wax, setWax] = useState({ drips: [], n: 0 });
+  useEffect(() => () => theLight().setCandles(null), [candles]);
   useEffect(() => {
     if (!lines.length) return undefined;
     let timer = 0;
@@ -67,6 +69,12 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       const until = Math.min(now, (candles.at() ?? Date.parse(lines[0].at)) + CATCH_UP_MS);
       const drips = candles.advance(lines, until);
       setWax((w) => (w.drips === drips && w.n === drips.length ? w : { drips, n: drips.length }));
+      theLight().setCandles(
+        R.CANDLES.map((_, which) => {
+          const c = candles.candle(which);
+          return { lit: c.lit, height: C.heightOf(c.cd), ...C.flameOf(c.cd), spent: C.spent(c.cd) };
+        }),
+      );
       if (until < now) timer = setTimeout(go, 0);
       else if (inHand || burning) timer = setTimeout(go, inHand ? 500 : 5000);
     };

@@ -5,7 +5,7 @@
 // (settle.js combine) from the parts this returns.
 // Messages in:
 //   { type: 'room', json, bin }                                  the baked room
-//   { type: 'settle', id, sun?: { az, el }, present?, candles?: [{ litMs, which, generation? }],
+//   { type: 'settle', id, sun?: { az, el }, present?, candles?: [{ which, at?, height, fed, burntS, spent }],
 //     page?: reflectance (N), curves?: { [patch]: reflectance }, seeds? }
 // Out, by id:
 //   { id, day, flames: [...], scales: [...], passes, ms }   parts as Float32Array n × N, handed over;
@@ -22,11 +22,11 @@ import { candleState, flameLight } from './candle.js';
 let room = null;
 
 // Each candle's flame at unit strength (flicker scales it), standing where its
-// burn has brought it down to.
+// burning has brought it down to (law/candle.js, as candle.js reads it).
 export function flamesOf(room, candles = []) {
-  return candles.map(({ litMs = 0, which = 0, generation = 0, at = null }) => {
+  return candles.map(({ which = 0, at = null, ...state }) => {
     const spot = at ?? room.candles[which] ?? room.candles[0]; // (carried: where it stands now)
-    const s = candleState(litMs, 0, { which, generation });
+    const s = candleState({ ...state, fed: 1 }, 0, { which });
     const unit = { ...s, intensity: s.spent ? 0 : 1 };
     return { pos: [spot[0], spot[1], spot[2] + s.flameAt], intensity: flameLight(unit), scale: s.intensity };
   });

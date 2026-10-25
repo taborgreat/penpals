@@ -9,7 +9,7 @@ import { directLight } from './direct.js';
 import { solve } from './bounce.js';
 import { roomAbsorption, settleParts, combine, daySources, meanTone } from './settle.js';
 import { handle, flamesOf } from './lightWorker.js';
-import { candleState } from './candle.js';
+import { candleState, NEW_CANDLE } from './candle.js';
 import { cellReflectance } from './matter.js';
 import { MATTER } from './curves.js';
 import { PLASTER, defaultSeed } from './surface.js';
@@ -22,11 +22,11 @@ const at = (light, i) => light.slice(i * N, (i + 1) * N).reduce((t, v) => t + v,
 const DUSK = { az: 70, el: 4 };
 
 test('settle: the parts add up to the whole, so a flicker scales a part instead of solving again', () => {
-  const candles = [{ litMs: 2 * 3600e3, which: 0 }, { litMs: 2 * 3600e3, which: 1 }];
+  const candles = [{ ...NEW_CANDLE, which: 0 }, { ...NEW_CANDLE, which: 1 }];
   const flames = flamesOf(room, candles);
   const parts = settleParts(room, absorption, { sun: DUSK, flames });
   for (const t of [0, 0.37, 1.9]) {
-    const scales = candles.map((c) => candleState(c.litMs, t, { which: c.which }).intensity);
+    const scales = candles.map((c) => candleState(c, t, { which: c.which }).intensity);
     const now = combine(parts, scales);
     // the same light solved whole, every source at its strength now
     const whole = solve(room.patches, room.F, absorption, directLight(room, { ...daySources(DUSK), flames: flames.map((f, k) => ({ ...f, intensity: f.intensity.map((v) => v * scales[k]) })) })).light;
@@ -56,13 +56,13 @@ test('the light worker: a room, then parts as typed arrays, with the flames\' st
   assert.equal(handle({ type: 'settle', id: 1 }).error, 'no room yet');
   const r = handle({ type: 'room', json, bin });
   assert.equal(r.n, room.patches.length);
-  const out = handle({ type: 'settle', id: 2, sun: { az: 0, el: 50 }, candles: [{ litMs: 3600e3, which: 0 }, { litMs: 3600e3, which: 1 }] });
+  const out = handle({ type: 'settle', id: 2, sun: { az: 0, el: 50 }, candles: [{ ...NEW_CANDLE, which: 0 }, { ...NEW_CANDLE, which: 1 }] });
   assert.equal(out.id, 2);
   assert.ok(out.day instanceof Float32Array && out.day.length === room.patches.length * N);
   assert.equal(out.flames.length, 2);
   assert.ok(out.scales.every((s) => s > 0));
   assert.ok(out.day[room.page * N + 8] > 0);
   assert.ok(out.ms < 2000, `${out.ms.toFixed(0)} ms`);
-  const spent = handle({ type: 'settle', id: 3, candles: [{ litMs: 1e12, which: 0 }] });
+  const spent = handle({ type: 'settle', id: 3, candles: [{ ...NEW_CANDLE, spent: true, which: 0 }] });
   assert.ok(spent.flames[0].every((v) => v === 0) && spent.scales[0] === 0, 'a spent candle gives nothing');
 });
