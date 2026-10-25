@@ -1,6 +1,7 @@
 import { forwardRef, useContext, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createView, engineReady } from './engine.js';
+import { createView, engineReady, DROP_PX } from './engine.js';
+import { groundOf } from './ground.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
 import { theLight, originOf, withinRoom, returnTo, sunAt, zoned, GEOM } from './light.js';
 import { roomCamera, hit as roomHit, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
@@ -74,11 +75,14 @@ function storedRelief() {
 const SIGHT_MS = 150; // the view still this long: what it sees is told (and asked for)
 const SETTLE_MS = 40; // while the eye adapts (it is slow: seconds), drawn this often
 const FOV = 40;
-// Look: the head turned in the room (light-waves §9): drag to turn, W A S D Q E to fly.
+// Look: the head turned in the room (light-waves §9): drag to turn, W A S D Q E to fly;
+// F walks instead (gravity holds the being to what is under it), [ and ] make it smaller
+// and larger, down to a bead of ink (rooms.md §4), where the page's own heights are its ground.
 const TURN = 0.25; // degrees a CSS px
 const FLY_KEYS = { w: 'forward', arrowup: 'forward', s: 'back', arrowdown: 'back', a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', q: 'up', e: 'down' };
 const toRoomDir = (d) => [d[0], -d[1], d[2]]; // page frame ↔ the room's (y flips)
 const INSIDE_M = 0.3; // another's head nearer your eye than this (at their size): you are in it, and do not see it
+const SIZE_MIN = 1e-4; // a being as small as a bead of ink
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
 
 const SceneView = forwardRef(function SceneView(
@@ -140,6 +144,8 @@ const SceneView = forwardRef(function SceneView(
   const [banded, setBanded] = useState([0, 0]); // cells in a dark band, of all with a moment (shown on the element: data-banded, data-timed)
   const [ready, setReady] = useState(null); // the renderer, once chosen: 'webgpu' | 'webgl2'
   const [looking, setLooking] = useState(false); // Look: the head free in the room
+  const [walking, setWalking] = useState(false); // Look: walking (else flying)
+  const [size, setSize] = useState(1); // the being's size (1 a person)
   const phone = useRef(isPhone()).current;
 
   if (!st.current) {
@@ -171,9 +177,11 @@ const SceneView = forwardRef(function SceneView(
   zoneRef.current = timeZone;
   const origin = () => originOf(page[0], page[1]);
   // A pose as the engine's camera (camera.js 'pose', the page frame).
+  // The page's heights under a small being's feet (scene/ground.js): what the eye sees is what it stands on.
+  const groundNow = () => (S.ground ??= groundOf(S.sheetsNow, { origin: origin(), pxPerM: PX_PER_M, dropPx: DROP_PX, relief: S.reliefNow ?? 1 }));
   function camOfPose(pose) {
     const { forward } = roomCamera.look(pose);
-    const near = roomCamera.nearAt(roomCamera.clearance(GEOM, pose.pos)) * PX_PER_M;
+    const near = roomCamera.nearAt(roomCamera.clearance(GEOM, pose.pos, groundNow())) * PX_PER_M;
     return { mode: 'pose', eye: roomToPage(pose.pos, origin()), forward: toRoomDir(forward), up: [0, 0, 1], fov: FOV, near, target: S.cam.target ?? [page[0] / 2, page[1] / 2] };
   }
   // What the eye is on in Look: the patch of the room its gaze meets (null: the page).
@@ -193,6 +201,10 @@ const SceneView = forwardRef(function SceneView(
   const onPoseRef = useRef(onPose);
   onPoseRef.current = onPose;
   S.beings = beings;
+  if (S.reliefNow !== relief) {
+    S.reliefNow = relief; // (the ground is drawn as tall as the view draws it)
+    S.ground = null;
+  }
 
   const schedule = () => {
     if (!S.raf && S.view) S.raf = requestAnimationFrame(draw);
@@ -255,14 +267,17 @@ const SceneView = forwardRef(function SceneView(
       cam = { ...cam, target: [(x0 + x1) / 2, (y0 + y1) / 2], view: Math.max(1, x1 - x0) };
     }
     if (S.pose) {
-      // Look: fly by the keys held, at a speed that follows the nearest surface
-      if (S.keys.size && !S.glide) {
+      // Look: fly by the keys held, at a speed that follows the nearest surface; or walk,
+      // gravity holding the being to what is under it (falling, it falls until it rests)
+      const walking = S.pose.mode === 'walk';
+      if ((S.keys.size || walking) && !S.glide) {
         const dt = Math.min(0.05, (now - (S.keyT ?? now)) / 1000);
         const has = (k) => [...S.keys].some((x) => FLY_KEYS[x] === k);
         const input = { forward: (has('forward') ? 1 : 0) - (has('back') ? 1 : 0), right: (has('right') ? 1 : 0) - (has('left') ? 1 : 0), up: (has('up') ? 1 : 0) - (has('down') ? 1 : 0) };
-        if (dt > 0) S.pose = roomCamera.fly(GEOM, S.pose, input, dt);
+        if (walking) S.pose = roomCamera.walk(GEOM, S.pose, input, dt, { ground: groundNow() });
+        else if (dt > 0) S.pose = roomCamera.fly(GEOM, S.pose, input, dt, { ground: groundNow() });
         S.keyT = now;
-        S.moveUntil = now + STILL_MS;
+        if (S.keys.size) S.moveUntil = now + STILL_MS;
       }
       if (S.glide) {
         const k = Math.min(1, (now - S.glide.t0) / S.glide.ms);
@@ -324,8 +339,8 @@ const SceneView = forwardRef(function SceneView(
     }
     const low = cam.mode === '3d' && !!(writer || tableWriter) && !canWrite(cam);
     setSteep((was) => (was === low ? was : low));
-    if (S.anim || S.override || S.back || S.glide || (S.pose && S.keys.size) || gliding)
-      schedule(); // moving
+    if (S.anim || S.override || S.back || S.glide || (S.pose && (S.keys.size || (S.pose.mode === 'walk' && S.pose.vz))) || gliding)
+      schedule(); // moving (or falling)
     else if (light.settling && !S.settle) {
       // the room's light settling, the eye adapting: a few frames a second
       S.settle = setTimeout(() => {
@@ -400,6 +415,8 @@ const SceneView = forwardRef(function SceneView(
 
   // the sheets
   useEffect(() => {
+    S.sheetsNow = sheets;
+    S.ground = null;
     const view = S.view;
     if (!view) return;
     const ids = new Set(sheets.map((s) => s.id));
@@ -936,6 +953,25 @@ const SceneView = forwardRef(function SceneView(
       return;
     }
     if (S.pose) {
+      if (k === 'f') {
+        // walk or fly (rooms.md §4): walking, everything falls until it rests
+        S.pose = { ...S.pose, mode: S.pose.mode === 'walk' ? 'fly' : 'walk', vz: 0 };
+        S.keyT = performance.now();
+        setWalking(S.pose.mode === 'walk');
+        schedule();
+        return;
+      }
+      if (k === '[' || k === ']') {
+        // smaller or larger, down to a bead of ink: the feet stay where they are
+        const was = S.pose.size ?? 1;
+        const size = Math.max(SIZE_MIN, Math.min(1, was * (k === ']' ? 2 : 0.5)));
+        const feet = S.pose.pos[2] - roomCamera.EYE * was;
+        S.pose = { ...S.pose, size, pos: S.pose.mode === 'walk' ? [S.pose.pos[0], S.pose.pos[1], feet + roomCamera.EYE * size] : S.pose.pos };
+        setSize(size);
+        S.keyT = performance.now();
+        schedule();
+        return;
+      }
       if (!FLY_KEYS[k]) return;
       e.preventDefault();
       if (!S.keys.size) S.keyT = performance.now();
@@ -1077,7 +1113,7 @@ const SceneView = forwardRef(function SceneView(
           {(writer || tableWriter) && !looking
             ? `The pen: drag to write${writer ? '' : ' on a shared sheet'} · right-drag to turn · H for the hand`
             : looking
-              ? 'The pen: write on a wall, the floor, the ceiling · drag the room to turn your head · L to sit'
+              ? `The pen: write on a wall, the floor, the ceiling · drag the room to turn your head · F to ${walking ? 'fly' : 'walk'} · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''} · L to sit`
               : 'L to look around and write on the walls · H for the hand'}
         </p>
       )}
