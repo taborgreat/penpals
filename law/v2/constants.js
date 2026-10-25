@@ -134,8 +134,19 @@ export const WAX_R_MAX = 64; // cells: the widest a drip spreads
 export const WAX_SPREAD = 1 << 18; // a drip spreads to √(amt × (128 + heat) ÷ WAX_SPREAD) cells (a hot drip of 400000: about 3.5 mm across)
 export const WAX_SEAL = 24; // wax under which a cell is sealed: no water enters its fibers
 export const WAX_BEAD = 3; // sealed wax holds 1/2^WAX_BEAD of what paper does: a skin of ink, the rest beads off the nib
-export const WAX_SOFT_MS = 3000; // wax stays soft this long after it lands, cold ...
-export const WAX_SOFT_HEAT = 60; // ... and this much longer per level of heat (0..255): hot wax up to about 18 s
+// Heat (matter-fixes.md §1, the one rule for heat). A cell holds heat where there
+// is wax: its wax × how far it is above the air, in levels of HEAT_Q steps (a
+// drip's heat, 0..255, is its level as it lands: 0.4 °C a level above a room at
+// 20 °C, so 255 is 122 °C). Each dry step heat flows from a wax cell to each cooler
+// wax cell beside it (the difference × the thinner one's wax × WAX_CONDUCT ÷ 4096,
+// a diagonal by DIAG_Q), and leaves to the paper under it and the air above (its
+// level × WAX_COOL ÷ 256, rounded up: it always cools). A cell no warmer than the
+// air holds none, and sleeps. Thick wax holds its heat longer; a thin edge sets at once.
+export const HEAT_Q = 16;
+export const WAX_CONDUCT = 256;
+export const WAX_COOL = 450; // Tabor's to set: how fast heat leaves (with the thresholds, how long a drip stays soft)
+export const WAX_MELT = 100; // levels: hotter, wax is liquid (60 °C: law/matter.js wax melts)
+export const WAX_SOFTEN = 63; // levels: hotter, wax takes a press (45 °C; Tabor's to set)
 // A press: the stamper's face (a relief, FACE_MAX × FACE_MAX at most, each face
 // pixel `cell` paper cells) pressed into the wax at an angle, tilted (deeper on one
 // side), as deep as `depth`. Only soft wax takes it, and no deeper than the wax is.
