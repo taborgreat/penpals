@@ -12,7 +12,9 @@ import { lawPen, lineWidthPx } from '../ink/pens.js';
 import { PEN_SIZES } from '../ink/nibs.js';
 import { shelfLayout, rayBox } from './shelf.js';
 import { penRestOf, JAR } from './light/room.js';
-import { hear, earAt, roomIs, spaceIs, startSound, now as soundNow } from '../sound/index.js';
+import { hear, earAt, roomIs, spaceIs, weatherIs, startSound, now as soundNow } from '../sound/index.js';
+import { weatherAt } from 'penpals-law/weather';
+import { AIR } from 'penpals-law/matter';
 import { BAR } from '../sound/music.js';
 import { penHand, recordSounds, dipTap } from '../sound/pen.js';
 import { acoustics } from '../sound/room.js';
@@ -829,6 +831,22 @@ const SceneView = forwardRef(function SceneView(
     roomIs(acoustics(GEOM, { open: windowOpen }));
     theLight().setWindow(windowOpen); // (the room's air: what it lets out, world.md 3b)
   }, [windowOpen]);
+  // the weather over this space (world.md Phase 4: its seed the space's, so everyone there has the
+  // same): heard from its totals; its air the outside the window opens to
+  useEffect(() => {
+    if (!space) return undefined;
+    const tick = () => {
+      const w = weatherAt(space, worldClock(new Date()).getTime());
+      weatherIs(w);
+      theLight().setWindow(windowOpen, w.temp - AIR.temp);
+    };
+    tick();
+    const id = setInterval(tick, 2000); // (the beds follow the ear as it moves; the weather steps every two minutes)
+    return () => {
+      clearInterval(id);
+      weatherIs(null);
+    };
+  }, [space, windowOpen]);
   // the window under the pointer (E opens it, or shuts it)
   const windowAt = (e) => {
     if (!e || !carrying?.openWindow) return false;

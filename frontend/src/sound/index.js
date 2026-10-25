@@ -4,8 +4,11 @@
 //   hear(event)   (sound/ear.js's events: t on now()'s clock)     earAt(pose)   startSound()
 //   roomIs(acoustics | null)   the room the ear is in (sound/room.js acoustics)
 //   spaceIs(key | null)        whose space it is (its key: matter's music, sound/music.js)
+//   bedIs(name, bands | null)  a sound that lasts, heard all about
+//   weatherIs(weather | null)  the weather's rain and wind (law/weather.js), as heard where the ear is
 import { createEar } from './ear.js';
 import { createAudioOut } from './audio.js';
+import { weatherBeds } from './weather.js';
 
 export const now = () => performance.now() / 1000;
 let out = null;
@@ -41,6 +44,13 @@ export const spaceIs = (key) => {
   space = key;
   ear?.space(key);
 };
+export const bedIs = (name, bands) => out?.bed(name, bands);
+export function weatherIs(w) {
+  if (!out) return;
+  const beds = w && pose ? weatherBeds(w, pose, room) : { rain: null, wind: null };
+  out.bed('rain', beds.rain);
+  out.bed('wind', beds.wind);
+}
 export const listening = () => !!ear;
 export function startSound() {
   if (out || typeof AudioContext === 'undefined') return;

@@ -34,7 +34,10 @@
 //   sound     ‰ of the sound reaching its face it drinks, by octave (31 Hz .. 16 kHz: world.md's ten
 //             bands; Sabine's coefficients, the low and high ends as the nearest measured octave)
 //   molar     g/mol (a gas's: with its heat, how fast sound runs through it)
-//   viscous   nPa·s (a gas's: how it drags on what moves through it, as smoke's grains settling)
+//   viscous   nPa·s (a fluid's: how it drags on what moves through it, as smoke's grains settling, a
+//             bead sliding)
+//   wetting   { angle, hysteresis } (°): how water stands on its face (a bead's edge, to it) and how much
+//             more the edge must lean before it moves (what pins a bead on a pane until its weight wins)
 //   soot      ppm of what burns that leaves as soot (the grains in its smoke that darken the air)
 //   grains    { size (nm), density (kg/m³), ior, absorbs (×1000: the real and imaginary parts of their
 //             refractive index) }: the solid grains a smoke carries (how they settle, stick and
@@ -74,6 +77,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 4186, conducts: 600, melts: 0, boils: 100, burns: null, fuses: 334000, vaporizes: 2450000 },
     becomes: { boiled: 'steam', frozen: 'ice' },
     molar: 18.015,
+    viscous: 1000000,
     tension: 72,
     light: 'water',
     sound: [10, 10, 10, 10, 10, 15, 20, 20, 20, 20],
@@ -186,6 +190,7 @@ export const MATTER = Object.freeze({
     friction: 900,
     heat: { holds: 840, conducts: 1000, melts: 1400, boils: null, burns: null },
     ink: { drinks: 0, wets: 800, hold: 300, thirst: 0, rough: 0, fibers: null },
+    wetting: { angle: 30, hysteresis: 15 },
     light: 'glass',
     sound: [350, 350, 350, 250, 180, 120, 70, 40, 40, 40],
     ior: 1500,
