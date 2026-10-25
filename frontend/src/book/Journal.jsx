@@ -24,6 +24,10 @@ import { useTogether } from '../room/together.js';
 import { useCarry } from '../room/carry.js';
 import { SHARED_PAGE } from '../room/shared.js';
 import TogetherBar from '../room/TogetherBar.jsx';
+import Panel from '../components/Panel.jsx';
+import PenPanel, { usePen } from '../components/PenPanel.jsx';
+import PaperPanel, { FreshSheet } from '../components/PaperPanel.jsx';
+import { useFreshSheet, SIZES } from './fresh.js';
 
 // The living journal (books.md, Part B; keys.md): a book of handwritten pages.
 // The owner writes anything anywhere (each piece a sheet of the law's paper,
@@ -37,6 +41,17 @@ import TogetherBar from '../room/TogetherBar.jsx';
 // table, grown from their key, carry what they wrote there. The owner writes on
 // a surface from Look, the pen pointed at it (room/wallInk.js). Others in the room are there with you, and shared
 // sheets lie on its table to write on together (rooms.md §4–§6, room/together.js).
+//
+// In the world (`world`, one-world.md) there is no flat editor: the owner is in
+// their house, and the world's one panel (`panel`, room/panel.js) holds what the
+// toolbars did for what is in hand: the pen (components/PenPanel.jsx; it writes
+// the next strokes on the walls, on shared sheets and on a fresh sheet), or, at
+// the table with nothing in hand, new paper (a fresh sheet on the table:
+// book/fresh.js). Ctrl+Z lifts the fresh sheet's last stroke. E on a piece of
+// your writing picks it up (`sheetHand`): its panel is the editor's tools for
+// it, and E again sets it down at the pointer (one move). The book pulled down
+// from the shelf is in the hand too (`onHold('book')`): its panel turns its
+// pages and holds the page's own tools.
 const WRITE_PAD = { width: 1000, height: 470 }; // writing is placed at the size it was written on a page-wide pad
 const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c.light }));
 const BACKGROUNDS = ['#f6f1e7', '#ffffff', '#f2e8d0', '#e8eef6', '#f6e6e6', '#e7f1e6', '#2b2a33', '#1f2a40'];
@@ -54,7 +69,7 @@ const clothOf = (seeds) => CLOTHS[(seeds?.table?.[0] ?? 0) % CLOTHS.length];
 const doorValue = (l) => (l?.page ? `page:${l.page}` : l?.surface ? `surface:${l.surface}` : l?.room ? `room:${l.room}` : '');
 const surfaceName = (id) => `the ${id.replace('-', ' ')}`;
 
-export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null }) {
+export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null, world = false, panel = null, onHold = null }) {
   const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
   const { user } = useAuth();
   const key = useKey(user);
@@ -62,7 +77,8 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const [writing, setWriting] = useState(false);
   const [preview, setPreview] = useState(false);
   const [walking, setWalking] = useState(null); // the item being walked back
-  const editing = editable && !preview;
+  const editing = editable && !preview && !world;
+  const pen = usePen(); // the pen in the hand (the world's)
   // writing on the room's surfaces: one sheet at a time, begun where the pen first touches one
   const [wall, setWall] = useState(null); // room/wallInk.js, while a surface is being written on
   const wallRef = useRef(null);
@@ -155,6 +171,63 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   // the room this page lies in: the owner's own, grown from their key
   const seeds = useMemo(() => roomSeedsOf(book.key), [book.key]);
   const mine = !!(editable && key && book.key && key.publicKey === book.key && skeleton?.surfaces);
+  // the world: a fresh sheet on the table, written on in the scene, sealed into the book where it lies
+  const fresh = useFreshSheet({
+    writer: world && mine ? key : null,
+    family: skeleton?.paperFamily ?? null,
+    pen,
+    onPlace: (line, seed, at) => addInk(line, seed, { page: current, x: Math.round(at.x), y: Math.round(at.y), scale: SCALE_ONE }),
+  });
+  // the world: a piece of writing on the page picked up (E), its panel open, and set down elsewhere (one move)
+  const [held, setHeld] = useState(null); // { id, grab: [dx, dy] (page px, from its corner) }
+  useEffect(() => setHeld(null), [current]);
+  const heldItem = held ? (page?.items.find((it) => it.id === held.id) ?? null) : null;
+  const pageSize = book.page ?? DEFAULT_PAGE;
+  // in your own house you sit before a fresh sheet, the pen in your hand (as you came in from the lobby)
+  const laid = useRef(false);
+  useEffect(() => {
+    if (!world || !mine || laid.current || fresh.sheet) return;
+    laid.current = true;
+    fresh.newPaper({ size: SIZES.half });
+  }, [world, mine, fresh]);
+  const sheetHand = useMemo(
+    () =>
+      world && mine && page
+        ? {
+            held: held?.id ?? null,
+            pick(id, p) {
+              const it = page.items.find((x) => x.id === id);
+              if (it) setHeld({ id, grab: [p.x - it.x, p.y - it.y] });
+            },
+            down(p) {
+              if (!held) return false;
+              const it = page.items.find((x) => x.id === held.id);
+              setHeld(null);
+              if (!it) return true;
+              const [w, h] = itemSize(book.inks.get(it.ink).ink, it.scale);
+              const x = Math.round(Math.max(0, Math.min(pageSize.width - w, p.x - held.grab[0])));
+              const y = Math.round(Math.max(0, Math.min(pageSize.height - h, p.y - held.grab[1])));
+              if (x !== it.x || y !== it.y) send({ op: 'move', page: current, item: it.id, x, y });
+              return true;
+            },
+          }
+        : null,
+    [world, mine, page, held, current, send, book.inks, pageSize.width, pageSize.height],
+  );
+  // the book pulled down from the shelf is in the hand: the world's panel is its
+  useEffect(() => {
+    onHold?.(world && reading ? 'book' : null);
+  }, [world, reading, onHold]);
+  useEffect(() => {
+    if (!world || !fresh.sheet) return undefined;
+    const onKey = (e) => {
+      if (e.target.closest?.('input, textarea, select') || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      e.preventDefault();
+      fresh.undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [world, fresh]);
   async function placeWall(w) {
     if (!w.strokes) {
       w.destroy();
@@ -178,7 +251,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
               const was = wallRef.current;
               if (was?.pen.down(surface, p, ev, type)) return;
               if (was) placeWall(was); // the pen came down elsewhere: what was there is laid down, a new sheet begins
-              const next = createWallInk({ writer: key, family: skeleton.surfaces[surface].family, surface, at: p, color: wallColor });
+              const next = createWallInk({ writer: key, family: skeleton.surfaces[surface].family, surface, at: p, ...(world ? { color: pen.color, nib: pen.settings() } : { color: wallColor }) });
               wallRef.current = next;
               setWall(next);
               next.pen.down(surface, p, ev, type);
@@ -189,8 +262,11 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mine, key, skeleton?.surfaces, wallColor],
+    [mine, key, skeleton?.surfaces, wallColor, world, pen],
   );
+  useEffect(() => {
+    if (world && wall) wall.setColor(pen.color); // the pen's ink, on the sheet begun on a wall
+  }, [world, wall, pen.color]);
   // the shelf: the owner's own book (their journal), until Tabor rules which others stand there
   const shelf = useMemo(() => ({ books: [{ id: 'journal', color: clothOf(seeds) }], onOpen: () => setReading(true) }), [seeds]);
   // together in this room: who else is here, the shared sheets on its table
@@ -202,22 +278,34 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     mine: !!key && key.publicKey === book.key,
     pageW: (book.page ?? DEFAULT_PAGE).width,
     pageH: (book.page ?? DEFAULT_PAGE).height,
-    color: tableColor,
+    color: world ? pen.color : tableColor,
   });
   // the room's things in the hand (rooms.md §3b): a candle picked up, carried, tilted, set down
   const tableSheets = useMemo(() => together.sheets.map((p) => ({ sheet: p.view.sheet, origin: p.slot, size: [SHARED_PAGE.width, SHARED_PAGE.height] })), [together.sheets]);
   const carry = useCarry({ name: fromFile ? null : name, me: user?.username ?? null, key, room: book.key ?? null, page: [(book.page ?? DEFAULT_PAGE).width, (book.page ?? DEFAULT_PAGE).height], sheets: tableSheets });
   const room = useMemo(
-    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, wallWriter, live: wall ? [wall.mark] : [], shelf, follow, gazeAt, together: together.scene, hand: carry.hand }),
-    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand],
+    () => ({
+      surfaces: skeleton?.surfaces ?? null,
+      seeds,
+      wallWriter,
+      live: wall ? [wall.mark] : [],
+      shelf,
+      follow,
+      gazeAt,
+      together: together.scene,
+      hand: carry.hand,
+      paper: fresh.scene, // the fresh sheet on the table, and the pen on it
+      paperWriter: fresh.writer,
+      sheetHand,
+      world,
+    }),
+    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand, fresh.scene, fresh.writer, sheetHand, world],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;
   if (book.status === 'private') return <p className="muted">This journal is private. Only their friends can see it.</p>;
   if (book.status === 'error') return <p className="error">Could not open the book: {book.error}</p>;
-  const size = book.page ?? DEFAULT_PAGE;
-  // Nothing written in the whole book yet, on a page or in the room: visitors see nothing rather than a blank page.
-  if (!editable && !together.sheets.length && Object.values(skeleton.pages).every((p) => !p.items.length) && Object.values(skeleton.surfaces ?? {}).every((f) => !f.items.length)) return null; // (writing on the room's surfaces counts, and sheets on its table)
+  const size = book.page ?? DEFAULT_PAGE; // (a house with nothing written in it is still a house: visitors see its room)
   const missing = pageId && !skeleton.pages[pageId];
 
   function newPage() {
@@ -241,10 +329,115 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
     send({ op: 'remove_page', page_id: current });
     onPage(skeleton.home);
   }
+  // The page open on the table: its colour, the paper next writing is grown on, its name. (The editor's
+  // page tools; in the world, the book's panel.)
+  const pageTools = () => (
+    <>
+      <span className="field">
+        <span>Page</span>
+        <span className="swatches small" role="group" aria-label="Page background">
+          {BACKGROUNDS.map((c) => (
+            <button key={c} type="button" title={c} aria-pressed={page.background === c} style={{ '--sig-l': c }} onClick={() => send({ op: 'background', page: current, color: c })} />
+          ))}
+          <input type="color" value={page.background} onChange={(e) => send({ op: 'background', page: current, color: e.target.value })} title="Any colour" />
+        </span>
+      </span>
+      <FamilyPicker family={skeleton.paperFamily} onChange={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />
+      <button type="button" className="quiet" onClick={renamePage}>
+        Rename page
+      </button>
+      {current !== skeleton.home && (
+        <button type="button" className="quiet" onClick={removePage}>
+          Remove page
+        </button>
+      )}
+    </>
+  );
+  // One piece of writing on the page: its size, a door, its place in the stack, opening it, its
+  // film, walking it back, removing it. (The editor's selected tools; in the world, the sheet in hand's panel.)
+  const sheetTools = (it, letGo) => (
+    <>
+      <span className="meta">size {Math.round((it.scale / SCALE_ONE) * 100)}%</span>
+      {it.scale !== SCALE_ONE && (
+        <button type="button" className="quiet" onClick={() => send({ op: 'resize', page: current, item: it.id, scale: SCALE_ONE })}>
+          As written
+        </button>
+      )}
+      <label className="field">
+        <span>Door to</span>
+        <select
+          value={doorValue(it.link)}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (!v) return send({ op: 'unlink', page: current, item: it.id });
+            const at = v.indexOf(':');
+            const kind = v.slice(0, at),
+              to = v.slice(at + 1);
+            if (kind === 'room' && !to) {
+              const name = window.prompt('Whose room? (their name)');
+              if (name) send({ op: 'link', page: current, item: it.id, target_room: name.trim() });
+              return undefined;
+            }
+            return send({ op: 'link', page: current, item: it.id, [`target_${kind}`]: to });
+          }}
+        >
+          <option value="">— not a door —</option>
+          <optgroup label="A page">
+            {pageIds
+              .filter((id) => id !== current)
+              .map((id) => (
+                <option key={id} value={`page:${id}`}>
+                  {id}
+                </option>
+              ))}
+          </optgroup>
+          {skeleton.surfaces && (
+            <optgroup label="The room">
+              {Object.keys(skeleton.surfaces).map((id) => (
+                <option key={id} value={`surface:${id}`}>
+                  {surfaceName(id)}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Someone else">
+            {it.link?.room && <option value={`room:${it.link.room}`}>@{it.link.room}'s room</option>}
+            <option value="room:">Someone's room…</option>
+          </optgroup>
+        </select>
+      </label>
+      {it.link && (
+        <button type="button" onClick={() => follow(it.link)}>
+          Follow →
+        </button>
+      )}
+      <button type="button" onClick={() => send({ op: 'reorder', page: current, item: it.id, index: page.items.length - 1 })} title="Bring to front">
+        Forward
+      </button>
+      <button type="button" onClick={() => send({ op: 'reorder', page: current, item: it.id, index: 0 })} title="Send to back">
+        Back
+      </button>
+      <OpenSheet line={book.inks.get(it.ink)} opened={book.opened} keyOf={key} onOpen={openSheet} />
+      <FilmDownload source={() => filmOf(it)} background={page.background} name={`${bookName}-${it.ink}`} />
+      <button type="button" className="quiet" disabled={!seedOf(it)} onClick={() => setWalking(it)} title={seedOf(it) ? 'Why each spot looks the way it does' : 'Unlock to walk back your own sheets'}>
+        Walk back
+      </button>
+      <button
+        type="button"
+        className="quiet danger"
+        onClick={() => {
+          send({ op: 'remove', page: current, item: it.id });
+          letGo();
+        }}
+      >
+        Delete
+      </button>
+    </>
+  );
 
   return (
     <section className="journal">
-      {(editable || pageIds.length > 1) && (
+      {!world && (editable || pageIds.length > 1) && (
         <div className="journal-bar">
           <div className="journal-pages" role="tablist" aria-label="Pages">
             {pageIds.map((id) => (
@@ -283,121 +476,13 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         </div>
       )}
 
-      {editing && (
-        <div className="journal-tools">
-          <span className="field">
-            <span>Page</span>
-            <span className="swatches small" role="group" aria-label="Page background">
-              {BACKGROUNDS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  title={c}
-                  aria-pressed={page.background === c}
-                  style={{ '--sig-l': c, '--sig-d': c }}
-                  onClick={() => send({ op: 'background', page: current, color: c })}
-                />
-              ))}
-              <input type="color" value={page.background} onChange={(e) => send({ op: 'background', page: current, color: e.target.value })} title="Any colour" />
-            </span>
-          </span>
-          <FamilyPicker family={skeleton.paperFamily} onChange={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />
-          <button type="button" className="quiet" onClick={renamePage}>
-            Rename page
-          </button>
-          {current !== skeleton.home && (
-            <button type="button" className="quiet" onClick={removePage}>
-              Remove page
-            </button>
-          )}
-        </div>
-      )}
+      {editing && <div className="journal-tools">{pageTools()}</div>}
 
       {editing && writing && <WritePanel family={skeleton.paperFamily} onPlace={place} />}
 
       {editing && item && (
         <div className="journal-tools selected-tools" role="toolbar" aria-label="Selected writing">
-          <span className="meta">size {Math.round((item.scale / SCALE_ONE) * 100)}%</span>
-          {item.scale !== SCALE_ONE && (
-            <button type="button" className="quiet" onClick={() => send({ op: 'resize', page: current, item: item.id, scale: SCALE_ONE })}>
-              As written
-            </button>
-          )}
-          <label className="field">
-            <span>Door to</span>
-            <select
-              value={doorValue(item.link)}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return send({ op: 'unlink', page: current, item: item.id });
-                const at = v.indexOf(':');
-                const kind = v.slice(0, at),
-                  to = v.slice(at + 1);
-                if (kind === 'room' && !to) {
-                  const name = window.prompt('Whose room? (their name)');
-                  if (name) send({ op: 'link', page: current, item: item.id, target_room: name.trim() });
-                  return undefined;
-                }
-                return send({ op: 'link', page: current, item: item.id, [`target_${kind}`]: to });
-              }}
-            >
-              <option value="">— not a door —</option>
-              <optgroup label="A page">
-                {pageIds
-                  .filter((id) => id !== current)
-                  .map((id) => (
-                    <option key={id} value={`page:${id}`}>
-                      {id}
-                    </option>
-                  ))}
-              </optgroup>
-              {skeleton.surfaces && (
-                <optgroup label="The room">
-                  {Object.keys(skeleton.surfaces).map((id) => (
-                    <option key={id} value={`surface:${id}`}>
-                      {surfaceName(id)}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              <optgroup label="Someone else">
-                {item.link?.room && <option value={`room:${item.link.room}`}>@{item.link.room}'s room</option>}
-                <option value="room:">Someone's room…</option>
-              </optgroup>
-            </select>
-          </label>
-          {item.link && (
-            <button type="button" onClick={() => follow(item.link)}>
-              Follow →
-            </button>
-          )}
-          <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: page.items.length - 1 })} title="Bring to front">
-            Forward
-          </button>
-          <button type="button" onClick={() => send({ op: 'reorder', page: current, item: item.id, index: 0 })} title="Send to back">
-            Back
-          </button>
-          <OpenSheet line={book.inks.get(item.ink)} opened={book.opened} keyOf={key} onOpen={openSheet} />
-          <FilmDownload source={() => filmOf(item)} background={page.background} name={`${bookName}-${item.ink}`} />
-          <button
-            type="button"
-            className="quiet"
-            disabled={!seedOf(item)}
-            onClick={() => setWalking(item)}
-            title={seedOf(item) ? 'Why each spot looks the way it does' : 'Unlock to walk back your own sheets'}
-          >
-            Walk back
-          </button>
-          <button
-            type="button"
-            className="quiet danger"
-            onClick={() => {
-              send({ op: 'remove', page: current, item: item.id });
-              setSelected(null);
-            }}
-          >
-            Delete
-          </button>
+          {sheetTools(item, () => setSelected(null))}
         </div>
       )}
 
@@ -412,7 +497,9 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       )}
       {missing && <p className="muted">There is no page "{pageId}" in this book, so here is the first page.</p>}
 
-      {!fromFile && <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={tableColor} onColor={setTableColor} />}
+      {!fromFile && !world && (
+        <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={tableColor} onColor={setTableColor} />
+      )}
       <JournalPage
         pageId={current}
         page={page}
@@ -428,7 +515,42 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
         momentsSrc={momentsSrc}
         room={fromFile ? null : room}
       />
-      {reading && (
+      {world && panel === 'book' && (
+        <Panel title="The book, open in your hands">
+          <div className="journal-pages" role="tablist" aria-label="Pages">
+            {pageIds.map((id) => (
+              <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => onPage(id === skeleton.home ? null : id)}>
+                {id === skeleton.home ? '⌂ ' : ''}
+                {id}
+              </button>
+            ))}
+            {mine && (
+              <button type="button" className="quiet" onClick={newPage} title="Add a page">
+                + page
+              </button>
+            )}
+          </div>
+          {mine && <div className="journal-tools">{pageTools()}</div>}
+          {mine && (
+            <p className="book-download">
+              <a className="button" href="/api/books/me/download" download={`${bookName}.book`}>
+                ↓ Download this book
+              </a>{' '}
+              <span className="meta">your journal and signature as one .book file</span>
+            </p>
+          )}
+          <button type="button" className="quiet" onClick={() => setReading(false)}>
+            Put it back
+          </button>
+        </Panel>
+      )}
+      {world && panel === 'sheet' && heldItem && (
+        <Panel title="Your writing, in your hand">
+          <div className="journal-tools selected-tools">{sheetTools(heldItem, () => setHeld(null))}</div>
+          <p className="meta">Tap E to set it down where the pointer is.</p>
+        </Panel>
+      )}
+      {!world && reading && (
         <div className="journal-tools book-open" role="toolbar" aria-label="The book, pulled down from the shelf">
           <span className="meta">The book, open:</span>
           {pageIds.map((id) => (
@@ -441,7 +563,41 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
           </button>
         </div>
       )}
-      {wall && (
+      {world && panel === 'pen' && (
+        <Panel title="The pen in your hand">
+          <PenPanel pen={pen}>
+            {fresh.sheet && <FreshSheet fresh={fresh} />}
+            {wall && (
+              <WallSheet
+                wall={wall}
+                busy={wallBusy}
+                onPlace={() => placeWall(wall)}
+                onLetGo={() => {
+                  wall.destroy();
+                  setWall(null);
+                }}
+              />
+            )}
+          </PenPanel>
+        </Panel>
+      )}
+      {world && panel === 'paper' && editable && (
+        <Panel title="At your table">
+          <KeyGate>{() => <PaperPanel fresh={fresh} family={skeleton.paperFamily} onFamily={(f) => send({ op: 'family', grain: f.grain, weight: f.weight })} />}</KeyGate>
+          <TogetherBar t={together} myRoom={!!key && key.publicKey === book.key} me={user?.username ?? null} family={skeleton.paperFamily} color={pen.color} onColor={pen.set.color} />
+        </Panel>
+      )}
+      {world && panel === 'paper' && !editable && (together.others.length > 0 || together.sheets.length > 0) && (
+        <Panel title="At their table">
+          <TogetherBar t={together} myRoom={false} me={user?.username ?? null} family={skeleton.paperFamily} color={pen.color} onColor={pen.set.color} />
+        </Panel>
+      )}
+      {world && panel === 'candle' && (
+        <Panel title="A candle in your hand">
+          <p className="meta">Hold E and move the mouse to tilt it; tap E to set it down where the pointer is.</p>
+        </Panel>
+      )}
+      {!world && wall && (
         <div className="journal-tools wall-tools" role="toolbar" aria-label="Writing on the room">
           <span className="meta">On the {wall.surface.replace('-', ' ')}</span>
           <InkWell
@@ -491,6 +647,26 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       setWriting(false);
     }
   }
+}
+
+// The sheet begun on a wall, in the pen's panel: a stroke lifted, sealed there, or let go.
+function WallSheet({ wall, busy, onPlace, onLetGo }) {
+  return (
+    <div className="stack wall-sheet">
+      <p className="meta">On the {wall.surface.replace('-', ' ')}</p>
+      <div className="row">
+        <button type="button" className="quiet" onClick={() => wall.undo()} disabled={busy}>
+          Undo
+        </button>
+        <button type="button" onClick={onPlace} disabled={busy}>
+          {busy ? 'Sealing…' : 'Seal it there'}
+        </button>
+        <button type="button" className="quiet" onClick={onLetGo} disabled={busy}>
+          Let it go
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // Write something on a page-wide pad (a fresh sheet of your paper, growing

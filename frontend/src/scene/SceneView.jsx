@@ -13,6 +13,7 @@ import { PEN_SIZES } from '../ink/nibs.js';
 import { shelfLayout, rayBox } from './shelf.js';
 import { isPhone } from './support.js';
 import { sightOf } from './sight.js';
+import * as WK from './keys.js';
 
 // The scene (the scene spec): the page as a lit 3D scene, seen straight down
 // (2D) or from anywhere (3D), one renderer for both. Facts decide; the scene
@@ -57,6 +58,12 @@ import { sightOf } from './sight.js';
 //               a pickable picks it up; held, it follows the pointer over the table (at: the point
 //               there, room m), E held makes the mouse tilt it, a click sets it down
 //   focus       { at: [x, y] (page px), size, n }: the eye goes to that place on the table
+//   world       the being in the world (one-world.md, outside.md Part 3, scene/keys.js): seated at
+//               the table, W A S D stand up and walk, Space jumps (twice: flies), Shift crouches or
+//               lowers, a drag turns the head, the scroll is the eye's zoom, E picks up, sets down
+//               and sits at the chair (held, it tilts what is in the hand); no tools over the view
+//   sheetHand   the world: { items: [{ id, rect: [x0, y0, x1, y1] (page px) }], held, pick(id, p), down(p) }:
+//               writing on the page that E picks up (the topmost under the pointer) and sets down
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
 const LIVE_MS = 16; // a sheet being written is drawn again at most this often (about every frame)
@@ -128,6 +135,8 @@ const SceneView = forwardRef(function SceneView(
     tableWriter = null,
     focus = null,
     hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
+    sheetHand = null,
+    world = false,
   },
   ref,
 ) {
@@ -189,6 +198,8 @@ const SceneView = forwardRef(function SceneView(
       drag: null,
       taps: [],
       pose: null, // Look: the head in the room (light/roomCamera.js pose, room m)
+      zoom: [0, 0, 0], // the world: from the head to the eye (room m), the eye's zoom (never recorded)
+      spaceAt: null, // the world: when Space was last pressed (twice quickly: fly)
       keys: new Set(),
       marksOn: new Map(),
     };
@@ -202,9 +213,26 @@ const SceneView = forwardRef(function SceneView(
   const groundNow = () => (S.ground ??= groundOf(S.sheetsNow, { origin: origin(), pxPerM: PX_PER_M, dropPx: DROP_PX, relief: S.reliefNow ?? 1 }));
   function camOfPose(pose) {
     const { forward } = roomCamera.look(pose);
-    const near = roomCamera.nearAt(roomCamera.clearance(GEOM, pose.pos, groundNow())) * PX_PER_M;
+    const c = roomCamera.clearance(GEOM, pose.pos, groundNow());
+    const near = (WK.zoomed(S.zoom) ? Math.max(roomCamera.GAP / 10, WK.NEAR_K * c) : roomCamera.nearAt(c)) * PX_PER_M; // zoomed: depth at every distance (§3.4)
     return { mode: 'pose', eye: roomToPage(pose.pos, origin()), forward: toRoomDir(forward), up: [0, 0, 1], fov: FOV, near, target: S.cam.target ?? [page[0] / 2, page[1] / 2] };
   }
+  // The world: the head as it is (crouched or not), for you and the others; the eye where the zoom has it.
+  const crouched = () => world && S.keys.has('shift') && S.pose?.mode === 'walk';
+  const headNow = () => (S.pose ? WK.headOf(S.pose, crouched()) : null);
+  const eyeNow = () => WK.eyeOf(headNow(), world ? S.zoom : null);
+  // The world: where the being is and what it holds, told to the room when it changes (the panel follows it: room/panel.js).
+  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.holding ? 'candle' : sheetHand?.held ? 'sheet' : null, pen: penMode };
+  function tellPlace() {
+    const b = S.beingIn;
+    if (!b.world || !b.onBeing) return;
+    const place = { seated: !S.pose, atChair: !!S.pose && WK.atChair(GEOM, S.pose), atCorner: !!S.pose && WK.atCorner(GEOM, S.pose), holding: b.holding, pen: b.pen };
+    const key = JSON.stringify(place);
+    if (key === S.placeKey) return;
+    S.placeKey = key;
+    b.onBeing(place);
+  }
+  useEffect(tellPlace); // (a thing picked up or set down, the pen taken up: between frames too)
   // What the eye is on in Look: the patch of the room its gaze meets (null: the page).
   function gazeOf() {
     if (!S.pose) return null;
@@ -294,7 +322,9 @@ const SceneView = forwardRef(function SceneView(
       if ((S.keys.size || walking) && !S.glide) {
         const dt = Math.min(0.05, (now - (S.keyT ?? now)) / 1000);
         const has = (k) => [...S.keys].some((x) => FLY_KEYS[x] === k);
-        const input = { forward: (has('forward') ? 1 : 0) - (has('back') ? 1 : 0), right: (has('right') ? 1 : 0) - (has('left') ? 1 : 0), up: (has('up') ? 1 : 0) - (has('down') ? 1 : 0) };
+        const input = world
+          ? WK.inputOf(S.keys, S.pose.mode === 'fly')
+          : { forward: (has('forward') ? 1 : 0) - (has('back') ? 1 : 0), right: (has('right') ? 1 : 0) - (has('left') ? 1 : 0), up: (has('up') ? 1 : 0) - (has('down') ? 1 : 0) };
         if (walking) S.pose = roomCamera.walk(GEOM, S.pose, input, dt, { ground: groundNow() });
         else if (dt > 0) S.pose = roomCamera.fly(GEOM, S.pose, input, dt, { ground: groundNow() });
         S.keyT = now;
@@ -309,12 +339,13 @@ const SceneView = forwardRef(function SceneView(
           if (home) {
             S.pose = null; // back in the seat: the page camera again
             S.cam = S.home;
+            S.zoom = [0, 0, 0];
             setLooking(false);
           }
         }
       }
     }
-    if (S.pose) cam = camOfPose(S.pose);
+    if (S.pose) cam = camOfPose(eyeNow());
     if (cam.mode === '3d' && follow) cam = chaseFollow(cam, follow.base, follow.offset);
     if (cam.mode === '3d') {
       // in the room: never through a wall, the floor, the ceiling or the table
@@ -324,8 +355,8 @@ const SceneView = forwardRef(function SceneView(
         if (!S.anim && !follow) S.cam = kept;
       }
     }
-    // your head (room m): the camera, for you
-    const head = cam.mode === '2d' ? null : (S.pose ?? poseOfCam(cam));
+    // your head (room m): the camera, for you (the eye's zoom aside, which only you see)
+    const head = cam.mode === '2d' ? null : (headNow() ?? poseOfCam(cam));
     // the others here, each where its glide has it now (one whose head yours is in is not seen)
     let gliding = false;
     if (S.beings?.length || S.beingsOn) {
@@ -356,6 +387,7 @@ const SceneView = forwardRef(function SceneView(
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     seen(cam, moving);
+    tellPlace();
     // your head, for the others (room/presence.js sends it when it has moved enough)
     if (onPoseRef.current && head) {
       if (S.pose) onPoseRef.current({ pos: head.pos, yaw: head.yaw, pitch: head.pitch, size: head.size ?? 1, flying: S.pose.mode === 'fly' });
@@ -418,6 +450,7 @@ const SceneView = forwardRef(function SceneView(
     io.observe(wrapRef.current);
     const tick = setInterval(schedule, 60000); // the clock moves the sun
     setReady(gpu);
+    if (world) canvasRef.current?.focus({ preventScroll: true }); // in the world: the keys are yours at once
     return () => {
       ro.disconnect();
       offLight();
@@ -542,9 +575,12 @@ const SceneView = forwardRef(function SceneView(
   function look(on) {
     if (fixed) return;
     if (on && !S.pose) {
-      S.pose = poseOfCam(S.shown ?? S.cam);
+      const was = poseOfCam(S.shown ?? S.cam);
+      S.pose = world ? WK.standUp(GEOM, was) : was; // the world: up from the chair, on your feet
       S.glide = null;
+      S.keyT = performance.now();
       setLooking(true);
+      setWalking(S.pose.mode === 'walk');
       // (for the checks: the head turned toward a point of the room, e2e/room.mjs)
       globalThis.__sceneLook = {
         aim(p) {
@@ -857,8 +893,10 @@ const SceneView = forwardRef(function SceneView(
   const onPointerMove = (e) => {
     const p0 = S.pointers.get(e.pointerId);
     if (p0) S.pointers.set(e.pointerId, { ...p0, x: e.clientX, y: e.clientY });
+    S.lastPointer = { clientX: e.clientX, clientY: e.clientY }; // (what E reaches for)
     if (carrying?.holding && !S.drag) {
       // the thing in the hand: E held, the mouse tilts it; else it follows the pointer
+      if (S.tilting && S.eDown && e.clientX !== S.handX) S.eDown.tilted = true;
       if (S.tilting) carrying.tiltBy((e.clientX - (S.handX ?? e.clientX)) * 0.4);
       else {
         const at = roomPointOf(e);
@@ -1038,6 +1076,22 @@ const SceneView = forwardRef(function SceneView(
   const onWheel = (e) => {
     if (mode !== '3d') return;
     e.preventDefault();
+    if (world && S.pose) {
+      // the eye's zoom (outside.md §3.4): in, toward the point under the cursor; back, toward the head.
+      // Only the eye moves: the body and head stay, and nothing of it is sent
+      let next = WK.zoomOut(S.zoom, e.deltaY, S.pose.size ?? 1);
+      if (e.deltaY < 0) {
+        const { origin: o, dir } = roomRay(e);
+        const h = roomHit(GEOM, o, dir);
+        next = h ? WK.zoomIn(S.zoom, dir, h.t, e.deltaY) : S.zoom;
+        // never into what the eye is looking at (the page's own heights, as drawn, included)
+        for (let n = 0; n < 8 && roomCamera.clearance(GEOM, WK.eyeOf(headNow(), next).pos, groundNow()) < roomCamera.GAP; n++) next = next.map((v, k) => (v + S.zoom[k]) / 2);
+      }
+      S.zoom = next;
+      S.moveUntil = performance.now() + STILL_MS;
+      schedule();
+      return;
+    }
     if (S.pose) {
       // Look: the wheel carries the head along its gaze, a share of the way to what is nearest
       S.pose = roomCamera.fly(GEOM, S.pose, { forward: e.deltaY > 0 ? -1 : 1 }, 0.12);
@@ -1059,8 +1113,78 @@ const SceneView = forwardRef(function SceneView(
     S.cam = S.anim.to;
     schedule();
   };
+  // smaller or larger, down to a bead of ink (rooms.md §4): the feet stay where they are
+  const resize = (k) => {
+    const was = S.pose.size ?? 1;
+    const size = Math.max(SIZE_MIN, Math.min(1, was * (k === ']' ? 2 : 0.5)));
+    const feet = S.pose.pos[2] - roomCamera.EYE * was;
+    S.pose = { ...S.pose, size, pos: S.pose.mode === 'walk' ? [S.pose.pos[0], S.pose.pos[1], feet + roomCamera.EYE * size] : S.pose.pos };
+    setSize(size);
+    S.keyT = performance.now();
+    schedule();
+  };
+  // The world's keys (scene/keys.js): the keys place the body; E is for what is in front of you.
+  const worldKeyDown = (e) => {
+    const k = e.key.toLowerCase();
+    const now = performance.now();
+    if (k === 'e') {
+      e.preventDefault();
+      if (e.repeat) return;
+      if (carrying?.holding) {
+        S.tilting = true; // held, the mouse tilts what is in the hand (rooms.md §3b); let go untilted, it is set down
+        S.eDown = { t: now, tilted: false };
+        return;
+      }
+      const p = S.lastPointer ? pageOf(S.lastPointer) : null; // the point on the page under the pointer
+      if (sheetHand?.held) {
+        if (onPage(p)) sheetHand.down(p); // the writing in the hand, set down there
+        return;
+      }
+      const id = S.lastPointer ? pickableAt(S.lastPointer) : null; // the thing under the pointer, picked up
+      if (id !== null) return carrying.pick(id);
+      const it = onPage(p) ? sheetHand?.items.findLast((x) => p.x >= x.rect[0] && p.y >= x.rect[1] && p.x <= x.rect[2] && p.y <= x.rect[3]) : null; // (the topmost)
+      if (it) sheetHand.pick(it.id, p);
+      else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit
+      return;
+    }
+    if (k === 'h' && canPen) {
+      setHand(!hand); // the pen into the hand, or set down
+      return;
+    }
+    if (S.pose && (k === '[' || k === ']')) return resize(k);
+    if (!(WK.isMoveKey(k) || k === ' ' || k === 'shift')) return;
+    e.preventDefault();
+    if (!S.pose) {
+      if (k === 'shift') return;
+      look(true); // up from the chair
+    }
+    if (WK.isMoveKey(k)) S.zoom = [0, 0, 0]; // walking, attention comes back to the head
+    if (k === ' ' && !e.repeat) {
+      const press = WK.spacePress(S.spaceAt, now);
+      S.spaceAt = press.at;
+      if (press.double) {
+        S.pose = WK.toggleFly(S.pose);
+        setWalking(S.pose.mode === 'walk');
+      } else if (S.pose.mode === 'walk') S.pose = WK.jump(GEOM, S.pose, groundNow());
+    }
+    if (!S.keys.size) S.keyT = now;
+    S.keys.add(k);
+    schedule();
+  };
+  const worldKeyUp = (e) => {
+    const k = e.key.toLowerCase();
+    S.keys.delete(k);
+    if (k !== 'e') return schedule(); // (a crouch let go: stand)
+    S.tilting = false;
+    const tap = S.eDown && !S.eDown.tilted;
+    S.eDown = null;
+    const at = tap && carrying?.holding && S.lastPointer ? roomPointOf(S.lastPointer) : null;
+    if (at) carrying.down(at); // set down where the pointer is, falling onto what is under it
+  };
+
   const onKeyDown = (e) => {
     if (mode !== '3d') return;
+    if (world) return worldKeyDown(e);
     const k = e.key.toLowerCase();
     if (k === 'e' && carrying?.holding) {
       // E held: the mouse tilts what the hand holds (rooms.md §3b), and nothing else moves
@@ -1081,17 +1205,7 @@ const SceneView = forwardRef(function SceneView(
         schedule();
         return;
       }
-      if (k === '[' || k === ']') {
-        // smaller or larger, down to a bead of ink: the feet stay where they are
-        const was = S.pose.size ?? 1;
-        const size = Math.max(SIZE_MIN, Math.min(1, was * (k === ']' ? 2 : 0.5)));
-        const feet = S.pose.pos[2] - roomCamera.EYE * was;
-        S.pose = { ...S.pose, size, pos: S.pose.mode === 'walk' ? [S.pose.pos[0], S.pose.pos[1], feet + roomCamera.EYE * size] : S.pose.pos };
-        setSize(size);
-        S.keyT = performance.now();
-        schedule();
-        return;
-      }
+      if (k === '[' || k === ']') return resize(k);
       if (!FLY_KEYS[k]) return;
       e.preventDefault();
       if (!S.keys.size) S.keyT = performance.now();
@@ -1125,6 +1239,7 @@ const SceneView = forwardRef(function SceneView(
   };
 
   const onKeyUp = (e) => {
+    if (world) return worldKeyUp(e);
     S.keys.delete(e.key.toLowerCase());
     if (e.key.toLowerCase() === 'e') S.tilting = false;
   };
@@ -1221,15 +1336,24 @@ const SceneView = forwardRef(function SceneView(
         onBlur={() => S.keys.clear()}
         onContextMenu={(e) => e.preventDefault()}
         aria-label={
-          mode === '3d'
-            ? penMode
-              ? 'The page in 3D, the pen: drag to write, right-drag to turn, wheel to come closer, H for the hand'
-              : 'The page in 3D: drag to turn it, right-drag to slide, wheel to come closer, double-click to fly to a spot, keys to fly'
-            : 'The page, lit'
+          world
+            ? 'The world: W A S D to walk, Space to jump, the mouse to turn your head, scroll to look closer, E for what is in front of you'
+            : mode === '3d'
+              ? penMode
+                ? 'The page in 3D, the pen: drag to write, right-drag to turn, wheel to come closer, H for the hand'
+                : 'The page in 3D: drag to turn it, right-drag to slide, wheel to come closer, double-click to fly to a spot, keys to fly'
+              : 'The page, lit'
         }
       />
       {steep && penMode && <p className="scene-hint">Tilt up to write: below {MIN_WRITE_EL}° a pixel covers too much page.</p>}
-      {penMode && !steep && mode === '3d' && (
+      {world && !steep && (
+        <p className="scene-hint quiet">
+          {looking
+            ? `W A S D ${walking ? 'walk' : 'fly'} · Space ${walking ? 'jump, twice to fly' : 'rise, twice to fall'} · Shift ${walking ? 'crouch' : 'lower'} · drag to turn your head · scroll to look closer · E picks up, sets down, sits at the chair · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''}`
+            : `${penMode ? 'The pen: drag to write · ' : ''}W A S D to stand up · scroll to look closer · E picks up and sets down${canPen ? ` · H ${penMode ? 'sets the pen down' : 'for the pen'}` : ''}`}
+        </p>
+      )}
+      {!world && !fixed && penMode && !steep && mode === '3d' && (
         <p className="scene-hint quiet">
           {(writer || tableWriter) && !looking
             ? `The pen: drag to write${writer ? '' : ' on a shared sheet'} · right-drag to turn · H for the hand`
@@ -1239,6 +1363,7 @@ const SceneView = forwardRef(function SceneView(
         </p>
       )}
       {tools &&
+        !world &&
         wrapTools(
           <div className={`scene-tools${toolsHost ? ' hosted' : ''}`} role="group" aria-label="View">
             {canPen && mode === '3d' && (

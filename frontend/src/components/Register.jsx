@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { keys as K, record as R } from 'penpals-law';
 import { api } from '../api.js';
 import { keyFromK, newSheet } from '../keys/session.js';
 import { register, makeKey, settleOn } from '../keys/account.js';
+import { placeHouse } from '../room/world.js';
 import { useLiveInk } from '../ink/useLiveInk.js';
-import Pad from './Pad.jsx';
+import { CELLS } from '../ink/live.js';
+import { sheetPen } from '../book/fresh.js';
+import PenPanel, { usePen } from './PenPanel.jsx';
 import Hand from './Hand.jsx';
 
 const FAMILY = R.SIGNING_FAMILY; // the paper you sign on, and your book's first (changeable later)
-const SIGN_PAD = { width: 520, height: 200 }; // small: the pad shows it close, the ink big (a first taste of it)
+export const SIGN_PAD = { width: 520, height: 200 }; // the slip on the lobby's table: small, so the eye is close and the ink big (a first taste of it)
 
 // Making an account (accounts-change.md):
 //   1. sign your name three times, on a paper grown from fresh randomness made
@@ -20,7 +23,10 @@ const SIGN_PAD = { width: 520, height: 200 }; // small: the pad shows it close, 
 // The last signature, settled again on the key's own paper, is the first sheet
 // of your book (public). The server gets the public key, that sheet, and with a
 // password the locked keyring; never the key, the words, the randomness or the password.
-export default function Register({ onDone }) {
+// The signing is in the world (one-world.md): the paper is the slip on the lobby's table, the pen in
+// your hand, and `onSheet({ scene, writer } | null)` hands that live sheet and the pen on it to the
+// lobby's scene; this form holds only the pen's panel and the steps.
+export default function Register({ onDone, onSheet }) {
   const [step, setStep] = useState('sign');
   const [r32] = useState(() => K.newR32()); // made as the signing begins
   const paper0 = useMemo(() => K.provisionalPaperKey(r32), [r32]);
@@ -38,6 +44,30 @@ export default function Register({ onDone }) {
   const [strokes, setStrokes] = useState(0);
 
   const ink = useLiveInk(step === 'sign' ? { paperKey: paper0, family: FAMILY, size: SIGN_PAD } : null, `sign-${signatures.length}-${n}`);
+  // the pen in your hand writes on it; the slip lies on the lobby's table, drawn in its scene
+  const pen = usePen();
+  useEffect(() => {
+    setStrokes(0);
+    if (!ink) return undefined;
+    ink.scene?.(true);
+    return ink.onChange(() => setStrokes(ink.strokes));
+  }, [ink]);
+  useEffect(() => {
+    if (!ink) return;
+    ink.setPen(pen.lawPen(ink.law));
+    ink.capture.setFlex(pen.flexOf(ink.law));
+  }, [ink, pen]);
+  const live = useRef(null);
+  live.current = { ink, paper: { size: SIGN_PAD, origin: [0, 0] } };
+  const writer = useMemo(() => sheetPen(() => live.current, pen), [pen]);
+  const onSheetRef = useRef(onSheet);
+  onSheetRef.current = onSheet;
+  useEffect(() => {
+    onSheetRef.current?.(
+      ink ? { scene: { id: `sign:${ink.law}:${signatures.length}-${n}`, box: [0, 0, SIGN_PAD.width * CELLS, SIGN_PAD.height * CELLS], origin: [0, 0], cellPx: 1 / CELLS, live: ink }, writer } : null,
+    );
+  }, [ink, writer]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onSheetRef.current?.(null), []);
 
   useEffect(() => {
     if (!username) return setNameState(null);
@@ -88,6 +118,7 @@ export default function Register({ onDone }) {
       const sheet0 = newSheet(key, K.SHEET_ZERO);
       const settled = await settleOn(signatures[K.SIGNATURES - 1], sheet0.seed, FAMILY);
       const user = await register({ key, username, password: backup ? password : '', signature: { family: FAMILY, seed: sheet0.seed, settled } });
+      await placeHouse(key).catch(() => {}); // your house drops near the start (one-world.md); if not now, when you are next in
       onDone?.(user);
     } catch (err) {
       setError(err.message);
@@ -121,14 +152,17 @@ export default function Register({ onDone }) {
       {step === 'sign' && (
         <div className="stack">
           <p>
-            Sign your name, three times. The ink is live: watch it bead, sink and dry. Your key is made from how these three settle on this paper, and the last one becomes the first page of your book,
-            for everyone to see.
+            Sign your name, three times, on the paper in front of you: the pen is in your hand. The ink is live: watch it bead, sink and dry. Your key is made from how these three settle on this
+            paper, and the last one becomes the first page of your book, for everyone to see.
           </p>
           <p className="meta">
-            Signature {signatures.length + 1} of {K.SIGNATURES}
+            Signature {signatures.length + 1} of {K.SIGNATURES} · {strokes} stroke{strokes === 1 ? '' : 's'}
           </p>
-          {ink && <Pad key={`s${signatures.length}-${n}`} ink={ink} size={SIGN_PAD} onChange={setStrokes} hint="Sign here." />}
+          <PenPanel pen={pen} law={ink?.law ?? 2} />
           <div className="row">
+            <button type="button" className="quiet" disabled={!strokes || busy} onClick={() => ink?.undo()}>
+              Undo
+            </button>
             <button type="button" className="primary" disabled={!strokes || busy} onClick={signed}>
               {busy ? (signatures.length === K.SIGNATURES - 1 ? 'Making your key…' : 'Drying…') : 'Done'}
             </button>

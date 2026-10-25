@@ -133,12 +133,9 @@ export function HandDrawn({ asset, label, size = LINE_EM, fit = null, writeIn = 
     const unsize = onResize(box, () => {
       if (!isPlaying(player)) draw(shown);
     });
-    // A new theme means new colours; 'penpals:recolor' is for anything else that
-    // changes colours without a hover (e.g. a tab becoming the chosen one).
-    const scheme = window.matchMedia?.('(prefers-color-scheme: dark)');
-    window.addEventListener('penpals:theme', recolor);
+    // 'penpals:recolor' is for anything that changes colours without a hover
+    // (e.g. a tab becoming the chosen one).
     window.addEventListener('penpals:recolor', recolor);
-    scheme?.addEventListener?.('change', recolor);
 
     // Hovering the button or link it labels writes it again.
     const target = box.closest('a, button, summary, label') ?? box;
@@ -154,9 +151,7 @@ export function HandDrawn({ asset, label, size = LINE_EM, fit = null, writeIn = 
       clearTimeout(fallback);
       unview();
       unsize();
-      window.removeEventListener('penpals:theme', recolor);
       window.removeEventListener('penpals:recolor', recolor);
-      scheme?.removeEventListener?.('change', recolor);
       player.draw = () => {};
       target.removeEventListener('mouseenter', enter);
       target.removeEventListener('mouseleave', recolor);

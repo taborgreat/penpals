@@ -1,8 +1,8 @@
 /* penpals: a writing desk. Warm paper, navy ink, sealing-wax red, airmail stripes.
-   Letters always sit on light paper; the desk around them follows the light/dark setting. */
+   One look, no theme (one-world.md): the window is the world. */
 
 :root {
-  color-scheme: light dark; /* we have a dark theme: browsers shouldn't force their own */
+  color-scheme: light;
   --desk: #ebe4d5;
   --desk-deep: #e1d8c6;
   --surface: #f9f6ef;
@@ -27,59 +27,6 @@
   --font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
   --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
-}
-
-/* Dark: when the system prefers it (unless you picked light), or when you picked dark. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    color-scheme: dark;
-    --desk: #1a1713;
-    --desk-deep: #13110e;
-    --surface: #25211b;
-    --surface-2: #2d2820;
-    --text: #ece4d3;
-    --muted: #a39985;
-    --rule: rgba(236, 228, 211, 0.1);
-    --rule-strong: rgba(236, 228, 211, 0.22);
-    --ink: #a9bdeb;
-    --ink-text: #141821;
-    --wax: #d9634f;
-    --wax-text: #1c0f0b;
-    --air-red: #c9503f;
-    --air-blue: #5d7dc6;
-    --focus: #8eaaf0;
-    --link: #b9cbf2;
-    --heading: #d9a856;
-    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -8px rgba(0, 0, 0, 0.6);
-    --shadow-paper: 0 1px 2px rgba(0, 0, 0, 0.4), 0 20px 40px -14px rgba(0, 0, 0, 0.75);
-    --grain-opacity: 0.25;
-  }
-}
-:root[data-theme='light'] {
-  color-scheme: light;
-}
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --desk: #1a1713;
-  --desk-deep: #13110e;
-  --surface: #25211b;
-  --surface-2: #2d2820;
-  --text: #ece4d3;
-  --muted: #a39985;
-  --rule: rgba(236, 228, 211, 0.1);
-  --rule-strong: rgba(236, 228, 211, 0.22);
-  --ink: #a9bdeb;
-  --ink-text: #141821;
-  --wax: #d9634f;
-  --wax-text: #1c0f0b;
-  --air-red: #c9503f;
-  --air-blue: #5d7dc6;
-  --focus: #8eaaf0;
-  --link: #b9cbf2;
-  --heading: #d9a856;
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px -8px rgba(0, 0, 0, 0.6);
-  --shadow-paper: 0 1px 2px rgba(0, 0, 0, 0.4), 0 20px 40px -14px rgba(0, 0, 0, 0.75);
-  --grain-opacity: 0.25;
 }
 
 * {
@@ -177,40 +124,6 @@ a:hover {
   transform: rotate(0deg) scale(1.03);
 }
 
-/* Write: the main thing to do, right by the logo. */
-.write-cta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 16px 6px;
-  border-radius: 999px;
-  font-size: 15px;
-  font-weight: 600;
-  text-decoration: none;
-  color: var(--ink-text);
-  background: var(--ink);
-  box-shadow:
-    0 2px 0 rgba(0, 0, 0, 0.18),
-    var(--shadow-soft);
-  transform: rotate(-1.5deg);
-  transition:
-    transform 0.15s ease,
-    filter 0.15s ease,
-    box-shadow 0.15s ease;
-}
-.write-cta:hover {
-  filter: brightness(1.1);
-  transform: rotate(0deg) translateY(-1px);
-}
-.write-cta.active {
-  box-shadow:
-    0 0 0 3px var(--desk),
-    0 0 0 5px var(--ink);
-}
-.write-cta .hand {
-  font-size: 1.1em;
-}
-
 /* Everything about you: on the right. */
 .nav {
   display: flex;
@@ -284,20 +197,14 @@ a:hover {
     --tools-zoom: 1.4;
   }
 }
+/* The world is the window and is not zoomed; its one panel is (the panel's own rule). */
 .site-head-inner,
-main:not(.wide),
-.site-foot,
-.write-head,
-.write .narrow,
-.write.photo .write-source,
-.letter-section,
-.studio-head,
-.studio-labels,
-.studio-prompt,
-.studio-preview {
+main:not(.wide):not(.world),
+.site-foot {
   zoom: var(--ui-zoom);
 }
-main:not(.wide) .pad {
+main:not(.wide):not(.world) .pad,
+.panel .pad {
   zoom: calc(1 / var(--ui-zoom));
 }
 /* The pad's settings and toolbar grow a little, not as much as the page around them. */
@@ -446,24 +353,6 @@ p {
   font-weight: 500;
 }
 
-.hero {
-  padding: 18px 0 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: center;
-}
-.hero h1 {
-  font-size: clamp(42px, 7vw, 72px);
-}
-.lede {
-  font-family: var(--font-display);
-  font-size: 19px;
-  color: var(--muted);
-  max-width: 32em;
-  font-variation-settings: 'SOFT' 100;
-}
-
 .stack {
   display: flex;
   flex-direction: column;
@@ -476,10 +365,6 @@ p {
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-}
-.narrow {
-  max-width: 760px;
-  margin: 0 auto;
 }
 .reading {
   padding: 8px 0 18px;
@@ -846,11 +731,6 @@ ul.people a:hover {
   background: var(--wax);
   color: var(--wax-text);
 }
-.badge.quiet-badge {
-  background: var(--surface-2);
-  color: var(--muted);
-  border: 1px solid var(--rule);
-}
 
 /* ---------- Letters ---------- */
 
@@ -1006,10 +886,6 @@ canvas.letter {
   gap: 6px;
   flex-wrap: wrap;
 }
-.proof-phrase strong {
-  font-size: 1.3em;
-  letter-spacing: 0.02em;
-}
 
 /* ---------- Handwritten labels ---------- */
 /* <Hand>: a box the size of a line of text, the drawing hanging from its baseline. */
@@ -1022,11 +898,6 @@ canvas.letter {
   position: absolute;
   display: block;
   pointer-events: none;
-} /* placed past the box by Hand.jsx */
-.hand-number {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.06em;
 }
 /* Stats under a name: small, and on one line. */
 .stats {
@@ -1035,13 +906,6 @@ canvas.letter {
 }
 .stats .hand {
   font-size: 0.95em;
-}
-.studio-compare {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 14px;
-  font-size: 18px;
 }
 h2 .hand {
   font-size: 1.7em;
@@ -1078,20 +942,6 @@ button:hover .username.signed,
 a:focus-visible .username.signed {
   color: var(--sig-lh);
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .username.signed {
-    color: var(--sig-d);
-  }
-  :root:not([data-theme='light']) :is(a:hover, button:hover, a:focus-visible) .username.signed {
-    color: var(--sig-dh);
-  }
-}
-:root[data-theme='dark'] .username.signed {
-  color: var(--sig-d);
-}
-:root[data-theme='dark'] :is(a:hover, button:hover, a:focus-visible) .username.signed {
-  color: var(--sig-dh);
-}
 .swatches {
   display: flex;
   flex-wrap: wrap;
@@ -1108,111 +958,6 @@ a:focus-visible .username.signed {
 }
 .swatches button[aria-pressed='true'] {
   box-shadow: 0 0 0 2px var(--text);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .swatches button {
-    background: var(--sig-d);
-  }
-}
-:root[data-theme='dark'] .swatches button {
-  background: var(--sig-d);
-}
-.theme-toggle {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.signature-card {
-  text-align: left;
-}
-.signature-show {
-  font-size: 22px;
-  padding: 6px 0 2px;
-  text-align: center;
-}
-.signature-scene {
-  width: min(100%, 560px);
-  max-height: 260px;
-  align-self: center;
-  border-radius: 4px;
-  overflow: hidden;
-}
-.signature-card .field {
-  align-self: center;
-}
-.signature-card .pad {
-  width: 100%;
-}
-
-/* The studio */
-.studio {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  text-align: left;
-}
-.studio-head {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.studio-labels {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.studio-labels button {
-  padding: 5px 11px;
-  font-size: 13px;
-}
-.studio-labels button.drawn {
-  color: var(--muted);
-}
-.studio-labels button[aria-pressed='true'] {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--ink-text);
-}
-.studio-labels input {
-  width: 12em;
-  padding: 5px 9px;
-}
-.studio-prompt {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.studio-prompt strong {
-  font-family: var(--font-display);
-  font-size: 32px;
-  font-weight: 500;
-}
-.studio-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.studio-samples {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-.studio-sample {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-}
-.studio .row {
-  justify-content: flex-start;
 }
 
 /* ---------- Journal (books.md, Part B) ---------- */
@@ -1280,24 +1025,12 @@ a:focus-visible .username.signed {
   padding: 2px;
 }
 /* oak gall: pale as written, dark after days in the air */
-.ink-well button.gall,
-:root[data-theme='dark'] .ink-well button.gall {
+.ink-well button.gall {
   background: linear-gradient(135deg, #b9bcc8 0 45%, #353438 55% 100%);
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .ink-well button.gall {
-    background: linear-gradient(135deg, #b9bcc8 0 45%, #353438 55% 100%);
-  }
-}
 /* the water brush: water, no pigment */
-.ink-well button.water,
-:root[data-theme='dark'] .ink-well button.water {
+.ink-well button.water {
   background: radial-gradient(circle at 35% 35%, #ffffff 0 30%, #cfe0f5 60%, #9dbbe3 100%);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .ink-well button.water {
-    background: radial-gradient(circle at 35% 35%, #ffffff 0 30%, #cfe0f5 60%, #9dbbe3 100%);
-  }
 }
 .depth-view {
   margin: 0;
@@ -1323,8 +1056,7 @@ button.danger:hover:not(:disabled) {
 .write-panel .row {
   justify-content: flex-start;
 }
-.write-panel .spacer,
-.book-download .spacer {
+.write-panel .spacer {
   flex: 1;
 }
 .journal-empty {
@@ -1371,9 +1103,6 @@ button.danger:hover:not(:disabled) {
 /* a pad letter: its ink and its scene lie over it, so it takes its size from the column (at most 80vh tall, like a photo) */
 .pad-letter {
   width: 100%;
-}
-.letter-section .pad-letter {
-  width: min(100%, calc(80vh / var(--ui-zoom) * var(--ratio, 0.75)));
 }
 .letter-scene {
   position: absolute;
@@ -1464,13 +1193,6 @@ button.ink-link:focus-visible {
   border-radius: 999px;
   pointer-events: none;
 }
-.book-download {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px 12px;
-  flex-wrap: wrap;
-}
 .book-viewer {
   display: flex;
   flex-direction: column;
@@ -1495,116 +1217,9 @@ button.ink-link:focus-visible {
 
 /* ---------- Write ---------- */
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
 main.wide {
   max-width: none;
   padding: 16px 20px 80px;
-}
-.write {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  text-align: left;
-}
-.write-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 20px;
-  flex-wrap: wrap;
-}
-.write-head .jump {
-  font-size: 14px;
-  color: var(--muted);
-}
-.write-head .jump:hover {
-  color: var(--text);
-}
-.write .row {
-  justify-content: flex-start;
-}
-.write.photo .write-source {
-  width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-/* Below the writing: the letter, always the same size, then download and send. */
-.letter-section {
-  width: 100%;
-  max-width: 760px;
-  margin: 28px auto 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  scroll-margin-top: 16px;
-}
-.letter-section h2 {
-  margin-top: 0;
-}
-.letter-section .letter-box .row {
-  justify-content: center;
-}
-.letter-section canvas.letter {
-  width: auto;
-  max-width: 100%;
-  max-height: calc(80vh / var(--ui-zoom));
-  margin: 0 auto;
-}
-.preview-empty {
-  aspect-ratio: 1400 / 1811;
-  max-height: calc(60vh / var(--ui-zoom));
-  margin: 0 auto;
-  width: 100%;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  text-align: center;
-  font-family: var(--font-display);
-  font-style: italic;
-  font-size: 18px;
-  color: #8b8371;
-  border-radius: 2px;
-  box-shadow: var(--shadow-paper);
-}
-.send-box {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px;
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-  box-shadow: var(--shadow-soft);
-}
-.send-box > button.primary {
-  width: 100%;
-}
-.send-box .or {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-  text-align: center;
-}
-.send-box .row {
-  flex-wrap: nowrap;
-  gap: 8px;
-}
-.send-box .row input {
-  flex: 1;
 }
 
 /* Download, under every letter. */
@@ -1696,22 +1311,6 @@ details.download .hint {
   inset: 0;
   opacity: 0;
   cursor: pointer;
-}
-
-.corner-picker-wrap {
-  width: 100%;
-}
-canvas.corner-picker {
-  display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: calc(70vh / var(--ui-zoom));
-  margin: 0 auto;
-  touch-action: none;
-  cursor: crosshair;
-  border-radius: 6px;
-  box-shadow: var(--shadow-soft);
 }
 
 /* ---------- Drawing pad ---------- */
@@ -2125,21 +1724,75 @@ canvas.corner-picker {
     display: none;
   }
 }
-/* the lobby (rooms.md §1a): the room everyone comes in by, seen in black and white, the desk under it */
+/* the lobby (rooms.md §1a): the room everyone comes in by, seen in black and white, the whole window */
 .lobby {
-  display: grid;
-  gap: 12px;
+  position: relative;
+  min-height: 100vh;
 }
 .lobby-scene {
-  width: 100%;
-  height: min(48vh, 480px);
-  border-radius: 6px;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   background: #111;
 }
-.lobby.closing .lobby-desk {
+.lobby.closing .panel {
   opacity: 0.35;
   transition: opacity 0.3s;
+}
+/* the world's one panel (one-world.md): a box over the world, for what is in hand or in front of you */
+.panel {
+  zoom: var(--ui-zoom); /* (read like the site's text; its window units divided back, to fit the window) */
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  width: min(380px, calc((100vw - 32px) / var(--ui-zoom)));
+  max-height: calc((100vh - 32px) / var(--ui-zoom));
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+}
+.panel.wide {
+  width: min(600px, calc((100vw - 32px) / var(--ui-zoom)));
+}
+.panel-title {
+  margin: 0;
+  font-size: 18px;
+}
+.account-panel .key-text,
+.account-panel .key-words {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+/* the world (one-world.md): the whole page, and the house you are in fills the window */
+main.world {
+  max-width: none;
+  min-height: 100vh;
+  padding: 0;
+  gap: 0;
+}
+main.world > .journal {
+  flex: 1;
+  min-height: 100vh;
+  margin: 0;
+}
+main.world .journal-page.scene-shown {
+  flex: 1 1 0;
+  min-height: 0;
+  border-radius: 0;
+}
+.world-note {
+  margin: auto;
+  padding: 20vh 20px;
 }
 /* writing on the room's surfaces: what to do with the sheet on the wall */
 .wall-tools {

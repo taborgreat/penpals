@@ -1,9 +1,16 @@
-// The whole flow in a real browser, the way a person goes through it: register
-// by signing the name three times (the key is made from them), choose the name,
-// keep the 24 words and the private key; write in the journal; log out; log in
-// with the words; unlock a new tab with the private key; write and save a
-// letter; download the book and check it with the law's verifier; add a
-// password backup and log in with it.
+// The whole flow in a real browser, the way a person goes through it, in the
+// one world (one-world.md): register in the panel by signing the name three
+// times (the key is made from them), choose the name, keep the 24 words and the
+// private key; the eye opens in your house, on its plot; at the table, new
+// paper, the pen in hand, write on it and seal it into the book; stand up,
+// walk, jump, fly, look closer; pick the writing up (E), walk it back, film
+// it, set it down elsewhere; pull the book from the shelf and download it;
+// your account at the corner (the words, a password backup); a visitor at the
+// door; log out; log in with the words; unlock a new tab with the private key;
+// check the book with the law's verifier; log in with the password.
+// Not here until they exist in the world: letters (a sheet carried to a
+// mailbox, one-world.md), the pad's own checks (the write page is gone; the
+// pad is in /pad-check), the scene's dev tools (Moments, Cut: /scene-check).
 // No shortcuts: every request is the one the site makes.
 //   node frontend/e2e/flow.mjs         the built site, served by the backend (run `npm run build -w frontend` first)
 //   node frontend/e2e/flow.mjs --dev   through a Vite dev server proxying /api, as `npm run dev` runs it
@@ -94,14 +101,15 @@ const scribble = (lines, perLine = 5) => {
 // Pointer events stamped like a real device's (evenly, by the hardware), not
 // when the test happens to dispatch them: the timing is part of the record.
 const cdps = new WeakMap();
-async function draw(page, canvas, strokes, ms = 9) {
+// `area`: { x, y, width, height } on screen to write in (the world's scene), else the pad's own.
+async function draw(page, canvas, strokes, ms = 9, area = null) {
   await canvas.scrollIntoViewIfNeeded();
-  let b = await canvas.boundingBox();
+  let b = area ?? (await canvas.boundingBox());
   // a pad shown in 3D: write where the page is in the view (its middle), by ray onto the page
   // (with WebGL the pad is always shown in 3D: wait for its scene, which a slow GPU draws late)
-  if (webgl) await page.locator('.pad-scene .scene-view[data-gpu]').first().waitFor({ timeout: 60000 });
+  if (webgl && !area) await page.locator('.pad-scene .scene-view[data-gpu]').first().waitFor({ timeout: 60000 });
   const lit = page.locator('.pad-scene canvas.scene-canvas').first();
-  if (await lit.isVisible().catch(() => false)) {
+  if (!area && (await lit.isVisible().catch(() => false))) {
     await lit.evaluate((el) => el.scrollIntoView({ block: 'center' })); // all of it on screen: no stroke falls past the window's edge
     const v = await lit.boundingBox();
     b = { x: v.x + v.width * 0.24, y: v.y + v.height * 0.4, width: v.width * 0.52, height: v.height * 0.22 };
@@ -125,7 +133,6 @@ async function draw(page, canvas, strokes, ms = 9) {
     await page.waitForTimeout(Math.max(0, t - Date.now()) + 120);
   }
 }
-const pad = (page) => page.locator('.pad canvas.ink').first();
 
 // What an element shows on screen (the scene may draw straight into its own
 // canvas, which has no 2D picture to read): `fn(d, w, h)` over its pixels, here
@@ -194,14 +201,15 @@ if (webgpu) console.log('(the full Chromium, on the GPU: the scene with WebGPU)'
 let failed = null;
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, acceptDownloads: true });
-  // a battery the flow can drain (the Battery Status API): low power puts the scene away
-  await context.addInitScript(() => {
+  // a battery on the charger (the Battery Status API): low power would put the scene, the world, away
+  const charged = () => {
     const battery = new EventTarget();
     battery.charging = true;
     battery.level = 1;
     window.e2eBattery = battery;
     Object.defineProperty(navigator, 'getBattery', { value: async () => battery });
-  });
+  };
+  await context.addInitScript(charged);
   const page = await context.newPage();
   globalThis.e2ePage = page;
   // --slow: registration on a slow device (the CPU throttled), where each step's new sheet arrives late
@@ -212,15 +220,23 @@ try {
     if (m.type() === 'error' || m.type() === 'warning') console.log(`  [console ${m.type()}]`, m.text());
   });
   await page.goto(base);
+  const panel = (p, title) => p.locator(`aside.panel[aria-label="${title}"]`);
 
-  step('register: sign the name three times; the key is made from them');
+  step('register: sign the name three times on the paper on the lobby’s table, the pen in hand; the key is made from them');
+  await panel(page, 'Come in').waitFor({ timeout: 30000 });
   await page
     .getByRole('button', { name: /register/i })
     .first()
     .click();
+  if (!webgl) throw Object.assign(new Error('stopped: with WebGL off there is no world to sign in (the scene is the world)'), { ok: true });
+  const lobby = page.locator('.lobby-scene canvas.scene-canvas');
+  await page.locator('.lobby-scene[data-gpu]').waitFor({ timeout: 60000 });
+  if ((await page.locator('aside.panel canvas.scene-canvas, aside.panel .pad').count()) > 0) throw new Error('the panel holds a scene or a pad of its own: there is one world');
+  const lv = await lobby.boundingBox();
+  const slip = { x: lv.x + lv.width * 0.3, y: lv.y + lv.height * 0.4, width: lv.width * 0.28, height: lv.height * 0.2 }; // (on the slip, left of the panel)
   for (let i = 1; i <= 3; i++) {
     await page.getByText(`Signature ${i} of 3`).waitFor({ timeout: 30000 });
-    await draw(page, pad(page), signature(0.002 * i));
+    await draw(page, lobby, signature(0.002 * i), 9, slip);
     await page.getByRole('button', { name: 'Done' }).click();
   }
   step('register: the name');
@@ -235,201 +251,207 @@ try {
   if (!privateKey.startsWith('penpals-key-1:')) throw new Error(`not a private key: ${privateKey}`);
   await page.getByText('I have kept my words or my private key').click();
   await page.getByRole('button', { name: 'Make my account' }).click();
-  await page.locator('button.logout').waitFor({ timeout: 90000 });
-  step('registered and signed in');
+  // the eye closes, and opens in your house: seated in the same place at your own table, the pen in your hand, before a fresh sheet
+  await panel(page, 'The pen in your hand').locator('.fresh-sheet').waitFor({ timeout: 90000 });
+  step('registered: the eye opens in your house, at your table, the pen in hand, a fresh sheet before you');
   if (slow) {
     await slow.send('Emulation.setCPUThrottlingRate', { rate: 1 });
     console.log('(registered on a CPU throttled 8×)');
   }
   if (process.argv.includes('--only-register')) throw Object.assign(new Error('stopped after registering'), { ok: true });
 
-  step('profile: the signature is a look');
-  await page.goto(`${base}/u/tabor`);
-  const sig = page.locator('img.signature-look').first();
-  await sig.waitFor({ timeout: 30000 });
-  await page.waitForFunction(() => [...document.querySelectorAll('img.signature-look')].some((i) => i.complete && i.naturalWidth > 0), null, { timeout: 30000 });
-  if (webgl) {
-    // your own signature, in the scene (an open sheet: grown here)
-    await page.locator('.signature-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
-    console.log('   and your signature in the scene, with its 2D/3D toggle');
-  }
+  step('your house stands on the first plot around the start, placed by an act of your key');
+  const houses = (await page.evaluate(async () => (await fetch('/api/world')).json())).houses;
+  const house = houses.find((h) => h.name === 'tabor');
+  if (!house || house.plot.join() !== '1,0' || house.n !== 1) throw new Error(`no house on the first plot: ${JSON.stringify(houses)}`);
+  console.log(`   plot [${house.plot}], ${house.at.join(' m, ')} m from the start`);
 
-  step('journal: write in oak gall, wet part of it with the water brush, and place');
-  await page.getByRole('button', { name: /Write/ }).filter({ hasText: '✎' }).click();
-  await page.getByRole('button', { name: 'Oak gall' }).click();
-  await page.evaluate(() => {
-    window.__ptr = [];
-    document.addEventListener('pointerdown', (e) => window.__ptr.push([e.target.tagName + '.' + e.target.className, Math.round(e.clientX), Math.round(e.clientY), e.pointerType]), true);
-  });
-  await draw(page, pad(page), scribble(1, 2));
-  if (await page.getByRole('button', { name: 'Undo', exact: true }).first().isDisabled()) {
-    const why = await page.evaluate(() => {
-      const v = document.querySelector('.pad-scene canvas.scene-canvas')?.getBoundingClientRect();
-      const mid = v ? document.elementFromPoint(v.x + v.width / 2, v.y + v.height / 2) : null;
-      return { downs: window.__ptr, scene: v && [v.x, v.y, v.width, v.height].map(Math.round), atMiddle: mid && mid.tagName + '.' + mid.className, scroll: window.scrollY };
-    });
-    throw new Error(`the oak gall did not land on the pad: ${JSON.stringify(why)}`);
-  }
-  await page.getByRole('button', { name: 'Water brush' }).click();
-  await draw(page, pad(page), scribble(1, 1));
-  await page.getByRole('button', { name: 'Into the paper' }).click();
-  await page.locator('.depth-view.live figcaption', { hasText: /^Through the paper along/ }).waitFor({ timeout: 30000 });
-  console.log(`   live cut through the paper: ${await page.locator('.depth-view.live canvas').evaluate((c) => `${c.width}×${c.height}`)}`);
-  await page.getByRole('button', { name: 'Into the paper' }).click();
-  if (webgl) {
-    // the lit scene lies over the pad, always in 3D; a stroke written in it, by ray onto the page
-    const lit = page.locator('.pad-scene canvas.scene-canvas');
-    await lit.waitFor({ timeout: 30000 });
-    await page.waitForFunction(
-      () => {
-        const c = document.querySelector('.pad-scene canvas.scene-canvas');
-        return c && c.width > 10;
-      },
-      null,
-      { timeout: 30000 },
-    );
-    const drawnBy = await page.locator('.pad-scene .scene-view').getAttribute('data-gpu');
-    if (drawnBy !== (webgpu ? 'webgpu' : 'webgl2')) throw new Error(`the scene is drawn with ${drawnBy}`);
-    console.log(`   the lit pad, drawn with ${drawnBy === 'webgpu' ? 'WebGPU' : 'WebGL2'}`);
-    await lit.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    const sb = await lit.boundingBox();
-    await page.mouse.move(sb.x + sb.width * 0.4, sb.y + sb.height * 0.5);
-    await page.mouse.down();
-    for (let i = 1; i <= 24; i++) await page.mouse.move(sb.x + sb.width * (0.4 + i * 0.006), sb.y + sb.height * (0.5 + Math.sin(i / 4) * 0.03), { steps: 2 });
-    await page.mouse.up();
-    await page.waitForTimeout(300);
-    console.log('   wrote a stroke in 3D');
-    // show the moments of your own sheet as it is written: its ink banded by when it went down
-    // (counted by the view: the candles flicker, so the pixels are no measure)
-    await page.locator('.scene-tools-host').getByRole('button', { name: 'Moments' }).click();
-    await page
-      .waitForFunction(() => Number(document.querySelector('.pad-scene .scene-view')?.dataset.banded) > 0, null, { timeout: 60000 })
-      .catch(async (err) => {
-        const v = page.locator('.pad-scene .scene-view');
-        const [banded, timed] = [await v.getAttribute('data-banded'), await v.getAttribute('data-timed')];
-        throw new Error(`the moments never showed (${banded} cells dark of ${timed} with a moment): ${err.message}`);
-      });
-    const padBands = await page.locator('.pad-scene .scene-view').getAttribute('data-banded');
-    await page.locator('.scene-tools-host').getByRole('button', { name: 'Moments' }).click();
-    console.log(`   the pad shows the moments of what is written so far (${padBands} cells in dark bands)`);
-    // low power: the scene stands down to the flat look, and comes back on the charger
-    await page.evaluate(() => {
-      window.e2eBattery.charging = false;
-      window.e2eBattery.level = 0.1;
-      window.e2eBattery.dispatchEvent(new Event('chargingchange'));
-    });
-    await page.locator('.pad-scene').waitFor({ state: 'detached', timeout: 30000 });
-    await page.evaluate(() => {
-      window.e2eBattery.charging = true;
-      window.e2eBattery.dispatchEvent(new Event('chargingchange'));
-    });
-    await page.locator('.pad-scene canvas.scene-canvas').waitFor({ timeout: 30000 });
-    console.log('   on low battery the pad goes flat; charging, the scene is back');
-  } else {
-    if (await page.locator('.pad-scene').count()) throw new Error('with WebGL off there should be no scene');
-    console.log('   no WebGL: the flat pad, as ever');
-  }
-  const lookReply = page.waitForResponse((r) => r.url().includes('/look/') && r.status() === 200, { timeout: 60000 });
-  await page.getByRole('button', { name: 'Place on page' }).click();
-  await page.locator('.journal-page .ink-item').first().waitFor({ timeout: 60000 });
-  const look = await lookReply;
-  if (!/\.L2-a0-e0-/.test(look.headers().etag ?? '')) throw new Error(`the look is not a fresh law 2 look: ${look.headers().etag}`);
-  const placed = await page.evaluate(
-    async () =>
+  const scene = page.locator('.journal-scene canvas.scene-canvas');
+  await page.locator('.journal-scene[data-gpu]').waitFor({ timeout: 60000 });
+  const drawnBy = await page.locator('.journal-scene').getAttribute('data-gpu');
+  if (drawnBy !== (webgpu ? 'webgpu' : 'webgl2')) throw new Error(`the world is drawn with ${drawnBy}`);
+  const view = await scene.boundingBox();
+  if (view.height < 900) throw new Error(`the world does not fill the window (${Math.round(view.height)} px tall)`);
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  if (wide > 2) throw new Error(`the page runs ${wide}px off to the side`);
+  console.log(`   the house fills the window, drawn with ${drawnBy === 'webgpu' ? 'WebGPU' : 'WebGL2'}`);
+  const middle = { x: view.x + view.width * 0.38, y: view.y + view.height * 0.42, width: view.width * 0.24, height: view.height * 0.16 };
+  const onInk = { x: middle.x + middle.width * 0.5, y: middle.y + middle.height * 0.12 }; // (where scribble(1, …) lays its line)
+  const pose = () => page.evaluate(() => globalThis.__sceneLook?.pose() ?? null);
+  const inkLines = () =>
+    page.evaluate(async () =>
       (await (await fetch('/api/books/tabor/ink')).text())
         .trim()
         .split('\n')
-        .map((l) => JSON.parse(l))
-        .at(-1).ink,
-  );
+        .map((l) => JSON.parse(l)),
+    );
+  const homeItems = () =>
+    page.evaluate(async () => {
+      const b = await (await fetch('/api/books/tabor')).json();
+      return b.skeleton.pages[b.skeleton.home].items;
+    });
+
+  step('the pen set down (H): at the table with nothing in hand, new paper, a whole page');
+  await scene.focus();
+  await page.keyboard.press('h');
+  await panel(page, 'At your table').waitFor({ timeout: 10000 });
+  await panel(page, 'At your table').getByRole('button', { name: 'full' }).click();
+  await panel(page, 'At your table').getByRole('button', { name: 'New paper' }).click();
+  await panel(page, 'At your table')
+    .getByText(/A fresh sheet on the table: 0 strokes/)
+    .waitFor({ timeout: 30000 });
+
+  step('the pen in hand (H): oak gall; write on the sheet in the scene, seated');
+  await scene.focus();
+  await page.keyboard.press('h');
+  await panel(page, 'The pen in your hand').waitFor({ timeout: 10000 });
+  await panel(page, 'The pen in your hand').getByRole('button', { name: 'Oak gall' }).click();
+  await draw(page, scene, scribble(1, 3), 9, middle);
+  await panel(page, 'The pen in your hand')
+    .getByText(/A fresh sheet on the table: 3 strokes/)
+    .waitFor({ timeout: 30000 })
+    .catch(async (err) => {
+      throw new Error(
+        `${err.message} (${await panel(page, 'The pen in your hand')
+          .locator('.fresh-sheet')
+          .textContent()
+          .catch(() => 'no sheet')})`,
+      );
+    });
+  step('the pen set down (H): seal the sheet into the book, where it lies');
+  await page.keyboard.press('h');
+  await panel(page, 'At your table').getByRole('button', { name: 'Seal it into the book' }).click();
+  await panel(page, 'At your table').locator('.fresh-sheet').waitFor({ state: 'detached', timeout: 60000 });
+  const placed = (await inkLines()).at(-1).ink;
   if (placed.law !== 2) throw new Error(`new writing should be law 2, not ${placed.law}`);
   const format = Buffer.from(placed.acts, 'base64url')[4];
+  if (format !== 2) throw new Error(`the flex nib's spatter should be in the acts (PNKA format 2), got format ${format}`);
   const { decodeActs } = await import('penpals-law/v2/acts');
   const strokesIn = decodeActs(new Uint8Array(Buffer.from(placed.acts, 'base64url'))).strokes.length;
-  if (strokesIn !== (webgl ? 4 : 3)) throw new Error(`the sealed acts hold ${strokesIn} strokes`);
-  console.log(`   ${strokesIn} strokes sealed${webgl ? ' (one written in 3D)' : ''}`);
-  if (webgl) {
-    // the journal, as visitors see it, shows its writing in the scene, lit (pale fresh oak gall: any ink)
-    await page.getByRole('button', { name: 'Preview' }).click();
-    await page.locator('.journal-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
-    await untilOnScreen(page, '.journal-scene', (d) => {
-      const paper = [d[0], d[1], d[2]];
-      let ink = 0;
-      for (let i = 0; i < d.length; i += 4 * 7) if (Math.abs(d[i] - paper[0]) + Math.abs(d[i + 1] - paper[1]) + Math.abs(d[i + 2] - paper[2]) > 45) ink++;
-      return ink > 20;
-    });
-    console.log('   the journal page shows it in the scene');
-    // its page lies under its sheets, not the desk: most of what the view shows is paper
-    const paperShare = await onScreen(page, '.journal-scene', (d) => {
-      let paper = 0,
-        all = 0;
-      for (let i = 0; i < d.length; i += 4 * 11) {
-        all++;
-        if (!(Math.abs(d[i] - d[i + 1]) < 8 && Math.abs(d[i + 1] - d[i + 2]) < 8 && d[i] < 200)) paper++; // not the desk's grey
-      }
-      return paper / all;
-    });
-    if (paperShare < 0.35) throw new Error(`the journal page shows mostly the desk, not its page (${Math.round(paperShare * 100)}% paper)`);
-    // and the page itself does not run off to the side
-    const wide = await page.evaluate(() => ({
-      scroll: document.documentElement.scrollWidth,
-      view: window.innerWidth,
-      img: [...document.querySelectorAll('img.signature-look')]
-        .map((i) => ({
-          src: i.getAttribute('src'),
-          nat: [i.naturalWidth, i.naturalHeight],
-          css: [Math.round(i.getBoundingClientRect().width), Math.round(i.getBoundingClientRect().height)],
-          style: i.getAttribute('style'),
-          parent: i.parentElement.className + ' ' + (i.parentElement.getAttribute('style') ?? ''),
-        }))
-        .slice(0, 3),
-      widest: [...document.querySelectorAll('body *')]
-        .map((e) => [Math.round(e.getBoundingClientRect().right), e.tagName + '.' + e.className])
-        .sort((x, y) => y[0] - x[0])
-        .slice(0, 4),
-    }));
-    if (wide.scroll > wide.view + 2) throw new Error(`the page runs ${wide.scroll - wide.view}px off to the side: ${JSON.stringify(wide.widest)} ${JSON.stringify(wide.img)}`);
-    await page.locator('.journal-page').screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-journal.png') });
-    // your own sheet on the page: its moments too
-    await page.locator('.journal-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
-    await page.waitForFunction(() => Number(document.querySelector('.journal-scene')?.dataset.banded) > 0, null, { timeout: 60000 });
-    console.log(`   and its moments, banded (${await page.locator('.journal-scene').getAttribute('data-banded')} cells)`);
-    // a visitor's page loads by the senses: the journal out of view asks for nothing; scrolled to, it asks for what it shows
-    const visitor = await browser.newContext({ viewport: { width: 1280, height: 150 } }); // (only the top bar fits: the journal is out of view)
-    try {
-      const v = await visitor.newPage();
-      const asked = [];
-      v.on('request', (r) => {
-        if (r.url().includes('/api/books/tabor/look/')) asked.push(r.url());
-      });
-      await v.goto(`${base}/u/tabor`);
-      await v.locator('.journal-scene').waitFor({ state: 'attached', timeout: 60000 });
-      if (await v.locator('.journal-scene').isVisible()) {
-        const top = (await v.locator('.journal-scene').boundingBox()).y;
-        if (top < 150) throw new Error(`the visitor check needs the journal below the fold (it is at ${top})`);
-      }
-      await v.waitForTimeout(3000);
-      if (asked.length) throw new Error(`the journal, out of view, asked for ${asked.length} looks: ${asked.join(' ')}`);
-      const scene = v.waitForRequest((r) => r.url().includes('/api/books/tabor/look/') && r.url().includes('mode=scene'), { timeout: 30000 });
-      await v.locator('.journal-scene').evaluate((el) => el.scrollIntoView({ block: 'start' }));
-      await scene;
-      await untilOnScreen(v, '.journal-scene', (d) => {
-        let ink = 0;
-        for (let i = 0; i < d.length; i += 4 * 7) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 45) ink++;
-        return ink > 20;
-      });
-      console.log(`   a visitor's journal, out of view, asks for nothing; in view, ${asked.length} request(s): ${asked.map((u) => u.replace(/^.*\/look\/[^?]*/, '')).join(' ')}`);
-    } finally {
-      await visitor.close();
-    }
-    await page.getByRole('button', { name: 'Back to editing' }).click();
-    await page.locator('.journal-page .ink-item').first().click(); // selected again, for walking back
-  } else if (await page.locator('.journal-scene').count()) throw new Error('with WebGL off the journal shows the flat look');
-  if (format !== 2) throw new Error(`the flex nib's spatter should be in the acts (PNKA format 2), got format ${format}`);
-  console.log(`   law ${placed.law}, PNKA format ${format} (the pen's spatter), ${placed.acts.length} chars of acts, look ${look.headers().etag}`);
+  if (strokesIn !== 3) throw new Error(`the sealed acts hold ${strokesIn} strokes`);
+  await untilOnScreen(page, '.journal-scene', (d) => {
+    let ink = 0;
+    for (let i = 0; i < d.length; i += 4 * 7) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 45) ink++;
+    return ink > 20;
+  });
+  const [item] = await homeItems();
+  console.log(`   ${strokesIn} strokes, law ${placed.law}, PNKA format ${format}, on the page at ${item.x}, ${item.y}, shown in the scene`);
 
-  step('walk back a spot of it, then look into the paper');
-  await page.getByRole('button', { name: 'Walk back' }).click();
+  // Until `test(pose)` holds: the scene steps at most 50 ms of time a frame, so a slow GPU walks slower in
+  // wall-clock time, not shorter. → that pose
+  const until = async (test, what, ms = 20000) => {
+    let q = null;
+    for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(60)) {
+      q = await pose();
+      if (q && test(q)) return q;
+    }
+    throw new Error(`${what}: ${JSON.stringify(q)}`);
+  };
+  step('the keys: S stands you up and walks you back from the table');
+  await scene.focus();
+  await page.keyboard.down('s');
+  const seat = [1.524, 2.383];
+  const walked = await until((q) => q.mode === 'walk' && Math.hypot(q.pos[0] - seat[0], q.pos[1] - seat[1]) > 0.4, 'S did not stand you up and walk you');
+  await page.keyboard.up('s');
+  step('Space jumps, and you land again');
+  const floor = walked.pos[2];
+  await page.keyboard.press('Space');
+  const top = (await until((q) => q.pos[2] > floor + 0.2, 'Space did not jump')).pos[2];
+  await until((q) => !q.vz && Math.abs(q.pos[2] - floor) < 1e-3, 'you did not land');
+  step('Space twice flies: Space rises, Shift lowers; twice again, you fall to the floor');
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Space');
+  const hover = (await until((q) => q.mode === 'fly', 'Space twice did not fly', 3000)).pos[2];
+  await page.keyboard.down('Space');
+  const risen = (await until((q) => q.pos[2] > hover + 0.15, 'Space did not rise')).pos[2];
+  await page.keyboard.up('Space');
+  await page.keyboard.down('Shift');
+  await until((q) => q.pos[2] < risen - 0.1, 'Shift did not lower');
+  await page.keyboard.up('Shift');
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Space');
+  await until((q) => q.mode === 'walk' && !q.vz && Math.abs(q.pos[2] - floor) < 1e-3, 'not back on the floor');
+  console.log(`   walked, jumped ${(top - floor).toFixed(2)} m (at least), flew up and down, landed`);
+
+  step('the scroll is the eye’s zoom: the eye goes in and back, the body and its motion acts stay');
+  await page.waitForTimeout(1200); // (the last coarse motion acts sent)
+  let motions = 0;
+  const count = (r) => {
+    if (r.url().includes('/motion')) motions++;
+  };
+  page.on('request', count);
+  const body = JSON.stringify(await pose());
+  await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+  const shot = async () => onScreen(page, '.journal-scene', (d) => Array.from(d.subarray(0, d.length).filter((_, i) => i % 97 === 0)));
+  const far = await shot();
+  for (let i = 0; i < 6; i++) {
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(60);
+  }
+  await page.waitForTimeout(800);
+  const near = await shot();
+  for (let i = 0; i < 30; i++) {
+    await page.mouse.wheel(0, 120);
+    await page.waitForTimeout(20);
+  }
+  await page.waitForTimeout(1200);
+  page.off('request', count);
+  if (JSON.stringify(await pose()) !== body) throw new Error('the zoom moved the body');
+  if (motions) throw new Error(`the zoom sent ${motions} motion act(s)`);
+  const moved = near.filter((v, i) => Math.abs(v - far[i]) > 30).length / near.length;
+  if (moved < 0.05) throw new Error(`the zoom did not change the view (${(moved * 100).toFixed(1)}%)`);
+  console.log(`   ${(moved * 100).toFixed(0)}% of the view changed going in; the body still, no motion acts`);
+
+  step('your account, at the corner behind the chair: your words, and a password backup');
+  await page.evaluate(() => globalThis.__sceneLook.at([3.048 - 0.4, 0.4, 1.6]));
+  await panel(page, 'Your account').waitFor({ timeout: 10000 });
+  await panel(page, 'Your account').getByRole('button', { name: 'Show your 24 words and private key' }).click();
+  const shownWords = (await panel(page, 'Your account').locator('.key-words').textContent()).trim();
+  if (shownWords !== words) throw new Error('the account shows other words than registration gave');
+  await panel(page, 'Your account').getByRole('button', { name: 'Add one' }).click();
+  await page.fill('#pw-next', 'correct horse battery');
+  await page.fill('#pw-next2', 'correct horse battery');
+  await panel(page, 'Your account').getByRole('button', { name: 'Save' }).click();
+  await panel(page, 'Your account').locator('strong', { hasText: 'on' }).waitFor({ timeout: 60000 });
+  console.log('   the words shown are yours; the password backup is on');
+
+  step('the book from the shelf: in your hands; download it and check it offline');
+  await page.evaluate(() => globalThis.__sceneLook.at([1.2, 2.0, 1.6]));
+  await page.evaluate(() => globalThis.__sceneLook.aim([0.0875, 2.31, 1.5175])); // the book on the shelf (scene/shelf.js)
+  await page.waitForTimeout(400);
+  await page.mouse.click(view.x + view.width / 2, view.y + view.height / 2);
+  await panel(page, 'The book, open in your hands').waitFor({ timeout: 10000 });
+  const [dl] = await Promise.all([page.waitForEvent('download'), panel(page, 'The book, open in your hands').getByText('Download this book').click()]);
+  const file = path.join(dataDir, 'tabor.book');
+  await dl.saveAs(file);
+  const verified = spawnSync(process.execPath, [path.join(root, 'law', 'bin', 'verify.js'), file], { encoding: 'utf8' });
+  console.log(
+    verified.stdout
+      .trim()
+      .split('\n')
+      .map((l) => `  ${l}`)
+      .join('\n'),
+  );
+  if (verified.status !== 0) throw new Error('the downloaded book does not check');
+  await panel(page, 'The book, open in your hands').getByRole('button', { name: 'Put it back' }).click();
+
+  step('back to the chair: E sits you down');
+  await page.evaluate(() => {
+    globalThis.__sceneLook.at([1.524, 2.383, 1.6]);
+    globalThis.__sceneLook.aim([1.524, 1.5, 2.4]); // (looking up: nothing on the page under the pointer)
+  });
+  await page.mouse.move(view.x + view.width / 2, view.y + view.height / 3);
+  await scene.focus();
+  await page.keyboard.press('e');
+  await panel(page, 'At your table').waitFor({ timeout: 10000 });
+  await page.waitForTimeout(800); // (the glide to the seat)
+
+  step('E picks up your writing: its panel; walk it back; film it');
+  await page.mouse.move(onInk.x, onInk.y);
+  await scene.focus();
+  await page.keyboard.press('e');
+  await panel(page, 'Your writing, in your hand').waitFor({ timeout: 10000 });
+  await panel(page, 'Your writing, in your hand').getByRole('button', { name: 'Walk back' }).click();
   const art = page.locator('.walk-back-art');
   const ab = await art.boundingBox();
   await page.mouse.click(ab.x + ab.width * 0.3, ab.y + ab.height * 0.5);
@@ -445,42 +467,12 @@ try {
     { timeout: 60000 },
   );
   const sideW = await page.locator('.depth-view img').evaluate((i) => `${i.naturalWidth}×${i.naturalHeight}`);
-  if (webgl) {
-    await page.getByRole('button', { name: 'Scene', exact: true }).click();
-    await page.locator('.walk-back-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
-    await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Moments' }).click();
-    await page.waitForFunction(() => [...document.querySelectorAll('.walk-back-scene .scene-tools button[aria-pressed="true"]')].some((b) => b.textContent === 'Moments'), null, { timeout: 60000 });
-    // cut through it: the far side is cut away and its cross-section stands in the cut, so a
-    // good share of the view changes (more than the light alone changes it while still)
-    const pixels = (d) => {
-      const out = [];
-      for (let i = 0; i < d.length; i += 4 * 5) out.push(d[i] + d[i + 1] + d[i + 2]);
-      return out;
-    };
-    const changed = (p, q) => p.filter((v, i) => Math.abs(v - (q[i] ?? v)) > 60).length / p.length;
-    await page.locator('.walk-back-scene').evaluate((el) => el.scrollIntoView({ block: 'center' })); // the drag stays on screen
-    await page.waitForTimeout(800);
-    const before = await onScreen(page, '.walk-back-scene', pixels);
-    await page.waitForTimeout(500);
-    const still = changed(await onScreen(page, '.walk-back-scene', pixels), before);
-    await page.locator('.walk-back-scene .scene-tools').getByRole('button', { name: 'Cut' }).click();
-    const wb = await page.locator('.walk-back-scene canvas.scene-canvas').boundingBox();
-    // across the sheet's middle: one half of it is cut away, however thin the sheet
-    await page.mouse.move(wb.x + wb.width * 0.5, wb.y + wb.height * 0.15);
-    await page.mouse.down();
-    await page.mouse.move(wb.x + wb.width * 0.5, wb.y + wb.height * 0.85, { steps: 8 });
-    await page.mouse.up();
-    await untilOnScreen(page, '.walk-back-scene', (d) => changed(pixels(d), before) > Math.max(0.005, 3 * still)).catch(async (err) => {
-      const now = await onScreen(page, '.walk-back-scene', pixels);
-      throw new Error(`${err.message}: ${(changed(now, before) * 100).toFixed(2)}% of the view changed by the cut, ${(still * 100).toFixed(2)}% while still`);
-    });
-    console.log(`   side view ${sideW}; the sheet in the scene, its moments banded, cut through`);
-  } else console.log(`   side view ${sideW}`);
+  await page.getByRole('button', { name: 'Scene', exact: true }).click();
+  await page.locator('.walk-back-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
+  console.log(`   side view ${sideW}; the sheet in its own scene`);
   await page.getByRole('button', { name: 'Close' }).click();
-
-  step('save it being written: video and GIF, grown on this device');
   const saved = async (p, name) => {
-    const [d] = await Promise.all([p.waitForEvent('download', { timeout: 120000 }), p.getByRole('button', { name, exact: true }).first().click()]);
+    const [d] = await Promise.all([p.waitForEvent('download', { timeout: 120000 }), panel(p, 'Your writing, in your hand').getByRole('button', { name, exact: true }).first().click()]);
     const f = path.join(dataDir, d.suggestedFilename());
     await d.saveAs(f);
     return fs.readFileSync(f);
@@ -491,79 +483,76 @@ try {
   if (gif.subarray(0, 6).toString('ascii') !== 'GIF89a') throw new Error('the GIF is not a GIF');
   console.log(`   video ${webm.length} bytes, GIF ${gif.length} bytes`);
 
-  step('log out, then log in with the 24 words');
+  step('E sets it down lower on the page: one move');
+  await page.mouse.move(onInk.x, onInk.y + view.height * 0.12);
+  await scene.focus();
+  await page.keyboard.press('e');
+  await panel(page, 'Your writing, in your hand').waitFor({ state: 'detached', timeout: 10000 });
+  let after = null;
+  for (const end = Date.now() + 20000; Date.now() < end; await page.waitForTimeout(300)) {
+    [after] = await homeItems();
+    if (after.y > item.y + 20) break;
+  }
+  if (!(after.y > item.y + 20)) throw new Error(`it did not move down the page: ${item.y} → ${after.y}`);
+  console.log(`   from ${item.x}, ${item.y} to ${after.x}, ${after.y}`);
+
+  step('a visitor at the door: the house, its writing, and the panel offering to come in');
+  const visitor = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  await visitor.addInitScript(charged);
+  try {
+    const v = await visitor.newPage();
+    await v.goto(`${base}/u/tabor`);
+    await panel(v, 'Come in').waitFor({ timeout: 30000 });
+    await v
+      .locator('.journal-scene[data-gpu]')
+      .waitFor({ timeout: 60000 })
+      .catch(async (err) => {
+        const shot = path.join(os.tmpdir(), 'penpals-e2e-visitor.png');
+        await v.screenshot({ path: shot }).catch(() => {});
+        const seen = await v.evaluate(() => ({
+          scene: document.querySelectorAll('.journal-scene').length,
+          page: document.querySelectorAll('.journal-page').length,
+          text: document.querySelector('main')?.innerText.slice(0, 200),
+        }));
+        throw new Error(`${err.message.split('\n')[0]}: the visitor's house shows ${JSON.stringify(seen)} (${shot})`);
+      });
+    await untilOnScreen(v, '.journal-scene', (d) => {
+      let ink = 0;
+      for (let i = 0; i < d.length; i += 4 * 7) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 45) ink++;
+      return ink > 20;
+    });
+    if ((await v.locator('aside.panel').count()) !== 1) throw new Error('more than one panel');
+  } finally {
+    await visitor.close();
+  }
+
+  step('log out (from the mailbox, until the world has a way), then log in with the 24 words');
+  await page.goto(`${base}/inbox`);
   await page.locator('button.logout').click();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
-  await openWith(page, { unlock: false, way: 'words', secret: words, done: () => page.locator('button.logout').waitFor({ timeout: 60000 }) });
+  await openWith(page, { unlock: false, way: 'words', secret: words, done: () => panel(page, 'At your table').waitFor({ timeout: 60000 }) });
 
-  step('a new tab is signed in but must unlock to write: the private key');
+  step('a new tab is signed in but must unlock to write: the private key, in the table’s panel');
   const tab = await context.newPage();
-  await tab.goto(`${base}/write`);
+  await tab.goto(`${base}/u/tabor`);
   await tab.getByText('Unlock to write').waitFor({ timeout: 20000 });
-  await openWith(tab, { unlock: true, way: 'key', secret: privateKey, done: () => tab.getByRole('button', { name: 'Draw on screen' }).waitFor({ timeout: 60000 }) });
-
-  step('write a letter on the pad and save it');
-  await tab.waitForTimeout(500);
-  await draw(tab, pad(tab), scribble(2, 3));
-  await tab.getByRole('button', { name: 'Save to my profile' }).click();
-  await tab.getByText('On your profile').waitFor({ timeout: 60000 });
-  await tab.waitForResponse((r) => r.url().includes('/look') && r.status() === 200, { timeout: 60000 }).catch(() => null);
-  if (webgl) {
-    await tab
-      .locator('.letter-scene canvas')
-      .waitFor({ timeout: 60000 })
-      .catch(() => null);
-    await tab.waitForTimeout(1500);
-    const lb = await tab
-      .locator('.pad-letter')
-      .first()
-      .boundingBox()
-      .catch(() => null);
-    console.log(`   the letter in the scene: ${lb ? `${Math.round(lb.width)}×${Math.round(lb.height)}` : 'not shown'}${(await tab.locator('.letter-scene').count()) ? ', lit' : ''}`);
-    if (!lb || lb.width < 50) throw new Error('the letter has no size');
-    await tab.locator('.pad-letter').first().scrollIntoViewIfNeeded();
-    await tab.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-letter.png') });
-  }
-  step('the letter being written, as a video the server films');
-  const [ld] = await Promise.all([tab.waitForEvent('download', { timeout: 120000 }), tab.getByRole('button', { name: 'Video', exact: true }).click()]);
-  const lf = path.join(dataDir, ld.suggestedFilename());
-  await ld.saveAs(lf);
-  const lv = fs.readFileSync(lf);
-  if (!(lv[0] === 0x1a && lv[1] === 0x45)) throw new Error(`the letter video is not a WebM file (${ld.suggestedFilename()})`);
-  await tab.close(); // done with the second tab (a background tab would stop drawing; headless ones do not)
-
-  step('download the book and check it offline');
-  await page.goto(`${base}/u/tabor`);
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByText('Download my book').click()]);
-  const file = path.join(dataDir, 'tabor.book');
-  await dl.saveAs(file);
-  const v = spawnSync(process.execPath, [path.join(root, 'law', 'bin', 'verify.js'), file], { encoding: 'utf8' });
-  console.log(
-    v.stdout
-      .trim()
-      .split('\n')
-      .map((l) => `  ${l}`)
-      .join('\n'),
-  );
-  if (v.status !== 0) throw new Error('the downloaded book does not check');
+  await openWith(tab, { unlock: true, way: 'key', secret: privateKey, done: () => tab.getByRole('button', { name: 'New paper' }).waitFor({ timeout: 60000 }) });
+  await tab.close();
+  console.log('   (letters: not in the world yet; a letter is a sheet carried to a mailbox, one-world.md)');
 
   step('open the .book in the viewer: it checks here too');
   await page.goto(`${base}/book`);
   await page.setInputFiles('.dropzone input[type=file]', file);
   await page.getByText('The book checks.').waitFor({ timeout: 60000 });
   await page.getByText(/And with your key: 1 closed sheet grown again here/).waitFor({ timeout: 60000 });
-  step('add a password backup in the account, then log in with it');
-  await page.goto(`${base}/u/tabor`);
-  await page.getByRole('button', { name: 'Add one' }).click();
-  await page.fill('#pw-next', 'correct horse battery');
-  await page.fill('#pw-next2', 'correct horse battery');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await page.locator('.password-setting strong', { hasText: 'on' }).waitFor({ timeout: 60000 });
+
+  step('log out, then log in with the password backup');
+  await page.goto(`${base}/inbox`);
   await page.locator('button.logout').click();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
-  await openWith(page, { unlock: false, way: 'password', secret: 'correct horse battery', done: () => page.locator('button.logout').waitFor({ timeout: 60000 }) });
+  await openWith(page, { unlock: false, way: 'password', secret: 'correct horse battery', done: () => panel(page, 'At your table').waitFor({ timeout: 60000 }) });
   console.log('\nthe whole flow works');
 } catch (err) {
   if (err.ok) {
