@@ -1,11 +1,17 @@
 # Outside: the ground, the hands, and the eye
 
-Layer 4 of 5. For an agent, after rooms.md is green. world.md comes after this one.
+Layer 5 of 5: the last build doc and the wrap-up of this project. For an agent, after the three branches are merged and world.md's sound is in.
 
-This doc has three parts, and the third ties them together:
+People still spawn into their house with everything built so far (the house, the table, the unlimited jar, wax, candles, stamper and paper). This is not a survival drop-in. Everything in this doc is outside, for anyone to mess with: gather, make, build new houses, do whatever.
+
+This doc has five parts:
 1. **The laws of the universe in this world:** circles, swings, levers and wrapping come out of the law; nothing is coded as a shape.
-2. **The outside and the hands:** ground, stones and trees grown from the key; picking things up, breaking branches, carving sticks. Just that for now.
-3. **The point of attention:** the whole interface is a few keys and a mouse, with no menus, plus the scroll that sends the eye down to a spot without moving the body.
+2. **The outside and the hands:** the world's ground and the creation tree, from dirt and trees to ink, candles, pens and metal, all made by hand.
+3. **The point of attention:** a few keys and a mouse, no menus, and the scroll that sends the eye down to a spot without moving the body.
+4. **Life:** bugs and birds, made of their matter, looking the way their facts happen.
+5. **The wrap-up:** the factory shape check, the cleanup of the old pen-pal code, and the house-fire test.
+
+**This is highly critical:** it must not only be built, it must be built out of the primitives. Everything uses the same things in the same shape as the TreeOS factory: acts in, the law and its when/thens, facts out, folded into faxels. Not a pile of JavaScript listeners each doing its own thing (Part 5.1).
 
 ## The whole picture (same block in all the docs)
 
@@ -14,8 +20,10 @@ Five layers, one set of primitives:
    - **accounts-change.md** (the builder, after cleanup §1–6, before §7): signatures make the key; sign in by username plus password, 24 words or private key.
 2. **light-waves.md** (now, in parallel, a second agent): light as a range of waves, the room, the eye. Built as standalone modules with no edits to existing files. The builder integrates them afterward (cleanup-and-speed.md §7).
 3. **rooms.md** (later, another agent): your profile becomes your room; walls are sheets; writing together. Starts only after layers 1 and 2 are green and one page writes smoothly in the lit room.
-4. **outside.md** (after rooms): the laws that make circles and swings, the ground with stones and trees to pick up, break and carve, and the point of attention: keys, mouse and the eye's zoom.
-5. **world.md** (last, after outside): sound as events (the pen first), weather, and the first life. Scene only, built in testable steps.
+   - **matter-fixes.md** (the builder, after rooms phase 4a): the heat rule in the law, drips from the candle, objects as grown matter in the light, shine from the surface.
+   - **one-world.md** (the builder, after matter-fixes): the site is one page, the world; houses near the start; every control becomes something the being does.
+4. **world.md** (after the branches merge): sound as events (the pen first), the music of matter, smoke, weather. Scene only, built in testable steps.
+5. **outside.md** (last, the wrap-up): the laws that make circles and swings, the ground and the creation tree made by hand, life as matter, the point of attention, the factory-shape check, the cleanup and the house-fire test.
 
 The primitives every layer follows:
 - **One law.** Acts in, facts out. Only wet ink computes; dry tiles sleep. A wall is a sheet like a page.
@@ -82,41 +90,57 @@ Listed so the law is built to allow them, not to build them now:
 
 ## Part 2: the outside and the hands
 
-### 2.1 The outside is grown from the key
+### 2.1 The outside is grown from the world's seed
 
-Like the room (light-waves §4) and the paper, the outside is grown on the fly from the room's key, at the paper's one grain. Nothing about it is stored except what has been done to it.
+Like the room (light-waves §4) and the paper, the outside is grown on the fly, from the world's public seed, at the paper's one grain. Nothing about it is stored except what has been done to it.
 - **Dirt:** the ground. Walkable; things let go of land on it.
 - **Stones:** loose, of different sizes and hardness. Small ones can be picked up.
-- **Trees:** trunk, branches, bark, leaves. Grown from the key, so no two trees are the same.
+- **Trees:** trunk, branches, bark, leaves. Grown from the seed, so no two trees are the same.
 
 Only what the senses reach is grown (the primitives' sense ranges). A tree out of view is not drawn; a branch broken off it stays broken because the break is a fact on the chain.
 
 ### 2.2 The outside is spaces too, and doors decide what loads
 
-- **Every scene is a space.** The room is a space; the outside is a space (or several, nesting like any other spaces). They all belong to the one being whose key grew them, the same way the room and its surfaces do (rooms.md §1).
+- **Every scene is a space.** Each house is its owner's space, grown from their key (rooms.md §1). The outside is one shared space grown from the world's public seed, with the houses standing in it (one-world.md).
 - **The house opens to it** through its door and its window (rooms.md §3 doors). Walk out with WASD.
 - **Door principles apply:** a closed door or window is a wall. With both closed, the outside is not loaded or drawn at all, because that is how it is: nothing outside reaches any sense. It also keeps a slow PC fast.
 - **Open either one** and the outside beyond it loads, only as far as the senses reach through the opening.
 - **With both closed, the candles light.** No daylight comes in, so the room is lit by its candles (as at night, rooms.md §1b).
 - **Every act settles behind a closed door:** the outside keeps its own time; what happened out there is computed in one step from elapsed time when the door opens again.
 
-### 2.3 What the hands do, just this for now
+### 2.3 Everything is marks and reacts, in a moment
 
-- **Pick up:** a stone, a fallen stick, a leaf. Holding is a move act, like picking up a candle.
-- **Let go:** set it down where you are, or drop it and it falls until it rests.
-- **Break a branch:** hold it and pull; it bends, and past its strength it snaps. The broken branch is a stick you can carry.
-- **Carve a stick:** hold a stone and rub it along a stick. The harder matter takes the softer away where they touch. This is the same act as the nib scratching the paper's fibers, with different matter: carving is writing that removes. Carve a point and the stick becomes a pen; carve a word into a tree with a stone the same way.
+Only hands (left and right) and the tools they have made (matter held). Every making below is a chain of the same few acts: pick up, let go, rub, press, twist, strike, tilt, set down. The world reacts by the rules (matter.md: heat, phase, fire, falling, flow). Nothing below is a recipe the game checks: each step works or fails by the matter's properties.
 
-That is all of it for now: dirt, stones, trees, pick up, let go, break, carve. Everything else in §1.4 waits.
+### 2.4 The ground and what grows
 
-### 2.4 The house stays unlimited for now
+- **Clouds, weather, the sun** over everything (world.md weather; light-waves sun; one world clock).
+- **Dirt, stone, metal ore, ponds or rivers.** Ore is stone that holds metal. Water collects where the ground is low.
+- **Clay** where water meets dirt.
+- **Grass and trees** grow from the dirt. Trees give **wood** (for pens, houses, tables and the rest) and **galls**.
+- **Galls are a bug's nest in the tree:** a gall bug lays in the oak; the tree grows the gall around it; the new bug eats its way out. A gall is also the tree's own "seeds for a new tree to grow, factually."
 
-The ink jar, the wax, the candles, the stamper and the paper stay in the house in unlimited supply, the way an infinite water bucket does in creative mode. The point is to test the law on the things that matter most before the gathering exists. The shortcut never has to be undone: later, a jar can be one you filled from galls you crushed, and the ink inside obeys the same law either way.
+### 2.5 The creation tree (what hands can make)
 
-Things from outside already work with the house:
-- **Dip a carved stick** into the ink jar and write with it. Its line comes from its carved tip; until carved tips have their own nib law, the closest existing nib type stands in.
-- **Ink a leaf and press it onto paper with a stone:** it leaves its veins.
-- **Press a piece of bark** from the stick you carved into warm wax: it leaves its texture.
+From the notebook, as Tabor wrote it:
+- **String:** twist grass fibres.
+- **Axe and tools:** chip rocks, attach to a carved stick (wrapped with string; it holds or it does not, §1.1).
+- **Fire:** rub sticks (friction heat past wood's ignition).
+- **Pen:** sharpen a stick. (Later, metal for a flex nib.)
+- **Candle:** grass fibre in a melted bug nest (the hive bug's wax).
+- **Ink:** crush oak galls, soak in water (contained water: a clay cup), crush metal ore, add. Stop when it is black enough; too much and it leaches and corrodes (iron gall ink eating its own paper is a fact, not a rule).
+- **Metal:** burn wood hot enough and metal ore melts; use clay for cups and for shaping melted metal.
+- **Clay:** use hands, grab clay handfuls, form it by pressing it around, heat it until hard (fire).
+
+The chains, as acts:
+- break off a stick → carve → grab grass → twist into rope → find stones and chip one → wrap the stone to the stick with string → smash metal ore
+- use hands → grab clay handfuls → rub sticks for fire → form clay by pressing it around → heat until hard
+
+Possible later: a filter for ink, gum arabic to thicken, easy paper. You can mainly write on anything.
+
+### 2.6 The house stays as it is
+
+People spawn into their house with the unlimited jar, wax, candles, stamper and paper, the way an infinite water bucket works in creative mode. Nothing there has to be undone: a jar you filled from galls you crushed holds ink that obeys the same law. Things from outside already work with the house: dip a carved stick into the jar and write, ink a leaf and press it onto paper with a stone, press bark into warm wax. Anyone can build a new house outside from what they make.
 
 ---
 
@@ -180,6 +204,62 @@ The zoom depth, the eye's viewpoint and where attention is all live only in your
 
 ---
 
+## Part 4: life
+
+Ideas drawn from treeos.ai/world, kept small.
+
+### 4.1 A living thing is matter with a body
+
+- **A body of its own matter:** bug matter, bird matter, each with properties like any substance (matter.md) and an absorption curve for its color. Bonded into a form; the form is facts.
+- **No skins, no models of a bug.** It looks the way its facts happen: the matter it is made of, the shape its bonds hold, how light falls on it. A bug is a few faxels at normal view; scroll in and attention gives it fidelity, and what is there is whatever its matter and form are.
+- **It moves by the same laws:** to fly, something on it flaps and pushes air down by the air's flow law, and that push holds it up and carries it. Nothing floats. A bird has wings because it must beat them to fly; a bug has something that beats fast. Stop flapping and it falls until it rests.
+- **Metabolism in three terms** (treeos.ai/world): fuel (what it eats), loss (warmth it gives to the cold), carrier (water). It eats and drinks from the world's matter; without fuel it weakens and stops.
+- **Aging by threshold:** a grub becomes a winged thing when it crosses its threshold, counted on the world's clock.
+- **Birth is one act:** an egg is a parcel set loose: in a gall, in a nest of grass.
+
+### 4.2 The life in this world
+
+- **The gall bug:** lays in the oak, the gall grows, the new bug eats out. Chirps (direct sound, world.md).
+- **The hive bug:** builds a nest; the nest is wax. Melt it and it is candle wax.
+- **Birds:** drop feathers (a pen), collect grass for nests, lay eggs.
+- Later: fish in ponds and rivers.
+
+### 4.3 Many and cheap
+
+- **Near beings, each is its own:** bugs and birds near a being run step by step and are seen.
+- **Far away, a number:** out of every sense's range they are not individually computed; their numbers follow food and density, and are replayed in one step when someone comes back (treeos.ai/world: "unwatched regions are replayed on return").
+- **Nothing polls:** a living thing computes only while it is doing something (the sleep rule).
+
+---
+
+## Part 5: the wrap-up
+
+### 5.1 The factory shape (the check that matters most)
+
+Every change in the world has the same shape:
+1. **An act:** a being does something (a key, the mouse, a click with something in hand). Input handlers only make acts.
+2. **The law:** the act and the matter's facts run through the rules and the when/thens (heat, phase, fire, falling, flow, the ink law). Reactions follow reactions until they settle.
+3. **Facts:** what changed is on the chain, regrown the same by everyone.
+4. **The fold:** the senses read the facts and the faxels show them.
+
+**Not allowed:** a listener that changes the world directly; a timer or interval that makes things happen (drips, fire, growth); a special case for one kind of matter; a "look" that is not a fold of facts; a behavior constant (matter.md's one rule about numbers).
+
+**The check:** for every world-changing code path, name its act and its rule. If one has neither, it is wrong.
+
+### 5.2 Clean up the old pen-pal code
+
+The site is the world now. Remove everything not reachable from it:
+- the old write page's pieces (pads, vector pad, write modes, chase settings, photograph a page, letter view) once the panel and the pen in hand cover them
+- `/inbox` once the mailbox works (one-world.md)
+- the old 2D panels and view buttons (Hand, Look, Seat, Flat, Relief, Crisp, Cut, Moments outside the dev page)
+- server routes nothing calls (friends, block, theme; proofs by ruling)
+- styles, tests and e2e for removed pieces; e2e rewritten to the world flow
+- Law v1 stays frozen with its goldens; only its uses outside the law go.
+
+### 5.3 The house-fire test
+
+As written in matter.md: knock the lit candle over, nothing else. Everything that follows comes from the table and the rules. If the metal holder's heat passed metal's melting point it is a cooled puddle where it flowed, otherwise it is still a holder; either passes. Nothing is tuned to make it melt.
+
 ## Phases
 
 Each phase ends usable and tested, and builds only on phases before it.
@@ -187,14 +267,18 @@ Each phase ends usable and tested, and builds only on phases before it.
 1. **The keys and the mouse:** WASD, jump, fly, Shift, the mouse on the head, the mouse on the pen at a sheet. **Test:** walk, jump and land; fly and lower; sit and write without touching anything else; others see the same body move.
 2. **The zoom:** scroll toward the cursor, body fixed, depth at every distance, writing while zoomed. **Test:** scroll from the room to a single bead and back in a handful of steps; the body's motion acts do not change while scrolling; a frame at deep zoom costs about the same as one pulled back; zoom depth appears in no request and no `.book`.
 3. **The free-drop test and the string:** direction fairness in the ink law; a weight on a string swings and settles. **Test:** §1.3.
-4. **The outside:** dirt, stones and trees grown from the key on the fly, as spaces of the same being; the door and window open to it. **Test:** the same key grows the same trees for everyone; with door and window closed nothing outside loads and the candles light; opening either loads only what is seen through it; leaving and returning shows the same ground.
+4. **The outside:** dirt, stones and trees grown on the fly from the world's seed, one shared space with the houses in it; the door and window open to it. **Test:** the same seed grows the same trees for everyone; with door and window closed nothing outside loads and the candles light; opening either loads only what is seen through it; leaving and returning shows the same ground.
 5. **The hands:** pick up, let go, break a branch, carve a stick, carve into a tree. **Test:** a broken branch stays broken for everyone and after return; carving with a soft stone on hard wood removes nothing; the same carving acts regrow the same stick on every machine.
-6. **Outside meets the house:** dip a carved stick in the jar, press an inked leaf with a stone, press bark into warm wax. **Test:** each leaves a mark that regrows exactly; the jar never runs out.
+6. **The ground's matter:** ore, clay, water in low ground, grass. **Test:** the same seed puts them in the same places; water pools where the ground is low.
+7. **The creation tree:** string, chipped stone, the tied axe, fire from rubbing, clay formed and fired, ink from galls and ore, melted ore poured into clay, the candle from hive wax and grass. **Test:** each works or fails only by the matter's properties; a loose binding comes apart on the first swing; too much ore makes ink that corrodes its paper over time.
+8. **Life:** the gall bug and its gall, the hive bug and its wax nest, birds with feathers and nests. **Test:** a bird that stops flapping falls; a gall forms only where a gall bug laid; out of range their numbers replay the same on return.
+9. **The wrap-up:** the factory-shape check over every world-changing path, the cleanup, then the house-fire test. **Test:** §5.1–5.3.
 
 ## Cost
 
 - The outside grows only where the senses reach; a forest out of view is free, and with door and window closed none of it loads.
-- Breaking and carving are facts only where they happen, like ink: only the touched matter computes.
+- Breaking, carving, burning and making are facts only where they happen, like ink: only the touched matter computes.
+- Life far from every sense is a number, not a crowd.
 - The zoom costs one screen's worth at any depth.
 
 ## Needs Tabor's ruling

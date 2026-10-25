@@ -9,6 +9,8 @@ Five layers, one set of primitives:
    - **accounts-change.md** (the builder, after cleanup §1–6, before §7): signatures make the key; sign in by username plus password, 24 words or private key.
 2. **light-waves.md** (now, in parallel, a second agent): light as a range of waves, the room, the eye. Built as standalone modules with no edits to existing files. The builder integrates them afterward (cleanup-and-speed.md §7).
 3. **rooms.md** (later, another agent): your profile becomes your room; walls are sheets; writing together. Starts only after layers 1 and 2 are green and one page writes smoothly in the lit room.
+   - **matter-fixes.md** (the builder, after rooms phase 4a): the heat rule in the law, drips from the candle, objects as grown matter in the light, shine from the surface.
+   - **one-world.md** (the builder, after matter-fixes): the site is one page, the world; houses near the start; every control becomes something the being does.
 4. **outside.md** (after rooms): the laws that make circles and swings, the ground with stones and trees to pick up, break and carve, and the point of attention: keys, mouse and the eye's zoom.
 5. **world.md** (last, after outside): sound as events (the pen first), weather, and the first life. Scene only, built in testable steps.
 
@@ -60,13 +62,12 @@ The whole site is the world. There is no separate sign-up page.
 - **It opens in your room:** your space, its surfaces grown from your key. Color comes in as the eye adapts (the eye's own flare and settling from dark to light, light-waves §7). You can look up for the first time.
 - Scene only: the lobby, the lids and the color coming in never touch the record.
 
-## 1b. Each space keeps its own time; light is the clock
+## 1b. One world, one clock; light is the clock
 
-- **A space's time** is a fact of the space: its owner's time zone, taken from their machine when the room is made, changeable by an act. Everyone in a room sees that room's sun and sky (light-waves' sun, placed by the space's clock instead of the viewer's).
-- **Joined rooms:** each room's window is lit by its own sun. Day in one and night in the other is fine: daylight pours through one window and spills into the other's dark across an open join. The bounce solve over both rooms already does this.
+- **One world, one sun, one time zone: Pacific.** Every space, every house and the outside share the world's clock; everyone sees the same sun and sky at the same moment. No per-room or per-viewer time.
 - **Light reacts only when a being is there.** Sunlight comes into a room only while a being is in it; with no one there, nothing reacts. At night the candles light whenever a being is in the room and go out when the last one leaves.
-- **Candles last across nights:** each candle's lit time is the total time beings spent in the room at night, read from their enter and leave acts and the space's clock. It burns down over many visits; when spent, a new one replaces it.
-- **Light is the clock for aging.** Oak gall darkens by the light its space has received (sun by day, candles by night), so only by time a being was there. An empty room, day or night, is a tomb: its ink rests unchanged. So is a closed book or a sealed letter. Computed in one step at view time from the being's enter and leave acts and the space's clock.
+- **Candles burn by their facts:** a candle burns only while lit, and lighting it and putting it out are acts. What it burns and what it drips are facts. Candles burn at different rates by their own matter and heat, so there is no fixed lifetime. When spent, a new one replaces it.
+- **Light is the clock for aging.** Oak gall darkens by the light its space has received (sun by day, candles by night), so only by time a being was there. An empty room, day or night, is a tomb: its ink rests unchanged. So is a closed book or a sealed letter. Computed in one step at view time from the being's enter and leave acts and the world's clock.
 - Until this layer, aging keeps calendar age and the sun keeps the viewer's local clock.
 
 ## 2. Surfaces are sheets
@@ -186,16 +187,9 @@ Red and blue mix to purple; the red writer lifts their stroke; it goes back to b
 Solo drafts keep today's undo: a full rewind from the snapshot, since no one else's ink is involved.
 - **When the last person leaves,** the room settles (wet ink dries out in recorded time) and sleeps.
 
-## 7. Joining spaces
+## 7. Joining spaces (replaced)
 
-Like pushing two toy cube rooms together:
-- **Attach:** two owners each sign a join act; one room attaches to the other along a wall.
-- **The opening:** wall down (one open space, loaded together) or a door (the wall stays, which protects decorated walls; the other room loads when you step through). Each owner chooses their side and can change it.
-- **Furniture moves across:** your table is your matter. Move it into the joined space (a move act) and set it anywhere. Wherever your table is, you can write on it and on any sheet lying on it.
-- **Unjoin:** either owner separates the rooms (an act).
-- **Nothing gets stranded.** The unjoin act itself places every piece of matter back in its owner's space: no separate move, no one else's signature. Reading the chain after an unjoin, your table is home and every sheet is on its owner's table.
-- **Light across a join:** at join time, compute the form factors between the two rooms through the opening once, in a worker, and solve the bounce over both rooms together. A door passes light only while open.
-- **Rendering:** room B is placed at the shared wall with a transform, its surfaces still grown from its owner's key. Only the opening is new geometry.
+Replaced by one-world.md: houses stand near each other in one shared outside and people walk to each other's houses. There are no join acts.
 
 ## 8. Load by the senses
 

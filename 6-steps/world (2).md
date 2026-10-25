@@ -1,6 +1,6 @@
-# World: sound, weather, and the first life
+# World: sound and weather
 
-Layer 5 of 5. For an agent, after outside.md is green.
+Layer 4 of 5. For an agent, after the three branches are merged. outside.md comes after this one.
 
 ## The whole picture (same block in all the docs)
 
@@ -9,8 +9,10 @@ Five layers, one set of primitives:
    - **accounts-change.md** (the builder, after cleanup §1–6, before §7): signatures make the key; sign in by username plus password, 24 words or private key.
 2. **light-waves.md** (now, in parallel, a second agent): light as a range of waves, the room, the eye. Built as standalone modules with no edits to existing files. The builder integrates them afterward (cleanup-and-speed.md §7).
 3. **rooms.md** (later, another agent): your profile becomes your room; walls are sheets; writing together. Starts only after layers 1 and 2 are green and one page writes smoothly in the lit room.
-4. **outside.md** (after rooms): the laws that make circles and swings, the ground with stones and trees to pick up, break and carve, and the point of attention: keys, mouse and the eye's zoom.
-5. **world.md** (last, after outside): sound as events (the pen first), weather, and the first life. Scene only, built in testable steps.
+   - **matter-fixes.md** (the builder, after rooms phase 4a): the heat rule in the law, drips from the candle, objects as grown matter in the light, shine from the surface.
+   - **one-world.md** (the builder, after matter-fixes): the site is one page, the world; houses near the start; every control becomes something the being does.
+4. **world.md** (after the branches merge): sound as events (the pen first), the music of matter, smoke, weather. Scene only, built in testable steps.
+5. **outside.md** (last, the wrap-up): the laws that make circles and swings, the ground and the creation tree made by hand, life as matter, the point of attention, the factory-shape check, the cleanup and the house-fire test.
 
 The primitives every layer follows:
 - **One law.** Acts in, facts out. Only wet ink computes; dry tiles sleep. A wall is a sheet like a page.
@@ -34,6 +36,9 @@ The primitives every layer follows:
 - **Sound is a range of waves too.** Every sound has its own spread of frequencies; matter drinks sound by frequency the way it drinks light (walls muffle the highs, glass rings, wood knocks).
 - **Every sound is an event.** There are no soundtracks. A sound plays because something happened: a nib dragged over a fiber, a drop hit the glass, a cricket chirped. It plays from where it happened, quieter with distance, colored by what it passed through.
 - **The ears are on the being's head** (rooms.md §4): turn the head and the sound turns with it.
+- **Two kinds of sound, both from the engine:**
+  - **Beings' acts are direct.** A pen, a step, a hand setting something down, a cricket's chirp, a bird's call: each sounds exactly when and how it happened, never moved or tuned. A being's act is heard as it is.
+  - **Matter meeting matter is music.** Rain on glass, wind, thunder, a candle's crackle, a drip landing, bubbles: each is still an event, but placed on the space's pulse in its own tuplet and tuned to the space's key (Phase 3c). Nothing plays unless something happened; the events are only placed and tuned.
 - **The ear's range, not the eye's.** Sound loads within hearing range all around, behind you included, muffled by walls. Within it, only what is near is detailed. Close events are individual; far ones are summed into a total (a hiss, a wash), the same way only wet ink computes.
 - **All of it is scene.** Nothing here enters the record. Weather and life grow from the date and the room's seed, so everyone in a room hears the same storm at the same moment.
 - **Asking for weather** works like dragging the light: the viewer can call up rain or wind for a while, then it eases back to the day's own weather.
@@ -80,6 +85,19 @@ The most important sound. Made from the same acts the ink is.
 
 **Test:** the same pen stroke sounds drier in a small room than a large one; a test source outside is muffled until the window opens.
 
+## Phase 3c: the music of matter
+
+Only for matter meeting matter (sun, rain, wind, fire, water, wax). Beings' acts stay direct.
+- **The pulse is the world's clock:** bars built from its ticks, so everyone hears the same pulse.
+- **Each source its own tuplet:** each kind of matter sound falls on its own subdivision of the bar (rain in one grouping, the candle's crackle in another, wind in another), from the source's own rate: heavier rain, a denser grouping; a low candle, a slower one. Many sources at different groupings make a polyrhythm that is never mechanical, and they all meet again on the bar.
+- **The tree of the bar:** the bar splits into groups and each group into its own count of notes, down to single events at the leaves. An event lands on the nearest leaf of its source's grouping.
+- **Pitch from matter, tuned to ratios:** each sound keeps its own spectrum (glass rings, wood knocks) and is pulled to the nearest pitch in whole-number ratios above a root. The root is grown from the space's key, so each space has its own key.
+- **One set of ratios for both:** the same ratios set the tuplets (slow: rhythm) and the intervals (fast: harmony). A 3:2 rhythm sped past about 20 a second is a fifth.
+- **The mood is the state:** few events, long groupings and open intervals on a calm night; dense, crowded groupings in a storm. Nothing is scored; the music is what the matter is doing.
+- **Deterministic:** the grouping, the root and the placement come from the world's clock, the space's key and the events, so the same moment sounds the same for everyone.
+
+**Test:** a being's pen, steps and a cricket's chirps are never moved or retuned; rain and crackle land on their groupings and in the space's key; two spaces with different keys play the same rain in different keys; heavier rain makes a denser grouping; the same events in the same space sound identical for everyone.
+
 ## Phase 3b: room air and smoke
 
 - **The room's air:** a coarse grid (default 10 cm cells), awake only where there is smoke or moving air (the sleep rule).
@@ -113,30 +131,11 @@ The most important sound. Made from the same acts the ink is.
 
 **Test:** the window glass costs the same per drop as ink on paper; the thunder delay matches the strike distance; cloud cover dims the room's light through the bounce solver.
 
-## Phase 6: the first life, bugs
+## Phase 6: the sounds of life
 
-- **Crickets:** each a tiny being with its own chirp rhythm, chirping faster when the air holds more heat (Dolbear's law). Heard through the open window at night.
-- **A moth** drawn to a candle flame, circling it, its shadow flickering across the page.
-- Beings far from the eye run coarse; near ones run every step.
+The life itself (bugs, birds, later fish) is built in outside.md Part 4, as matter. Here only their sounds: each is a being, so its sounds are direct (its acts, never placed on the pulse). A gall bug's chirp follows the air's heat (Dolbear's law); birds sing most at dawn and shelter in rain; wingbeats sound from the flapping itself.
 
-**Test:** chirp rate follows temperature; crickets go quiet in heavy rain; the moth never enters the flame.
-
-## Phase 7: a fish tank
-
-- **A small water volume on the shelf,** glass and water lit by the room (the candlelight dances in it).
-- **A few fish** following simple rules: stay near each other, avoid the glass, wander.
-- **Small sounds:** bubbles from a filter as events.
-
-**Test:** fish never leave the water; the tank's glass passes light through the bounce solver; bubbles stay within the voice budget.
-
-## Phase 8: birds
-
-- **A small flock outside** with the same kind of rules, chirping to each other: mostly heard, sometimes seen through the window.
-- They sing most at dawn and shelter in rain.
-
-**Test:** the dawn chorus rises at sunrise by the viewer's clock; birds go quiet in a storm.
-
----
+**Test:** a chirp's rate follows the air's heat; no being's sound is moved onto the pulse.
 
 ## Cost
 
