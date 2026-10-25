@@ -6,7 +6,10 @@
 // lands and the next act is checked against it; a seal pressed into warm wax
 // that took admits its key (the sheet grown to the press decides), a break
 // takes it back. A press must carry the named person's own seal: their face,
-// made from their public signature (sealFaceOf, law/seal.js).
+// made from their public signature (sealFaceOf, law/seal.js). The wax a seal is
+// pressed into is no one's act: the drips the law regrows from the rooms the sheet
+// lay in (store/wax.js), grown with it to see whether the press took. Where a sheet
+// lies is written on that room's chain as it comes and goes (store/rooms.js lay).
 //
 // In the owner's ink.chain (store/books.js):
 //   { id, made, share: { birth, seal, open } }        a shared sheet, born open
@@ -20,6 +23,8 @@ import { chainLines, appendLines, getSkeleton, inkLine, openSeed } from './books
 import { listDirs } from '../files.js';
 import { shared as SH, seal as SEAL, fromB64url, b64url, keys as K } from 'penpals-law';
 import { lawOf } from 'penpals-law/laws';
+import { lay } from './rooms.js';
+import { dripsOnSheet } from './wax.js';
 
 const sheets = new Map(); // sheet → { sheet, ownerId, owner (key), birth, seal, open, born (ms), lines, state }
 const tables = new Map(); // key (b64url) → Set(sheet): the shared sheets lying on that person's table
@@ -60,14 +65,25 @@ function remember(ownerId, line) {
   }
 }
 
-// Every shared sheet in every book (at start).
+// Every shared sheet in every book (at start). Each sheet a seal was pressed into has
+// its wax regrown first, so its seals take as they did.
 export async function loadShared() {
   sheets.clear();
   tables.clear();
+  const acts = []; // [ownerId, line]: the stamped acts, once every sheet is known
   for (const id of await listDirs(usersDir)) {
     if (!getAccount(id)) continue;
-    for (const line of await chainLines(id)) remember(id, line);
+    for (const line of await chainLines(id)) {
+      if (line.share) remember(id, line);
+      else if (typeof line.shared === 'string') acts.push([id, line]);
+    }
   }
+  const pressed = new Set(acts.filter(([, l]) => l.act?.act === 'press').map(([, l]) => l.shared));
+  for (const sheet of pressed) {
+    const s = sheets.get(sheet);
+    if (s) s.state.ctx.drips = await dripsOnSheet({ ...s, lines: acts.filter(([, l]) => l.shared === sheet).map(([, l]) => ({ act: l.act })) });
+  }
+  for (const [id, line] of acts) remember(id, line);
   return sheets.size;
 }
 
@@ -79,6 +95,7 @@ export const viewOf = (s) => ({
   sheet: s.sheet,
   owner: getAccount(s.ownerId)?.username ?? null,
   birth: s.birth,
+  born: s.born, // (ms: its clock's zero, where the room's drips land on it: law/wax.js dripsOn)
   seal: s.seal,
   open: s.open,
   lines: s.lines,
@@ -101,6 +118,7 @@ export async function createShared(userId, { birth, seal, open }) {
   if (sheets.has(birth.sheet)) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
   const [line] = await appendLines(userId, [{ share: { birth, seal, open } }]);
   remember(userId, line);
+  await lay(userId, birth.sheet, true);
   tell({ kind: 'table', key: birth.key, sheet: birth.sheet, on: true });
   return viewOf(sheets.get(birth.sheet));
 }
@@ -128,10 +146,12 @@ export async function stamp(userId, { act, seal }) {
   return serialSheet(s.sheet, async () => {
     const why = SH.refusal(s.state, act);
     if (why) throw httpError(403, 'not_yours', why === 'the sheet is not on your table' ? 'That sheet is not on your table.' : why);
+    // a press: did it take? the sheet grown with the wax that had landed on it by now
+    if (act.act === 'press') s.state.ctx.drips = await dripsOnSheet(s);
     const line = { n: s.lines.length + 1, at: Math.max(0, Date.now() - s.born), act, seal };
-    if (act.act === 'stroke' || act.act === 'drip' || act.act === 'press') {
+    if (act.act === 'stroke' || act.act === 'press') {
       try {
-        growable([...s.lines, line]);
+        growable([...s.lines, line], s.state.ctx.drips);
       } catch (err) {
         throw httpError(400, 'too_much', err.message);
       }
@@ -141,17 +161,23 @@ export async function stamp(userId, { act, seal }) {
     remember(s.ownerId, stored);
     tell({ kind: 'shared', sheet: s.sheet, line, table: s.state.table });
     if (s.state.table !== before) {
-      tell({ kind: 'table', key: before, sheet: s.sheet, on: false });
-      tell({ kind: 'table', key: s.state.table, sheet: s.sheet, on: true });
+      for (const [key, on] of [
+        [before, false],
+        [s.state.table, true],
+      ]) {
+        const holder = findByKey(key);
+        if (holder) await lay(holder.id, s.sheet, on);
+        tell({ kind: 'table', key, sheet: s.sheet, on });
+      }
     }
     return line;
   });
 }
 
 // The whole sheet must stay a record the law can grow (its caps: writing time, work).
-function growable(lines) {
+function growable(lines, drips = []) {
   const L = lawOf(SH.SHARED_LAW);
-  L.precheck(L.decodeCanonical(L.encodeActs(SH.compose(lines))));
+  L.precheck(L.decodeCanonical(L.encodeActs(SH.compose(lines, drips))));
 }
 
 const queues = new Map();

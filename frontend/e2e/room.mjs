@@ -5,9 +5,10 @@
 // where it stays: a sheet of the book, on the wall. Then visiting (another person,
 // in their own browser): reading the wall, the book, a door. Then together: a
 // shared sheet laid on the other's table, both writing on it, one stamper, both
-// screens growing it to the same facts; a lift; taken back. Then seals: wax dripped
-// from a candle, the stamper set to the other's seal pressed in, writing by it, the
-// seal broken. (Joining rooms, rooms.md §7, was replaced by one-world.md.)
+// screens growing it to the same facts; a lift; taken back. Then seals: a candle lit,
+// picked up, carried over the sheet and tilted (each a signed act; its drips the law's,
+// regrown from those acts on every screen and by the stamper), the stamper set to the other's
+// seal pressed into the wax, writing by it, the seal broken. (Joining rooms, rooms.md §7, was replaced by one-world.md.)
 //   node frontend/e2e/room.mjs                 through a Vite dev server (and a backend on a fresh
 //                                              data dir), in the full Chromium on this machine's GPU
 //   node frontend/e2e/room.mjs --swiftshader   drawn on the CPU instead (slow: two people's rooms at
@@ -18,6 +19,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { roomGeometry, ROOM } from '../src/scene/light/room.js';
+import { originIn, slotOf, SHARED_PAGE } from '../src/room/table.js';
+import { candle as C } from 'penpals-law';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penpals-room-'));
@@ -223,8 +227,7 @@ try {
   step('the eye closes, and opens in your own room');
   await page.waitForURL(/\/u\/tabor$/, { timeout: 90000 });
   const me = await (await page.request.get(`${base}/api/users/tabor`)).json();
-  if (!me.user.timeZone) throw new Error('the room has no clock');
-  console.log(`   the room keeps its own time: ${me.user.timeZone}`);
+  if ('timeZone' in me.user) throw new Error('a room keeps a clock of its own (one world: Pacific)');
   await page.getByRole('button', { name: 'Preview' }).click();
   const scene = '.journal-scene';
   await page.locator(`${scene}[data-gpu]`).waitFor({ timeout: 60000 });
@@ -479,36 +482,16 @@ try {
   if (home?.on !== 'tabor') throw new Error(`the sheet is not home: ${home?.on}`);
   console.log("   back on tabor's table; gone from bo's");
 
-  step("seals: tabor's candle burns, he tilts it over the sheet and drips its wax, presses bo's seal in; bo writes on it at tabor's table; tabor breaks it");
-  // the candles burn at night (rooms.md §1b): tabor's room keeps a clock where it is night now
-  const zones = [
-    'Pacific/Kiritimati',
-    'Pacific/Auckland',
-    'Asia/Tokyo',
-    'Asia/Shanghai',
-    'Asia/Kolkata',
-    'Asia/Dubai',
-    'Europe/Moscow',
-    'Europe/Berlin',
-    'Europe/London',
-    'Atlantic/Azores',
-    'America/Sao_Paulo',
-    'America/New_York',
-    'America/Chicago',
-    'America/Denver',
-    'America/Los_Angeles',
-    'America/Anchorage',
-    'Pacific/Honolulu',
-    'Pacific/Pago_Pago',
-  ];
-  const hourIn = (z) => Number(new Intl.DateTimeFormat('en-US', { timeZone: z, hour: 'numeric', hour12: false }).format(new Date())) % 24;
-  const night = zones.find((z) => hourIn(z) >= 22 || hourIn(z) <= 3);
-  const clock = await page.request.post(`${base}/api/social/time`, { headers: { origin: base }, data: { timeZone: night } });
-  if (clock.status() !== 200) throw new Error(`the room's clock: ${clock.status()}`);
-  console.log(`   the room's clock: ${night}, ${hourIn(night)} o'clock`);
+  step("seals: tabor's candle burns; he carries it over the sheet and tilts it, and its wax drips (the law's); he presses bo's seal in; bo writes on it at tabor's table; tabor breaks it");
   await page.goto(`${base}/u/tabor`);
   await page.getByRole('button', { name: 'Preview' }).click();
   await page.locator(`${scene}[data-gpu]`).waitFor({ timeout: 60000 });
+  // he lights the first candle (his act: by hand here, whatever the world's clock says)
+  await page.waitForFunction(() => !!globalThis.__candles, null, { timeout: 20000 });
+  const lighting = page.waitForResponse((r) => r.url().endsWith('/api/rooms/tabor/act') && r.request().postData()?.includes('"light"'), { timeout: 20000 });
+  await page.evaluate(() => globalThis.__candles.light(0));
+  if (![200, 409].includes((await lighting).status())) throw new Error('the candle was not lit');
+  const entered = Date.now();
   const mineHere = bar(page).locator(`.shared-sheet[data-sheet="${sheetId}"]`);
   await mineHere.waitFor({ timeout: 15000 });
   await mineHere.getByRole('button', { name: 'Write on it' }).click();
@@ -524,43 +507,54 @@ try {
   };
   let at = await middle();
   const plain = await onScreen(page, scene, pixels);
-  // the candle, held down over the sheet: tilted, it drips while held (a small circle: a pool)
-  await bar(page).getByRole('button', { name: 'Candle' }).click();
-  // the candle has been burning: its pool melts (law/wax.js)
-  let pool = 0;
-  for (const end = Date.now() + 150000; Date.now() < end && pool < 700;) {
-    await page.waitForTimeout(1000);
-    pool = Number(await bar(page).locator('.candle').getAttribute('data-pool'));
-  }
-  console.log(`   the candle's pool: ${Math.round((100 * pool) / 1024)}% melted`);
-  if (pool < 700) throw new Error('the candle did not melt a pool');
-  const dripAnswers = [];
-  page.on('response', (r) => r.url().includes('/acts') && r.request().method() === 'POST' && dripAnswers.push(r.status()));
-  const linesBefore = (await (await page.request.get(`${base}/api/shared/${sheetId}`)).json()).lines.length;
+  // the candle has been burning since he lit it: its pool melts (law/candle.js)
+  const lit = 130000 - (Date.now() - entered);
+  if (lit > 0) await page.waitForTimeout(lit);
+  // where things are in the room (room m): the first candle's foot; the sheet's middle on the
+  // table (its slot: the room's lay lines, the first); the rim of a candle tilted 60° stands
+  // beyond its foot toward +x (law/candle.js rimPoint, the candle as his screen regrew it), so
+  // the hand holds it short of the middle by that much
+  const geom = roomGeometry(ROOM);
+  const o = originIn(geom, [1000, 1400]);
+  const [sx, sy] = slotOf(0, 1000);
+  const middleM = [o[0] + (sx + SHARED_PAGE.width / 2) / PX_PER_M, o[1] - (sy + SHARED_PAGE.height / 2) / PX_PER_M, o[2]];
+  const rim = C.rimPoint(await page.evaluate(() => globalThis.__candles.candle(0).cd), [0, 0, o[2]], 60);
+  const handM = [middleM[0] - rim[0], middleM[1] - rim[1], o[2]];
+  const foot = geom.candles[0];
+  // Look: the head turned to the candle, a click picks it up; turned to where the hand holds it over the sheet
+  await page.locator(`${scene} .scene-tools`).getByRole('button', { name: 'Look' }).click();
+  await page.waitForFunction(() => !!globalThis.__sceneLook?.pose(), null, { timeout: 10000 });
+  await page.evaluate((p) => globalThis.__sceneLook.aim(p), [foot[0], foot[1], foot[2] + 0.1]);
+  await page.waitForTimeout(800);
   at = await middle();
-  await page.mouse.move(at[0] + 12, at[1]);
-  await page.mouse.down();
-  await page.keyboard.down('e'); // tilted past its lip
-  for (let i = 0; i <= 40; i++) {
-    const a = (i / 40) * 2 * Math.PI;
-    await page.mouse.move(at[0] + 12 * Math.cos(a), at[1] + 12 * Math.sin(a));
-    await page.waitForTimeout(80);
-  }
+  await page.mouse.click(...at);
+  await page.waitForTimeout(500);
+  await page.evaluate((p) => globalThis.__sceneLook.aim(p), handM);
+  await page.waitForTimeout(800);
+  at = await middle();
+  await page.mouse.move(at[0] + 2, at[1]);
+  await page.mouse.move(...at);
+  await page.waitForTimeout(400);
+  // E held, the mouse to the right: tilted 60° (SceneView: 0.4° a pixel), held there, then upright
+  const tilts = [];
+  page.on('response', (r) => r.url().endsWith('/api/rooms/tabor/act') && r.request().postData()?.includes('"tilt"') && tilts.push(r.status()));
+  await page.keyboard.down('e');
+  await page.mouse.move(at[0] + 150, at[1], { steps: 10 });
+  await page.waitForTimeout(3000); // (it pours at once, then drips as the flame melts more)
+  await page.mouse.move(...at, { steps: 10 });
+  await page.waitForTimeout(400);
   await page.keyboard.up('e');
-  await page.mouse.up();
-  let drips = 0;
-  for (const end = Date.now() + 10000; Date.now() < end && drips < 6;) {
-    await page.waitForTimeout(300);
-    drips = (await (await page.request.get(`${base}/api/shared/${sheetId}`)).json()).lines.slice(linesBefore).filter((l) => l.act.act === 'drip').length;
-  }
-  console.log(`   ${drips} drips of wax`);
-  if (drips < 6)
-    throw new Error(
-      `the candle did not drip (${await bar(page)
-        .locator('.notice')
-        .textContent({ timeout: 500 })
-        .catch(() => 'no notice')}; ${dripAnswers.join(', ')})`,
-    );
+  console.log(`   tilted and back upright: ${tilts.length} tilt acts (${[...new Set(tilts)].join(', ')})`);
+  if (!tilts.length || tilts.some((x) => x !== 200)) throw new Error("the tilt was not sent as the being's act");
+  // set down off the sheet (a click: it falls onto what is under it), and back to the seat
+  await page.mouse.click(at[0] - 120, at[1]);
+  await page.waitForTimeout(500);
+  await page.locator(`${scene} .scene-tools`).getByRole('button', { name: 'Look' }).click();
+  await page.waitForTimeout(900);
+  await mineHere.getByRole('button', { name: 'Write on it' }).click();
+  await page.waitForTimeout(900);
+  // no one wrote a drip: the wax is the law's
+  if ((await (await page.request.get(`${base}/api/shared/${sheetId}`)).json()).lines.some((l) => l.act.act === 'drip')) throw new Error('a drip was written as an act');
   // the stamper, set to bo, pressed into the middle of the pool while it is warm
   page.once('dialog', (d) => d.accept('bo'));
   await bar(page).getByRole('button', { name: 'Stamper…' }).click();

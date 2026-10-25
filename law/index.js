@@ -19,5 +19,7 @@ export * as seal from './seal.js';
 export * as matter from './matter.js';
 export * as string from './string.js';
 export * as wax from './wax.js';
+export * as room from './room.js';
+export * as candle from './candle.js';
 export { T, jcs, b64url, fromB64url, hex, fromHex, concat } from './tags.js';
 export const LAW = Object.freeze({ current: 2, accept: Object.freeze([1, 2]) });

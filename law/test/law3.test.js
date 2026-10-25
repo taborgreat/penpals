@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 import { lawOf } from '../laws.js';
 import { b64url } from '../index.js';
 import { record, samplePath, PENS, testPaperKey } from '../tools/fixtures.js';
-import { WAX_SEAL, WAX_CRACK } from '../v2/constants.js';
+import { WAX_SEAL, WAX_CRACK, TICK_MS } from '../v2/constants.js';
+import { createSim } from '../v2/sim.js';
 
 const L2 = lawOf(2);
 const L3 = lawOf(3);
@@ -134,6 +135,86 @@ test('a seal pressed into warm wax takes; into cold wax, or onto bare paper, it 
   const broken = grow({ orgX: 0, orgY: 0, strokes: [], marks: [...pool(2000, 2000), press(2000, 2000, 2500), { kind: 'break', t: 9000, x: 1850, y: 1900, x1: 2150, y1: 2100 }] });
   assert.ok(broken.cells.filter((c) => c[17] & WAX_CRACK).length > 30);
   assert.equal(broken.seals[0].took, true, 'the press took (the break is a later act)');
+});
+
+// The heat rule (matter-fixes.md §1): wax holds heat, passes it to the wax beside
+// it and loses it to the paper and the air; above its softening heat it takes a
+// press, above its melting heat it is liquid. No clock.
+const drip = (x, y, t, heat, amt = 400000) => ({ kind: 'drip', t, x, y, amt, heat });
+const heatSim = () => createSim({ paperKey, family: FAMILY, law: 3 });
+// until when the wax at each point is soft, and liquid (looked at every 250 ms)
+function cooling(drips, points, until = 60000) {
+  const sim = heatSim();
+  let mi = 0;
+  const soft = points.map(() => 0),
+    liquid = points.map(() => 0);
+  for (let t = 0; t <= until; t += 250) {
+    while (mi < drips.length && drips[mi].t <= t) sim.mark(drips[mi++]);
+    sim.runUntil(t / TICK_MS);
+    points.forEach(([x, y], k) => {
+      const w = sim.waxAt(x, y);
+      if (w.soft) soft[k] = t;
+      if (w.liquid) liquid[k] = t;
+    });
+  }
+  return { soft, liquid, sim };
+}
+
+test('heat: a drip lands carrying its heat and cools by the rule; a hot drip stays soft longer than a cooler one; liquid, then soft, then set; set, it sleeps', () => {
+  const hot = cooling([drip(2000, 2000, 0, 220)], [[2000, 2000]]);
+  const cool = cooling([drip(2000, 2000, 0, 120)], [[2000, 2000]]);
+  assert.ok(hot.soft[0] > cool.soft[0] && cool.soft[0] > 0, `soft until ${hot.soft[0]} ms hot, ${cool.soft[0]} ms cooler`);
+  assert.ok(hot.liquid[0] > 0 && hot.liquid[0] < hot.soft[0], 'liquid first, then only soft');
+  assert.ok(hot.soft[0] < 30000, 'and then set');
+  assert.equal(cooling([drip(2000, 2000, 0, 0)], [[2000, 2000]], 2000).soft[0], 0, 'wax as cold as the air is never soft');
+  hot.sim.runUntil(120000 / TICK_MS);
+  assert.equal(hot.sim.hotCells, 0, 'no warmer than the air: nothing left to compute');
+});
+
+test('heat flows: wax beside a fresh drip stays soft longer than the same wax alone', () => {
+  // A at 2000; B lands at 4 s, its wax meeting A's edge; the point on A two cells short of B's wax
+  const P = [[2080, 2000]];
+  const alone = cooling([drip(2000, 2000, 0, 220)], P, 20000);
+  const beside = cooling([drip(2000, 2000, 0, 220), drip(2205, 2000, 4000, 220)], P, 20000);
+  assert.equal(beside.sim.waxAt(...P[0]).wax, alone.sim.waxAt(...P[0]).wax, "none of B's wax there: only its heat");
+  assert.ok(beside.soft[0] > alone.soft[0], `soft until ${beside.soft[0]} ms beside B, ${alone.soft[0]} ms alone`);
+});
+
+test('a press dents only wax above its softening heat: while soft it takes; once the wax has cooled past it, nothing dents', () => {
+  const one = [drip(2000, 2000, 0, 220)];
+  const small = { cell: 1 }; // (the face within one drip)
+  const warm = grow({ orgX: 0, orgY: 0, strokes: [], marks: [...one, press(2000, 2000, 3000, small)] });
+  assert.equal(warm.seals[0].took, true, JSON.stringify(warm.seals));
+  const set = grow({ orgX: 0, orgY: 0, strokes: [], marks: [...one, press(2000, 2000, 45000, small)] });
+  assert.equal(set.seals[0].took, false);
+  assert.ok(
+    set.cells.every((c) => !c[16]),
+    'cooled past its softening heat: no dent anywhere',
+  );
+});
+
+test('the same acts give the same heat: stepped finely or at once; undone, as it was', () => {
+  const heatOf = (sim) => [...sim.tiles()].filter((t) => t.wax).map((t) => [t.tx, t.ty, Array.from(t.waxQ), t.hot]);
+  const fine = heatSim(),
+    once = heatSim();
+  for (const m of pool(2000, 2000)) {
+    fine.mark(m);
+    once.mark(m);
+  }
+  for (let k = 1; k <= 400; k++) fine.runUntil(5 * k);
+  once.runUntil(2000);
+  assert.ok(once.hotCells > 0);
+  assert.deepEqual(heatOf(fine), heatOf(once));
+  const before = heatOf(once);
+  const snap = once.snapshot();
+  once.mark(drip(2300, 2000, 21000, 220));
+  once.runUntil(2500);
+  once.restore(snap);
+  assert.deepEqual(heatOf(once), before);
+  assert.equal(
+    once.hotCells,
+    before.reduce((n, t) => n + t[3], 0),
+  );
 });
 
 test('goldens: wax, a seal, a break and writing over it; and a dip pen', () => {

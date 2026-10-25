@@ -5,9 +5,7 @@ import { listDirs, readJson, serial, serialAll, writeJson } from '../files.js';
 // Accounts: data/users/<id>/account.json. Private, never part of a book:
 //   { id, username, usernameLower, publicKey, createdAt, private,
 //     friends: [id], incoming: [id], outgoing: [id], blocked: [id], lettersSent,
-//     settings: { timeZone? } }
-// timeZone is the room's clock (rooms.md §1b): an IANA zone taken from the
-// owner's machine when the room is made; everyone in the room sees its sun by it.
+//     settings: {} }
 // There is no password: the account is its public key (keys.md, "there is no
 // account, there is a key"). account.json is written last when an account is
 // made, so a folder without one is a registration that never finished.

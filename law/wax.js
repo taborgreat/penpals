@@ -1,31 +1,131 @@
-// A candle's melt pool and its drips (rooms.md §3b). The melt pool is the heat
-// rule: the flame's heat flows into the wax round the wick, and wax above its
-// melting point is liquid; when the flame goes out the heat flows to the air and
-// the wax sets again. It settles whether or not anyone is there: computed in one
-// step from the time lit and the time since it went out. A drip comes from the
-// pool, the tilt and nothing else: tilted past the pool's lip, liquid wax spills,
-// more the more liquid and the further tilted; upright, or set, nothing falls.
-// Integers, the same on every machine.
+// The drips a room's candles let fall (matter-fixes.md §2). No one writes a drip:
+// everyone regrows them from the room's chain alone: the signed acts that light the
+// candles, put them out, carry and tilt them (law/room.js), and the lines that say
+// where the shared sheets lie on its table ({ kind: 'lay', sheet, slot }, slot null:
+// it left). Each candle is matter (law/candle.js): it burns while lit, its pool is
+// what of it is past wax's melting heat, and what runs over its rim is a drip, as much
+// as crossed: tilted, it falls from the rim's lowest point straight down onto whatever
+// is under it (the caller's landing: frontend room/drops.js, room/table.js); upright,
+// it runs down the candle's side into its holder's dish. A candle burnt down is
+// replaced by a new one when it is next lit.
+//
+//   createRoomWax({ landing }) → { advance(lines, until) → drips so far, candle(which), at() }
+//     (at: the ms the candles have been run to; advance again with a later until, or more lines)
+//     landing([x, y], lying) → { on: 'sheet', sheet, q } | { on: 'table' | 'floor', at }
+//     (lying: the sheets on the table then, [{ sheet, slot }]); until: ms (the clock now)
+//   dripsOf(lines, { landing, until })   the same, at once
+//   a drip: { t (ms), which, from ([x, y, z] room m, or null in its dish), m (µg), amt, heat, on }
+//   dripsOn(drips, sheet, born) → the marks they make on a sheet's record
 
-export const POOL_MAX = 1024; // a full pool's liquid
-export const FILL_MS = 120000; // lit this long, the pool is full (Tabor's to set)
-export const SET_MS = 600000; // out this long, it has all set (Tabor's to set: by the next day, long set)
-export const LIP_DEG = 20; // tilted past this, the pool spills over its lip (Tabor's to set)
-export const DRIP_MIN = 64; // less liquid than this does not reach the lip
-export const DRIP_AMT = 400000; // a full pool tipped right over: one drip's wax (v2/sim.js marks)
+import { CANDLES } from './room.js';
+import { newCandle, stepCandle, spent, rimPoint, STEP_S } from './candle.js';
+import { floorDiv } from './v1/int.js';
+import { MAX_COORD, WAX_DRIP_MAX } from './v2/constants.js';
 
-// The liquid in the pool: lit for litMs (this burning), out for outMs since (0 while it burns).
-export function poolOf({ litMs = 0, outMs = 0 }) {
-  const hot = Math.min(POOL_MAX, Math.floor((Math.max(0, litMs) * POOL_MAX) / FILL_MS));
-  if (outMs <= 0) return hot;
-  return Math.max(0, Math.floor((hot * Math.max(0, SET_MS - outMs)) / SET_MS));
+const STEP_MS = STEP_S * 1000;
+// NEEDS RULING: a drip mark's amt (v2/sim.js) per µg of wax: the sheet's wax is in its own
+// units, taken here from constants.js's own measure (a drop of 400000 about 3.5 mm across),
+// as a dome half as tall as it is wide: about 3.8 mg.
+export const AMT_PER_UG = 105;
+const HEAT_MK = 400; // a drip mark's heat level: 0.4 °C above the air (v2/constants.js: Heat)
+
+const msOf = (l) => Date.parse(l.at);
+const stepOf = (ms) => floorDiv(ms, STEP_MS);
+const metres = (p) => p.map((v) => v / 1000);
+const isWaxy = (l) => l.kind === 'lay' || CANDLES.includes(l.act?.thing);
+
+// The candles from the start, and what they have let fall.
+function fresh() {
+  return { seen: 0, step: null, lying: [], drips: [], events: [], mark: null, candles: CANDLES.map(() => ({ cd: newCandle(), lit: false, holder: null, pos: null, deg: 0 })) };
+}
+// The candles just before the last acts known (what has fallen so far counted, not copied),
+// to go on from when a line comes stamped after those acts but before where the candles
+// have run to (the stamper's clock behind this one's).
+const markOf = (s) => ({ ...structuredClone({ ...s, drips: [], mark: null }), fell: s.drips.length });
+const fromMark = (s) => ({ ...structuredClone(s.mark), drips: s.drips.slice(0, s.mark.fell), mark: s.mark });
+const cold = (c) => !c.lit && c.cd.rings.every((ring) => ring.cells.every((x) => x.E === 0));
+
+function apply(s, l) {
+  if (l.kind === 'lay') {
+    s.lying = s.lying.filter((x) => x.sheet !== l.sheet);
+    if (l.slot !== null) s.lying = [...s.lying, { sheet: l.sheet, slot: l.slot }].sort((a, b) => a.slot - b.slot);
+    return;
+  }
+  const a = l.act;
+  const c = s.candles[CANDLES.indexOf(a.thing)];
+  if (a.act === 'light') {
+    if (spent(c.cd)) c.cd = newCandle(); // (a candle burnt down: a new one stands in its place)
+    c.lit = true;
+  } else if (a.act === 'out') c.lit = false;
+  else if (a.act === 'place') {
+    c.holder = a.to === null ? a.by : null;
+    c.deg = 0; // picked up or set down: upright
+    if (a.to !== null) c.pos = metres(a.to);
+  } else if (a.act === 'tilt' && c.holder === a.by) {
+    c.pos = metres(a.pos);
+    c.deg = a.deg;
+  }
 }
 
-// One drip from a pool of `liquid` tilted `tiltDeg`: { amt, heat } (as a drip act takes it), or null.
-export function dripOf(liquid, tiltDeg) {
-  const tilt = Math.max(0, Math.min(90, Math.round(tiltDeg)));
-  if (tilt <= LIP_DEG || liquid < DRIP_MIN) return null;
-  const over = tilt - LIP_DEG; // how far past the lip
-  const amt = Math.max(1, Math.floor((DRIP_AMT * liquid * over) / (POOL_MAX * (90 - LIP_DEG))));
-  return { amt, heat: 120 + Math.floor((100 * liquid) / POOL_MAX) }; // hotter the more of it is liquid
+// Run the candles on to `until`. → null, or the step of a line stamped before where they already are.
+function run(s, lines, until, landing) {
+  for (let i = s.seen; i < lines.length; i++) {
+    const l = lines[i];
+    if (!isWaxy(l)) continue;
+    if (s.step !== null && stepOf(msOf(l)) < s.step) return stepOf(msOf(l));
+    s.events.push([stepOf(msOf(l)), l]);
+  }
+  s.seen = lines.length;
+  const end = stepOf(until);
+  if (s.step === null) s.step = s.events.length ? s.events[0][0] : end;
+  while (s.step <= end) {
+    if (s.events.length && s.events.at(-1)[0] <= s.step) s.mark = markOf(s);
+    while (s.events.length && s.events[0][0] <= s.step) apply(s, s.events.shift()[1]);
+    const t = s.step * STEP_MS;
+    s.candles.forEach((c, which) => {
+      for (const d of stepCandle(c.cd, { lit: c.lit, deg: c.deg })) {
+        const heat = Math.min(255, floorDiv(d.T, HEAT_MK));
+        if (!c.pos || c.deg === 0) s.drips.push({ t, which, from: null, m: d.m, amt: d.m * AMT_PER_UG, heat, on: { on: 'dish' } });
+        else {
+          const from = rimPoint(c.cd, c.pos, c.deg);
+          s.drips.push({ t, which, from, m: d.m, amt: d.m * AMT_PER_UG, heat, on: landing([from[0], from[1]], s.lying) });
+        }
+      }
+    });
+    // nothing burning and every candle cold: nothing happens until the next act
+    const next = s.events.length ? s.events[0][0] : end + 1;
+    s.step = s.candles.every(cold) && next > s.step + 1 ? next : s.step + 1;
+  }
+  return null;
+}
+
+export function createRoomWax({ landing }) {
+  let s = fresh();
+  return {
+    advance(lines, until) {
+      const late = run(s, lines, until, landing);
+      if (late !== null) {
+        s = s.mark && late >= s.mark.step ? fromMark(s) : fresh();
+        run(s, lines, until, landing);
+      }
+      return s.drips;
+    },
+    candle: (which) => s.candles[which],
+    at: () => (s.step === null ? null : s.step * STEP_MS),
+  };
+}
+
+export const dripsOf = (lines, { landing, until = Date.now() }) => createRoomWax({ landing }).advance(lines, until);
+
+// The drips that landed on a sheet, as its record's marks take them: on the sheet's clock
+// (ms from its birth, `born`), in tenths of its units; a pour more than a mark holds, as
+// several at that spot. → [{ t, x, y, amt, heat }]
+export function dripsOn(drips, sheet, born) {
+  const c = (v) => Math.max(0, Math.min(MAX_COORD, Math.round(v * 10)));
+  const out = [];
+  for (const d of drips) {
+    if (d.on?.on !== 'sheet' || d.on.sheet !== sheet) continue;
+    for (let left = d.amt; left > 0; left -= WAX_DRIP_MAX) out.push({ t: d.t - born, x: c(d.on.q.x), y: c(d.on.q.y), amt: Math.min(left, WAX_DRIP_MAX), heat: d.heat });
+  }
+  return out;
 }

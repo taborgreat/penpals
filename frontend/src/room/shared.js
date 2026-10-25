@@ -5,8 +5,10 @@
 // in the stamper's order has them, that is what shows. An act not stamped
 // within STAMP_MS is withdrawn here, and you are told, so you can write it
 // again. Lift takes back your own stroke (one of your last LIFT_WINDOW). Wax
-// (rooms.md §3b, §5): a drip from the tilted candle, the stamper pressed (set to
-// someone's seal), a seal broken: acts like any other, stamped in the one order.
+// (rooms.md §3b, §5): the stamper pressed (set to someone's seal), a seal broken:
+// acts like any other, stamped in the one order. Drips are no one's act: the law
+// regrows them from the room's chain (law/wax.js; room/together.js), and a sheet
+// grows with those that landed on it.
 import { useEffect, useRef, useState } from 'react';
 import { keys as K, shared as SH, fromB64url } from 'penpals-law';
 import { createLiveInk, CELLS } from '../ink/live.js';
@@ -17,30 +19,19 @@ import { lawPen, SPATTER_DEFAULT } from '../ink/pens.js';
 import { PEN_SIZES } from '../ink/nibs.js';
 import { api } from '../api.js';
 
-export const SHARED_PAGE = { width: 800, height: 600 }; // page units: a shared sheet
+import { SHARED_PAGE } from './table.js';
+export { SHARED_PAGE, slotOf } from './table.js';
 export const STAMP_MS = 8000; // an act unstamped this long is withdrawn (Tabor's to set)
 export const SEAL_CELL = 2; // paper cells a stamper's face pixel presses: 32 of them about 5 mm (Tabor's to set)
-// A candle held over a sheet and tilted drips this often (how much, and how hot: law/wax.js, from its pool and the tilt)
-export const DRIP_EVERY = 350;
-export const TILT_DEG = 60; // E held: the candle tilted this far (rooms.md §3b)
-const GAP = 60; // page units between the table's sheets and the page
-
-// Where the i-th shared sheet lies on the table, in the frame of a page `pageW`
-// wide (page px): across the table beyond the page (the candles stand beside it),
-// the first straight ahead, then left and right of it, row behind row.
-export function slotOf(i, pageW = 1000) {
-  const col = [0, -1, 1][i % 3];
-  const row = Math.floor(i / 3) + 1;
-  return [(pageW - SHARED_PAGE.width) / 2 + col * (SHARED_PAGE.width + GAP), -row * (SHARED_PAGE.height + GAP)];
-}
 // A shared sheet as the scene lays it (SceneView sheets): its whole paper, at its slot.
 export const sceneSheetOf = (sheet, slot) => ({ id: `shared:${sheet}`, box: [0, 0, SHARED_PAGE.width * CELLS, SHARED_PAGE.height * CELLS], origin: slot, cellPx: 1 / CELLS });
 
-// Each shared sheet grown as its acts arrive: sheet → { field, n (the last place grown), facts, seals: [took] }.
+// Each shared sheet grown as its acts and the drips on it arrive: sheet → { field, n (the last
+// place grown), facts, seals: [took] }. dripsOf(view): the drips that landed on it (law/wax.js dripsOn).
 let worker = null;
 let nextId = 1;
 const waiting = new Map();
-function grow(view) {
+function grow(view, drips) {
   worker ??= (() => {
     const w = new Worker(new URL('./sharedWorker.js', import.meta.url), { type: 'module' });
     w.onmessage = ({ data }) => {
@@ -54,21 +45,23 @@ function grow(view) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
     waiting.set(id, { resolve, reject });
-    worker.postMessage({ id, lines: view.lines, seed: view.open.seed, family: view.birth.paper });
+    worker.postMessage({ id, lines: view.lines, drips, seed: view.open.seed, family: view.birth.paper });
   });
 }
-export function useSharedFields(sheets) {
+export function useSharedFields(sheets, dripsOf = () => []) {
   const [fields, setFields] = useState(() => new Map());
-  const asked = useRef(new Map()); // sheet → lines asked for
+  const asked = useRef(new Map()); // sheet → the lines and drips asked for
   useEffect(() => {
     for (const s of sheets) {
-      if (asked.current.get(s.sheet) === s.lines.length) continue;
-      asked.current.set(s.sheet, s.lines.length);
-      grow(s)
+      const drips = dripsOf(s);
+      const what = `${s.lines.length}:${drips.length}`;
+      if (asked.current.get(s.sheet) === what) continue;
+      asked.current.set(s.sheet, what);
+      grow(s, drips)
         .then((r) => setFields((m) => (m.get(s.sheet)?.n > r.n ? m : new Map(m).set(s.sheet, { field: r.field, n: r.n, facts: r.facts, seals: r.seals }))))
         .catch((err) => console.warn('[shared sheet]', err.message));
     }
-  }, [sheets]);
+  }, [sheets, dripsOf]);
   return fields;
 }
 
@@ -198,10 +191,7 @@ export function createSharedWriter({ key, view, color, onNotice = () => {} }) {
     },
     // the next count for an act of yours on this sheet (a move sent beside your strokes)
     nextK: () => ++k,
-    // wax (rooms.md §3b): a drip at q (the sheet's units), the stamper pressed at q, a seal broken
-    drip(q, { amt, heat }) {
-      return act('drip', { drip: { x: tenths(q.x), y: tenths(q.y), amt, heat } });
-    },
+    // wax (rooms.md §3b): the stamper pressed at q (the sheet's units), a seal broken
     press(q, seal, { depth = 200, tiltX = 0, tiltY = 0, angle = 0, cell = SEAL_CELL } = {}) {
       return act('press', { press: { x: tenths(q.x), y: tenths(q.y), depth, angle, tiltX, tiltY, cell, w: seal.w, h: seal.h, face: seal.face, for: seal.key } });
     },

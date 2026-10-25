@@ -34,6 +34,7 @@ export function parseBook(text) {
 export function verifyBook(text, { regrowOpen = true } = {}) {
   const { head, lines, damaged } = parseBook(text);
   const problems = damaged.map((n) => `line ${n} is damaged`);
+  const unverified = []; // (what a book alone cannot check: listed, not a problem)
   if (head.book !== 2) problems.push('not a version 2 book');
   let key = null;
   try {
@@ -106,7 +107,11 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
   // Each shared sheet replayed: every place in order, every seal its writer's, every
   // act allowed by the chain before it (possession, lifts); then it grows.
   for (const [sheet, sh] of shares) {
-    const { problems: wrong } = replay(sh.owner, sh.lines, { ctx: { seed: sh.seed, family: sh.family } }); // (a press took or not: the sheet grown to it says)
+    // (a press took or not: the sheet grown to it says, with the wax that landed on it; that wax
+    // is regrown from the signed acts of the rooms it lay in, which a book does not hold: a write
+    // allowed only by such a seal is not verified here, and said so)
+    const { problems: wrong, unverified: open } = replay(sh.owner, sh.lines, { ctx: { seed: sh.seed, family: sh.family, drips: null } });
+    for (const u of open) unverified.push(`shared sheet ${sheet}, ${u}`);
     for (const w of wrong) problems.push(`shared sheet ${sheet}, ${w}`);
     if (regrowOpen && !wrong.length) {
       try {
@@ -146,6 +151,7 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
     fingerprint: key ? fingerprint(key) : null,
     results,
     problems,
+    unverified,
   };
 }
 

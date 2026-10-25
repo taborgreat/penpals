@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { createView, engineReady, DROP_PX } from './engine.js';
 import { groundOf } from './ground.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
-import { theLight, originOf, withinRoom, returnTo, sunAt, zoned, GEOM } from './light.js';
+import { theLight, originOf, withinRoom, returnTo, sunAt, worldClock, GEOM } from './light.js';
 import { roomCamera, hit as roomHit, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
 import { surfaceFrame, fromRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
@@ -39,7 +39,6 @@ import { sightOf } from './sight.js';
 //   wallWriter  { down(surface, p, ev, type), move(p, ev), up(p, ev), cancel() }: writing on a surface
 //               from Look (the pen pointed at it: rooms.md §2), p in that surface's page units
 //   eye         where the eye's lids and colour are headed ({ lids, color }, light-waves §7)
-//   timeZone    the room's own clock (rooms.md §1b), else the viewer's
 //   fixed       the eye cannot look around (the lobby, rooms.md §1a)
 //   shelf       { books: [{ id, color: [r, g, b] }], onOpen(id) }: the owner's books on the shelf (rooms.md §3);
 //               a click on one pulls it down
@@ -119,7 +118,6 @@ const SceneView = forwardRef(function SceneView(
     marks = null,
     wallWriter = null,
     eye: eyeProp = null,
-    timeZone: zoneProp = null,
     fixed: fixedProp = false,
     shelf = null,
     doors = null,
@@ -133,11 +131,10 @@ const SceneView = forwardRef(function SceneView(
   },
   ref,
 ) {
-  // the room these views are in (room/RoomContext.js): its seeds, clock, the eye's way, fixed or not
+  // the room these views are in (room/RoomContext.js): its seeds, the eye's way, fixed or not
   const inRoom = useContext(RoomContext);
   const seeds = seedsProp ?? inRoom?.seeds ?? null;
   const eye = eyeProp ?? inRoom?.eye ?? null;
-  const timeZone = zoneProp ?? inRoom?.timeZone ?? null;
   const fixed = fixedProp || !!inRoom?.fixed;
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
@@ -199,8 +196,6 @@ const SceneView = forwardRef(function SceneView(
   const S = st.current;
   const eyeRef = useRef(eye);
   eyeRef.current = eye;
-  const zoneRef = useRef(timeZone);
-  zoneRef.current = timeZone;
   const origin = () => originOf(page[0], page[1]);
   // A pose as the engine's camera (camera.js 'pose', the page frame).
   // The page's heights under a small being's feet (scene/ground.js): what the eye sees is what it stands on.
@@ -249,10 +244,10 @@ const SceneView = forwardRef(function SceneView(
     let override = S.override;
     if (!override && S.back) {
       const k = Math.min(1, (now - S.back.t0) / 800);
-      override = k < 1 ? returnTo(S.back.from, sunAt(new Date()), k) : null;
+      override = k < 1 ? returnTo(S.back.from, sunAt(worldClock(new Date())), k) : null;
       if (k >= 1) S.back = null;
     }
-    return theLight().at({ now, date: zoned(new Date(), zoneRef.current), override, eye: eyeRef.current ?? undefined, gaze: gazeOf() });
+    return theLight().at({ now, date: worldClock(new Date()), override, eye: eyeRef.current ?? undefined, gaze: gazeOf() });
   }
 
   // What the eye sees, told once the view has settled (SIGHT_MS after it stops).

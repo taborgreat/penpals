@@ -35,8 +35,7 @@ import TogetherBar from '../room/TogetherBar.jsx';
 // The journal is the page on the owner's table in their room, and the room's
 // surfaces are its pages too (rooms.md §1, §2): their walls, floor, ceiling and
 // table, grown from their key, carry what they wrote there. The owner writes on
-// a surface from Look, the pen pointed at it (room/wallInk.js); `timeZone` is
-// the room's own clock. Others in the room are there with you, and shared
+// a surface from Look, the pen pointed at it (room/wallInk.js). Others in the room are there with you, and shared
 // sheets lie on its table to write on together (rooms.md §4–§6, room/together.js).
 const WRITE_PAD = { width: 1000, height: 470 }; // writing is placed at the size it was written on a page-wide pad
 const INK_COLORS = SIGNATURE_COLORS.map((c) => ({ id: c.id, name: c.name, hex: c.light }));
@@ -55,7 +54,7 @@ const clothOf = (seeds) => CLOTHS[(seeds?.table?.[0] ?? 0) % CLOTHS.length];
 const doorValue = (l) => (l?.page ? `page:${l.page}` : l?.surface ? `surface:${l.surface}` : l?.room ? `room:${l.room}` : '');
 const surfaceName = (id) => `the ${id.replace('-', ' ')}`;
 
-export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null, timeZone = null }) {
+export default function Journal({ name, pageId, editable = false, onPage, fromFile = null, lookSrc = null, sceneSrc = null }) {
   const { book, send, addInk, openSheet, error, clearError } = useBook(name, fromFile);
   const { user } = useAuth();
   const key = useKey(user);
@@ -198,17 +197,19 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
   const together = useTogether({
     name: fromFile ? null : name,
     key,
+    room: book.key ?? null,
     me: user?.username ?? null,
     mine: !!key && key.publicKey === book.key,
     pageW: (book.page ?? DEFAULT_PAGE).width,
+    pageH: (book.page ?? DEFAULT_PAGE).height,
     color: tableColor,
   });
   // the room's things in the hand (rooms.md §3b): a candle picked up, carried, tilted, set down
   const tableSheets = useMemo(() => together.sheets.map((p) => ({ sheet: p.view.sheet, origin: p.slot, size: [SHARED_PAGE.width, SHARED_PAGE.height] })), [together.sheets]);
-  const carry = useCarry({ name: fromFile ? null : name, me: user?.username ?? null, page: [(book.page ?? DEFAULT_PAGE).width, (book.page ?? DEFAULT_PAGE).height], sheets: tableSheets });
+  const carry = useCarry({ name: fromFile ? null : name, me: user?.username ?? null, key, room: book.key ?? null, page: [(book.page ?? DEFAULT_PAGE).width, (book.page ?? DEFAULT_PAGE).height], sheets: tableSheets });
   const room = useMemo(
-    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, timeZone, wallWriter, live: wall ? [wall.mark] : [], shelf, follow, gazeAt, together: together.scene, hand: carry.hand }),
-    [skeleton?.surfaces, seeds, timeZone, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand],
+    () => ({ surfaces: skeleton?.surfaces ?? null, seeds, wallWriter, live: wall ? [wall.mark] : [], shelf, follow, gazeAt, together: together.scene, hand: carry.hand }),
+    [skeleton?.surfaces, seeds, wallWriter, wall, shelf, follow, gazeAt, together.scene, carry.hand],
   );
 
   if (book.status === 'loading') return <p className="muted">Opening the book…</p>;

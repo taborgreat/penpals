@@ -15,7 +15,7 @@ const nameText = (p) => p.username.replace(/[^a-z]/gi, 'a');
 // paper of fresh randomness r32; the key is made from them; the last signature,
 // settled again on the key's own paper, is sheet 0. With a password, the key is
 // also locked on the server under it.
-export async function register(c, p, { family = FAMILY, r32 = K.newR32(), signatures = null, timeZone } = {}) {
+export async function register(c, p, { family = FAMILY, r32 = K.newR32(), signatures = null } = {}) {
   const sigs = signatures ?? [1, 2, 3].map((s) => S.write(p.writer, nameText(p), s));
   const { K: key } = R.accountKey(r32, sigs);
   setKey(p, key);
@@ -49,7 +49,6 @@ export async function register(c, p, { family = FAMILY, r32 = K.newR32(), signat
     proof: b64url(proof),
     keyring,
     line,
-    ...(timeZone !== undefined ? { timeZone } : {}),
   });
 }
 

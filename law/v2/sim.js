@@ -40,9 +40,16 @@
 //      measured across and along the nib rounding both ways alike, so the same
 //      mark turned settles the same turned (law 2 rounds down: one side of a nib
 //      came out a cell narrower than the other, and 135° drew longer than 45°)
+//  12. heat (matter-fixes.md §1): wax holds heat. A drip lands carrying its heat;
+//      each dry step heat flows to the cooler wax beside it and leaves to the
+//      paper and the air (constants.js: Heat), until the cell is no warmer than
+//      the air and sleeps. Above its melting heat wax is liquid; only wax above
+//      its softening heat takes a press. No clock: a cell is soft for as long as
+//      its heat says.
 //
 // Nothing computes on a dry tile: every new rule runs inside the loops over
-// wet tiles (flow, settle, revive, dry) or under the nib (stamp).
+// wet tiles (flow, settle, revive, dry), under the nib (stamp), or over warm
+// tiles (heat).
 // Each 10 ms tick: the deposits that fall in it, flow, then on dry ticks mix →
 // settle → revive → dry.
 //
@@ -128,8 +135,11 @@ import {
   WAX_SPREAD,
   WAX_SEAL,
   WAX_BEAD,
-  WAX_SOFT_MS,
-  WAX_SOFT_HEAT,
+  HEAT_Q,
+  WAX_CONDUCT,
+  WAX_COOL,
+  WAX_MELT,
+  WAX_SOFTEN,
   SEAL_RAISED,
   SEAL_DENT,
   SEAL_TOOK,
@@ -215,6 +225,8 @@ class Tile {
     this.FG = null; // oak gall, fixed
     this.dG = null;
     this.wet = 0;
+    this.hot = 0; // its cells warmer than the air (law 3: wax)
+    this.heatStep = -1;
     this.everWet = new Uint8Array(TT);
     this.touched = false;
     this.nb = new Array(8).fill(null);
@@ -222,12 +234,13 @@ class Tile {
   }
 }
 
-// Wax on a tile (law 3): how much, when it last landed (tick), how hot, a press's dent, cracks.
+// Wax on a tile (law 3): how much, the heat it holds (wax × its level above the
+// air × HEAT_Q), a press's dent, cracks; dQ is the heat step's scratch.
 function waxOn(t) {
   if (!t.wax) {
     t.wax = new Uint16Array(TT);
-    t.waxT = new Int32Array(TT);
-    t.waxHeat = new Uint8Array(TT);
+    t.waxQ = new Int32Array(TT);
+    t.dQ = new Int32Array(TT);
     t.waxDent = new Uint8Array(TT);
     t.waxF = new Uint8Array(TT);
   }
@@ -293,6 +306,8 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   const paper = evenPaper ?? makePaper(paperKey, family);
   const tiles = new Map();
   const wetTiles = new Set();
+  const hotTiles = new Set(); // (law 3) tiles with wax warmer than the air
+  let hotCells = 0;
   let wetCells = 0;
   let everWet = 0;
   let work = 0;
@@ -331,6 +346,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     t.drainA.slice(),
     t.filmA.slice(),
     t.enter.slice(),
+    t.wax ? [t.wax.slice(), t.waxQ.slice(), t.waxDent.slice(), t.waxF.slice(), t.hot] : null,
   ];
   function cow(t) {
     const j = journals.length ? journals[journals.length - 1] : null;
@@ -393,6 +409,16 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     t.wet--;
     wetCells--;
     if (t.wet === 0) wetTiles.delete(t);
+  }
+  function becameHot(t) {
+    t.hot++;
+    hotCells++;
+    if (t.hot === 1) hotTiles.add(t);
+  }
+  function becameCold(t) {
+    t.hot--;
+    hotCells--;
+    if (t.hot === 0) hotTiles.delete(t);
   }
   function touch(t) {
     if (!t.touched) {
@@ -1042,6 +1068,72 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     }
   }
 
+  // Heat (law 3): each warm wax cell gives to each cooler wax cell beside it, by
+  // the difference and the thinner one's wax (as water flows: from the giver's
+  // side, all from the step's start), and loses to the paper and the air by its
+  // level, rounded up; a cell left no warmer than the air holds none and sleeps.
+  // Only warm tiles compute: a cold cell gives nothing, and a cold tile that
+  // receives wakes.
+  let heatSteps = 0;
+  function heat() {
+    heatSteps++;
+    const got = [];
+    const take = (t) => {
+      if (t.heatStep === heatSteps) return;
+      if (journals.length) cow(t);
+      t.heatStep = heatSteps;
+      t.dQ.fill(0);
+      got.push(t);
+    };
+    work += hotCells;
+    for (const t of hotTiles) {
+      take(t);
+      const { wax, waxQ, dQ } = t;
+      for (let i = 0; i < TT; i++) {
+        const Q = waxQ[i];
+        if (Q === 0) continue;
+        const w = wax[i];
+        const T = floorDiv(Q, w);
+        if (T === 0) {
+          dQ[i] -= Q; // no warmer than the air
+          continue;
+        }
+        const inner = INNER[i] === 1;
+        let out = 0;
+        for (let n = 0; n < 8; n++) {
+          let tn = t;
+          let j = i + NB_OFF[n];
+          if (!inner) {
+            neighbour(t, i, n);
+            tn = res[0];
+            j = res[1];
+          }
+          const wj = tn.wax ? tn.wax[j] : 0;
+          if (!wj) continue;
+          const d = T - floorDiv(tn.waxQ[j], wj);
+          if (d <= 0) continue;
+          const q = floorDiv(d * Math.min(w, wj) * diag(WAX_CONDUCT, n), 4096);
+          if (q === 0) continue;
+          take(tn);
+          tn.dQ[j] += q;
+          out += q;
+        }
+        dQ[i] -= out + ceilDiv(T * WAX_COOL, 256);
+      }
+    }
+    for (const t of got) {
+      const { waxQ, dQ } = t;
+      for (let i = 0; i < TT; i++) {
+        if (dQ[i] === 0) continue;
+        const was = waxQ[i];
+        const q = Math.max(0, was + dQ[i]);
+        waxQ[i] = q;
+        if (was === 0 && q > 0) becameHot(t);
+        else if (was > 0 && q === 0) becameCold(t);
+      }
+    }
+  }
+
   function step(k) {
     if (dirty) for (const t of wetTiles) dirty.add(t);
     if (journals.length) for (const t of wetTiles) cow(t);
@@ -1053,13 +1145,14 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       settle();
       revive();
       dry();
+      if (hotCells) heat();
     }
     if (instrument) instrument.step(k, wetTiles);
   }
 
   function runUntil(k) {
     while (now < k) {
-      if (wetCells === 0) {
+      if (wetCells === 0 && hotCells === 0) {
         now = k;
         break;
       }
@@ -1104,9 +1197,22 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   function cellAt(cx, cy) {
     const t = getTile(floorDiv(cx, TILE), floorDiv(cy, TILE));
     if (dirty) dirty.add(t);
+    if (journals.length) cow(t);
     return [t, (cy - t.ty * TILE) * TILE + (cx - t.tx * TILE)];
   }
-  const soft = (t, i) => (now - t.waxT[i]) * TICK_MS <= WAX_SOFT_MS + t.waxHeat[i] * WAX_SOFT_HEAT;
+  // soft: warmer than its softening heat (level ≥ WAX_SOFTEN, exactly: Q ≥ WAX_SOFTEN × HEAT_Q × wax)
+  const soft = (t, i) => t.waxQ[i] >= WAX_SOFTEN * HEAT_Q * t.wax[i];
+
+  // The wax at a point (the record's tenths) as it is now: how much, its level
+  // above the air, liquid (above its melting heat), soft (it would take a press).
+  function waxAt(x, y) {
+    const [cx, cy] = cellOf(x, y);
+    const t = tiles.get(tileKey(floorDiv(cx, TILE), floorDiv(cy, TILE)));
+    const i = t ? (cy - t.ty * TILE) * TILE + (cx - t.tx * TILE) : 0;
+    const wax = t && t.wax ? t.wax[i] : 0;
+    const level = wax ? floorDiv(t.waxQ[i], wax * HEAT_Q) : 0;
+    return { wax, level, liquid: wax > 0 && level >= WAX_MELT, soft: wax > 0 && level >= WAX_SOFTEN };
+  }
 
   // A mark at its moment (on the record's clock): a drip, a press or a break.
   function mark(m) {
@@ -1129,9 +1235,12 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         const [t, i] = cellAt(x, y);
         if (t.flags[i] & TORN) continue;
         waxOn(t);
-        t.wax[i] = Math.min(WAX_MAX, t.wax[i] + floorDiv(m.amt * g, sum));
-        t.waxT[i] = now;
-        t.waxHeat[i] = m.heat;
+        // it lands carrying its heat: the cell's heat and the drip's, over their wax together
+        const add = Math.min(WAX_MAX - t.wax[i], floorDiv(m.amt * g, sum));
+        t.wax[i] += add;
+        const was = t.waxQ[i];
+        t.waxQ[i] = was + add * m.heat * HEAT_Q;
+        if (was === 0 && t.waxQ[i] > 0) becameHot(t);
       }
     } else if (m.kind === 'press') {
       // the face, turned to the stamper's angle, each pixel m.cell cells; tilted, one side deeper
@@ -1297,7 +1406,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   function snapshot() {
     if (inStroke) throw new Error('snapshot while the pen is down');
     if (batch) flushTick();
-    const j = { saved: [], has: new Set(), counters: { now, wetCells, everWet, work, lastT, pen, carry, travel, strokeNo, lost: { ...lost }, splat: { ...splat }, put: { ...put } } };
+    const j = { saved: [], has: new Set(), counters: { now, wetCells, hotCells, everWet, work, lastT, pen, carry, travel, strokeNo, lost: { ...lost }, splat: { ...splat }, put: { ...put } } };
     journals.push(j);
     return j;
   }
@@ -1306,7 +1415,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     if (journals[journals.length - 1] !== snap) throw new Error('restore the newest snapshot first');
     journals.pop();
     for (let k = snap.saved.length - 1; k >= 0; k--) {
-      const [t, W, P, F, ev, wet, dentA, depthA, peak, soakA, wearA, flags, rim, cockle, G, FG, drainA, filmA, enter] = snap.saved[k];
+      const [t, W, P, F, ev, wet, dentA, depthA, peak, soakA, wearA, flags, rim, cockle, G, FG, drainA, filmA, enter, wax] = snap.saved[k];
       t.W.set(W);
       t.P.set(P);
       t.F.set(F);
@@ -1332,13 +1441,26 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         t.FG = null;
         t.dG = null;
       }
+      if (wax) {
+        waxOn(t);
+        t.wax.set(wax[0]);
+        t.waxQ.set(wax[1]);
+        t.waxDent.set(wax[2]);
+        t.waxF.set(wax[3]);
+        t.hot = wax[4];
+      } else if (t.wax) {
+        t.wax = null;
+        t.hot = 0;
+      }
+      if (t.hot > 0) hotTiles.add(t);
+      else hotTiles.delete(t);
       t.journal = null;
       if (wet > 0) wetTiles.add(t);
       else wetTiles.delete(t);
       if (dirty) dirty.add(t);
     }
     batch = null;
-    ({ now, wetCells, everWet, work, lastT, carry, travel, strokeNo } = snap.counters);
+    ({ now, wetCells, hotCells, everWet, work, lastT, carry, travel, strokeNo } = snap.counters);
     Object.assign(lost, snap.counters.lost);
     Object.assign(splat, snap.counters.splat);
     Object.assign(put, snap.counters.put);
@@ -1378,6 +1500,10 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     forget,
     changed,
     redraw,
+    waxAt,
+    get hotCells() {
+      return hotCells;
+    },
     get now() {
       return now;
     },

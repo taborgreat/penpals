@@ -2,7 +2,7 @@
 // A beauty layer only: it never touches facts, digests or the record.
 //
 // Light is a range of waves (scene/light/): the sun is a black body through the
-// air, placed by the viewer's own clock; it comes into the room only through
+// air, placed by the world's clock (Pacific); it comes into the room only through
 // the window, as the direct sun (a disk: the window's patch is soft-edged) and
 // the sky. Two candles stand either side of the page; at night, while someone is
 // there, they burn (their wax goes down, their flames shiver by their wick). The
@@ -16,6 +16,7 @@
 // lies centred where the room's page lies (light/room.js), its top at the
 // paper's; the engine's world is page px with the room's axes.
 
+import { WORLD_ZONE } from 'penpals-law/room';
 import {
   sunPlace,
   toward,
@@ -50,17 +51,12 @@ const DEFAULT_PAPER = [0xf7, 0xf3, 0xea]; // the page the room settles with (and
 // The sun by the clock: { az, el } in degrees (light/air.js sunPlace).
 export const sunAt = (date) => sunPlace(date);
 
-// A room's own clock (rooms.md §1b: a space keeps its own time, its owner's
-// zone): the moment `date` as that zone's wall clock reads it (what sunPlace
-// reads), the instant itself unchanged. No zone: the viewer's own clock.
-export function zoned(date, timeZone) {
-  if (!timeZone) return date;
-  let parts;
-  try {
-    parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone, hour12: false, hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(date).map((x) => [x.type, x.value]));
-  } catch {
-    return date;
-  }
+// The world's clock (rooms.md §1b: one world, one sun, one time zone, Pacific): the
+// moment `date` as its wall clock reads it (what sunPlace reads), the instant itself
+// unchanged. Never the viewer's own clock.
+const worldWall = new Intl.DateTimeFormat('en-US', { timeZone: WORLD_ZONE, hour12: false, hour: 'numeric', minute: 'numeric', second: 'numeric' });
+export function worldClock(date) {
+  const parts = Object.fromEntries(worldWall.formatToParts(date).map((x) => [x.type, x.value]));
   const h = Number(parts.hour) % 24;
   return { getHours: () => h, getMinutes: () => Number(parts.minute), getSeconds: () => Number(parts.second), getTime: () => date.getTime() };
 }
@@ -192,7 +188,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
       return () => S.listeners.delete(fn);
     },
     // The light at a moment. now: ms (performance clock); date: the room's
-    // clock (zoned); override: { az, el } while the sun is dragged; present:
+    // clock (worldClock); override: { az, el } while the sun is dragged; present:
     // someone is looking (the candles burn only then, at night); eye: where the
     // lids and colour are headed (light-waves §7: { lids 0 closed..1 open,
     // color 0 luminance only..1 }; the eye ramps there by its own reactions);

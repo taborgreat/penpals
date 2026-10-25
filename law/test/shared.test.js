@@ -186,15 +186,17 @@ const POOL = [
   [-90, 90],
 ];
 const pressFor = (who, more = {}) => ({ x: 2000, y: 2000, depth: 220, angle: 0, tiltX: 0, tiltY: 0, cell: 2, w: 32, h: 32, face: FACE, for: who.id, ...more });
-function waxed(s, t0) {
-  POOL.forEach(([dx, dy], k) => assert.equal(s.act(ana, 'drip', t0 + 150 * k, { drip: { x: 2000 + dx, y: 2000 + dy, amt: 400000, heat: 220 } }), null));
+// Hot wax landed on the sheet: no one's act, the drips a candle tilted over it let fall
+// (law/wax.js regrows them from the room's chain; here, as they landed: wax.js dripsOn).
+function waxed(ctx, t0) {
+  ctx.drips = POOL.map(([dx, dy], k) => ({ t: t0 + 150 * k, x: 2000 + dx, y: 2000 + dy, amt: 400000, heat: 220 }));
 }
 
 test("seals: pressed into warm wax, a seal admits its key while the sheet lies on the owner's table; cold wax admits no one; broken, it is refused", () => {
   const ctx = { seed, family: FAMILY };
   const s = stamper(ana.id, ctx);
   assert.match(s.act(bo, 'stroke', 500, { stroke: strokeBytes([20, 20], [60, 20], BLUE) }), /not on your table/);
-  waxed(s, 1000);
+  waxed(ctx, 1000);
   assert.match(s.act(bo, 'press', 2400, { press: pressFor(bo) }), /only the owner/);
   assert.equal(s.act(ana, 'press', 2500, { press: pressFor(bo) }), null);
   const pressed = s.lines.length;
@@ -222,9 +224,10 @@ test("seals: pressed into warm wax, a seal admits its key while the sheet lies o
   assert.ok(grown.cells.some((c) => c[17] & 1));
   // into cold wax: nothing took, and no one is admitted
   const cold = stamper(ana.id, ctx);
-  waxed(cold, 1000);
   assert.equal(cold.act(ana, 'press', 70000, { press: pressFor(bo) }), null);
   assert.match(cold.act(bo, 'stroke', 71000, { stroke: strokeBytes([20, 20], [60, 20], BLUE) }), /not on your table/);
+  // no one writes a drip: there is no such act
+  assert.throws(() => makeSharedAct({ sk: ana.sk, pk: ana.pk, sheet: SHEET, k: 99, act: 'drip', drip: { x: 2000, y: 2000, amt: 400000, heat: 220 } }), /not a shared act/);
   // a press with no face of its size is refused before anything
   assert.throws(() => makeSharedAct({ sk: ana.sk, pk: ana.pk, sheet: SHEET, k: 99, act: 'press', press: { ...pressFor(bo), w: 31 } }), /size/);
 });
