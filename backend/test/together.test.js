@@ -190,9 +190,11 @@ test('beings: entering, moving coarsely (the neck law applied), leaving; an empt
   guest.close();
   assert.equal((await host.until('being', (d) => d.kind === 'leave', rooms.LINGER_MS + 5000)).data.name, 'bo');
   host.close();
-  await settle(rooms.LINGER_MS + 200);
-  // asleep: nothing is held for an empty room
+  // asleep: nothing is held for an empty room (once the last one's linger is over and its leave is stamped)
   const { findByName } = await import('../src/store/accounts.js');
+  const asleepBy = Date.now() + rooms.LINGER_MS + 5000;
+  await settle(rooms.LINGER_MS);
+  while (rooms.awake(findByName('cy').id) && Date.now() < asleepBy) await settle(50);
   assert.equal(rooms.awake(findByName('cy').id), false);
   // what the room's chain holds: comings, goings and coarse motion; no eye
   const lines = await rooms.roomLines(findByName('cy').id);
