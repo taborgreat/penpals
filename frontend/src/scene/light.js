@@ -21,7 +21,6 @@ import {
   toward,
   sunLight,
   roomGeometry,
-  joinedGeometry,
   decodeRoom,
   ROOM,
   PX_PER_M,
@@ -75,11 +74,6 @@ export function returnTo(from, to, k) {
 
 // The room's shape now (cheap, pure), and its form factors when they arrive.
 export const GEOM = roomGeometry(ROOM);
-// The room's shape by name: 'room', or two rooms joined ('joined-<wall|door>-<right|left>':
-// the opening, and which side of this room the other is on: rooms.md §7).
-const GEOMS = { room: GEOM };
-export const joinedName = (opening, side) => `joined-${opening}-${side}`;
-export const geomOf = (name = 'room') => (GEOMS[name] ??= joinedGeometry(ROOM, ...name.replace(/^joined-/, '').split('-')));
 
 // A view's page in the room: where its page px (0, 0, 0) is (room m), centred on
 // the room's page, at the paper's top.
@@ -283,11 +277,10 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER,
   };
 }
 
-// The page's light, one for each room shape (the room, or two joined): the room
-// fetched once, settled in a worker.
-const shapes = new Map();
-export function theLight(name = 'room') {
-  if (shapes.has(name)) return shapes.get(name);
+// The page's one light: the room fetched once, settled in a worker.
+let shared = null;
+export function theLight() {
+  if (shared) return shared;
   const worker = new Worker(new URL('./light/lightWorker.js', import.meta.url), { type: 'module' });
   const waiting = new Map();
   let next = 1;
@@ -306,10 +299,9 @@ export function theLight(name = 'room') {
       waiting.set(id, { resolve, reject });
       worker.postMessage({ type: 'settle', id, ...msg });
     });
-  const shared = createLight({ settle, geom: geomOf(name), candles: loadCandles(), keep: keepCandles });
-  shapes.set(name, shared);
-  if (name === 'room') globalThis.__sceneLight = shared; // (for the benches and checks: what the room's light is now)
-  Promise.all([fetch(`/room/${name}.json`).then((r) => r.text()), fetch(`/room/${name}.ff`).then((r) => r.arrayBuffer())])
+  shared = createLight({ settle, candles: loadCandles(), keep: keepCandles });
+  globalThis.__sceneLight = shared; // (for the benches and checks: what the room's light is now)
+  Promise.all([fetch('/room/room.json').then((r) => r.text()), fetch('/room/room.ff').then((r) => r.arrayBuffer())])
     .then(([json, bin]) => {
       const room = decodeRoom(json, bin);
       worker.postMessage({ type: 'room', json, bin }, []);
@@ -318,3 +310,7 @@ export function theLight(name = 'room') {
     .catch((err) => console.warn('[room]', err.message));
   return shared;
 }
+
+// The room's shape by name (engine.js asks by name): there is the one room. (Rooms are
+// not joined: one-world.md replaced rooms.md §7; houses stand apart in one outside.)
+export const geomOf = () => GEOM;

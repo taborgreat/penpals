@@ -186,3 +186,19 @@ test("a stamper's face is a signature in relief, mirrored: its impression reads 
   assert.equal(faceOf([], [0, 0, 0, 0]), null);
   assert.deepEqual(faceOf(g.cells, g.box), f, 'anyone makes the same face');
 });
+
+test('format 3: strokes may lie further apart than MAX_GAP when wax lands between them (each pause between acts still at most MAX_GAP)', () => {
+  const rec = record(
+    [
+      { path: samplePath(line(0, 0, 60, 0), () => 60), pen: PENS.medium, start: 0 },
+      { path: samplePath(line(0, 30, 60, 30), () => 60), pen: PENS.medium, start: 100 },
+    ],
+    [10, 10],
+  );
+  const end = rec.strokes[0].t.at(-1);
+  rec.strokes[1].t = rec.strokes[1].t.map((v) => v + 90000); // 90 s later: past MAX_GAP
+  assert.throws(() => L2.encodeActs(rec), /gap/, 'law 2 keeps its pauses short');
+  const marks = [50000, 100000].map((dt) => ({ kind: 'drip', t: end + dt - 10000, x: 300, y: 600, amt: 60000, heat: 100 }));
+  const back = L3.decodeCanonical(L3.encodeActs({ ...rec, marks }));
+  assert.equal(back.strokes[1].t[0] - back.strokes[0].t.at(-1), rec.strokes[1].t[0] - end);
+});

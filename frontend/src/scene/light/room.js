@@ -65,9 +65,9 @@ function gridLines(len, spans, target) {
   return out;
 }
 
-// The room's surfaces as rectangles (holes in them: [u0, u1, v0, v1, kind, [su, sv]]),
-// and the places they are cut from.
-function shapeOf(spec) {
+// The room's shape: surfaces, patches, openings, the page's patch, the candles'
+// spots and the page's place. Pure data (it survives JSON).
+export function roomGeometry(spec = ROOM) {
   const [W, D, H] = spec.size;
   const cx = W / 2;
   const win = { x0: cx - spec.window.width / 2, x1: cx + spec.window.width / 2, z0: spec.window.sill, z1: spec.window.head };
@@ -93,16 +93,7 @@ function shapeOf(spec) {
     S('table-left', 'table', 'table', [tb.x0, tb.y0, tb.bottom], Y, Z, [t.depth, t.thick], neg(X)),
     S('table-right', 'table', 'table', [tb.x1, tb.y0, tb.bottom], Y, Z, [t.depth, t.thick], X),
   ];
-  return { W, D, H, win, tb, pg, pageOrigin, surfaces, pageH: (PAGE_PX_W * ph) / pw };
-}
 
-// Rays pass through a door between joined rooms: its cells hold PASS (no patch,
-// no opening, nothing drawn), and the ray goes on to whatever is beyond it.
-export const PASS = -2147483648;
-
-// The surfaces cut into patches on their grids: the window's cells become openings,
-// the page one patch, a door's cells PASS, the rest patches.
-function cutPatches(surfaces, spec) {
   const patches = [];
   const openings = [];
   let page = -1;
@@ -124,9 +115,7 @@ function cutPatches(surfaces, spec) {
           kind: hole ? hole[4] : s.kind,
           matter: hole ? (hole[4] === 'window' ? 'glass' : 'paper') : s.matter,
         };
-        if (hole?.[4] === 'door') {
-          cells.push(PASS);
-        } else if (hole?.[4] === 'window') {
+        if (hole?.[4] === 'window') {
           cells.push(-1 - openings.length);
           openings.push(p);
         } else if (hole?.[4] === 'page') {
@@ -144,86 +133,13 @@ function cutPatches(surfaces, spec) {
     const { holes, ...rest } = s;
     return { ...rest, grid: { u: us, v: vs, cells } };
   });
-  return { out, patches, openings, page };
-}
 
-// The room's shape: surfaces, patches, openings, the page's patch, the candles'
-// spots and the page's place. Pure data (it survives JSON).
-export function roomGeometry(spec = ROOM) {
-  const { W, D, H, win, tb, pg, pageOrigin, surfaces, pageH } = shapeOf(spec);
-  const { out, patches, openings, page } = cutPatches(surfaces, spec);
-  const candles = candlesOf(spec, pageOrigin, pageH, tb);
-  return { units: 'm', size: [W, D, H], window: win, table: tb, pageRect: pg, pageOrigin, pxPerM: PX_PER_M, surfaces: out, patches, openings, page, candles, objects: objectsOf(spec, win, tb, candles) };
-}
-const candlesOf = (spec, pageOrigin, pageH, tb) =>
-  spec.candles.map(([fx, fy]) => {
+  const pageH = (PAGE_PX_W * ph) / pw;
+  const candles = spec.candles.map(([fx, fy]) => {
     const [x, y] = pageToRoom([fx * PAGE_PX_W, fy * pageH, 0], pageOrigin);
     return [x, y, tb.top]; // standing on the table, beside the paper
   });
-
-// Two rooms joined (rooms.md §7): this one, and another of the same shape beyond
-// its right wall (side 'right': this room x from 0 to W, the other W to 2W) or its
-// left (side 'left': the other 0 to W, this one W to 2W), their surfaces in one
-// geometry so the light is solved over both together. The opening: 'wall' (the
-// wall down: one space) or 'door' (the wall stays, a door through it: light and
-// the eye pass only there). The other room's surfaces are named 'b:<id>' (grown
-// from its owner's key); its page is paper on its table. This room's page, table
-// and candles are the page's own (the candles that burn are this room's); `mine`
-// is where this room is; `partitions` are the solid boxes the eye cannot pass that
-// a single room does not have (the wall with its door, the other table).
-export const DOOR = { width: 0.9, height: 2.03, along: 0.35 }; // m; its middle this share of the wall's length from the seat's end (Tabor's to set)
-export const JOINS = ['wall', 'door'];
-export const SIDES = ['right', 'left'];
-export function joinedGeometry(spec = ROOM, opening = 'wall', side = 'right') {
-  if (!JOINS.includes(opening) || !SIDES.includes(side)) throw new Error(`no such join: ${opening}, ${side}`);
-  const { W, D, H, win, tb, pg, pageOrigin, surfaces, pageH } = shapeOf(spec);
-  const mx = side === 'right' ? 0 : W, // where this room starts along x, and the other
-    ox = side === 'right' ? W : 0;
-  const y0 = D * DOOR.along - DOOR.width / 2,
-    y1 = D * DOOR.along + DOOR.width / 2;
-  const door = [y0, y1, 0, DOOR.height, 'door', [1, 1]];
-  const mineShared = side === 'right' ? 'wall-right' : 'wall-left';
-  const otherShared = side === 'right' ? 'b:wall-left' : 'b:wall-right';
-  const shared = (f) => (opening === 'door' ? [{ ...f, holes: [...f.holes, door] }] : []); // the wall between: down, or with its door
-  const at = (f, dx) => ({ ...f, origin: [f.origin[0] + dx, f.origin[1], f.origin[2]] });
-  const mine = surfaces.map((f) => at(f, mx));
-  const other = surfaces.map((f) => ({ ...at(f, ox), id: `b:${f.id}`, holes: f.holes.map((h) => (h[4] === 'page' ? [...h.slice(0, 4), 'pageB', h[5]] : h)) }));
-  const both = [...mine.flatMap((f) => (f.id === mineShared ? shared(f) : [f])), ...other.flatMap((f) => (f.id === otherShared ? shared(f) : [f]))];
-  const { out, patches, openings, page } = cutPatches(both, spec);
-  const box = (b, dx) => [b[0] + dx, b[1], b[2], b[3] + dx, b[4], b[5]];
-  const objs = (dx, prefix) => objectsOf(spec, win, tb, candlesOf(spec, pageOrigin, pageH, tb)).map((o) => ({ ...o, id: prefix + o.id, ...(o.box ? { box: box(o.box, dx) } : { center: [o.center[0] + dx, o.center[1]] }) }));
-  const x = W; // the wall between
-  const T = 0.01; // half the wall's thickness, for the eye
-  const partitions = [
-    box([tb.x0, tb.y0, tb.bottom, tb.x1, tb.y1, tb.top], ox), // the other table
-    ...(opening === 'door'
-      ? [
-          [x - T, 0, 0, x + T, y0, H],
-          [x - T, y1, 0, x + T, D, H],
-          [x - T, y0, DOOR.height, x + T, y1, H],
-        ]
-      : []),
-  ];
-  const myPage = { x0: pg.x0 + mx, x1: pg.x1 + mx, y0: pg.y0, y1: pg.y1 };
-  const myOrigin = [pageOrigin[0] + mx, pageOrigin[1], pageOrigin[2]];
-  return {
-    units: 'm',
-    size: [2 * W, D, H],
-    window: { ...win, x0: win.x0 + mx, x1: win.x1 + mx },
-    table: { ...tb, x0: tb.x0 + mx, x1: tb.x1 + mx },
-    pageRect: myPage,
-    pageOrigin: myOrigin,
-    pxPerM: PX_PER_M,
-    surfaces: out,
-    patches,
-    openings,
-    page,
-    candles: candlesOf(spec, myOrigin, pageH, tb),
-    objects: [...objs(mx, ''), ...objs(ox, 'b:')],
-    partitions,
-    mine: { x0: mx, x1: mx + W },
-    join: { opening, side, x, door: opening === 'door' ? { y0, y1, z1: DOOR.height } : null },
-  };
+  return { units: 'm', size: [W, D, H], window: win, table: tb, pageRect: pg, pageOrigin, pxPerM: PX_PER_M, surfaces: out, patches, openings, page, candles, objects: objectsOf(spec, win, tb, candles) };
 }
 
 // The room's things that the light's geometry leaves out (too small to matter
@@ -282,7 +198,6 @@ function tracer(geom) {
     gu: s.map((f) => Float64Array.from(f.grid.u)),
     gv: s.map((f) => Float64Array.from(f.grid.v)),
     cells: s.map((f) => Int32Array.from(f.grid.cells)),
-    pass: Uint8Array.from(s, (f) => (f.grid.cells.includes(PASS) ? 1 : 0)), // a door in it
   };
   tracers.set(geom, T);
   return T;
@@ -317,7 +232,6 @@ function cast(T, o0, o1, o2, d0, d1, d2, maxT = Infinity, skip = -1) {
     if (u < 0 || u > su[k]) continue;
     const v = (c === 0 ? o0 + d0 * t : c === 1 ? o1 + d1 * t : o2 + d2 * t) - ov[k];
     if (v < 0 || v > sv[k]) continue;
-    if (T.pass[k] && T.cells[k][cellOf(T.gv[k], v) * (T.gu[k].length - 1) + cellOf(T.gu[k], u)] === PASS) continue; // through the door
     best = t;
     bs = k;
     bu = u;

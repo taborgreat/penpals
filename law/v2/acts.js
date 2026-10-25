@@ -202,7 +202,8 @@ export function decodeActs(bytes, { maxFormat = 2 } = {}) {
   let clock = 0;
   for (let si = 0; si < nStrokes; si++) {
     const gap = r.varint();
-    if (si === 0 ? gap !== 0 && (format < 3 || gap > MAX_DURATION) : gap > MAX_GAP) throw bad('gap out of range');
+    // (format 3: wax lands between strokes, each pause between acts at most MAX_GAP, so strokes may be further apart)
+    if (si === 0 ? gap !== 0 && (format < 3 || gap > MAX_DURATION) : gap > (format === 3 ? MAX_DURATION : MAX_GAP)) throw bad('gap out of range');
     const flags = r.byte();
     if (flags & 0xf0) throw bad('reserved flag bits set');
     const hasP = (flags & 1) === 1;

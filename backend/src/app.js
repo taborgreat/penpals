@@ -21,7 +21,6 @@ import { booksRouter } from './routes/books.js';
 import { lawRouter } from './routes/law.js';
 import { roomsRouter, sharedRouter } from './routes/rooms.js';
 import { loadShared } from './store/shared.js';
-import { loadJoins } from './store/joins.js';
 
 // The data directory says which layout it holds; anything else is refused
 // rather than misread (the password-era data is gone: Living Ink starts clean).
@@ -91,7 +90,6 @@ export async function createApp() {
   const proofs = await loadProofs();
   await loadCache();
   await loadShared(); // which table every shared sheet lies on (rooms.md §5)
-  await loadJoins(); // which rooms are joined (rooms.md §7)
   const pool = createPool({ ...config.render, workers: config.render.workers });
   setPool(pool);
 

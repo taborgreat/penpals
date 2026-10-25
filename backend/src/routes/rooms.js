@@ -6,7 +6,6 @@ import { canSeeProfile, hasBlocked } from '../social.js';
 import { join, part, move, beingsIn } from '../store/rooms.js';
 import { createShared, stamp, sheetOf, onTable, viewOf, onShared, ownedBy } from '../store/shared.js';
 import { being as B } from 'penpals-law';
-import { stampJoin, joinViewOf } from '../store/joins.js';
 
 // Rooms and writing together (rooms.md §4, §5, §6).
 //   GET  /api/rooms/:name/stream       the room, live (server-sent events): who is here and
@@ -14,9 +13,6 @@ import { stampJoin, joinViewOf } from '../store/joins.js';
 //                                       its owner's table and their acts as stamped ('table', 'shared')
 //   POST /api/rooms/:name/motion       { pose }: a coarse motion act (light/roomCamera, law/being.js)
 //   GET  /api/rooms/:name/table        the shared sheets lying on its owner's table
-//   GET  /api/rooms/:name/join         whom its room is joined with (or who asks), on which side, through what
-//   POST /api/rooms/joins              { act, seal }: a join act (law/join.js), stamped (201 { line, join })
-//   (the stream also says 'join': the room's join, when it opens and whenever it changes)
 //   POST /api/shared                   { birth, seal, open }: a new shared sheet, on your table
 //   GET  /api/shared/mine              your shared sheets, wherever they lie
 //   GET  /api/shared/:sheet            a shared sheet: its birth and its stamped acts
@@ -66,7 +62,6 @@ roomsRouter.get('/:name/stream', (req, res) => {
       res.write(`event: table\ndata: ${JSON.stringify({ arrived: e.on ? viewOf(s) : null, left: e.on ? null : e.sheet })}\n\n`);
     } else if (e.kind === 'shared' && lying.has(e.sheet)) res.write(`event: shared\ndata: ${JSON.stringify({ sheet: e.sheet, line: e.line, names: viewOf(sheetOf(e.sheet)).names })}\n\n`);
   });
-  res.write(`event: join\ndata: ${JSON.stringify(joinViewOf(owner.publicKey))}\n\n`);
   const beat = setInterval(() => res.write(': still here\n\n'), 25000);
   join(owner.id, client).catch(() => {});
   req.on('close', () => {
@@ -82,16 +77,6 @@ roomsRouter.post('/:name/motion', requireAuth, json, async (req, res) => {
   if (!B.checkPose(pose)) throw httpError(400, 'bad_pose', 'That is not a pose in this room.');
   const line = await move(owner.id, req.user.id, pose);
   res.json({ stamped: !!line, n: line?.n ?? null });
-});
-
-roomsRouter.post('/joins', requireAuth, json, async (req, res) => {
-  const line = await stampJoin(req.user.id, req.body ?? {});
-  res.status(201).json({ line, join: joinViewOf(getAccount(req.user.id).publicKey) });
-});
-
-roomsRouter.get('/:name/join', (req, res) => {
-  const owner = roomOf(req);
-  res.json(joinViewOf(owner.publicKey));
 });
 
 roomsRouter.get('/:name/table', (req, res) => {

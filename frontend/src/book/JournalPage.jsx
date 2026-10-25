@@ -218,7 +218,6 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
         })}
       {sceneShows && (
         <SceneView
-          key={room?.together?.join?.room ?? 'room'}
           className="journal-scene"
           page={[size.width, size.height]}
           mode={sceneMode}
@@ -239,7 +238,6 @@ export default function JournalPage({ pageId, page, size, inks, editable, select
           onPose={room?.together?.onPose ?? null}
           tableWriter={room?.together?.tableWriter ?? null}
           focus={room?.together?.focus ?? null}
-          join={room?.together?.join ?? null}
           ground
           onFlat={() => {
             setViewChoice('flat');

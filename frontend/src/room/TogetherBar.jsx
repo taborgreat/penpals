@@ -12,8 +12,7 @@ export default function TogetherBar({ t, myRoom, me, family, color, onColor }) {
   const here = t.sheets.map((p) => p.view.sheet);
   const elsewhere = t.mine.filter((v) => !here.includes(v.sheet) && v.on && v.on !== me);
   const writing = t.sheets.some((p) => p.mayWrite);
-  const j = t.join;
-  if (!myRoom && !t.others.length && !t.sheets.length && !elsewhere.length && !j?.joined) return null;
+  if (!myRoom && !t.others.length && !t.sheets.length && !elsewhere.length) return null;
   const layOn = (view) => {
     const who = window.prompt('Lay it on whose table? (their name)');
     if (who?.trim()) t.layOn(view, who.trim().replace(/^@/, ''));
@@ -95,50 +94,6 @@ export default function TogetherBar({ t, myRoom, me, family, color, onColor }) {
           </button>
         </span>
       ))}
-      {j?.joined && (
-        <span className="joined" data-opening={j.opening} data-side={j.side}>
-          <span className="meta">
-            {myRoom ? 'Your room is' : 'This room is'} joined with @{j.with}'s, on the {j.side} ({j.opening === 'wall' ? 'the wall down' : 'a door'})
-          </span>
-          {myRoom && (
-            <button
-              type="button"
-              className="quiet"
-              onClick={() => t.choose(j.openings.mine === 'wall' ? 'door' : 'wall')}
-              title="Your side of the wall: down (when they take theirs down too) or a door"
-            >
-              {j.openings.mine === 'wall' ? 'Put the wall back (a door)' : 'Take my side of the wall down'}
-            </button>
-          )}
-          {myRoom && (
-            <button type="button" className="quiet" onClick={() => t.unjoin()} title="Apart again: every table and everything on it goes home">
-              Separate the rooms
-            </button>
-          )}
-        </span>
-      )}
-      {myRoom && !j?.joined && j?.asks && (
-        <span className="joined asks">
-          <span className="meta">
-            @{j.with} asks to join rooms along their {j.asks} wall
-          </span>
-          <button type="button" onClick={() => t.acceptJoin()}>
-            Join
-          </button>
-        </span>
-      )}
-      {myRoom && !j?.joined && !j?.asks && (
-        <button
-          type="button"
-          className="quiet"
-          onClick={() => {
-            const who = window.prompt('Join your room with whose? (their name: your right wall to their left)');
-            if (who?.trim()) t.askJoin(who.trim().replace(/^@/, ''));
-          }}
-        >
-          Join a room…
-        </button>
-      )}
       {myRoom && (
         <button type="button" onClick={() => t.share(family)} title="A new sheet of your paper on your table, for writing on together">
           + A shared sheet

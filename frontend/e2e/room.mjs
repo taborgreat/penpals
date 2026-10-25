@@ -7,7 +7,7 @@
 // shared sheet laid on the other's table, both writing on it, one stamper, both
 // screens growing it to the same facts; a lift; taken back. Then seals: wax dripped
 // from a candle, the stamper set to the other's seal pressed in, writing by it, the
-// seal broken. Then joining the two rooms: a door between them, the wall down, apart.
+// seal broken. (Joining rooms, rooms.md §7, was replaced by one-world.md.)
 //   node frontend/e2e/room.mjs                 through a Vite dev server (and a backend on a fresh
 //                                              data dir), in the full Chromium on this machine's GPU
 //   node frontend/e2e/room.mjs --swiftshader   drawn on the CPU instead (slow: two people's rooms at
@@ -556,62 +556,8 @@ try {
   await bar(guest).locator(`.shared-sheet[data-sheet="${sheetId}"] .seal[data-broken="true"]`).waitFor({ timeout: 20000 });
   await sealedForBo.getByRole('button', { name: 'Look at it' }).waitFor({ timeout: 20000 });
   console.log("   broken: bo's pen is off it");
-
-  step("joining: tabor's room and bo's, side by side; through the door, bo's room; the wall down; apart again");
-  // where the door will be in tabor's right wall (light/room.js DOOR), looked at from inside his room
-  const doorY = 3.353 * 0.35;
-  const throughDoor = async (p) => {
-    await p.locator(`${scene}[data-gpu]`).waitFor({ timeout: 60000 });
-    await p.locator(scene).evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    const tools = p.locator(`${scene} .scene-tools`);
-    if ((await tools.getByRole('button', { name: 'Look' }).getAttribute('aria-pressed')) !== 'true') await tools.getByRole('button', { name: 'Look' }).click();
-    await p.evaluate((y) => {
-      globalThis.__sceneLook.at([0.5, y, 1.1]);
-      globalThis.__sceneLook.aim([3.048, y, 1.1]);
-    }, doorY);
-    await p.waitForTimeout(2500);
-    await p.locator(scene).evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    await p.waitForTimeout(200);
-    return onScreen(p, scene, pixels);
-  };
-  const wallView = await throughDoor(page);
-  await page.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-prejoin.png') });
-  page.once('dialog', (d) => d.accept('bo'));
-  await bar(page).getByRole('button', { name: 'Join a room…' }).click();
-  await guest.goto(`${base}/u/bo`);
-  await guest.getByRole('button', { name: 'Preview' }).click();
-  await bar(guest).locator('.joined.asks').waitFor({ timeout: 20000 });
-  console.log(`   bo's room: ${await bar(guest).locator('.joined.asks .meta').textContent()}`);
-  const joinedRoom = page.waitForResponse((r) => r.url().endsWith('/room/joined-door-right.json'), { timeout: 30000 });
-  await bar(guest).locator('.joined.asks').getByRole('button', { name: 'Join' }).click();
-  await bar(page).locator('.joined[data-opening="door"][data-side="right"]').waitFor({ timeout: 20000 });
-  await bar(guest).locator('.joined[data-opening="door"][data-side="left"]').waitFor({ timeout: 20000 });
-  await joinedRoom;
-  console.log(`   ${await bar(page).locator('.joined .meta').first().textContent()}`);
-  const doorView = await throughDoor(page);
-  // the doorway now opens on bo's room: what the eye sees there is not the wall it was
-  let changed = 0;
-  for (let i = 0; i < wallView.d.length; i += 4)
-    if (Math.abs(wallView.d[i] - doorView.d[i]) + Math.abs(wallView.d[i + 1] - doorView.d[i + 1]) + Math.abs(wallView.d[i + 2] - doorView.d[i + 2]) > 30) changed++;
-  await page.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-joined.png') });
-  console.log(`   through the door: ${changed} pixels differ from the wall that stood there`);
-  if (changed < 5000) throw new Error('the door does not open on the other room');
-  // both take their side of the wall down: one space
-  const wallDown = page.waitForResponse((r) => r.url().endsWith('/room/joined-wall-right.json'), { timeout: 30000 });
-  await bar(page).getByRole('button', { name: 'Take my side of the wall down' }).click();
-  await bar(guest).getByRole('button', { name: 'Take my side of the wall down' }).click();
-  await bar(page).locator('.joined[data-opening="wall"]').waitFor({ timeout: 20000 });
-  await wallDown;
-  await throughDoor(page);
-  await page.screenshot({ path: path.join(os.tmpdir(), 'penpals-e2e-joined-wall.png') });
-  console.log('   the wall down: one space (a picture: penpals-e2e-joined-wall.png)');
-  // apart: every table home, the wall back
-  await bar(guest).getByRole('button', { name: 'Separate the rooms' }).click();
-  await bar(page).locator('.joined').waitFor({ state: 'detached', timeout: 20000 });
-  await bar(page).getByRole('button', { name: 'Join a room…' }).waitFor({ timeout: 10000 });
-  console.log('   apart again');
   await other.close();
-  console.log('ok: the lobby, your room, the shelf, a wall written on; visiting, a door into another room; writing together on one shared sheet; a seal in wax; two rooms joined');
+  console.log('ok: the lobby, your room, the shelf, a wall written on; visiting, a door into another room; writing together on one shared sheet; a seal in wax');
 } catch (err) {
   failed = err;
 } finally {

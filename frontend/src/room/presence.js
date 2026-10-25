@@ -42,7 +42,6 @@ export function useRoom(name, { seat = 0 } = {}) {
   const [beings, setBeings] = useState(() => new Map()); // name → { name, from, to, t0 }
   const [sheets, setSheets] = useState(() => new Map()); // sheet → view (routes/rooms.js viewOf), lines as stamped
   const [body, setBody] = useState(false);
-  const [join, setJoin] = useState(null); // the room's join (backend store/joins.js joinViewOf)
   const sent = useRef({ pose: null, at: 0 });
   const bodyAt = useRef(null); // your body's heading: dragged by the head past the neck's reach
   const trailing = useRef(0); // the last pose, held back by the rate: sent when it allows
@@ -64,7 +63,6 @@ export function useRoom(name, { seat = 0 } = {}) {
       setBody(!!d.body);
       setBeings(new Map(d.beings.map((b) => [b.name, { name: b.name, from: b.pose, to: b.pose, t0: performance.now() }])));
     });
-    on('join', (d) => setJoin(d));
     on('being', (d) => {
       if (d.kind === 'leave')
         setBeings((m) => {
@@ -118,5 +116,5 @@ export function useRoom(name, { seat = 0 } = {}) {
   );
   const beingList = useMemo(() => [...beings.values()], [beings]);
   const sheetList = useMemo(() => [...sheets.values()], [sheets]);
-  return { beings: beingList, sheets: sheetList, report, body, join };
+  return { beings: beingList, sheets: sheetList, report, body };
 }

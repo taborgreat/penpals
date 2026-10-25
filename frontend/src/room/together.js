@@ -10,8 +10,7 @@
 // → { others, report, body, sheets: [{ view, slot, field, mayWrite, seals }], scene: { sheets,
 //     tableWriter, beings, onPose, focus }, mine (your shared sheets, wherever they lie), tool,
 //     notice, clearNotice, share(family), layOn(view, name), takeBack(view), lift(view), lookAt(view),
-//     useTool('pen' | 'wax'), stamperFor(name), breakSeal(view, n),
-//     join (the room's: rooms.md §7), askJoin(name), acceptJoin(), choose(opening), unjoin() }
+//     useTool('pen' | 'wax'), stamperFor(name), breakSeal(view, n) }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, seatOf } from './presence.js';
 import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, keyOfName, SHARED_PAGE, DRIP } from './shared.js';
@@ -27,12 +26,9 @@ export function sealsOf(view, took = []) {
 // May `me` write here (law/shared.js mayWrite, read from the view and its seals)?
 export const mayWriteOn = (view, seals, me) => !!me && (view.birth.key === me || view.table === me || (view.table === view.birth.key && seals.some((x) => x.for === me && x.took && !x.broken)));
 import { api } from '../api.js';
-import { join as J } from 'penpals-law';
-import { joinedName } from '../scene/light.js';
-import { roomSeedsOf } from './seeds.js';
 
 export function useTogether({ name, key, me, mine: myRoom = false, pageW, color }) {
-  const { beings, sheets, report, body, join } = useRoom(name, { seat: myRoom ? 0 : seatOf(me) });
+  const { beings, sheets, report, body } = useRoom(name, { seat: myRoom ? 0 : seatOf(me) });
   const fields = useSharedFields(sheets);
   const myKey = key?.publicKey ?? null;
   const [writers, setWriters] = useState(() => new Map()); // sheet → room/shared.js writer
@@ -185,8 +181,6 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
   useEffect(refreshMine, [refreshMine, tableKey]);
 
   const fail = (err) => setNotice(err?.message ?? String(err));
-  const sendJoin = (withKey, act, extra = {}) =>
-    api.post('/api/rooms/joins', J.makeJoinAct({ sk: key.sk, pk: key.pk, with: withKey, k: (join?.withKey === withKey ? join.k : (join?.k ?? 0)) + 1, act, ...extra })).catch(fail);
   const kFor = (view) => writersRef.current.get(view.sheet)?.nextK();
   const actions = {
     share: (family) => shareSheet(key, family).then(refreshMine, fail),
@@ -202,16 +196,6 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
       return w.lift(view.lines);
     },
     useTool: (t) => setTool(t),
-    // joining (your own room only): ask someone's room to join yours along your right wall;
-    // accept a room that asks (along the facing wall); the opening on your side; apart again
-    async askJoin(who) {
-      const to = await keyOfName(who).catch(() => null);
-      if (!to) return fail(new Error(`There is no one called @${who}.`));
-      return sendJoin(to, 'join', { side: 'right' });
-    },
-    acceptJoin: () => join?.asks && sendJoin(join.withKey, 'join', { side: join.asks === 'right' ? 'left' : 'right' }),
-    choose: (opening) => join?.withKey && sendJoin(join.withKey, 'opening', { opening }),
-    unjoin: () => join?.withKey && sendJoin(join.withKey, 'unjoin'),
     // the stamper set to someone: their seal's face, from their signature (backend routes/signatures.js)
     async stamperFor(who) {
       const r = await api.get(`/api/signatures/${encodeURIComponent(who)}/seal`).catch((err) => fail(err));
@@ -229,10 +213,7 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
     },
   };
   const others = useMemo(() => beings.filter((b) => b.name !== me), [beings, me]);
-  // joined: the room drawn and lit with the other (its surfaces grown from its owner's key)
-  const joinedRoom = join?.joined ? joinedName(join.opening, join.side) : null;
-  const sceneJoin = useMemo(() => (joinedRoom ? { room: joinedRoom, seedsB: roomSeedsOf(join.withKey) } : null), [joinedRoom, join?.withKey]);
-  const scene = useMemo(() => ({ sheets: sceneSheets, tableWriter, beings: others, onPose: report, focus, join: sceneJoin }), [sceneSheets, tableWriter, others, report, focus, sceneJoin]);
+  const scene = useMemo(() => ({ sheets: sceneSheets, tableWriter, beings: others, onPose: report, focus }), [sceneSheets, tableWriter, others, report, focus]);
   return {
     others,
     report,
@@ -242,7 +223,6 @@ export function useTogether({ name, key, me, mine: myRoom = false, pageW, color 
     notice,
     clearNotice: () => setNotice(null),
     tool,
-    join,
     ...actions,
     scene,
   };

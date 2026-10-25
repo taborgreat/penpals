@@ -51,7 +51,6 @@ export function solids(geom) {
     [tb.x0, tb.y0, tb.bottom, tb.x1, tb.y1, tb.top],
     [pg.x0, pg.y0, tb.top, pg.x1, pg.y1, geom.pageOrigin[2]],
     ...(geom.objects ?? []).map((o) => o.box ?? [o.center[0] - o.radius, o.center[1] - o.radius, o.z0, o.center[0] + o.radius, o.center[1] + o.radius, o.z1]),
-    ...(geom.partitions ?? []), // joined rooms: the wall with its door, the other table
   ];
   solidsOf.set(geom, s);
   return s;
