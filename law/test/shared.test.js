@@ -231,3 +231,20 @@ test("seals: pressed into warm wax, a seal admits its key while the sheet lies o
   // a press with no face of its size is refused before anything
   assert.throws(() => makeSharedAct({ sk: ana.sk, pk: ana.pk, sheet: SHEET, k: 99, act: 'press', press: { ...pressFor(bo), w: 31 } }), /size/);
 });
+
+test('one copy: a sheet lies on exactly one table at a time, and only its owner moves it', () => {
+  const s = stamper(ana.id);
+  const tables = [];
+  for (const [who, to] of [
+    [ana, bo.id],
+    [bo, cy.id],
+    [ana, cy.id],
+    [cy, bo.id],
+    [ana, ana.id],
+  ]) {
+    s.act(who, 'move', 1000 + tables.length, { to: to });
+    tables.push(replay(ana.id, s.lines).state.table);
+  }
+  assert.deepEqual(tables, [bo.id, bo.id, cy.id, cy.id, ana.id], 'one table each moment: only the owner moved it');
+  assert.deepEqual(replay(ana.id, s.lines).problems, []);
+});

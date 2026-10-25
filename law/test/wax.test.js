@@ -144,3 +144,20 @@ test('light is the clock for aging: lit only while a being is in the room; empty
   assert.equal(R.litMs(lines, ms(6), ms(8)) / H, 0); // ink made while the room was empty rests
   assert.equal(R.litMs(lines, ms(4.5), ms(9)) / H, 1.5);
 });
+
+test('a candle put out cools even after everyone leaves: re-entered the next day, its wax is solid (regrown from the time gone by)', () => {
+  const room = W.createRoomWax({ landing });
+  const lines = chain(
+    [
+      [0, ana, 'light'],
+      [30 * 60000, ana, 'out'],
+    ],
+    { sheet: false },
+  );
+  room.advance(lines, T0 + 30 * 60000 + 1000);
+  assert.ok(C.liquidOf(room.candle(0).cd) > 0, 'just put out, its pool is liquid');
+  room.advance(lines, T0 + 30 * 60000 + 24 * 3600000); // (the next day)
+  const { cd } = room.candle(0);
+  assert.equal(C.liquidOf(cd), 0, 'set solid');
+  assert.equal(cd.burnt + cd.dripped + C.massOf(cd), C.MADE_UG, 'none of it lost');
+});
