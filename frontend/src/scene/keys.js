@@ -63,7 +63,13 @@ export function standUp(geom, facing, size = 1) {
 }
 // Near enough the chair to sit down (room m, across the floor).
 export const SIT_M = 0.8;
-export const atChair = (geom, pose) => Math.hypot(pose.pos[0] - roomCamera.seat(geom).pos[0], pose.pos[1] - roomCamera.seat(geom).pos[1]) < SIT_M;
+const near = (pose, [x, y], r) => Math.hypot(pose.pos[0] - x, pose.pos[1] - y) < r;
+export const atChair = (geom, pose) => near(pose, roomCamera.seat(geom).pos, SIT_M);
+// The owner's account things stand in a corner of the house: behind the chair, on the right, clear of
+// the shelf (one-world.md, the panel). Walk to it and the panel offers them.
+export const CORNER_M = 0.7;
+export const cornerOf = (geom) => [geom.size[0] - 0.4, 0.4];
+export const atCorner = (geom, pose) => near(pose, cornerOf(geom), CORNER_M);
 
 // --- the eye's zoom ---
 // The share of the way a wheel turn of deltaY covers.

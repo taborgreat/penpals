@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import AuthPanel from '../components/AuthPanel.jsx';
+import Panel from '../components/Panel.jsx';
 import SceneView from '../scene/SceneView.jsx';
 import { sceneOn } from '../scene/support.js';
 import { RoomContext } from '../room/RoomContext.js';
@@ -11,8 +12,9 @@ import { lobbySeeds } from '../room/seeds.js';
 // through the lobby, a room everyone sees (the same shape, its surfaces grown
 // from a fixed public seed), seen in black and white: luminance only. You
 // arrive seated, eyes on the blank sheet on the table, and cannot look around
-// yet. Registering happens on that paper (sign your name three times; the pad
-// is zoomed in, so you feel the ink); signing in happens at the same desk.
+// yet. Registering and signing in are the world's one panel, open because no
+// one is in (one-world.md, the panel): sign your name three times there, or
+// sign in by name and a password, your 24 words or your private key.
 // The moment it is done the eye closes, the lids come down and the view goes
 // dark, and it opens in your own room, where colour comes in as the eye
 // adapts. Scene only: none of it touches the record.
@@ -35,9 +37,9 @@ export default function Lobby() {
     <RoomContext.Provider value={room}>
       <section className={`lobby${closing ? ' closing' : ''}`} aria-label="The lobby">
         {sceneOn() && <SceneView className="lobby-scene" page={LOBBY_PAGE} mode="3d" sheets={[]} ground tools={false} />}
-        <div className="lobby-desk">
+        <Panel title="Come in" wide>
           <AuthPanel onDone={done} />
-        </div>
+        </Panel>
       </section>
     </RoomContext.Provider>
   );

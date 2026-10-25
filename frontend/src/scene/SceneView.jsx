@@ -223,6 +223,18 @@ const SceneView = forwardRef(function SceneView(
   const crouched = () => world && S.keys.has('shift') && S.pose?.mode === 'walk';
   const headNow = () => (S.pose ? WK.headOf(S.pose, crouched()) : null);
   const eyeNow = () => WK.eyeOf(headNow(), world ? S.zoom : null);
+  // The world: where the being is and what it holds, told to the room when it changes (the panel follows it: room/panel.js).
+  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.holding ? 'candle' : null, pen: penMode };
+  function tellPlace() {
+    const b = S.beingIn;
+    if (!b.world || !b.onBeing) return;
+    const place = { seated: !S.pose, atChair: !!S.pose && WK.atChair(GEOM, S.pose), atCorner: !!S.pose && WK.atCorner(GEOM, S.pose), holding: b.holding, pen: b.pen };
+    const key = JSON.stringify(place);
+    if (key === S.placeKey) return;
+    S.placeKey = key;
+    b.onBeing(place);
+  }
+  useEffect(tellPlace); // (a thing picked up or set down, the pen taken up: between frames too)
   // What the eye is on in Look: the patch of the room its gaze meets (null: the page).
   function gazeOf() {
     if (!S.pose) return null;
@@ -377,6 +389,7 @@ const SceneView = forwardRef(function SceneView(
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     seen(cam, moving);
+    tellPlace();
     // your head, for the others (room/presence.js sends it when it has moved enough)
     if (onPoseRef.current && head) {
       if (S.pose) onPoseRef.current({ pos: head.pos, yaw: head.yaw, pitch: head.pitch, size: head.size ?? 1, flying: S.pose.mode === 'fly' });
