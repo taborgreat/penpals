@@ -165,7 +165,7 @@ test('goldens: the fixture sheet, and the same with a lift, grow to these facts'
   assert.notEqual(whole, lifted);
   assert.deepEqual({ whole, lifted }, GOLDEN);
 });
-const GOLDEN = { whole: 'UHOb0Jfup4cU9H2DopjM0wLDIKIHTn32z8Vk3EEqKXk', lifted: 'emWeKGwJ3bU-TOkWquGwMzhQY1wzIR096ZlqfjTkSlo' }; // recorded with this layer: a change to them is a change of the law
+const GOLDEN = { whole: 'EY76BBFA43m9aQn1kqCZhKZ9COALGMjhfxE0R-7s3Us', lifted: 'w6RwPUpJA4gbpsURXuFaYE1vSGthehW66_RQr-xR-KA' }; // recorded with this layer: a change to them is a change of the law
 
 // A seal's face (a ring and a cross) and a pool of hot wax about a point (tenths of the sheet's units).
 const FACE = new Uint8Array(32 * 32).map((_, i) => {

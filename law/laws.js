@@ -90,6 +90,8 @@ LAWS[3] = Object.freeze({
   decodeActs: (bytes) => v2acts.decodeActs(bytes, { maxFormat: 3 }),
   decodeCanonical: (bytes) => v2acts.decodeCanonical(bytes, { maxFormat: 3 }),
   settledCells: (tiles) => v2look.settledCells(tiles, { law: 3 }),
+  grow: (rec, opts) => v2sim.grow(rec, { ...opts, law: 3 }),
+  createLive: (sheet) => v2live.createLive({ ...sheet, law: 3 }),
   factsDigest: (o) => v2look.factsDigest({ ...o, law: 3 }),
 });
 

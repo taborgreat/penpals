@@ -48,7 +48,14 @@ export function useRoom(name, { seat = 0 } = {}) {
   useEffect(() => () => clearTimeout(trailing.current), [name]);
   useEffect(() => {
     if (!name || typeof EventSource === 'undefined') return undefined;
-    const es = new EventSource(`/api/rooms/${encodeURIComponent(name)}/stream`);
+    // the stream opens once the page has loaded: a stream open before then keeps the page loading
+    let es = null;
+    let closed = false;
+    const open = () => {
+      if (closed) return;
+      es = new EventSource(`/api/rooms/${encodeURIComponent(name)}/stream`);
+      listen();
+    };
     const on = (ev, fn) => es.addEventListener(ev, (m) => fn(JSON.parse(m.data)));
     const put = (who, pose) =>
       setBeings((m) => {
@@ -59,36 +66,44 @@ export function useRoom(name, { seat = 0 } = {}) {
         next.set(who, { name: who, from: at ?? pose, to: pose, t0: now });
         return next;
       });
-    on('here', (d) => {
-      setBody(!!d.body);
-      setBeings(new Map(d.beings.map((b) => [b.name, { name: b.name, from: b.pose, to: b.pose, t0: performance.now() }])));
-    });
-    on('being', (d) => {
-      if (d.kind === 'leave')
-        setBeings((m) => {
-          const next = new Map(m);
-          next.delete(d.name);
+    const listen = () => {
+      on('here', (d) => {
+        setBody(!!d.body);
+        setBeings(new Map(d.beings.map((b) => [b.name, { name: b.name, from: b.pose, to: b.pose, t0: performance.now() }])));
+      });
+      on('being', (d) => {
+        if (d.kind === 'leave')
+          setBeings((m) => {
+            const next = new Map(m);
+            next.delete(d.name);
+            return next;
+          });
+        else put(d.name, d.pose ?? null);
+      });
+      on('table', (d) =>
+        setSheets((m) => {
+          const next = d.sheets ? new Map() : new Map(m);
+          for (const s of d.sheets ?? []) next.set(s.sheet, s);
+          if (d.arrived) next.set(d.arrived.sheet, d.arrived);
+          if (d.left) next.delete(d.left);
           return next;
-        });
-      else put(d.name, d.pose ?? null);
-    });
-    on('table', (d) =>
-      setSheets((m) => {
-        const next = d.sheets ? new Map() : new Map(m);
-        for (const s of d.sheets ?? []) next.set(s.sheet, s);
-        if (d.arrived) next.set(d.arrived.sheet, d.arrived);
-        if (d.left) next.delete(d.left);
-        return next;
-      }),
-    );
-    on('shared', (d) =>
-      setSheets((m) => {
-        const s = m.get(d.sheet);
-        if (!s || s.lines.some((l) => l.n === d.line.n)) return m;
-        return new Map(m).set(d.sheet, { ...s, names: { ...s.names, ...d.names }, lines: [...s.lines, d.line].sort((a, b) => a.n - b.n) });
-      }),
-    );
-    return () => es.close();
+        }),
+      );
+      on('shared', (d) =>
+        setSheets((m) => {
+          const s = m.get(d.sheet);
+          if (!s || s.lines.some((l) => l.n === d.line.n)) return m;
+          return new Map(m).set(d.sheet, { ...s, names: { ...s.names, ...d.names }, lines: [...s.lines, d.line].sort((a, b) => a.n - b.n) });
+        }),
+      );
+    };
+    if (document.readyState === 'complete') open();
+    else window.addEventListener('load', open, { once: true });
+    return () => {
+      closed = true;
+      window.removeEventListener('load', open);
+      es?.close();
+    };
   }, [name]);
   // your head moved ({ pos, yaw, pitch, size, flying }, or seated: { at: the point looked at }):
   // a motion act when it has moved enough (and you are a being here); flying, the body

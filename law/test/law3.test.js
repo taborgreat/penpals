@@ -44,7 +44,7 @@ const pool = (x, y, t = 0) =>
   ].map(([dx, dy], k) => ({ kind: 'drip', t: t + 150 * k, x: x + dx, y: y + dy, amt: 400000, heat: 220 }));
 const press = (x, y, t, more = {}) => ({ kind: 'press', t, x, y, depth: 220, angle: 0, tiltX: 0, tiltY: 0, cell: 2, w: 32, h: 32, face: FACE, ...more });
 
-test('format 3 is law 3 alone; law-2 writing grows the same under law 3', () => {
+test('format 3 is law 3 alone; law-2 writing grows about the same under law 3 (a little fairer: outside.md §1.3)', () => {
   const rec = record([{ path: samplePath(line(0, 0, 80, 10), () => 40), pen: PENS.medium, start: 0 }], [10, 10]);
   const marked = { ...rec, marks: [{ kind: 'drip', t: 0, x: 300, y: 60, amt: 60000, heat: 200 }] };
   const bytes = L3.encodeActs(marked);
@@ -55,13 +55,13 @@ test('format 3 is law 3 alone; law-2 writing grows the same under law 3', () => 
   // wax alone, no strokes: a record too
   const waxOnly = { orgX: 0, orgY: 0, strokes: [], marks: pool(2000, 2000) };
   assert.deepEqual(L3.decodeCanonical(L3.encodeActs(waxOnly)).marks.length, 9);
-  // the same law-2 writing: the same cells, its facts digested as law 3
+  // the same writing under law 3: its box within a cell, its ink within a few percent (a
+  // record keeps its own law: law-2 records still grow under law 2, goldens-v2)
   const a = grow(rec, L2);
   const b = grow(rec, L3);
-  assert.deepEqual(
-    b.cells.map((c) => c.slice(0, 14)),
-    a.cells,
-  );
+  b.box.forEach((v, k) => assert.ok(Math.abs(v - a.box[k]) <= 1, `box ${a.box} → ${b.box}`));
+  const total = (cs) => cs.reduce((n, c) => n + ink(c), 0);
+  assert.ok(Math.abs(total(b.cells) / total(a.cells) - 1) < 0.05);
   assert.ok(b.cells.every((c) => c[15] === 0));
 });
 
@@ -164,7 +164,7 @@ test('goldens: wax, a seal, a break and writing over it; and a dip pen', () => {
   assert.deepEqual({ sealed: digest(sealed), dip: digest(dip) }, GOLDEN);
 });
 
-const GOLDEN = { sealed: 'Ng8bLQCw8ZCq26OqQUsEdR8zyZ9KC8hjGiyS_fz5eIg', dip: '8qIKKZPl3l-khZshjhsF3cdPMYgj99JTSZ5VAkVPg5U' };
+const GOLDEN = { sealed: '7bcfBEJvYUmYeiy7CShvyEUMyUU-szLkeBwoUHsY_JQ', dip: 'ZK9JDN3ahTST6mteugkSkdbYeOvIc9xSmU9UCsEosoM' };
 
 test("a stamper's face is a signature in relief, mirrored: its impression reads the right way round", async () => {
   const { faceOf } = await import('../seal.js');

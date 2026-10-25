@@ -36,6 +36,10 @@
 //      under wax the paper is sealed (no water enters its fibers) and ink landing
 //      on it beads off the nib. A press dents soft wax with the stamper's face; a
 //      break cracks it. Law-2 records have neither, so nothing here runs for them.
+//  11. direction fairness (outside.md §1.3): a broad or flex nib's footprint is
+//      measured across and along the nib rounding both ways alike, so the same
+//      mark turned settles the same turned (law 2 rounds down: one side of a nib
+//      came out a cell narrower than the other, and 135° drew longer than 45°)
 //
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry) or under the nib (stamp).
@@ -230,6 +234,9 @@ function waxOn(t) {
 }
 const sealed = (t, i) => t.wax !== undefined && t.wax !== null && t.wax[i] >= WAX_SEAL;
 
+// n / 16384 rounded to the nearest, halves away from zero: the same both ways (law 3).
+const roundQ14 = (n) => (n >= 0 ? floorDiv(n + 8192, 16384) : -floorDiv(-n + 8192, 16384));
+
 function gallOn(t) {
   if (!t.G) {
     t.G = new Int32Array(TT);
@@ -280,9 +287,10 @@ function hasFacts(t) {
 // gallAgeH: the age of the gall the water meets, in hours. Every record is
 // minutes long, so within one record it is 0 (no record carries it); it is the
 // hook for writing over an older sheet, which needs a ruling.
-export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY = 0, instrument = null, track = false, gallAgeH = 0 }) {
+// paper: a paper to grow on instead of the key's (the law's own tests: an even sheet, to see the law alone)
+export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY = 0, instrument = null, track = false, gallAgeH = 0, paper: evenPaper = null, law = 2 }) {
   if (!Number.isInteger(scale) || scale < SCALE_MIN || scale > SCALE_MAX) throw new LawError('scale', 'scale out of range');
-  const paper = makePaper(paperKey, family);
+  const paper = evenPaper ?? makePaper(paperKey, family);
   const tiles = new Map();
   const wetTiles = new Set();
   let wetCells = 0;
@@ -454,6 +462,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   let abs0 = 0,
     abs1 = 0,
     abs2 = 0;
+  const fair = law >= 3; // (11: direction fairness)
   let carry = 0;
   let well = 0; // what is left in a dipped nib's reservoir (law 3), of wellCap
   let wellCap = 0; // 0: not a dip pen (it never runs dry)
@@ -507,8 +516,8 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
         const dy = cy * HT_PER_CELL + 5 - py;
         for (let cx = cx0; cx <= cx1; cx++) {
           const dx = cx * HT_PER_CELL + 5 - px;
-          const u = floorDiv(dx * cos + dy * sin, 16384);
-          const v = floorDiv(dy * cos - dx * sin, 16384);
+          const u = fair ? roundQ14(dx * cos + dy * sin) : floorDiv(dx * cos + dy * sin, 16384);
+          const v = fair ? roundQ14(dy * cos - dx * sin) : floorDiv(dy * cos - dx * sin, 16384);
           const g = clamp(a - Math.abs(u), 0, HT_PER_CELL) * clamp(b - Math.abs(v), 0, HT_PER_CELL);
           if (g > 0) {
             fx.push(cx);
@@ -672,7 +681,8 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     const ex = floorDiv(end[3], HT_PER_CELL),
       ey = floorDiv(end[4], HT_PER_CELL);
     const et = getTile(floorDiv(ex, TILE), floorDiv(ey, TILE));
-    const fill = Math.min(256, floorDiv(et.W[(ey - et.ty * TILE) * TILE + (ex - et.tx * TILE)] * 256, W_SAT));
+    const under = fair ? wetAt(end[3], end[4]) : et.W[(ey - et.ty * TILE) * TILE + (ex - et.tx * TILE)];
+    const fill = Math.min(256, floorDiv(under * 256, W_SAT));
     const fed = dwellMs > DWELL_MS ? 0 : floorDiv(floorDiv(feed, 256) * FEED_Q, 256) * (256 - fill);
     const supply = pen.flow === 0 ? 0 : floorDiv(wipe + fed, DEPOSIT_D16) + carry;
     // a dipped nib gives as much as it still holds allows: its line fades as it empties
@@ -1058,6 +1068,28 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     }
   }
 
+  // The water under the nib's point (law 3, direction fairness): the four cells about
+  // it, each as near as it is (law 2 read the one cell down and right of the point, so
+  // a nib on a cell's corner fed one way more than its mirror).
+  function wetAt(X, Y) {
+    const x0 = floorDiv(X - 5, HT_PER_CELL),
+      y0 = floorDiv(Y - 5, HT_PER_CELL);
+    const fx = X - 5 - x0 * HT_PER_CELL,
+      fy = Y - 5 - y0 * HT_PER_CELL;
+    let w = 0;
+    for (const [cx, cy, k] of [
+      [x0, y0, (HT_PER_CELL - fx) * (HT_PER_CELL - fy)],
+      [x0 + 1, y0, fx * (HT_PER_CELL - fy)],
+      [x0, y0 + 1, (HT_PER_CELL - fx) * fy],
+      [x0 + 1, y0 + 1, fx * fy],
+    ]) {
+      if (!k) continue;
+      const t = getTile(floorDiv(cx, TILE), floorDiv(cy, TILE));
+      w += t.W[(cy - t.ty * TILE) * TILE + (cx - t.tx * TILE)] * k;
+    }
+    return floorDiv(w, HT_PER_CELL * HT_PER_CELL);
+  }
+
   // --- law 3: the dip, and the wax ---
 
   // The pen dipped: its reservoir full (level 1..WELL_MAX).
@@ -1372,9 +1404,9 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
 // Grow a whole decoded record on a paper. Returns the tiles with facts (and, for
 // law 3, each press's seal: whether it took). A record's marks (law 3) land at
 // their moments, between and within its strokes; a pen act that sets `well` is a dip.
-export function grow(rec, { paperKey, family, scale = SCALE_ONE, instrument = null, gallAgeH = 0 }) {
+export function grow(rec, { paperKey, family, scale = SCALE_ONE, instrument = null, gallAgeH = 0, law = 2 }) {
   precheck(rec, scale);
-  const sim = createSim({ paperKey, family, scale, orgX: rec.orgX, orgY: rec.orgY, instrument, gallAgeH });
+  const sim = createSim({ paperKey, family, scale, orgX: rec.orgX, orgY: rec.orgY, instrument, gallAgeH, law });
   const timeline = penTimeline(rec);
   const marks = rec.marks ?? [];
   let mi = 0;

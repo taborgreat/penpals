@@ -86,8 +86,8 @@ function paint(t, rgba = new Uint8ClampedArray(TT * 4)) {
   return rgba;
 }
 
-export function createLive({ paperKey, family, keep = 24 }) {
-  let sim = createSim({ paperKey, family, track: true });
+export function createLive({ paperKey, family, keep = 24, law = 2 }) {
+  let sim = createSim({ paperKey, family, track: true, law });
   const shown = new Map();
   const scratchC = new Uint8ClampedArray(TT * 4); // a tile's colour, drawn here first
   const scratchH = new Int16Array(TT * 4); // and its heights
@@ -147,7 +147,7 @@ export function createLive({ paperKey, family, keep = 24 }) {
       if (!s) return false;
       if (s.snap) sim.restore(s.snap);
       else {
-        sim = createSim({ paperKey, family, track: true });
+        sim = createSim({ paperKey, family, track: true, law });
         for (const d of done) feedStroke(d);
         for (const key of shown.keys()) sim.redraw(...key.split(',').map(Number));
       }
