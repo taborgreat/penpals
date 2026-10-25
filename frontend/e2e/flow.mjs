@@ -494,7 +494,8 @@ try {
   console.log(`   video ${webm.length} bytes, GIF ${gif.length} bytes`);
 
   step('E sets it down lower on the page: one move');
-  await page.mouse.move(onInk.x, onInk.y + view.height * 0.12);
+  await page.mouse.move(onInk.x, onInk.y + view.height * 0.12, { steps: 8 }); // (the writing in the hand follows it)
+  if (process.env.FLOW_SHOT_HELD) await page.waitForTimeout(300).then(() => page.screenshot({ path: process.env.FLOW_SHOT_HELD }));
   await scene.focus();
   await page.keyboard.press('e');
   await panel(page, 'Your writing, in your hand').waitFor({ state: 'detached', timeout: 10000 });

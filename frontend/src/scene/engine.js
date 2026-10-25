@@ -919,6 +919,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       sheets.set(id, sheet);
       return sheet;
     },
+    // A sheet in the hand (one-world.md: the held sheet follows the hand): drawn moved by [dx, dy] (page px)
+    // and lifted z (page px) from where it lies, until it is set down (where a move puts it anew).
+    liftSheet(id, [dx, dy] = [0, 0], z = 0) {
+      sheets.get(id)?.group.position.set(dx, -dy, z);
+    },
     removeSheet(id) {
       const s = sheets.get(id);
       if (!s) return;

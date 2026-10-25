@@ -64,7 +64,7 @@ import * as WK from './keys.js';
 //               the table, W A S D stand up and walk, Space jumps (twice: flies), Shift crouches or
 //               lowers, a drag turns the head, the scroll is the eye's zoom, E picks up, sets down
 //               and sits at the chair (held, it tilts what is in the hand); no tools over the view
-//   sheetHand   the world: { items: [{ id, rect: [x0, y0, x1, y1] (page px) }], held, pick(id, p), down(p) }:
+//   sheetHand   the world: { items: [{ id, sheet (its scene sheet), rect: [x0, y0, x1, y1] (page px) }], held, pick(id, p), down(p) }:
 //               writing on the page that E picks up (the topmost under the pointer) and sets down
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
@@ -100,6 +100,7 @@ const SIZE_MIN = 1e-4; // a being as small as a bead of ink
 // The pen in the hand (rooms.md §3c): a writer that says nothing of its nib writes with a medium pen.
 const PLAIN_PEN = lawPen({ nib: 'pen', size: PEN_SIZES.medium }, '#000000');
 const LIFT_M = 0.002; // the nib above the paper between strokes
+const HAND_PX = 0.005 * PX_PER_M; // a sheet in the hand, just above the page it was taken from (page px): it moves over it
 // Where the plain pen lies when set down and nothing says where: its place on the table (light/room.js).
 const penRest = () => penRestOf(GEOM, 0);
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
@@ -926,6 +927,15 @@ const SceneView = forwardRef(function SceneView(
     const p0 = S.pointers.get(e.pointerId);
     if (p0) S.pointers.set(e.pointerId, { ...p0, x: e.clientX, y: e.clientY });
     S.lastPointer = { clientX: e.clientX, clientY: e.clientY }; // (what E reaches for)
+    const inHand = sheetHand?.held ? sheetHand.items.find((x) => x.id === sheetHand.held) : null;
+    if (inHand && sheetHand.grab && !S.drag) {
+      // the writing in the hand follows it over the page, a hand's height above it (one-world.md)
+      const p = pageOf(e);
+      if (p) {
+        S.view?.liftSheet(inHand.sheet, [p.x - sheetHand.grab[0] - inHand.rect[0], p.y - sheetHand.grab[1] - inHand.rect[1]], HAND_PX);
+        schedule();
+      }
+    }
     if (carrying?.holding && !S.drag) {
       // the thing in the hand: E held, the mouse tilts it; else it follows the pointer
       if (S.tilting && S.eDown && e.clientX !== S.handX) S.eDown.tilted = true;
@@ -1182,7 +1192,12 @@ const SceneView = forwardRef(function SceneView(
       }
       const p = S.lastPointer ? pageOf(S.lastPointer) : null; // the point on the page under the pointer
       if (sheetHand?.held) {
-        if (onPage(p)) sheetHand.down(p); // the writing in the hand, set down there
+        if (onPage(p)) {
+          const it = sheetHand.items.find((x) => x.id === sheetHand.held);
+          sheetHand.down(p); // the writing in the hand, set down there
+          if (it) S.view?.liftSheet(it.sheet); // (where its move lays it anew)
+          schedule();
+        }
         return;
       }
       const id = S.lastPointer ? pickableAt(S.lastPointer) : null; // the thing under the pointer, picked up
@@ -1192,8 +1207,11 @@ const SceneView = forwardRef(function SceneView(
         return;
       }
       const it = onPage(p) ? sheetHand?.items.findLast((x) => p.x >= x.rect[0] && p.y >= x.rect[1] && p.x <= x.rect[2] && p.y <= x.rect[3]) : null; // (the topmost)
-      if (it) sheetHand.pick(it.id, p);
-      else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit
+      if (it) {
+        sheetHand.pick(it.id, p);
+        S.view?.liftSheet(it.sheet, [0, 0], HAND_PX);
+        schedule();
+      } else if (S.pose && !S.glide && WK.atChair(GEOM, S.pose)) look(false); // at the chair: sit
       return;
     }
     if (k === 'h' && canPen) {

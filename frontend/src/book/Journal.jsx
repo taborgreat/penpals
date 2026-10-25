@@ -202,6 +202,7 @@ export default function Journal({ name, pageId, editable = false, onPage, fromFi
       world && mine && page
         ? {
             held: held?.id ?? null,
+            grab: held?.grab ?? null, // where it was taken hold of, from its corner (page px)
             pick(id, p) {
               const it = page.items.find((x) => x.id === id);
               if (it) setHeld({ id, grab: [p.x - it.x, p.y - it.y] });
