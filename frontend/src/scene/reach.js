@@ -1,7 +1,7 @@
 // What a hand reaches for outside (outside.md Phase 5): the nearest thing the pointer's ray meets, out
 // of the outside as it is drawn (scene/outside.js outsideNear), within an arm's reach of the head.
-//   reachOutside(spec, origin, dir, ground, { reach }) → { kind: 'stone' | 'stick' | 'limb' | 'ground', id,
-//     tree?, branch?, at (room m: where the ray meets it), t (m along the ray), limb? } | null
+//   reachOutside(spec, origin, dir, ground, { reach }) → { kind: 'stone' | 'stick' | 'made' | 'gall' | 'limb' |
+//     'ground', id, tree?, branch?, tip?, at (room m: where the ray meets it), t (m along the ray), limb? } | null
 export const ARM = 1.8; // m a hand reaches from the head: down to the ground at the feet, a being bending (Tabor's to set)
 export const DOWN = 3; // m to the ground a thing is set down on (at the feet, or a step off)
 
@@ -45,6 +45,14 @@ export function reachOutside(spec, o, d, ground, { reach = ARM } = {}) {
   for (const s of spec.stones) {
     const t = ball(o, d, s.at, Math.max(s.r, 0.03));
     if (t) take({ kind: 'stone', id: s.id, at: along(o, d, t), t });
+  }
+  for (const m of spec.made ?? []) {
+    const t = ball(o, d, [m.at[0], m.at[1], m.at[2] + 0.03], 0.06);
+    if (t) take({ kind: 'made', id: m.id, made: m, at: along(o, d, t), t });
+  }
+  for (const g of spec.galls ?? []) {
+    const t = ball(o, d, g.at, 0.04);
+    if (t) take({ kind: 'gall', id: g.tree, tip: g.tip, at: along(o, d, t), t });
   }
   for (const s of spec.sticks ?? [])
     for (const l of s.limbs) {

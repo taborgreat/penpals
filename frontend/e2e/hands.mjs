@@ -1,5 +1,5 @@
 // The hands (outside.md Phase 5), in a real browser on this machine's GPU: out through the door, a stone
-// taken up (E) and set down elsewhere; at a tree, a branch pulled (E): it breaks, or it holds; broken,
+// taken up (E) and set down elsewhere (Shift+E); at a tree, a branch pulled (E): it breaks, or it holds; broken,
 // the stick it was carved with the stone (rubbed along it); gone and come back, all as it was.
 //   node frontend/e2e/hands.mjs      the built site (npm run build -w frontend first)
 import * as W from './world.mjs';
@@ -60,7 +60,7 @@ try {
   await page.keyboard.press('e');
   await until(page, async () => (await held(page)) === stone.id, 'the stone in the hand');
   await aimAt(page, [stone.at[0] + 0.8, stone.at[1] + 0.8, stone.at[2]]);
-  await page.keyboard.press('e');
+  await page.keyboard.press('Shift+E');
   await until(page, async () => !(await held(page)), 'the stone set down');
   const moved = (await facts(page)).things.find(([id]) => id === stone.id)?.[1];
   if (!moved?.at) throw new Error('the stone is not where it was set down');
@@ -99,7 +99,7 @@ try {
     await page.evaluate(() => globalThis.__sceneLook.at([0.8, -1.5, 1.6]));
     await page.waitForTimeout(800);
     await aimAt(page, [0.8, -2.3, 0]);
-    await page.keyboard.press('e');
+    await page.keyboard.press('Shift+E');
     await until(page, async () => !(await held(page)), 'the stick set down');
     await page.waitForTimeout(1500);
     const placed = (await facts(page)).things.find(([id]) => id === stick)[1].at.map((v) => v / 1000);

@@ -960,24 +960,41 @@ const SceneView = forwardRef(function SceneView(
     }
     return reachOutside(S.outsideSpec, o, dir, S.outsideWalk.ground);
   }
-  // what is in this being's hand outside (law/hands.js things: held, by you), or null
-  const heldOutside = () => {
+  // what is in this being's hands outside (law/hands.js things: held, by you: two hands)
+  const heldAll = () => {
     const h = S.handsNow;
-    if (!h?.facts || !h.me) return null;
-    for (const [id, t] of h.facts.things) if (t.at === null && t.by === h.me) return id;
-    return null;
+    if (!h?.facts || !h.me) return [];
+    return [...h.facts.things].filter(([, t]) => t.at === null && t.by === h.me).map(([id]) => id);
   };
+  const heldOutside = () => heldAll().at(-1) ?? null;
+  const madeKind = (id) => S.handsNow?.facts?.made?.get(id) ?? null;
   const worldMm = (p) =>
     frameOf(GEOM, S.outsideNow.plot)
       .toWorld(p)
       .map((v) => Math.round(v * 1000));
   const dayNow = () => Math.floor(worldClock(new Date()).getTime() / 86400000) + 719528;
-  // E outside: set down what is in the hand; else take up a stone or a stick, or pull at a branch
-  function handsE(e) {
+  // E outside: with a hand free, take up a stone, a stick or a thing made, pick a gall, pull at a
+  // branch, or gather a handful of the ground (grass, clay; water into a fired cup in the hand); with
+  // both hands full (or Shift), set down what was taken last
+  function handsE(e, down = false) {
     const h = S.handsNow;
     if (!h?.act) return false;
     const hit = outsideHit(e);
-    const mine = heldOutside();
+    const all = heldAll();
+    const mine = all.length >= 2 || (down && all.length) ? all.at(-1) : null;
+    const act = (a) => h.act(a).catch((err) => console.warn('[hands]', err.message));
+    if (!mine && hit?.kind === 'ground') {
+      act({ act: 'gather', at: worldMm(hit.at).slice(0, 2) });
+      return true;
+    }
+    if (!mine && hit?.kind === 'gall') {
+      act({ act: 'pick', tree: hit.id, tip: hit.tip, day: dayNow() });
+      return true;
+    }
+    if (!mine && hit?.kind === 'made') {
+      act({ act: 'take', thing: hit.id });
+      return true;
+    }
     if (mine) {
       if (!hit) return false;
       const on = hit.kind === 'ground' ? hit.at : [hit.at[0], hit.at[1], S.outsideWalk.ground(hit.at[0], hit.at[1])];
@@ -989,6 +1006,53 @@ const SceneView = forwardRef(function SceneView(
     if (hit.kind === 'limb' && hit.branch === 0) return false; // (a trunk is not pulled off)
     h.act(a).catch((err) => console.warn('[hands]', err.message));
     return true;
+  }
+  // A click outside: what is in the hands used on what is in front (outside.md Phase 7: the law decides
+  // what comes of it, by the matter). A stone or a stick rubbed (dragged) along wood: carving, or rubbing.
+  function handsOn(e) {
+    const h = S.handsNow;
+    const all = heldAll();
+    if (!h?.act || !all.length) return false;
+    const hit = outsideHit(e);
+    const act = (a) => {
+      h.act(a).catch((err) => console.warn('[hands]', err.message));
+      return true;
+    };
+    const [a, b] = all;
+    const kinds = all.map((id) => madeKind(id)?.kind ?? (id.startsWith('stone:') ? 'stone' : id.startsWith('stick:') ? 'stick' : null));
+    const has = (k) => all[kinds.indexOf(k)] ?? null;
+    if (all.length === 2 && ['fibre', 'string'].includes(kinds[0]) && ['fibre', 'string'].includes(kinds[1])) return act({ act: 'twist', a, b });
+    if (has('lump') && !hit) return act({ act: 'form', thing: has('lump') });
+    if (!hit) return false;
+    const there = hit.kind === 'made' ? hit.made : null;
+    const stone = has('stone'),
+      stick = has('stick'),
+      cup = has('cup'),
+      string = has('string');
+    // a stone or a stick rubbed along wood: carving (the stone), rubbing (a stick: fire, or not)
+    if ((stone || stick) && (hit.kind === 'stick' || (hit.kind === 'limb' && hit.branch === 0))) {
+      S.drag = { kind: 'carve', tool: stone ?? stick, rub: !stone, hit, lo: hit.at, hi: hit.at, last: [e.clientX, e.clientY], dir: 0, strokes: 1 };
+      return true;
+    }
+    if (stone && hit.kind === 'stone') {
+      const s = S.outsideSpec?.stones.find((x) => x.id === hit.id);
+      return act({ act: s?.matter === 'ore' ? 'crush' : 'strike', tool: stone, thing: hit.id });
+    }
+    if (stone && there?.kind === 'gall') return act({ act: 'crush', tool: stone, thing: hit.id });
+    if (cup && there?.kind === 'fire') {
+      const c = madeKind(cup);
+      return act(c.matter === 'pottery' ? { act: 'melt', cup, fire: hit.id } : { act: 'fire', thing: cup, fire: hit.id });
+    }
+    if (cup && there?.kind === 'powder') return act({ act: 'mix', cup, thing: hit.id });
+    if (cup && there?.kind === 'cup' && madeKind(cup)?.holding?.molten) return act({ act: 'pour', cup, into: hit.id });
+    if (string && there?.kind === 'cup' && there.holding?.waxMolten) return act({ act: 'dip', string, cup: hit.id });
+    if (string && hit.kind === 'stone') {
+      // bound to the stick lying by it (Shift: loosely)
+      const s = (S.outsideSpec?.sticks ?? []).find((x) => Math.hypot(x.at[0] - hit.at[0], x.at[1] - hit.at[1]) < 0.6);
+      if (s) return act({ act: 'bind', stick: s.id, stone: hit.id, string, turns: 3, pull: e.shiftKey ? 30 : 300 });
+    }
+    if (has('axe') && hit.kind === 'limb') return act({ act: 'swing', thing: has('axe'), at: hit.id, to: worldMm([hit.at[0], hit.at[1], S.outsideWalk.ground(hit.at[0], hit.at[1])]) });
+    return false;
   }
   globalThis.__hands = {
     hit: () => outsideHit(S.lastPointer),
@@ -1104,15 +1168,7 @@ const SceneView = forwardRef(function SceneView(
       return;
     }
     const leftish = e.button === 0 || e.pointerType === 'pen' || e.pointerType === 'touch';
-    if (S.pose && leftish) {
-      // a stone in the hand, rubbed along a stick or a trunk out there: carving (outside.md Phase 5)
-      const tool = heldOutside();
-      const hit = tool && tool.startsWith('stone:') ? outsideHit(e) : null;
-      if (hit && (hit.kind === 'stick' || (hit.kind === 'limb' && hit.branch === 0))) {
-        S.drag = { kind: 'carve', tool, hit, lo: hit.at, hi: hit.at, last: [e.clientX, e.clientY], dir: 0, strokes: 1 };
-        return;
-      }
-    }
+    if (S.pose && leftish && handsOn(e)) return; // (outside: what is in the hands, on what is in front)
     if (S.pose) {
       // Look: the pen (with a surface to write on) lays ink on what it points at; else drag turns the head
       const at = wallWriter && penMode && leftish && !e.shiftKey && !S.glide ? surfaceAt(e) : null;
@@ -1387,7 +1443,11 @@ const SceneView = forwardRef(function SceneView(
       const h = S.handsNow;
       const t = d.hit;
       let a;
-      if (t.kind === 'stick') {
+      if (d.rub) {
+        // a stick rubbed along wood: its strokes' work heating the track (fire, or not: law/making.js)
+        a = { act: 'rub', tool: d.tool, thing: t.kind === 'stick' ? t.id : t.id, strokes: d.strokes, at: worldMm(t.at) };
+        if (t.kind !== 'stick') a = null; // (rubbed on a standing trunk: nothing to light it from yet)
+      } else if (t.kind === 'stick') {
         const s = S.outsideSpec?.sticks.find((x) => x.id === t.id);
         const mm = (p) => Math.max(0, Math.round((p[0] - (s?.at[0] ?? p[0])) * 1000)); // (along it, from its foot)
         a = { act: 'carve', thing: t.id, tool: d.tool, from: mm(d.lo), to: Math.max(mm(d.lo), mm(d.hi)), strokes: d.strokes };
@@ -1397,7 +1457,7 @@ const SceneView = forwardRef(function SceneView(
         const az = Math.round(((Math.atan2(t.at[0] - foot[0], t.at[1] - foot[1]) * 180) / Math.PI + 360) % 360) % 360;
         a = { act: 'carve', tree: t.id, tool: d.tool, from: up(d.lo), to: Math.max(up(d.lo), up(d.hi)), az, strokes: d.strokes };
       }
-      h?.act(a).catch((err) => console.warn('[hands]', err.message));
+      if (a) h?.act(a).catch((err) => console.warn('[hands]', err.message));
     } else if (d.kind === 'wall') {
       penHeard('up', wallWriter, d.last, surfaceNib(d.surface, d.last), e.nativeEvent);
       if (e.type === 'pointercancel') wallWriter.cancel();
@@ -1474,7 +1534,7 @@ const SceneView = forwardRef(function SceneView(
         S.eDown = { t: now, tilted: false };
         return;
       }
-      if (handsE(S.lastPointer)) return; // (outside: the hands, outside.md Phase 5)
+      if (handsE(S.lastPointer, e.shiftKey)) return; // (outside: the hands, outside.md Phase 5)
       const p = S.lastPointer ? pageOf(S.lastPointer) : null; // the point on the page under the pointer
       if (sheetHand?.held) {
         if (onPage(p)) {
@@ -1721,7 +1781,7 @@ const SceneView = forwardRef(function SceneView(
       {world && !steep && (
         <p className="scene-hint quiet">
           {looking
-            ? `W A S D ${walking ? 'walk' : 'fly'} · Space ${walking ? 'jump, twice to fly' : 'rise, twice to fall'} · Shift ${walking ? 'crouch' : 'lower'} · drag to turn your head · scroll to look closer · E picks up, sets down, opens the window and the door, pulls at a branch, sits at the chair; a stone in hand, rub to carve · R rain, G wind for a while · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''}`
+            ? `W A S D ${walking ? 'walk' : 'fly'} · Space ${walking ? 'jump, twice to fly' : 'rise, twice to fall'} · Shift ${walking ? 'crouch' : 'lower'} · drag to turn your head · scroll to look closer · E takes up, gathers, picks, pulls at a branch, opens the window and the door, sits at the chair; Shift+E sets down; a click uses what is in your hands on what is in front · R rain, G wind for a while · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''}`
             : `${penMode ? 'The pen: drag to write · ' : ''}W A S D to stand up · scroll to look closer · E picks up and sets down${canPen ? ` · H ${penMode ? 'sets the pen down' : 'for the pen'}` : ''}`}
         </p>
       )}

@@ -247,6 +247,8 @@ export const MATTER = Object.freeze({
     heat: { holds: 3500, conducts: 300, melts: null, boils: null, burns: 260, releases: 15000000, burnRate: 30, leaves: 50, air: 5, shines: 250 },
     becomes: { burnt: 'ash' },
     ink: { drinks: 0, wets: 300, hold: 400, thirst: 0, rough: 4, fibers: null },
+    draws: 1000,
+    pores: 400,
     light: 'grass',
     sound: [110, 110, 110, 260, 600, 690, 920, 990, 990, 990],
     ior: 1450,

@@ -455,6 +455,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     stick: outMat('table', grown.BOARD),
     water: outMat('water'),
     clay: outMat('clay', grown.PLASTER),
+    metal: outMat('brass', grown.BRASS),
+    wax: outMat('wax', grown.WAX),
   };
   const outsideGroup = new THREE.Group();
   roomGroup.add(outsideGroup);
@@ -531,6 +533,44 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       },
     );
     instanced(box, outMats.mark, o.marks ?? [], (m) => m4.compose(new THREE.Vector3(...m.at), q.identity(), new THREE.Vector3(m.size[1] * 4, m.size[1] * 4, m.size[0])));
+    // the galls on the oaks, small and brown
+    instanced(pebble, outMats.wood, o.galls ?? [], (g) => m4.compose(new THREE.Vector3(...g.at), q.identity(), new THREE.Vector3(0.015, 0.015, 0.015)));
+    // what hands made, lying: a fibre or a string a thin rod; a lump, a gall, powder a heap; a cup, a
+    // candle upright; metal a bar; an axe its stick with its stone; a fire, its wood glowing
+    const SIZE = {
+      fibre: [0.15, 0.004, 0.004],
+      string: [0.3, 0.003, 0.003],
+      lump: [0.05, 0.05, 0.035],
+      gall: [0.02, 0.02, 0.02],
+      powder: [0.04, 0.04, 0.01],
+      cup: [0.04, 0.04, 0.06],
+      candle: [0.012, 0.012, 0.12],
+      metal: [0.06, 0.02, 0.01],
+      axe: [0.4, 0.03, 0.03],
+      fire: [0.12, 0.12, 0.08],
+    };
+    const MAT = {
+      grass: outMats.ground,
+      clay: outMats.clay,
+      pottery: outMats.clay,
+      bark: outMats.wood,
+      ore: outMats.ore,
+      stone: outMats.stone,
+      chalk: outMats.chalk,
+      metal: outMats.metal,
+      wax: outMats.wax,
+      wood: outMats.stick,
+    };
+    for (const [matter, mat] of Object.entries(MAT))
+      instanced(
+        matter === 'wood' ? box : pebble,
+        mat,
+        (o.made ?? []).filter((m) => m.matter === matter),
+        (m) => {
+          const s = SIZE[m.kind] ?? [0.05, 0.05, 0.05];
+          m4.compose(new THREE.Vector3(m.at[0], m.at[1], m.at[2] + s[2] / 2), q.identity(), new THREE.Vector3(...s));
+        },
+      );
     const leaves = o.trees.flatMap((t) => t.leaves);
     instanced(pebble, outMats.leaf, leaves, (l) => {
       const r = Math.sqrt(l.area / Math.PI);

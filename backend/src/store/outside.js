@@ -41,6 +41,9 @@ export const outsideNow = () => ({
   broken: [...state.broken].map(([tree, list]) => ({ tree, list })),
   cuts: [...state.cuts].map(([id, list]) => ({ id, list })),
   marks: [...state.marks].map(([tree, list]) => ({ tree, list })),
+  made: [...state.made].map(([id, m]) => ({ id, ...m })),
+  edges: [...state.edges],
+  picked: [...state.picked],
   k: Object.fromEntries(state.k),
 });
 export const outsideLines = () => lines;

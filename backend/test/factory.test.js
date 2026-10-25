@@ -27,8 +27,8 @@ const WORLD = {
   'POST /api/shared/:sheet/acts': ['acts on a shared sheet, sealed by each hand', 'the ink law; the seal press (law/v2/sim.js)'],
   'POST /api/world/acts': ['a house placed or moved', 'law/world.js: the next free plot, in chain order'],
   'POST /api/outside/acts': [
-    "a being's hands on the outside: a stone taken or put, a branch broken, a stick or a tree carved",
-    'law/hands.js: the wood breaks past its strength, the harder takes the softer, possession',
+    "a being's hands on the outside: a stone taken or put, a branch broken, a stick or a tree carved; gathered, twisted, struck, bound, swung, rubbed, formed, fired, picked, crushed, mixed, melted, poured, dipped",
+    'law/hands.js, law/making.js: the wood breaks past its strength, the harder takes the softer, the heat rule, the matter rows; possession',
   ],
   'POST /api/letters': ['a letter written: its acts, sealed', 'the ink law'],
 };

@@ -114,6 +114,14 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, fa
     return out;
   };
   const marks = [];
+  const galls = [];
+  // what hands made (law/making.js), lying where it was set down: its kind, its matter, its place
+  const made = [];
+  for (const [id, t] of things) {
+    const m = facts?.made?.get(id);
+    if (!m || !t.at || !near(mm(t.at))) continue;
+    made.push({ id, kind: m.kind, matter: m.matter, at: mm(t.at), holding: m.holding ?? null });
+  }
   return {
     ways,
     ground: { x0: gx0, y0: gy0, step: GROUND_STEP, nx: n, ny: n, z },
@@ -135,6 +143,12 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, fa
           const r = foot ? foot.r : 0.05;
           marks.push({ at: [p[0] + Math.sin(a) * r, p[1] + Math.cos(a) * r, p[2] + (m.from + m.to) / 2000], size: [Math.max(0.005, (m.to - m.from) / 1000), m.depth / 1e6 + 0.002] });
         }
+        const T0 = O.treeNow(t, day);
+        for (const tip of H.gallsOf(t, day)) {
+          if (facts?.picked?.has(`${t.id}/${tip}`)) continue;
+          const tp = T0.tips.find((x) => x.id === tip);
+          if (tp && !off.has(tp.branch)) galls.push({ tree: t.id, tip, at: lift(tp.pos) });
+        }
         return {
           id: t.id,
           tree: t,
@@ -144,6 +158,8 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, fa
         };
       }),
     marks,
+    made: made.filter((m) => seen(m.at)),
+    galls,
     houses: others.map((h) => ({ key: h.key, at: F.toRoom([...WORLD.centreOf(h.plot), O.groundAt(...WORLD.centreOf(h.plot))]), size: geom.size })).filter((h) => seen(h.at)),
   };
 }
