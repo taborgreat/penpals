@@ -409,11 +409,14 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   // everyone else in the world, where they are (the world's stream: world m), drawn in this house's frame:
   // out of doors, in their own houses, in this one (one-world.md: one space)
   const world = useWorld();
+  const things = useThings(name);
+  // whether a being holds one of this house's pens (its acts: in a hand, theirs)
+  const holdsPen = useCallback((who) => R.PENS.some((p) => things?.[p]?.at === null && things[p]?.by === who), [things]);
   const seen = useMemo(() => {
-    if (!frame) return others;
+    if (!frame) return others.map((b) => ({ ...b, pen: holdsPen(b.name) }));
     const local = (pose) => pose && { ...pose, pos: frame.toRoom(pose.pos) };
-    return world.beings.filter((b) => b.name !== me && b.to).map((b) => ({ ...b, from: local(b.from), to: local(b.to) }));
-  }, [world.beings, frame, me, others]);
+    return world.beings.filter((b) => b.name !== me && b.to).map((b) => ({ ...b, from: local(b.from), to: local(b.to), pen: holdsPen(b.name) }));
+  }, [world.beings, frame, me, others, holdsPen]);
   const actions = {
     // one more paper on your own table, somewhere on it
     newPaper: ({ size = P.SIZES.half, rule = 0 } = {}) => (key && family ? bornPaper(key, family, newPaperAt(GEOM, size), { size, rule }).catch(fail) : null),
@@ -440,7 +443,6 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     return () => clearInterval(t);
   }, []);
   // shut up (the door and the shutters shut: outside.md Phase 4) no daylight comes in: as at night
-  const things = useThings(name);
   const night = dusk || (!R.openNow(things, 'door') && !R.openNow(things, 'shutters'));
   const tends = body && !!key && !!roomKey && !!me && [me, ...others.map((b) => b.name)].sort()[0] === me;
   const asked = useRef({}); // candle → what was asked of it, until it is so (an act on its way is not sent twice)

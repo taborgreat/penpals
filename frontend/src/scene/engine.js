@@ -344,6 +344,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     if (!lightNow) return;
     lightAt(GEOM, lightNow.ambient, at, E);
     for (const mesh of meshes) {
+      if (!mesh.material.matter) continue; // (not matter: a being's signature beside its head)
       const { A, B } = colorsOf(E, lightNow.W, mesh.material.matter);
       const a = (mesh.userData.ambient ??= { A: new THREE.Vector3(), B: new THREE.Vector3() });
       a.A.set(...A);
@@ -1016,7 +1017,22 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       face: part(ball, M.dark, 'face'),
       hands: [part(ball, M.skin, 'hand-0'), part(ball, M.skin, 'hand-1')],
       pen: part(box, M.pen, 'pen'),
+      sign: null,
     };
+    // their signature beside their head (its look, as anyone who may see it sees it)
+    new THREE.TextureLoader().load(
+      `/api/signatures/${encodeURIComponent(name)}/look`,
+      (tex) => {
+        if (beings.get(name) !== b) return tex.dispose();
+        tex.colorSpace = THREE.SRGBColorSpace;
+        b.sign = new THREE.Sprite(gpu.signMaterial(tex));
+        b.sign.userData.aspect = tex.image.height / Math.max(1, tex.image.width);
+        group.add(b.sign);
+        invalidate?.();
+      },
+      undefined,
+      () => {}, // (one they may not see: no signature)
+    );
     roomGroup.add(group);
     beings.set(name, b);
     return b;
@@ -1629,8 +1645,9 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     // The others in the room (rooms.md §4): [{ name, pose: { pos (the head, room m), yaw,
     // pitch, body, size }, hidden? }], as they are now (the view glides them between their acts).
     setBeings(list) {
+      globalThis.__beingsDrawn = () => [...beings].map(([n, b]) => ({ name: n, sign: !!b.sign, pen: b.pen.visible })); // (for the checks: e2e/oneworld.mjs)
       const here = new Set();
-      for (const { name, pose, hidden } of list ?? []) {
+      for (const { name, pose, hidden, pen } of list ?? []) {
         if (!pose) continue;
         here.add(name);
         const b = beingOf(name);
@@ -1659,8 +1676,14 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         });
         const [px, py] = ahead(by, 0.24 * s);
         const [qx, qy] = ahead(by + Math.PI / 2, 0.16 * s);
+        b.pen.visible = !!pen; // (a pen in their hand only while they hold one: what else they hold is drawn where it is)
         b.pen.position.set(x + px + qx, y + py + qy, z - 0.33 * s);
         b.pen.scale.set(0.008 * s, 0.008 * s, 0.13 * s);
+        if (b.sign) {
+          const [rx, ry] = ahead(hy + Math.PI / 2, 0.24 * s);
+          b.sign.position.set(x + rx, y + ry, z + 0.06 * s);
+          b.sign.scale.set(0.3 * s, 0.3 * s * b.sign.userData.aspect, 1);
+        }
         lightHere(b.group.children, b.body.position.toArray());
       }
       for (const [name, b] of beings) {

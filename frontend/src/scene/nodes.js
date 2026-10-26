@@ -985,6 +985,13 @@ export function cutMaterial(picture) {
 // seenRgb), brighter toward its middle, where the eye takes it as white, with a
 // soft glow; added to what is behind it. `brightness` is its strength now. (As
 // hot gas in the room's air it waits for world.md 3b.)
+// A being's signature beside its head (rooms.md §4): its look (the ink as it lies, colour to alpha), facing
+// whoever looks; it names them, it is not a thing in the room.
+export function signMaterial(tex) {
+  const m = new SpriteNodeMaterial({ transparent: true, depthWrite: false });
+  m.colorNode = texture(tex);
+  return m;
+}
 export function flameMaterial() {
   const m = new SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const brightness = uniform(1);

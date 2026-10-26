@@ -73,6 +73,10 @@ try {
   console.log(`   bo sees ana at ${anaSeen.at.map((v) => v.toFixed(2)).join(', ')} m (his frame)`);
   if (!his.opens?.door) throw new Error(`his door, open, as ana's screen has it: ${JSON.stringify(his.opens)}`);
 
+  // each drawn with their signature beside their head (rooms.md §4), and no pen in a hand that holds none
+  const drawnBo = await until(ana, async () => (await ana.evaluate(() => globalThis.__beingsDrawn?.() ?? [])).find((b) => b.name === 'bo' && b.sign), 'bo drawn with his signature');
+  if (drawnBo.pen) throw new Error('bo is drawn with a pen he does not hold');
+  console.log('   bo, as ana sees him: his signature beside his head, his hands empty');
   step("ana walks to bo's house and in through his open door: into his house, standing where she came in");
   await ana.evaluate(([x, y, z]) => globalThis.__sceneLook.at([x, y, z]), [his.at[0] + doorMid, his.at[1] - 0.8, his.at[2] + 1.6]);
   await ana.evaluate(([x, y, z]) => globalThis.__sceneLook.aim([x, y, z]), [his.at[0] + doorMid, his.at[1] + 2, his.at[2] + 1.4]);

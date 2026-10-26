@@ -416,7 +416,7 @@ const SceneView = forwardRef(function SceneView(
         const { pose, moving } = poseNow(b, now);
         gliding ||= moving;
         const inside = !!pose && !!head && Math.hypot(...pose.pos.map((v, k) => v - head.pos[k])) < INSIDE_M * (pose.size ?? 1);
-        return { name: b.name, pose, hidden: inside };
+        return { name: b.name, pose, hidden: inside, pen: !!b.pen }; // (a pen in their hand: theirs to hold)
       });
       S.view.setBeings(list);
       S.beingsOn = list.length > 0;
