@@ -4,10 +4,11 @@
 //   reachOutside(spec, origin, dir, ground, { reach }) → { kind: 'stone' | 'stick' | 'made' | 'gall' | 'hive' | 'feather' | 'mailbox' | 'door' |
 //     'limb' | 'ground', id, tree?, branch?, tip?, laid?, at (room m: where the ray meets it), t (m along the ray), limb? } | null
 import { MAILBOX } from './outside.js';
+import { outside as O } from 'penpals-law';
 
 export const ARM = 1.8; // m a hand reaches from the head: down to the ground at the feet, a being bending (Tabor's to set)
 export const DOWN = 3; // m to the ground a thing is set down on (at the feet, or a step off)
-export const STONE_SQUAT = 0.6; // a stone as tall as this of its width (drawn so: engine.js; met so: here)
+export const STONE_SQUAT = O.OUTSIDE.stones.squat; // a stone as tall as this of its width (the law's: drawn so, engine.js; met so, here)
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];

@@ -29,7 +29,7 @@ export const SEED = 'penpals:the world'; // the world's public seed
 // The world's makeup: Tabor's to set.
 export const OUTSIDE = Object.freeze({
   hills: { size: 40, height: 1.5 },
-  stones: { cell: 2, share: 0.25, smallest: 0.02, biggest: 0.25, soft: 0.2, ore: 0.08 },
+  stones: { cell: 2, share: 0.25, smallest: 0.02, biggest: 0.25, soft: 0.2, ore: 0.08, squat: 0.6 }, // (squat: as tall as this of its width)
   trees: { cell: 7, share: 0.35, oldest: 80 },
 });
 // the grain the water is found at (m), and how far each piece of ground is looked over for its hollows (m)

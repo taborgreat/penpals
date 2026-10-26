@@ -77,3 +77,13 @@ test('carving with a soft stone on hard wood takes nothing; a hard one takes as 
   const forged = { ...lines[6], seal: lines[5].seal };
   assert.equal(H.grow([...lines.slice(0, 6), forged], { seals: true }).cuts.get(stick), undefined);
 });
+
+test('a hand lifts only what it can hold up: a stone heavier than a being pulls stays where it lies', () => {
+  const stones = near(0, -20, 60).stones;
+  const big = stones.find((s) => H.stoneMass(s) * 9.81 > H.BEING.pull);
+  const small = stones.find((s) => H.stoneMass(s) * 9.81 <= H.BEING.pull);
+  assert.ok(big && small, `stones of both: ${H.stoneMass(big).toFixed(0)} kg, ${H.stoneMass(small).toFixed(1)} kg`);
+  const state = H.start();
+  assert.equal(H.check(state, { v: 1, kind: 'outside', by, k: 1, act: 'take', thing: big.id }), 'too heavy for a hand to lift');
+  assert.equal(H.check(state, { v: 1, kind: 'outside', by, k: 1, act: 'take', thing: small.id }), null);
+});

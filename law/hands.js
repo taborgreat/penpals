@@ -36,7 +36,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { T, jcs, utf8, concat, b64url, fromB64url } from './tags.js';
 import { sealOf, verifySeal, isGoodPublicKey } from './keys.js';
 import { MATTER, BEINGS } from './matter.js';
-import { stonesIn, treesIn, treeNow, matterAt } from './outside.js';
+import { stonesIn, treesIn, treeNow, matterAt, OUTSIDE } from './outside.js';
 import * as MK from './making.js';
 import * as LIFE from './life.js';
 
@@ -103,6 +103,9 @@ export function breaks(br) {
   const strength = MATTER.wood.strength * 1e6; // Pa
   return BEING.pull * br.reach >= (strength * Math.PI * br.r ** 3) / 4;
 }
+// A stone's mass (kg): as round as it is wide, as squat as stones lie (law/outside.js OUTSIDE.stones), of its matter.
+const G = 9.81; // m/s²
+export const stoneMass = (s) => (4 / 3) * Math.PI * s.r ** 3 * OUTSIDE.stones.squat * MATTER[s.matter].density;
 // How deep a stroke of `tool` cuts into `matter` (µm): only the harder takes the softer.
 export const cutOf = (tool, matter) => Math.max(0, MATTER[tool].hardness - MATTER[matter].hardness) * CUT;
 
@@ -211,6 +214,7 @@ export function check(state, act, ms = null) {
     if (!exists(act.thing)) return 'there is no such thing';
     const t = state.things.get(act.thing);
     if (t?.at === null) return 'it is in a hand already';
+    if (act.thing.startsWith('stone:') && stoneMass(stoneOf(act.thing)) * G > BEING.pull) return 'too heavy for a hand to lift';
     return null;
   }
   if (act.act === 'put') return held(state, act.thing, act.by) ? null : 'it is not in that hand';
