@@ -858,6 +858,12 @@ const SceneView = forwardRef(function SceneView(
     if (other) return roomCamera.clearance(GEOM, [p[0] - other.at[0], p[1] - other.at[1], p[2] - other.at[2]]);
     return S.outsideWalk ? p[2] - S.outsideWalk.ground(p[0], p[1]) : Infinity;
   };
+  // The topmost paper lying on the table under the pointer: { on (tableWriter's), q (its units), at (page px) }
+  const paperUnder = (e) => {
+    const at = tableWriter ? pageOf(e) : null;
+    const on = at && tableWriter.sheets.find((t) => inSheet(t, at));
+    return on ? { on, q: { x: at.x - on.origin[0], y: at.y - on.origin[1] }, at } : null;
+  };
   // whether a house stands at (x, y) (room m): its floor there, not the ground
   const underHouse = (x, y) => inBox(GEOM, [x, y]) || (S.outsideSpec?.houses ?? []).some((h) => inBox(GEOM, [x - h.at[0], y - h.at[1]]));
   // What the pen points at in the room: a book surface and the point on its page,
@@ -1487,6 +1493,15 @@ const SceneView = forwardRef(function SceneView(
           penAt(onto, ev);
           break;
         }
+        // across the table onto a paper lying on it: no edge between them, the line goes on in the paper
+        const paper = d.surface === 'table' ? paperUnder(ev) : null;
+        if (paper && tableWriter.down(paper.on.sheet, paper.q, ev, d.type ?? e.pointerType) !== false) {
+          wallWriter.up(d.last, ev);
+          penHeard('up', wallWriter, d.last, surfaceNib(d.surface, d.last), ev);
+          S.drag = { kind: 'table', on: paper.on, last: paper.q, type: d.type };
+          penAt(paper.at, ev);
+          break;
+        }
         const at = surfaceAt(ev, d.surface);
         if (!at) {
           // off the surface (or too grazing): the stroke ends there
@@ -1504,10 +1519,22 @@ const SceneView = forwardRef(function SceneView(
       for (const ev of evs.length ? evs : [e.nativeEvent]) {
         const p = pageOf(ev);
         if (!inSheet(d.on, p)) {
-          // off the sheet: the stroke ends at its edge
+          // off the paper's edge: no edge between it and what it lies on: the line goes on there, on
+          // another paper, or on the table's own wood (its own chain: one-matter.md Phase 3)
           tableWriter.up(d.last, ev);
           penAt({ x: d.last.x + d.on.origin[0], y: d.last.y + d.on.origin[1] }, ev, false);
-          S.drag = null;
+          const next = paperUnder(ev);
+          if (next && tableWriter.down(next.on.sheet, next.q, ev, d.type ?? e.pointerType) !== false) {
+            S.drag = { kind: 'table', on: next.on, last: next.q, type: d.type };
+            penAt(next.at, ev);
+            break;
+          }
+          const desk = wallWriter ? surfaceAt(ev, 'table') : null;
+          S.drag = desk ? { kind: 'wall', surface: 'table', last: desk.p, type: d.type ?? e.pointerType } : null;
+          if (desk) {
+            wallWriter.down('table', desk.p, ev, d.type ?? e.pointerType);
+            penHeard('on', wallWriter, desk.p, surfaceNib('table', desk.p), ev);
+          }
           break;
         }
         d.last = { x: p.x - d.on.origin[0], y: p.y - d.on.origin[1] };
