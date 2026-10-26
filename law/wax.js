@@ -162,12 +162,16 @@ export const dripsOf = (lines, { landing, bodies = null, until = Date.now() }) =
 // The drips that landed on a paper, as its record's marks take them: on the paper's clock
 // (ms from its birth, `born`), in tenths of its units; a pour more than a mark holds, as
 // several at that spot. → [{ t, x, y, amt, heat }]
-export function dripsOn(drips, paper, born) {
+export const dripsOn = (drips, paper, born) => dripsOnto(drips, (d) => (d.on?.on === 'paper' && d.on.paper === paper ? d.on.q : null), born);
+// The drips that landed on any matter with a chain, where `where(drip)` gives each one's place on it (its
+// units: { x, y }, or null: not on it): as dripsOn, for a house's table or floor (frontend room/drops.js).
+export function dripsOnto(drips, where, born) {
   const c = (v) => Math.max(0, Math.min(MAX_COORD, Math.round(v * 10)));
   const out = [];
   for (const d of drips) {
-    if (d.on?.on !== 'paper' || d.on.paper !== paper) continue;
-    for (let left = d.amt; left > 0; left -= WAX_DRIP_MAX) out.push({ t: d.t - born, x: c(d.on.q.x), y: c(d.on.q.y), amt: Math.min(left, WAX_DRIP_MAX), heat: d.heat });
+    const q = where(d);
+    if (!q) continue;
+    for (let left = d.amt; left > 0; left -= WAX_DRIP_MAX) out.push({ t: d.t - born, x: c(q.x), y: c(q.y), amt: Math.min(left, WAX_DRIP_MAX), heat: d.heat });
   }
   return out;
 }

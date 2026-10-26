@@ -22,6 +22,7 @@ import { useRoom, useRoomLines, useThings, useWorld, seatOf, roomAct } from './p
 import { usePaperFields, createPaperWriter, guessOver, sceneSheetOf, mayMark, sealsOf, strokeOf, paperAct, newPaper as bornPaper, newSurface, stacked, restedAt, wornAt, SEAL_R } from './papers.js';
 import { CELLS } from '../ink/live.js';
 import { waxContext } from './table.js';
+import { dripsOnSurface } from './drops.js';
 import { wax as WX, room as R, candle as C, paper as P } from 'penpals-law';
 import { GEOM, theLight, originOf } from '../scene/light.js';
 import { PX_PER_M } from '../scene/light/index.js';
@@ -81,7 +82,8 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     go();
     return () => clearTimeout(timer);
   }, [candles, lines, inHand, burning]);
-  const dripsOf = useCallback((view) => WX.dripsOn(wax.drips, view.paper, view.born ?? 0), [wax]);
+  // the drips that landed on it: a paper, or this house's table or floor (once it is matter with a chain)
+  const dripsOf = useCallback((view) => (view.where?.surface ? dripsOnSurface(GEOM, wax.drips, view.where.surface, view.born ?? 0) : WX.dripsOn(wax.drips, view.paper, view.born ?? 0)), [wax]);
 
   const myKey = key?.publicKey ?? null;
   const [notice, setNotice] = useState(null);

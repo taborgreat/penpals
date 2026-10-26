@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { roomGeometry, hit, ROOM } from '../scene/light/room.js';
 import { CELL_M } from '../scene/light/surface.js';
 import { N } from '../scene/light/axis.js';
+import { PX_PER_M } from '../scene/light/index.js';
 import { SURFACE_IDS, THING_SURFACE_IDS, ROOM_SURFACE, PEN_FACE, setPenPlace, surfaceFrame, toRoom, fromRoom, onSurface, surfaceOfHit } from '../scene/surfaces.js';
 import { pieceCorners } from '../scene/marks.js';
 import { roomMeshes, spectrumAt } from '../scene/roomDraw.js';
@@ -225,4 +226,22 @@ test('a ruled paper: its lines are ink, ruled stroke by stroke as its first acts
   const along = s.x.at(-1) / 10;
   assert.ok(along > P.SIZES.half[0] * 0.8 && along < P.SIZES.half[0], `across it: ${along} of ${P.SIZES.half[0]}`);
   assert.ok(s.y.every((v) => v === 0) && rec.orgY === lines[0], 'level, where its line is');
+});
+
+test("drips on the table land on the table's own chain, in its frame where they fell; none on another's", async () => {
+  const { dripsOnSurface } = await import('./drops.js');
+  const t = geom.table;
+  const at = [t.x0 + 0.3, t.y1 - 0.2];
+  const drips = [
+    { t: 5000, on: { on: 'table', at, z: t.top }, amt: 1200, heat: 40 },
+    { t: 6000, on: { on: 'floor', at: [0.5, 0.5], z: 0 }, amt: 300, heat: 30 },
+    { t: 7000, on: { on: 'paper', paper: 'sX', q: { x: 1, y: 1 } }, amt: 300, heat: 30 },
+  ];
+  const onTable = dripsOnSurface(geom, drips, 'table', 1000);
+  assert.equal(onTable.length, 1);
+  assert.equal(onTable[0].t, 4000, 'on the chain clock');
+  assert.equal(onTable[0].x, Math.round(0.3 * PX_PER_M * 10), 'where it fell across the table (tenths of its units)');
+  assert.equal(onTable[0].y, Math.round(0.2 * PX_PER_M * 10), 'and in from its far edge');
+  assert.equal(dripsOnSurface(geom, drips, 'floor', 0).length, 1);
+  assert.equal(dripsOnSurface(geom, drips, 'wall-far', 0).length, 0, 'a wall: nothing lands on it from above');
 });

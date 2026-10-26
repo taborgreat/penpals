@@ -8,6 +8,8 @@
 // → { on: 'paper', paper, q: { x, y } (its units), z } | { on: 'table' | 'floor', at: [x, y], z } (room m)
 
 import { PX_PER_M } from '../scene/light/index.js';
+import { surfaceFrame, fromRoom } from '../scene/surfaces.js';
+import { wax as WX } from 'penpals-law';
 
 // A paper lying with its middle at `at` (mm), `size` its units: its corner (its units' origin) in the room
 // (m). Its units run along the room's +x, and down its page along the room's −y.
@@ -31,4 +33,13 @@ export function landing(geom, [x, y], { papers = [] } = {}) {
 export function wickOf(foot, height, tilt) {
   const a = (tilt * Math.PI) / 180;
   return [foot[0] + Math.sin(a) * height, foot[1], foot[2] + Math.cos(a) * height];
+}
+
+// The drips that landed on a house's table or floor, on its chain's own frame (scene/surfaces.js: its units):
+// wax on its wood, regrown from the room's acts as a paper's are (law/wax.js dripsOnto). Matter that has no
+// chain yet (never written on) has nothing to grow them on.
+export function dripsOnSurface(geom, drips, surface, born) {
+  if (surface !== 'table' && surface !== 'floor') return [];
+  const f = surfaceFrame(geom, surface);
+  return WX.dripsOnto(drips, (d) => (d.on?.on === surface ? fromRoom(f, [d.on.at[0], d.on.at[1], f.origin[2]]) : null), born);
 }
