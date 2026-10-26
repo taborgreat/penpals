@@ -112,7 +112,7 @@ function grow(view, drips) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
     waiting.set(id, { resolve, reject });
-    worker.postMessage({ id, lines: view.lines, drips, seed: view.open.seed, family: view.birth.family, ageH: ageOf(view) });
+    worker.postMessage({ id, lines: view.lines, drips, seed: view.open.seed, family: view.birth.family, law: P.lawFor(view.birth), ageH: ageOf(view) });
   });
 }
 const marks = (lines) => lines.filter((l) => P.MARKS.includes(l.act.act)).length;

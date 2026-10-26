@@ -23,7 +23,7 @@ const until = async (p, fn, what, ms = 30000) => {
 // what a chain grew (law/paper.js): its ink's box, and what it is made of
 const grown = (v) => {
   const born = P.checkBirth(v.birth, v);
-  const g = P.growPaper(v.lines, { seed: born.seed, family: born.family });
+  const g = P.growPaper(v.lines, { seed: born.seed, family: born.family, law: P.lawFor(v.birth) });
   return { inked: g ? g.box[2] * g.box[3] : 0, matter: born.family.matter ?? 'paper', g };
 };
 try {

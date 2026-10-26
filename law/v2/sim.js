@@ -70,6 +70,12 @@
 //      ground lifts grains as it splashes. Every grain is the bed's or the water's: their sum
 //      never changes.
 //
+// Law 5 (one-matter.md Phase 3: no substance is told by its colour):
+//  16. an ink is what it holds: its pigment by its colour (as every ink's), and its oak gall by its pen act's
+//      gall (acts.js format 6: how much of an oak gall ink's it holds), both laid down at once. An oak gall
+//      ink is colourless and all gall; a pen's colour is only its pigment. (Laws 2-4 told oak gall by its
+//      colour, OAK_GALL, and laid nothing else with it.)
+//
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry), under the nib (stamp), or over warm
 // tiles (heat).
@@ -632,6 +638,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   let pen = null;
   let nib = METAL; // what the nib is (its matter's row: law/matter.js)
   let penGall = false;
+  let gallShare = 255; // (5) of an oak gall ink's gall, /255: the pen act's
   let abs0 = 0,
     abs1 = 0,
     abs2 = 0;
@@ -646,6 +653,15 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     if (batch) flushTick();
     pen = p;
     nib = nibOf(p);
+    if (law >= 5) {
+      // (16) an ink is what it holds: its pigment by its colour, its oak gall by the pen act's gall
+      gallShare = p.gall ?? 0;
+      penGall = gallShare > 0;
+      abs0 = ABS_Q[p.rgb[0]];
+      abs1 = ABS_Q[p.rgb[1]];
+      abs2 = ABS_Q[p.rgb[2]];
+      return;
+    }
     penGall = isGall(p.rgb);
     abs0 = penGall ? 0 : ABS_Q[p.rgb[0]];
     abs1 = penGall ? 0 : ABS_Q[p.rgb[1]];
@@ -804,8 +820,9 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       }
       if (penGall) {
         gallOn(t);
-        t.G[i] += floorDiv(g * GALL_ABS, 256);
-      } else {
+        t.G[i] += floorDiv(g * GALL_ABS * gallShare, 256 * 255);
+      }
+      if (!penGall || law >= 5) {
         t.P[3 * i] += floorDiv(g * abs0, 256);
         t.P[3 * i + 1] += floorDiv(g * abs1, 256);
         t.P[3 * i + 2] += floorDiv(g * abs2, 256);

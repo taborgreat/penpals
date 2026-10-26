@@ -39,10 +39,10 @@ export function usePen() {
       settings,
       spatterFor,
       // the law's pen, for a sheet under law `law`
-      lawPen: (law) => lawPen(settings(), color, flow, spatterFor(law)),
+      lawPen: (law) => lawPen(settings(), color, flow, spatterFor(law), null, law),
       // the flex nib under a mouse or finger takes its thick and thin from the slant (ink/capture.js)
       flexOf: (law) => (nib === 'flex' ? { slant: flex.slant, swell: flex.swell, hold: law >= 2 } : null),
-      widthAt: (law) => (p) => lineWidthPx(lawPen(settings(), color, flow, spatterFor(law)), p),
+      widthAt: (law) => (p) => lineWidthPx(lawPen(settings(), color, flow, spatterFor(law), null, law), p),
     }),
     [nib, penSize, flex, broadSize, angle, flow, spatterSet, color, settings, spatterFor],
   );

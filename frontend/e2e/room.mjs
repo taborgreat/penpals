@@ -256,7 +256,7 @@ try {
   const factsNow = async () => {
     const v = await (await page.request.get(`${base}/api/papers/${id}`)).json();
     const born = P.checkBirth(v.birth, v);
-    return { lines: v.lines.length, facts: b64(P.growPaper(v.lines, { seed: born.seed, family: born.family }).facts) };
+    return { lines: v.lines.length, facts: b64(P.growPaper(v.lines, { seed: born.seed, family: born.family, law: P.lawFor(v.birth) }).facts) };
   };
   const agree = async () => {
     const truth = await factsNow();

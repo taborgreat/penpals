@@ -7,11 +7,12 @@
 // never a sheet): its walls, floor, ceiling and table top, each its own chain once anything is written on it,
 // born its house's owner's, where it is for good (it is never taken up), its matter the surface's (plaster,
 // wood: law 4 grows ink on that matter's own cells). Its owner marks it; nothing moves it.
-//   birth  { v: 3, kind: 'surface', paper, key, surface (its name: SURFACES), family (with its matter), size,
-//          commit }
+//   birth  { v: 4, kind: 'surface', paper, key, law, surface (its name: SURFACES), family (with its matter),
+//          size, commit }
 //
-//   birth  { v: 3, kind: 'paper', paper, key, family, size: [w, h] (its units), at: [x, y, z] (mm: on its
+//   birth  { v: 4, kind: 'paper', paper, key, law, family, size: [w, h] (its units), at: [x, y, z] (mm: on its
 //          owner's table, where it lies), commit }   sealed by its owner; open: { seed, by } (anyone may grow it)
+//   law: the law it was born under (PAPER_LAW then), which it grows under for good
 //   act    { v: 3, kind: 'paper', paper, by, k, act, ... }   sealed by `by`
 //     marks  'stroke' stroke: b64url(PNKA of one stroke, in the paper's own frame)   'lift' lift: n (my stroke)
 //            'press' press: { x, y, depth, angle, tiltX, tiltY, cell, w, h, face, for }   'break' break: { seal, from, to }
@@ -52,8 +53,9 @@ import { lawOf } from './laws.js';
 import { tableOf, HOUSE } from './room.js';
 import { groundAt } from './outside.js';
 
-export const PAPER_LAW = 4; // the law a paper's record grows under (wax: rooms.md §3b; matter worn away: law 4)
-export const SURFACE_LAW = 4; // and a surface's: ink on the surface's own matter (law 4)
+export const PAPER_LAW = 5; // the law a new paper is born under (wax: rooms.md §3b; matter worn away: law 4; an ink is what it holds: law 5)
+export const SURFACE_LAW = 5; // and a surface's: ink on the surface's own matter
+const LAWS_BORN = [4, 5]; // the laws a paper may have been born under (a stamper takes a birth under any of them)
 // A house's surfaces, each its matter and its size (its units: the page's px, 1400 to 0.2159 m), and the
 // families their matter's cells are grown from (as the house was always made: the backend's config had them).
 const PX_PER_M = 1400 / 0.2159;
@@ -71,7 +73,7 @@ export const SURFACES = Object.freeze({
   pen: Object.freeze({ matter: 'wood', size: [px(HOUSE.pen.length), px(HOUSE.pen.thick)] }), // the pen's top face, wherever it lies
 });
 // The ink law a paper or a surface grows under, by its birth.
-export const lawFor = (birth) => (birth?.kind === 'surface' ? SURFACE_LAW : PAPER_LAW);
+export const lawFor = (birth) => birth.law; // (the law it was born under)
 export const LIFT_WINDOW = 8; // a writer's last strokes that can still be lifted (Tabor's to set)
 export const SIZES = Object.freeze({ half: [1000, 700], full: [1000, 1400] }); // its units (the page's px: law/matter.js CELL_M)
 export const MARKS = ['stroke', 'lift', 'press', 'break'];
@@ -93,7 +95,7 @@ const mmOf = (p) => p.map((v) => Math.round(v * 1000));
 export function makePaper({ sk, pk, paper, family, size = SIZES.half, at }) {
   checkFamily(family);
   const seed = sheetSeed(sk, paper);
-  const birth = { v: 3, kind: 'paper', paper, key: b64url(pk), family: { ...family }, size: [...size], at: mmOf(at), commit: b64url(commitOf(seed)) };
+  const birth = { v: 4, kind: 'paper', paper, key: b64url(pk), law: PAPER_LAW, family: { ...family }, size: [...size], at: mmOf(at), commit: b64url(commitOf(seed)) };
   const D = paperDigest(birth);
   return { birth, seal: b64url(sign(sk, sealMsg(D))), open: { seed: b64url(seed), by: b64url(sign(sk, openMsg(D, paper))) } };
 }
@@ -103,7 +105,7 @@ export function makeSurface({ sk, pk, paper, surface }) {
   const S = SURFACES[surface];
   if (!S) throw bad('not a surface of a house');
   const seed = sheetSeed(sk, paper);
-  const birth = { v: 3, kind: 'surface', paper, key: b64url(pk), surface, family: { ...FAMILIES[S.matter], matter: S.matter }, size: [...S.size], commit: b64url(commitOf(seed)) };
+  const birth = { v: 4, kind: 'surface', paper, key: b64url(pk), law: SURFACE_LAW, surface, family: { ...FAMILIES[S.matter], matter: S.matter }, size: [...S.size], commit: b64url(commitOf(seed)) };
   const D = paperDigest(birth);
   return { birth, seal: b64url(sign(sk, sealMsg(D))), open: { seed: b64url(seed), by: b64url(sign(sk, openMsg(D, paper))) } };
 }
@@ -171,14 +173,16 @@ function checkWax(body) {
 }
 
 export function checkBirth(birth, { seal, open }) {
-  if (!birth || birth.v !== 3 || (birth.kind !== 'paper' && birth.kind !== 'surface') || !isSheetId(birth.paper) || !isKey(birth.key)) throw bad('not a paper');
+  if (!birth || birth.v !== 4 || (birth.kind !== 'paper' && birth.kind !== 'surface') || !isSheetId(birth.paper) || !isKey(birth.key)) throw bad('not a paper');
+  if (!LAWS_BORN.includes(birth.law)) throw bad('not a law a paper is born under');
   if (birth.kind === 'surface') {
     const S = SURFACES[birth.surface];
     const want = S && {
-      v: 3,
+      v: 4,
       kind: 'surface',
       paper: birth.paper,
       key: birth.key,
+      law: birth.law,
       surface: birth.surface,
       family: { ...FAMILIES[S.matter], matter: S.matter },
       size: [...S.size],
@@ -384,7 +388,8 @@ function markOf(a, t) {
 
 // The paper as its acts and the drips that landed on it have made it: facts on its owner's paper, and
 // each press's impression (as it came out). → settled ({ facts, cells, box, seals, ... }) | null
-export function growPaper(lines, { seed, family, scale = 64, drips = [], law = family?.matter ? SURFACE_LAW : PAPER_LAW }) {
+// law: the law it was born under (lawFor(birth))
+export function growPaper(lines, { seed, family, law, scale = 64, drips = [] }) {
   const L = lawOf(law);
   const rec = compose(lines, drips);
   if (!rec.strokes.length && !rec.marks) return null;

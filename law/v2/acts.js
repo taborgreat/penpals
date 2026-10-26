@@ -31,6 +31,10 @@
 // does): format 4, the pen mask a varint, and one more pen field:
 //        b8 matter u8: what the nib is (law/matter.js ORDER: a stone, a stick's wood; absent, metal)
 //
+// Format 6 (law 5 only: one-matter.md Phase 3, no substance by its colour): format 5 and one more pen field:
+//        b9 gall u8 (1..255): how much oak gall the ink holds, of an oak gall ink's (absent: none). Its
+//        colour is only its pigment: an oak gall ink is colourless (WATER) and all gall.
+//
 // flags: bit0 hasP (a real pressure reading per act), bits1-2 kind (0 mouse,
 // 1 touch, 2 pen, 3 other), bit3 synthetic p (computed by the nib model).
 // x, y in tenths of an ink unit relative to (orgX, orgY) whole units; t in ms.
@@ -44,7 +48,7 @@ import { ORDER } from '../matter.js';
 
 const MAGIC = [0x50, 0x4e, 0x4b, 0x41]; // 'PNKA'
 export const PEN_FULL = 0x3f;
-export const PEN_KEYS = ['nib', 'size', 'flex', 'flow', 'rgb', 'angle', 'spatter', 'well', 'matter'];
+export const PEN_KEYS = ['nib', 'size', 'flex', 'flow', 'rgb', 'angle', 'spatter', 'well', 'matter', 'gall'];
 export const SPATTER_MAX = 15;
 // Two pens the same: a stroke begun with the pen before it carries no pen act (frontend capture.js
 // strokesToActs; live.js dips where the record will). `dip` (how often a dip pen has been dipped) is
@@ -53,6 +57,7 @@ export const samePen = (a, b) => a === b || (PEN_KEYS.every((k) => (k === 'rgb' 
 const SPATTER = 0x40;
 const WELL = 0x80;
 const MATTER_BIT = 0x100;
+const GALL_BIT = 0x200;
 export const MARK_KINDS = ['drip', 'press', 'break', 'pour'];
 export const POUR_MAX = 1 << 20; // drops a pour mark lands at most (more is several marks)
 const bad = (msg) => new LawError('acts', msg);
@@ -116,15 +121,17 @@ export function encodeActs(rec) {
   const w = new Writer();
   for (const b of MAGIC) w.byte(b);
   const masks = rec.strokes.flatMap((s) => s.pens.map((pen) => pen.mask ?? penMask(pen)));
-  const format = masks.some((m) => m & MATTER_BIT)
-    ? 5
-    : rec.marks?.some((m) => m.kind === 'pour')
-      ? 4
-      : rec.marks?.length || !rec.strokes.length || masks.some((m) => m & WELL)
-        ? 3
-        : masks.some((m) => m & SPATTER)
-          ? 2
-          : 1;
+  const format = masks.some((m) => m & GALL_BIT)
+    ? 6
+    : masks.some((m) => m & MATTER_BIT)
+      ? 5
+      : rec.marks?.some((m) => m.kind === 'pour')
+        ? 4
+        : rec.marks?.length || !rec.strokes.length || masks.some((m) => m & WELL)
+          ? 3
+          : masks.some((m) => m & SPATTER)
+            ? 2
+            : 1;
   w.byte(format);
   w.varint(rec.orgX);
   w.varint(rec.orgY);
@@ -151,6 +158,7 @@ export function encodeActs(rec) {
       if (mask & SPATTER) w.byte(pen.spatter);
       if (mask & WELL) w.byte(pen.well);
       if (mask & MATTER_BIT) w.byte(pen.matter);
+      if (mask & GALL_BIT) w.byte(pen.gall);
     }
     for (let i = 0; i < n; i++) {
       if (i === 0) {
@@ -205,20 +213,21 @@ function penMask(pen) {
     (pen.angle !== undefined ? 32 : 0) |
     (pen.spatter !== undefined ? SPATTER : 0) |
     (pen.well !== undefined ? WELL : 0) |
-    (pen.matter !== undefined ? MATTER_BIT : 0)
+    (pen.matter !== undefined ? MATTER_BIT : 0) |
+    (pen.gall !== undefined ? GALL_BIT : 0)
   );
 }
 
 // --- decode (validates every canonical rule) ---
 
-// maxFormat: the highest format the reader's law takes (2 for law 2, 3 for law 3, 5 for law 4).
+// maxFormat: the highest format the reader's law takes (2 for law 2, 3 for law 3, 5 for law 4, 6 for law 5).
 export function decodeActs(bytes, { maxFormat = 2 } = {}) {
   if (!(bytes instanceof Uint8Array)) throw bad('acts are bytes');
   const r = new Reader(bytes);
   for (const b of MAGIC) if (r.byte() !== b) throw bad('not PNKA');
   const format = r.byte();
-  if (format < 1 || format > Math.min(5, maxFormat)) throw bad('unknown PNKA format');
-  const reserved = format === 1 ? 0xc0 : format === 2 ? 0x80 : format < 5 ? 0 : ~0x1ff;
+  if (format < 1 || format > Math.min(6, maxFormat)) throw bad('unknown PNKA format');
+  const reserved = format === 1 ? 0xc0 : format === 2 ? 0x80 : format < 5 ? 0 : format === 5 ? ~0x1ff : ~0x3ff;
   const orgX = r.varint();
   const orgY = r.varint();
   if (orgX > MAX_ORG || orgY > MAX_ORG) throw bad('origin out of range');
@@ -280,6 +289,10 @@ export function decodeActs(bytes, { maxFormat = 2 } = {}) {
       if (mask & MATTER_BIT) {
         pen.matter = r.byte();
         if (pen.matter >= ORDER.length) throw bad('no such matter');
+      }
+      if (mask & GALL_BIT) {
+        pen.gall = r.byte();
+        if (pen.gall < 1) throw bad('gall out of range');
       }
       pens.push(pen);
     }

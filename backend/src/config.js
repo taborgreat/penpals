@@ -19,9 +19,9 @@ export const config = {
   // Everything lives in files here (books.md, keys.md): accounts, books, the world's chains,
   // sessions. There is no database. FORMAT marks the layout; older data is refused (3: papers
   // are matter, a book is its chain; 4: a hand's swing and rub as fast as it went, motion acts
-  // delta-encoded on a room's chain).
+  // delta-encoded on a room's chain; 5: a paper is born under a law and grows under it for good).
   dataDir: env.DATA_DIR || path.join(backendRoot, 'data'),
-  format: 4,
+  format: 5,
   frontendDist: path.resolve(backendRoot, '..', 'frontend', 'dist'),
   production: env.NODE_ENV === 'production',
 

@@ -4,6 +4,7 @@
 //   flex  hairline when light, up to maxWidth when pressed (pressure pens drive it)
 //   broad an edge of `size` held at `angle`
 import { PRESS_SHAPE } from 'penpals-law/v1/tables';
+import { OAK_GALL, WATER } from 'penpals-law/v2/constants';
 import { BROAD_SIZES, FLEX_PRESETS, PEN_SIZES } from './nibs.js';
 
 export const FLOW_DEFAULT = 7; // 0..15: how freely the nib gives ink
@@ -21,8 +22,14 @@ export function rgbOf(hex) {
 // spatter: 0..15 on a law 2 sheet; left out (undefined) on law 1 sheets, whose acts have no such field.
 // dip: a dip pen (rooms.md §3c, law 3): { well (its reservoir, 1..15), n (how many times it has
 // been dipped) }. A pen act that carries its well is a dip: the reservoir full again.
-export function lawPen(settings, color, flow = FLOW_DEFAULT, spatter = undefined, dip = null) {
-  const pen = nibPen(settings, rgbOf(color), Math.min(15, Math.max(0, Math.round(flow))));
+// law: the sheet's. From law 5 an ink is what it holds (law/v2/sim.js 16): the oak gall swatch is an ink
+// with no pigment and all oak gall (its pen act's gall), not a colour the law reads.
+const isGallColor = (rgb) => rgb.every((c, i) => c === OAK_GALL[i]);
+export function lawPen(settings, color, flow = FLOW_DEFAULT, spatter = undefined, dip = null, law = 0) {
+  const rgb = rgbOf(color);
+  const gall = law >= 5 && isGallColor(rgb);
+  const pen = nibPen(settings, gall ? [...WATER] : rgb, Math.min(15, Math.max(0, Math.round(flow))));
+  if (gall) pen.gall = 255;
   if (spatter !== undefined) pen.spatter = Math.min(15, Math.max(0, Math.round(spatter)));
   if (dip) {
     pen.well = dip.well;

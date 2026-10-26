@@ -27,7 +27,7 @@ test('every v1 golden settles identically under law 1 through the registry', () 
 
 test('new records are made under the current law; each regrows under its own', () => {
   assert.equal(CURRENT, 2);
-  assert.deepEqual([...ACCEPTED], [1, 2, 3, 4]); // (law 4: one matter, written on anything)
+  assert.deepEqual([...ACCEPTED], [1, 2, 3, 4, 5]); // (law 4: one matter, written on anything; law 5: an ink is what it holds)
   const sk = skFromK(new Uint8Array(32).fill(7));
   const pk = publicKeyOf(sk);
   const { bytes } = fixtureV2Bytes('gallLine');
@@ -48,7 +48,7 @@ test('new records are made under the current law; each regrows under its own', (
   assert.ok(regrow(splashy.line.ink, splashy.seed).ok);
   assert.throws(() => checkInkBody({ ...splashy.line.ink, law: 1 }), /acts/);
   assert.equal(fixtureV2Bytes('gallLine').bytes[4], 1, 'writing without spatter is law 1 PNKA byte for byte');
-  assert.throws(() => checkInkBody({ ...now.line.ink, law: 5 }), /law/); // (a law not known here)
+  assert.throws(() => checkInkBody({ ...now.line.ink, law: 6 }), /law/); // (a law not known here)
   // the look follows the law: v2 gall ages, v1 never does
   const s2 = settle(bytes, now.seed, family, 64, 2);
   assert.notDeepEqual(lookOf(s2, { ageH: 0 }), lookOf(s2, { ageH: 300 }));

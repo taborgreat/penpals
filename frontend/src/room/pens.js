@@ -38,7 +38,7 @@ export function penFrom(id, s, change = () => {}, dips = 0) {
     nib === 'pen' ? { nib, size: PEN_SIZES[s.size] ?? PEN_SIZES.medium } : nib === 'broad' ? { nib, size: BROAD_SIZES[s.size] ?? BROAD_SIZES['2.4 mm'], angle: s.angle } : { nib, ...flex };
   const spatterFor = (law) => (law >= 2 ? s.spatter : undefined);
   const dipOf = (law) => (s.dip && law >= 3 ? { well: DIP_WELL, n: dips } : null);
-  const lp = (law) => lawPen(settings(), s.color, s.flow, spatterFor(law), dipOf(law));
+  const lp = (law) => lawPen(settings(), s.color, s.flow, spatterFor(law), dipOf(law), law);
   return {
     id,
     name: NIB_NAMES[nib],

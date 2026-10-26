@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { keys as K, b64url } from '../index.js';
 import { lawOf } from '../laws.js';
 import { record, samplePath } from '../tools/fixtures.js';
-import { makePaper, makePaperAct, makeSurface, checkBirth, replay, compose, growPaper, startState, refusal, apply, lawFor, LIFT_WINDOW, SURFACES } from '../paper.js';
+import { makePaper, makePaperAct, makeSurface, checkBirth, replay, compose, growPaper, startState, refusal, apply, lawFor, LIFT_WINDOW, SURFACES, PAPER_LAW } from '../paper.js';
 import { HOUSE } from '../room.js';
 import { WATER, TORN } from '../v2/constants.js';
 import { idOf } from '../matter.js';
@@ -63,7 +63,7 @@ function stamper(birth = born.birth) {
     },
   };
 }
-const facts = (lines) => b64url(growPaper(lines, { seed, family: FAMILY }).facts);
+const facts = (lines, law = PAPER_LAW) => b64url(growPaper(lines, { seed, family: FAMILY, law }).facts);
 const mark = (s, who, at, y = 20, pen = BLUE) => s.act(who, 'stroke', at, { stroke: strokeBytes([20, y], [60, y], pen) });
 // carried by `who` and let go in a space at a place
 const carry = (s, who, at, space, place) => s.act(who, 'take', at) ?? s.act(who, 'put', at + 1, { space, at: place });
@@ -181,11 +181,11 @@ test('lift: red over blue lifted leaves the blue as pushed, the same soak and de
   carry(s, ana, 10, bo.id, ON_TABLE);
   s.act(bo, 'stroke', 1000, { stroke: strokeBytes([20, 25], [70, 25], BLUE) });
   s.act(ana, 'stroke', 1100, { stroke: strokeBytes([20, 25], [70, 25], RED) });
-  const before = growPaper(s.lines, { seed, family: FAMILY });
+  const before = growPaper(s.lines, { seed, family: FAMILY, law: PAPER_LAW });
   const redN = s.lines.at(-1).n;
   assert.match(s.act(bo, 'lift', 5000, { lift: redN }), /only its writer/);
   assert.equal(s.act(ana, 'lift', 5000, { lift: redN }), null);
-  const after = growPaper(s.lines, { seed, family: FAMILY });
+  const after = growPaper(s.lines, { seed, family: FAMILY, law: PAPER_LAW });
   const byCell = (st) => new Map(st.cells.map((c) => [`${c[0]},${c[1]}`, c]));
   const b = byCell(before),
     a = byCell(after);
@@ -209,11 +209,14 @@ test('goldens: the fixture paper, and the same with a lift, grow to the facts th
   s.act(bo, 'stroke', 1000, { stroke: strokeBytes([20, 25], [70, 25], BLUE) });
   s.act(ana, 'stroke', 1100, { stroke: strokeBytes([20, 22], [70, 30], RED) });
   s.act(bo, 'stroke', 2600, { stroke: strokeBytes([30, 10], [30, 45], BLUE) });
-  const whole = facts(s.lines);
+  const whole = facts(s.lines, 4);
   s.act(ana, 'lift', 4000, { lift: 4 });
-  const lifted = facts(s.lines);
+  const lifted = facts(s.lines, 4);
   assert.notEqual(whole, lifted);
   assert.deepEqual({ whole, lifted }, GOLDEN);
+  // law 5 grows ink with no oak gall in it exactly as law 4 did: the same cells, only the law it names
+  const cells = (law) => JSON.stringify(growPaper(s.lines, { seed, family: FAMILY, law }).cells);
+  assert.equal(cells(5), cells(4));
 });
 const GOLDEN = { whole: 'AWfeGnVf4AtRh1JJoFN00aJeo0w-EaoqilZ6udwU4vU', lifted: '5cNK_AmGcw9EfnYkgbn2X0i0lo1F4cQapkezrhPMbUM' }; // a change to them is a change of the law (law 4: 2026-10-25)
 
@@ -241,14 +244,14 @@ test("a hard dry scrape wears a paper through, its fibres shed as fluff; on the 
   const scrape = L.encodeActs(r);
   const s = stamper();
   assert.equal(s.act(ana, 'stroke', 1000, { stroke: scrape }), null);
-  const g = growPaper(s.lines, { seed, family: FAMILY });
+  const g = growPaper(s.lines, { seed, family: FAMILY, law: PAPER_LAW });
   assert.ok(g.cells.filter((c) => c[11] & TORN).length > 0, 'worn through');
   assert.ok(g.cuts.byMatter[idOf('paper')] > 0, 'its fibres shed');
   assert.equal(g.cuts.removed, g.cuts.loose, 'nothing deleted: all of it lies loose');
   const table = makeSurface({ sk: ana.sk, pk: ana.pk, paper: PAPER, surface: 'table' });
   const t = stamper(table.birth);
   assert.equal(t.act(ana, 'stroke', 1000, { stroke: scrape }), null);
-  const tg = growPaper(t.lines, { seed: checkBirth(table.birth, table).seed, family: table.birth.family });
+  const tg = growPaper(t.lines, { seed: checkBirth(table.birth, table).seed, family: table.birth.family, law: lawFor(table.birth) });
   assert.ok(tg.cuts.byMatter[idOf('wood')] > 0, 'shavings of its wood');
   assert.equal(tg.cuts.byMatter[idOf('paper')] ?? 0, 0, 'and no paper of it');
   assert.equal(tg.cells.filter((c) => c[11] & TORN).length, 0, 'wood is cut into, not torn');
@@ -259,7 +262,8 @@ test("a house's wall is matter too: its owner's, where it is for good; its owner
   assert.equal(checkBirth(wall.birth, wall).owner, ana.id);
   assert.deepEqual(wall.birth.family, { grain: 0, weight: 15, tooth: 0, matter: 'plaster' });
   assert.deepEqual(wall.birth.size, SURFACES['wall-left'].size);
-  assert.equal(lawFor(wall.birth), 4);
+  assert.equal(lawFor(wall.birth), PAPER_LAW, 'born under the law of now, and grown under it for good');
+  assert.throws(() => checkBirth({ ...wall.birth, law: 3 }, wall), /not a law a paper is born under/);
   assert.throws(() => checkBirth({ ...wall.birth, size: [10, 10] }, wall), /as houses are made/, 'a wall is the size walls are');
   assert.throws(() => makeSurface({ sk: ana.sk, pk: ana.pk, paper: PAPER, surface: 'roof' }), /not a surface/);
   const pen = makeSurface({ sk: ana.sk, pk: ana.pk, paper: PAPER, surface: 'pen' }); // (its body's top face: rooms.md §3c)
@@ -271,8 +275,8 @@ test("a house's wall is matter too: its owner's, where it is for good; its owner
   assert.equal(s.act(ana, 'take', 110), 'it is part of its house');
   assert.equal(mark(s, ana, 200), null, 'its owner writes on it');
   assert.match(mark(s, bo, 300), /may not mark/, 'not a visitor');
-  const grown = growPaper(s.lines, { seed: checkBirth(wall.birth, wall).seed, family: wall.birth.family });
+  const grown = growPaper(s.lines, { seed: checkBirth(wall.birth, wall).seed, family: wall.birth.family, law: lawFor(wall.birth) });
   assert.ok(grown.cells.length > 0, 'ink on the plaster');
-  const asPaper = growPaper(s.lines, { seed: checkBirth(wall.birth, wall).seed, family: FAMILY });
+  const asPaper = growPaper(s.lines, { seed: checkBirth(wall.birth, wall).seed, family: FAMILY, law: lawFor(wall.birth) });
   assert.notEqual(b64url(grown.facts), b64url(asPaper.facts), 'on plaster it is not as on paper');
 });

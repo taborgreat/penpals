@@ -30,7 +30,7 @@ import * as v2moments from './v2/moments.js';
 import { OAK_GALL } from './v2/constants.js';
 
 export const CURRENT = 2;
-export const ACCEPTED = Object.freeze([1, 2, 3, 4]);
+export const ACCEPTED = Object.freeze([1, 2, 3, 4, 5]);
 
 const LAWS = {
   1: Object.freeze({
@@ -107,6 +107,21 @@ LAWS[4] = Object.freeze({
   grow: (rec, opts) => v2sim.grow(rec, { ...opts, law: 4 }),
   createLive: (sheet) => v2live.createLive({ ...sheet, law: 4 }),
   factsDigest: (o) => v2look.factsDigest({ ...o, law: 4 }),
+});
+
+// Law 5 (one-matter.md Phase 3): law 4's rules, and an ink is what it holds (v2/sim.js 16): its oak gall a
+// fact of its pen act (PNKA format 6), not told by its colour.
+LAWS[5] = Object.freeze({
+  ...LAWS[4],
+  law: 5,
+  decodeActs: (bytes) => v2acts.decodeActs(bytes, { maxFormat: 6 }),
+  decodeCanonical: (bytes) => v2acts.decodeCanonical(bytes, { maxFormat: 6 }),
+  settledCells: (tiles) => v2look.settledCells(tiles, { law: 5 }),
+  grow: (rec, opts) => v2sim.grow(rec, { ...opts, law: 5 }),
+  createLive: (sheet) => v2live.createLive({ ...sheet, law: 5 }),
+  factsDigest: (o) => v2look.factsDigest({ ...o, law: 5 }),
+  // its look ages if any of its inks held oak gall
+  ages: (rec) => rec.strokes.some((s) => s.pens.some((p) => (p.gall ?? 0) > 0)),
 });
 
 export class LawUnknown extends Error {

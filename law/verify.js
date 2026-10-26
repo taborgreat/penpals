@@ -10,7 +10,7 @@
 import { checkInkBody, checkPhotoBody, verifySealed, verifyOpenFor, regrow } from './record.js';
 import { proofOf, isGoodPublicKey, fingerprint } from './keys.js';
 import { fromB64url, b64url } from './tags.js';
-import { checkBirth, replay, growPaper } from './paper.js';
+import { checkBirth, replay, growPaper, lawFor } from './paper.js';
 
 const ID_RE = /^k_\d{6}$/;
 
@@ -104,7 +104,7 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
     for (const w of wrong) problems.push(`paper ${paper}, ${w}`);
     if (regrowOpen && !wrong.length) {
       try {
-        growPaper(p.lines, { seed: p.seed, family: p.family });
+        growPaper(p.lines, { seed: p.seed, family: p.family, law: lawFor(p.birth) });
         p.r.regrown = true;
       } catch (err) {
         p.r.regrown = false;
