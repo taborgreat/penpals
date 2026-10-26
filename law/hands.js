@@ -31,6 +31,7 @@
 //   'rub' tool, thing, strokes, at          'form' thing                    'fire' thing, fire
 //   'pick' tree, tip, laid, day (a gall: the tip it grew on, the day it was laid)   'crush' tool, thing   'mix' cup, thing
 //   'melt' cup, fire                        'pour' cup, into                'dip' string, cup
+//   'pry' stick (in the hand), over (a stone: the fulcrum), thing (a stone: the load), to (where it goes over)
 // D = sha256(T("outside") ‖ JCS(act)), sealed as any record is.
 import { sha256 } from '@noble/hashes/sha2.js';
 import { T, jcs, utf8, concat, b64url, fromB64url } from './tags.js';
@@ -43,7 +44,7 @@ import * as LIFE from './life.js';
 export const V = 1;
 export const BEING = MK.BEING; // (a being's pull, swing, rubbing: law/making.js)
 export const CUT = 20; // µm a stroke takes, for each step the tool is harder (Tabor's to set)
-const ACTS = ['take', 'put', 'break', 'carve', 'gather', 'twist', 'strike', 'bind', 'swing', 'rub', 'form', 'fire', 'pick', 'crush', 'mix', 'melt', 'pour', 'dip'];
+const ACTS = ['take', 'put', 'break', 'carve', 'gather', 'twist', 'strike', 'bind', 'swing', 'rub', 'form', 'fire', 'pick', 'crush', 'mix', 'melt', 'pour', 'dip', 'pry'];
 
 export const handsDigest = (act) => sha256(concat(T('outside'), utf8(jcs(act))));
 const fields = (o, list) => Object.keys(o).sort().join() === list;
@@ -59,6 +60,8 @@ const isId = (s, kind) => typeof s === 'string' && new RegExp(`^${kind}:-?\\d+,-
 const featherId = (s) => typeof s === 'string' && /^feather:tree:-?\d+,-?\d+\/\d+\/\d+$/.test(s);
 const thingId = (s) => isId(s, 'stone') || isId(s, 'stick:tree') || featherId(s) || (typeof s === 'string' && /^made:\d+$/.test(s));
 const place = (v, n = 3) => Array.isArray(v) && v.length === n && v.every((x) => int(x, -1e9, 1e9));
+// an arm's speed (mm/s): the hand's, as the mouse moved it (outside.md §3.3), no faster than an arm goes
+const speedOk = (v) => int(v, 0, BEING.swing * 1000);
 
 // --- what the ids name ---
 // a stone of the seed (law/outside.js), or a stick broken off a tree's branch
@@ -119,10 +122,18 @@ export function shapeOf(act) {
     break: () => fields(act, 'act,branch,by,day,k,kind,tree,v') && isId(act.tree, 'tree') && int(act.branch, 1, 1e6) && int(act.day, 0, 1e7),
     gather: () => (fields(act, 'act,at,by,k,kind,v') && place(act.at, 2)) || (fields(act, 'act,by,day,k,kind,tree,v') && isId(act.tree, 'tree') && int(act.day, 0, 1e7)),
     twist: () => fields(act, 'a,act,b,by,k,kind,v') && thingId(act.a) && thingId(act.b) && act.a !== act.b,
-    strike: () => fields(act, 'act,by,k,kind,thing,tool,v') && thingId(act.tool) && thingId(act.thing) && act.tool !== act.thing,
+    strike: () => fields(act, 'act,by,k,kind,speed,thing,tool,v') && thingId(act.tool) && thingId(act.thing) && act.tool !== act.thing && speedOk(act.speed),
     bind: () => fields(act, 'act,by,k,kind,pull,stick,stone,string,turns,v') && [act.stick, act.stone, act.string].every(thingId) && int(act.turns, 1, 50) && int(act.pull, 0, 1000),
-    swing: () => fields(act, 'act,at,by,k,kind,thing,to,v') && thingId(act.thing) && isId(act.at, 'tree') && place(act.to),
-    rub: () => fields(act, 'act,at,by,k,kind,strokes,thing,tool,v') && thingId(act.tool) && thingId(act.thing) && int(act.strokes, 1, 100000) && place(act.at),
+    swing: () => fields(act, 'act,at,by,k,kind,speed,thing,to,v') && thingId(act.thing) && isId(act.at, 'tree') && place(act.to) && speedOk(act.speed),
+    pry: () => fields(act, 'act,by,k,kind,over,stick,thing,to,v') && thingId(act.stick) && isId(act.over, 'stone') && isId(act.thing, 'stone') && act.over !== act.thing && place(act.to),
+    rub: () =>
+      fields(act, 'act,at,by,k,kind,ms,speed,strokes,thing,tool,v') &&
+      thingId(act.tool) &&
+      thingId(act.thing) &&
+      int(act.strokes, 1, 100000) &&
+      place(act.at) &&
+      speedOk(act.speed) &&
+      int(act.ms, 1, 2 ** 31),
     form: () => fields(act, 'act,by,k,kind,thing,v') && thingId(act.thing),
     fire: () => fields(act, 'act,by,fire,k,kind,thing,v') && thingId(act.thing) && thingId(act.fire),
     pick: () => fields(act, 'act,by,day,k,kind,laid,tip,tree,v') && isId(act.tree, 'tree') && int(act.tip, 0, 1e6) && int(act.laid, 0, 1e7) && int(act.day, act.laid, 1e7),
@@ -159,7 +170,19 @@ export function sealHandsAct(sk, act) {
 //   day }]), cuts: Map(stick → [{ from, to, depth }]), marks: Map(tree → [{ from, to, az, depth }]), made: Map(id →
 //   what was made: { kind, matter, ... }), edges: Set(stones chipped), picked: Map(`tree/tip@laid` → the day a gall was
 //   taken), combs: Map(tree → [{ day, grams }] taken from its hive), n (acts landed), k: Map(by → k) }
-export const start = () => ({ things: new Map(), broken: new Map(), cuts: new Map(), marks: new Map(), made: new Map(), edges: new Set(), picked: new Map(), combs: new Map(), n: 0, k: new Map() });
+export const start = () => ({
+  things: new Map(),
+  broken: new Map(),
+  cuts: new Map(),
+  marks: new Map(),
+  made: new Map(),
+  edges: new Set(),
+  picked: new Map(),
+  combs: new Map(),
+  n: 0,
+  k: new Map(),
+  at: new Map(),
+});
 const held = (state, id, by) => state.things.get(id)?.at === null && state.things.get(id).by === by;
 const isBroken = (state, tree, branch) => (state.broken.get(tree) ?? []).some((b) => b.branch === branch);
 const inHands = (state, by) => [...state.things.values()].filter((t) => t.at === null && t.by === by).length;
@@ -169,6 +192,20 @@ const atHand = (state, id, by) => {
   return t ? t.at !== null || t.by === by : id.startsWith('stone:') && !!stoneOf(id);
 };
 const madeOf = (state, id) => state.made.get(id) ?? null;
+// where a thing lies now (mm, world): where the hands left it, or a stone where the seed laid it
+const placeOf = (state, id) => state.things.get(id)?.at ?? (id.startsWith('stone:') ? (stoneOf(id)?.at.map((v) => Math.round(v * 1000)) ?? null) : null);
+// a lever (law/making.js pries): the stick in the hand over the fulcrum under the load, as they lie
+function leverOf(state, act) {
+  const stick = bodyOf(state, act.stick),
+    over = stoneOf(act.over),
+    load = stoneOf(act.thing);
+  const a = placeOf(state, act.over),
+    b = placeOf(state, act.thing);
+  if (!stick?.length || !over || !load || !a || !b) return null;
+  const apart = Math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) / 1000; // (exact everywhere: no hypot)
+  const arm = Math.max(apart, over.r + load.r); // m: the fulcrum to the load (they touch, at nearest)
+  return { arm, ...MK.pries({ weight: stoneMass(load) * G, load: arm, length: stick.length, r: stick.r, matter: stick.matter }) };
+}
 // a stone, or a stick, as making takes it: its matter and its size (m)
 function bodyOf(state, id) {
   if (id.startsWith('stone:')) {
@@ -250,7 +287,23 @@ export function check(state, act, ms = null) {
       is(act.string, 'string'),
     );
   if (act.act === 'swing') return first(mine(act.thing), is(act.thing, 'axe'), treeOf(act.at) ? null : 'there is no such tree');
-  if (act.act === 'rub') return first(mine(act.tool), near(act.thing));
+  // (rubbed no longer than since the being's last act was stamped)
+  if (act.act === 'pry') {
+    const lv = leverOf(state, act);
+    const was = placeOf(state, act.thing);
+    const went = was && Math.sqrt((act.to[0] - was[0]) ** 2 + (act.to[1] - was[1]) ** 2) / 1000;
+    return first(
+      mine(act.stick),
+      near(act.over),
+      near(act.thing),
+      lv ? null : 'there is no lever there',
+      lv && lv.effort <= 0 ? 'the stick does not reach over it' : null,
+      lv && lv.turning > lv.bears ? 'the stick would break under it' : null,
+      lv && !lv.tips ? 'it does not tip' : null,
+      lv && went > lv.arm + 0.001 ? 'it goes over no farther than its arm' : null,
+    );
+  }
+  if (act.act === 'rub') return first(mine(act.tool), near(act.thing), ms === null || !state.at.has(act.by) || act.ms <= ms - state.at.get(act.by) ? null : 'not rubbed so long');
   if (act.act === 'form') return first(mine(act.thing), is(act.thing, 'lump'));
   const lit = (id) => (madeOf(state, id)?.kind === 'fire' && fireNow(madeOf(state, id), ms).out ? 'the fire is out' : null);
   if (act.act === 'fire') return first(near(act.thing), is(act.thing, 'cup'), is(act.fire, 'fire'), lit(act.fire));
@@ -275,6 +328,7 @@ export function check(state, act, ms = null) {
 
 export function apply(state, act, ms = null) {
   state.k.set(act.by, act.k);
+  if (ms !== null) state.at.set(act.by, ms); // (when its last act was stamped)
   state.n++;
   const id = `made:${state.n}`;
   const make = (what, at = null) => {
@@ -309,18 +363,19 @@ export function apply(state, act, ms = null) {
   if (act.act === 'strike') {
     const tool = bodyOf(state, act.tool),
       stone = bodyOf(state, act.thing);
-    if (tool && stone && MK.chips(tool, stone)) state.edges.add(act.thing);
+    if (tool && stone && MK.chips(tool, stone, act.speed / 1000)) state.edges.add(act.thing);
   }
   if (act.act === 'bind') {
     const at = whereOf(act.stick);
     gone(act.stick, act.stone, act.string);
     make({ kind: 'axe', matter: 'wood', stick: act.stick, stone: act.stone, string: madeOf(state, act.string), turns: act.turns, pull: act.pull, edge: state.edges.has(act.stone) }, at);
   }
+  if (act.act === 'pry') state.things.set(act.thing, { at: [...act.to], by: act.by }); // (tipped over the fulcrum: where it went)
   if (act.act === 'swing') {
     const axe = madeOf(state, act.thing);
     const stick = bodyOf(state, axe.stick),
       stone = bodyOf(state, axe.stone);
-    const h = MK.holds({ stone, stick, string: axe.string, turns: axe.turns, pull: axe.pull });
+    const h = MK.holds({ stone, stick, string: axe.string, turns: axe.turns, pull: axe.pull, speed: act.speed / 1000 });
     if (!h.holds) {
       // it comes apart: the stick, the stone and the string fall where it was swung
       gone(act.thing);
@@ -337,7 +392,7 @@ export function apply(state, act, ms = null) {
   if (act.act === 'rub') {
     const tool = bodyOf(state, act.tool),
       wood = bodyOf(state, act.thing);
-    if (tool && wood && MK.rubbed(tool.matter, wood.matter, act.strokes).catches) {
+    if (tool && wood && MK.rubbed(tool.matter, wood.matter, { strokes: act.strokes, speed: act.speed / 1000, seconds: act.ms / 1000 }).catches) {
       // the rubbed wood catches: the fire is it burning (its wood's mass, the faces it shows the air)
       const r = wood.r ?? 0.01,
         L = wood.length ?? 2 * r;

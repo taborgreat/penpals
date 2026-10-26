@@ -47,20 +47,22 @@ function fireBetween(act) {
   act({ act: 'break', tree: oak.id, branch: thinOnes[1].id, day: today });
   const [a, b] = thinOnes.map((x) => H.stickId(oak.id, x.id));
   act({ act: 'put', thing: b, to: at });
-  return { a, b, fire: () => act({ act: 'rub', tool: a, thing: b, strokes: 900, at }) };
+  return { a, b, fire: () => act({ act: 'rub', tool: a, thing: b, strokes: 900, speed: 300, ms: 450000, at }) };
 }
 
 test('fire from rubbing: wood on wood catches, if rubbed long enough; a stone on wood never does', () => {
   const { act, state } = world();
   const { a, b } = fireBetween(act);
-  act({ act: 'rub', tool: a, thing: b, strokes: 6, at });
+  act({ act: 'rub', tool: a, thing: b, strokes: 6, speed: 300, ms: 3000, at });
   assert.ok(![...state.made.values()].some((m) => m.kind === 'fire'), 'a few strokes: warm, no more');
-  const fire = act({ act: 'rub', tool: a, thing: b, strokes: 900, at });
+  act({ act: 'rub', tool: a, thing: b, strokes: 900, speed: 0, ms: 450000, at });
+  assert.ok(![...state.made.values()].some((m) => m.kind === 'fire'), 'as long, the hand still: nothing');
+  const fire = act({ act: 'rub', tool: a, thing: b, strokes: 900, speed: 300, ms: 450000, at });
   assert.equal(state.made.get(fire)?.kind, 'fire', 'rubbed on: it catches');
   assert.ok(!state.things.has(b), 'the fire is that stick, burning');
   act({ act: 'put', thing: a, to: at });
   act({ act: 'take', thing: stone.id });
-  act({ act: 'rub', tool: stone.id, thing: a, strokes: 900, at });
+  act({ act: 'rub', tool: stone.id, thing: a, strokes: 900, speed: 300, ms: 450000, at });
   assert.equal([...state.made.values()].filter((m) => m.kind === 'fire').length, 1, 'a stone, as long: it carries the heat away');
   // it burns its wood down, as fast as its row burns over the faces it shows the air; then it is out, its ash left
   const f = { ...state.made.get(fire), lit: 0 };
@@ -71,7 +73,9 @@ test('fire from rubbing: wood on wood catches, if rubbed long enough; a stone on
   assert.ok(after.out && after.left === 0, `out after ${lasts.toFixed(0)} s`);
   assert.ok(Math.abs(after.ash - (f.grams * MATTER.wood.heat.leaves) / 1000) < 1e-9, 'its ash, what its row leaves');
   assert.equal(H.check(state, { v: 1, kind: 'outside', by, k: 99, act: 'fire', thing: fire, fire }, null) === 'the fire is out', false);
-  assert.ok(MK.rubbed('stone', 'wood', 900).dT < MK.rubbed('wood', 'wood', 900).dT / 5);
+  const rub = { strokes: 900, speed: 0.3, seconds: 450 };
+  assert.ok(MK.rubbed('stone', 'wood', rub).dT < MK.rubbed('wood', 'wood', rub).dT / 5);
+  assert.equal(MK.rubbed('wood', 'wood', { ...rub, speed: 1000 }).dT, MK.rubbed('wood', 'wood', { ...rub, speed: MK.BEING.swing }).dT, 'no faster than an arm goes');
 });
 
 test('clay gathered, formed into a cup and fired is pottery; grass and dirt are not formed', () => {
@@ -113,13 +117,15 @@ test('string twisted of grass; a stone chipped by a harder one (chalk cannot); a
   act({ act: 'put', thing: cord, to: at });
   // chip: a stone struck with a stone takes an edge; struck with chalk, not
   act({ act: 'take', thing: chalk.id });
-  act({ act: 'strike', tool: chalk.id, thing: stone.id });
+  act({ act: 'strike', tool: chalk.id, thing: stone.id, speed: 10000 });
   assert.ok(!state.edges.has(stone.id), 'the chalk gives way');
   act({ act: 'put', thing: chalk.id, to: at });
   act({ act: 'take', thing: stone2.id });
-  act({ act: 'strike', tool: stone2.id, thing: stone.id });
-  assert.ok(state.edges.has(stone.id), 'chipped: an edge');
-  assert.equal(MK.chips({ matter: 'stone', r: 0.01 }, { matter: 'stone', r: 0.2 }), false, 'a pebble does not crack a boulder');
+  act({ act: 'strike', tool: stone2.id, thing: stone.id, speed: 100 });
+  assert.ok(!state.edges.has(stone.id), 'tapped: no edge');
+  act({ act: 'strike', tool: stone2.id, thing: stone.id, speed: 10000 });
+  assert.ok(state.edges.has(stone.id), 'struck hard: chipped, an edge');
+  assert.equal(MK.chips({ matter: 'stone', r: 0.01 }, { matter: 'stone', r: 0.2 }, MK.BEING.swing), false, 'a pebble does not crack a boulder');
   act({ act: 'put', thing: stone2.id, to: at });
   // the axe, bound loose: on the first swing it comes apart
   act({ act: 'break', tree: oak.id, branch: thinOnes[2].id, day: today });
@@ -127,7 +133,7 @@ test('string twisted of grass; a stone chipped by a harder one (chalk cannot); a
   act({ act: 'put', thing: stick, to: at });
   const loose = act({ act: 'bind', stick, stone: stone.id, string: cord, turns: 2, pull: 10 });
   act({ act: 'take', thing: loose });
-  act({ act: 'swing', thing: loose, at: oak.id, to: at });
+  act({ act: 'swing', thing: loose, at: oak.id, to: at, speed: 10000 });
   assert.ok(!state.things.has(loose), 'it came apart');
   assert.deepEqual(state.things.get(stone.id).at, at, 'the stone fell where it was swung');
   // bound tight, with the string it was: it holds, and bites the oak
@@ -135,9 +141,51 @@ test('string twisted of grass; a stone chipped by a harder one (chalk cannot); a
   const tight = act({ act: 'bind', stick, stone: stone.id, string: again, turns: 3, pull: 300 });
   act({ act: 'take', thing: tight });
   const marks = (state.marks.get(oak.id) ?? []).length;
-  act({ act: 'swing', thing: tight, at: oak.id, to: at });
+  act({ act: 'swing', thing: tight, at: oak.id, to: at, speed: 10000 });
   assert.ok(state.things.has(tight), 'it holds');
   assert.equal((state.marks.get(oak.id) ?? []).length, marks + 1, 'and its edge bites the bark');
+});
+
+test('a lever: a stick over a stone tips a load too heavy for a hand, if its arm is long enough and it bears it', () => {
+  const { act, state } = world();
+  // a stone too heavy to take up, with another beside it for the fulcrum
+  const all = near(0, 0, 400).stones.filter((s) => s.matter === 'stone');
+  const apart = (p, q) => Math.hypot(p.at[0] - q.at[0], p.at[1] - q.at[1]);
+  let heavy = null,
+    over = null;
+  for (const h of all) {
+    if (H.stoneMass(h) * 9.81 <= H.BEING.pull) continue;
+    over = all.find((o) => o !== h && apart(o, h) < 0.6);
+    if (over) {
+      heavy = h;
+      break;
+    }
+  }
+  assert.ok(heavy && over, 'a heavy stone with another beside it');
+  assert.throws(() => act({ act: 'take', thing: heavy.id }), /too heavy/);
+  const weight = H.stoneMass(heavy) * 9.81;
+  const arm = Math.max(apart(over, heavy), over.r + heavy.r);
+  // a stick off the oak that will do: long enough past the fulcrum, thick enough to bear it
+  const fits = treeNow(oak, today)
+    .branches.slice(1)
+    .filter((b) => H.breaks(H.branchOf(oak, b.id, today)))
+    .find((b) => {
+      const br = H.branchOf(oak, b.id, today);
+      return MK.pries({ weight, load: arm, length: br.reach, r: br.r }).tips;
+    });
+  assert.ok(fits, 'a stick off the oak that tips it');
+  act({ act: 'break', tree: oak.id, branch: fits.id, day: today });
+  const stick = H.stickId(oak.id, fits.id);
+  const to = [Math.round(heavy.at[0] * 1000 + arm * 500), Math.round(heavy.at[1] * 1000), Math.round(heavy.at[2] * 1000)];
+  assert.throws(() => act({ act: 'pry', stick, over: over.id, thing: heavy.id, to: [to[0] + 2000, to[1], to[2]] }), /no farther than its arm/);
+  act({ act: 'pry', stick, over: over.id, thing: heavy.id, to });
+  assert.deepEqual(state.things.get(heavy.id).at, to, 'tipped over the fulcrum');
+  console.log(`a lever: a ${weight.toFixed(0)} N stone on an arm of ${arm.toFixed(2)} m, a stick ${H.branchOf(oak, fits.id, today).reach.toFixed(2)} m: it tips`);
+  // the balance itself: a long arm tips what a short one cannot; a twig breaks first
+  const w = 3 * H.BEING.pull;
+  assert.ok(MK.pries({ weight: w, load: 0.1, length: 1.2, r: 0.03 }).tips, 'a long arm: it tips');
+  assert.equal(MK.pries({ weight: w, load: 0.6, length: 1.2, r: 0.03 }).tips, false, 'the fulcrum in the middle: it does not');
+  assert.equal(MK.pries({ weight: w, load: 0.1, length: 1.2, r: 0.003 }).tips, false, 'a twig: it breaks first');
 });
 
 test('ink: galls and ore crushed into water; too much ore makes ink that eats its paper over the years', () => {

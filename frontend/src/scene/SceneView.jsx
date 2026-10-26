@@ -26,6 +26,7 @@ import { worldHit } from './worldRay.js';
 import { AIR, BEINGS, MATTER } from 'penpals-law/matter';
 import { dayOf, sunAt as sunToward } from 'penpals-law/sun';
 import * as LIFE from 'penpals-law/life';
+import { armSpeed } from 'penpals-law/making';
 import { chirps, songs, singing, wingbeats } from '../sound/life.js';
 import { BAR } from '../sound/music.js';
 import { penHand, recordSounds, dipTap } from '../sound/pen.js';
@@ -133,6 +134,10 @@ const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to
 // The wind as the rain is carried by it: the weather says how hard (law/weather.js), and it blows onto the
 // window, as the glass takes it (scene/glass.js): from beyond the far wall, toward the room.
 const windOf = (w) => [0, -(w?.wind ?? 0)];
+
+const TRAIL_MS = 150; // the moment the hand's speed is taken over (scene: how fast the pointer moved)
+// the angle between two directions (unit vectors), radians
+const angleOf = (a, b) => Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])));
 
 const SceneView = forwardRef(function SceneView(
   {
@@ -1085,6 +1090,18 @@ const SceneView = forwardRef(function SceneView(
   globalThis.__opens = () => ({ opens: carrying?.opens ?? null, under: openingAt(S.lastPointer) });
   globalThis.__eyeNow = () => ({ gaze: gazeOf(), eye: theLight().state.eye });
   // What the hand reaches outside under the pointer (scene/reach.js): through an open opening, or out there.
+  // How fast the hand goes at what it works on, `dist` m out (outside.md §3.3: with a stone or a stick in hand
+  // the mouse's speed is the arm's): the pointer's ray turning over the last moment, times how far out it is;
+  // mm/s, no faster than an arm goes (law/making.js armSpeed).
+  const handSpeed = (dist) => {
+    const now = performance.now();
+    const tr = (S.trail ?? []).filter((p) => now - p.t < TRAIL_MS);
+    if (tr.length < 2) return 0;
+    const a = roomRay({ clientX: tr[0].x, clientY: tr[0].y }).dir,
+      b = roomRay({ clientX: tr.at(-1).x, clientY: tr.at(-1).y }).dir;
+    const dt = (tr.at(-1).t - tr[0].t) / 1000;
+    return dt > 0 ? Math.round(armSpeed((angleOf(a, b) / dt) * dist) * 1000) : 0;
+  };
   function outsideHit(e) {
     if (!e || !S.outsideSpec || !S.outsideWalk || !S.pose) return null;
     const { origin: o, dir } = roomRay(e);
@@ -1187,12 +1204,41 @@ const SceneView = forwardRef(function SceneView(
       string = has('string');
     // a stone or a stick rubbed along wood: carving (the stone), rubbing (a stick: fire, or not)
     if ((stone || stick) && (hit.kind === 'stick' || (hit.kind === 'limb' && hit.branch === 0))) {
-      S.drag = { kind: 'carve', tool: stone ?? stick, rub: !stone, hit, lo: hit.at, hi: hit.at, last: [e.clientX, e.clientY], dir: 0, strokes: 1 };
+      // (as fast and as long as the hand rubs: the ray swept along it, over the time it took)
+      S.drag = {
+        kind: 'carve',
+        tool: stone ?? stick,
+        rub: !stone,
+        hit,
+        lo: hit.at,
+        hi: hit.at,
+        last: [e.clientX, e.clientY],
+        dir: 0,
+        strokes: 1,
+        t0: performance.now(),
+        swept: 0,
+        ray: roomRay(e).dir,
+      };
       return true;
     }
     if (stone && hit.kind === 'stone') {
       const s = S.outsideSpec?.stones.find((x) => x.id === hit.id);
-      return act({ act: s?.matter === 'ore' ? 'crush' : 'strike', tool: stone, thing: hit.id });
+      return act(s?.matter === 'ore' ? { act: 'crush', tool: stone, thing: hit.id } : { act: 'strike', tool: stone, thing: hit.id, speed: handSpeed(hit.t) });
+    }
+    // a stick under a stone, over the stone nearest it: pushed down, it tips it over that one or it does not
+    // (law/making.js pries); it goes over away from the fulcrum
+    if (stick && hit.kind === 'stone') {
+      const stones = S.outsideSpec?.stones ?? [];
+      const load = stones.find((x) => x.id === hit.id);
+      const apart = (x) => Math.hypot(x.at[0] - load.at[0], x.at[1] - load.at[1]);
+      const over = load && stones.filter((x) => x.id !== load.id).sort((p, q) => apart(p) - apart(q))[0];
+      if (over) {
+        const d = [load.at[0] - over.at[0], load.at[1] - over.at[1]];
+        const len = Math.hypot(...d) || 1;
+        const arm = Math.max(len, load.r + over.r) / 2; // (within the arm the law allows)
+        const [x, y] = [load.at[0] + (d[0] / len) * arm, load.at[1] + (d[1] / len) * arm];
+        return act({ act: 'pry', stick, over: over.id, thing: load.id, to: worldMm([x, y, S.outsideWalk.ground(x, y)]) });
+      }
     }
     if (stone && there?.kind === 'gall') return act({ act: 'crush', tool: stone, thing: hit.id });
     if (cup && there?.kind === 'fire') {
@@ -1210,7 +1256,8 @@ const SceneView = forwardRef(function SceneView(
       const s = (S.outsideSpec?.sticks ?? []).find((x) => Math.hypot(x.at[0] - hit.at[0], x.at[1] - hit.at[1]) < 0.6);
       if (s) return act({ act: 'bind', stick: s.id, stone: hit.id, string, turns: 3, pull: e.shiftKey ? 30 : 300 });
     }
-    if (has('axe') && hit.kind === 'limb') return act({ act: 'swing', thing: has('axe'), at: hit.id, to: worldMm([hit.at[0], hit.at[1], S.outsideWalk.ground(hit.at[0], hit.at[1])]) });
+    if (has('axe') && hit.kind === 'limb')
+      return act({ act: 'swing', thing: has('axe'), at: hit.id, to: worldMm([hit.at[0], hit.at[1], S.outsideWalk.ground(hit.at[0], hit.at[1])]), speed: handSpeed(hit.t) });
     return false;
   }
   globalThis.__hands = {
@@ -1461,6 +1508,7 @@ const SceneView = forwardRef(function SceneView(
     const p0 = S.pointers.get(e.pointerId);
     if (p0) S.pointers.set(e.pointerId, { ...p0, x: e.clientX, y: e.clientY });
     S.lastPointer = { clientX: e.clientX, clientY: e.clientY }; // (what E reaches for)
+    S.trail = [...(S.trail ?? []).filter((p) => e.timeStamp - p.t < TRAIL_MS), { t: e.timeStamp, x: e.clientX, y: e.clientY }]; // (how fast the hand goes)
     if (S.drag?.kind === 'hand') {
       const at = handAt(e, S.drag.z);
       if (at) carrying.reach(at);
@@ -1498,6 +1546,9 @@ const SceneView = forwardRef(function SceneView(
       // each pass along it a stroke: the drag turned back is the next
       const dx = e.clientX - d.last[0],
         dy = e.clientY - d.last[1];
+      const ray = roomRay(e).dir;
+      d.swept += angleOf(d.ray, ray);
+      d.ray = ray;
       if (Math.hypot(dx, dy) > 3) {
         const dir = Math.abs(dx) > Math.abs(dy) ? Math.sign(dx) : Math.sign(dy) * 2;
         if (d.dir && dir !== d.dir) d.strokes++;
@@ -1690,7 +1741,8 @@ const SceneView = forwardRef(function SceneView(
       let a;
       if (d.rub) {
         // a stick rubbed along wood: its strokes' work heating the track (fire, or not: law/making.js)
-        a = { act: 'rub', tool: d.tool, thing: t.kind === 'stick' ? t.id : t.id, strokes: d.strokes, at: worldMm(t.at) };
+        const ms = Math.max(1, Math.round(performance.now() - d.t0));
+        a = { act: 'rub', tool: d.tool, thing: t.id, strokes: d.strokes, at: worldMm(t.at), speed: Math.round(armSpeed((d.swept / (ms / 1000)) * (t.t ?? 1)) * 1000), ms };
         if (t.kind !== 'stick') a = null; // (rubbed on a standing trunk: nothing to light it from yet)
       } else if (t.kind === 'stick') {
         const s = S.outsideSpec?.sticks.find((x) => x.id === t.id);
