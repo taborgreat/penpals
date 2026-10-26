@@ -10,18 +10,14 @@
 //   { type: 'play', id, acts, paperKey, family, law? }  start playing a record back
 //   { type: 'frame', id, ms }                     playback forward to ms
 //   { type: 'verify', id, text }                  check a .book here (law/verify.js), regrowing open sheets
-//   { type: 'trace', id, body, seed, cell }       walk one cell back (law/v*/trace.js)
 //   { type: 'look', id, body, seed, scale, view? }  an open sheet's look, grown here: RGBA and its box
-//   { type: 'depth', id, body, seed, mode, cut?, view? }  side ('side', cut [x0,y0,x1,y1]): RGBA; or 'scene': the
-//                                                 scene's field (law/v2/scene.js) and the paper's own detail
 //   { type: 'scene', on }                         the sheet being written: tiles carry heights from now on
 //   { type: 'liveMoments', id, acts }             the sheet being written, its moments (law 2): when each cell's ink went down
 // Out: { type: 'tiles', tiles: [{ tx, ty, rgba }], nib? } (and 'reset'), replies by id. nib (with each
 // batch's answer): { reservoir (what is left in a dipped nib, of its fill), drops, W (thrown so far) }.
 import { lawOf, CURRENT } from 'penpals-law/laws';
-import { paperDetail } from 'penpals-law/v2/scene';
 import { halves } from '../scene/half.js';
-import { verify as V, keys as K, record as R, fromB64url, b64url } from 'penpals-law';
+import { verify as V, keys as K, record as R, fromB64url } from 'penpals-law';
 
 let sheet = null; // { paperKey, family, law }
 let live = null;
@@ -103,8 +99,6 @@ onmessage = ({ data: m }) => {
       );
     } else if (m.type === 'verify') {
       postMessage({ type: 'verified', id: m.id, report: V.verifyBook(m.text, { regrowOpen: true }) });
-    } else if (m.type === 'verifyProof') {
-      postMessage({ type: 'verified', id: m.id, report: V.verifyProof(m.bundle, { regrowOpen: true }) });
     } else if (m.type === 'look') {
       const { L, cells, box } = growBody(m.body, m.seed, m.scale);
       const rgba = box[2] && box[3] ? L.lookRGBA(L.lookRGB(cells, box, m.view ?? {}), box) : new Uint8Array(4);
@@ -115,24 +109,6 @@ onmessage = ({ data: m }) => {
         live.resend(); // every tile shown so far, again, with its heights
         postTiles(live.changed({ heights: true }));
       }
-    } else if (m.type === 'depth') {
-      const { L, cells, box } = growBody(m.body, m.seed);
-      if (!L.sideView) throw new Error('ink written before depth (law 1) has no side view or scene');
-      if (m.mode === 'scene') {
-        const f = L.sceneField(cells, box, m.view ?? {});
-        const detail = paperDetail(K.paperKeyOf(fromB64url(m.seed, 64)), m.body.paper, box);
-        postMessage({ type: 'depth', id: m.id, field: f, detail }, [f.surface.buffer, f.above.buffer, f.depth.buffer, f.rgba.buffer, f.flags.buffer, detail.buffer]);
-      } else {
-        const pic = L.sideView(cells, { x0: m.cut[0], y0: m.cut[1], x1: m.cut[2], y1: m.cut[3] }, { px: SIDE_PX, ...(m.view ?? {}) });
-        postMessage({ type: 'depth', id: m.id, width: pic.width, height: pic.height, rgba: pic.rgba, box }, [pic.rgba.buffer]);
-      }
-    } else if (m.type === 'moments') {
-      // show the moments (own and open sheets): when each cell's ink went down
-      const L = lawOf(m.body.law);
-      if (!L.momentsOf) throw new Error('ink written before depth (law 1) has no moments to show');
-      const rec = L.decodeCanonical(fromB64url(m.body.acts));
-      const mo = L.momentsOf(rec, { paperKey: K.paperKeyOf(fromB64url(m.seed, 64)), family: R.familyOf(m.body) }, m.body.box);
-      postMessage({ type: 'moments', id: m.id, box: mo.box, at: mo.at }, [mo.at.buffer]);
     } else if (m.type === 'liveMoments') {
       // show the moments of the sheet being written (yours, on its own paper), as written so far
       const L = lawOf(sheet.law);
@@ -141,15 +117,6 @@ onmessage = ({ data: m }) => {
       const on = { paperKey: sheet.paperKey, family: sheet.family };
       const mo = L.momentsOf(rec, on, L.boxOf(L.settledCells(L.grow(rec, on).tiles)));
       postMessage({ type: 'moments', id: m.id, box: mo.box, at: mo.at }, [mo.at.buffer]);
-    } else if (m.type === 'regrow') {
-      // A closed sheet grown again by its writer (the seed made with their key, here).
-      const seed = fromB64url(m.seed, 64);
-      const ok = K.verifySeed(fromB64url(m.body.key, 32), m.body.sheet, seed) && b64url(K.commitOf(seed)) === m.body.commit && R.regrow(m.body, seed).ok;
-      postMessage({ type: 'regrown', id: m.id, ok });
-    } else if (m.type === 'trace') {
-      const L = lawOf(m.body.law);
-      const rec = L.decodeCanonical(fromB64url(m.body.acts));
-      postMessage({ type: 'traced', id: m.id, trace: L.trace(rec, { paperKey: K.paperKeyOf(fromB64url(m.seed, 64)), family: R.familyOf(m.body) }, m.cell) });
     } else if (m.type === 'stop') {
       plays.delete(m.id);
     }

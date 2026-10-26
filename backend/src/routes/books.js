@@ -65,16 +65,16 @@ booksRouter.get('/:name/download', async (req, res) => {
 // The look of a signature (routes/signatures.js): a PNG of its settled ink (colour to alpha), one pixel per
 // cell, as it is now: aged since it was signed (oak gall darkens) and faded by how often it has been seen;
 // each viewer counts once a day.
-export async function sendLook(req, res, account, line, scale, { cacheControl = 'private, max-age=300', lod = 0 } = {}) {
+export async function sendLook(req, res, account, line, scale, { cacheControl = 'private, max-age=300' } = {}) {
   const law = line.ink.law;
   const views = law >= 2 ? await countView('user', account.id, line.id, req.user?.id ?? ipKey(req)) : 0;
   const view = viewOf(line.ink, await litHours(account.id, Date.parse(line.made)), views);
-  const etag = `"${lookName(line.id, scale, law, view)}${lod ? `-l${lod}` : ''}"`;
+  const etag = `"${lookName(line.id, scale, law, view)}"`;
   res.set('ETag', etag);
   res.set('Cache-Control', cacheControl);
   res.set('Vary', 'Cookie');
   if (req.get('If-None-Match') === etag) return res.status(304).end();
-  const p = lookPath(account.id, line.id, scale, law, view, lod);
+  const p = lookPath(account.id, line.id, scale, law, view);
   let png = await readCached(p);
   if (!png) {
     take('lookMissViewer', req.user?.id ?? ipKey(req));
@@ -82,7 +82,7 @@ export async function sendLook(req, res, account, line, scale, { cacheControl = 
     if (!seedText) throw httpError(410, 'seed_missing', "This sheet's paper is not open.");
     const seed = fromB64url(seedText, 64);
     if (b64url(K.commitOf(seed)) !== line.ink.commit) throw httpError(500, 'seed_mismatch', "This sheet's seed does not match its record.");
-    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: R.familyOf(line.ink), scale, png: true, lod, view, priority: 'view', key: `look:${account.id}:${etag}` });
+    const out = await settleOnServer({ law, acts: fromB64url(line.ink.acts), seed, family: R.familyOf(line.ink), scale, png: true, view, priority: 'view', key: `look:${account.id}:${etag}` });
     png = Buffer.from(out.png);
     await writeCached(p, png).catch((err) => console.warn('[cache]', err.message));
   }

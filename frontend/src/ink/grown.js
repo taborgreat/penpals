@@ -1,5 +1,5 @@
 // Ink grown on this device, outside a writing session: checking a .book and
-// the looks of its open sheets (anyone can grow those: their seeds are public).
+// the looks of what is in it (anyone can grow those: their seeds are public).
 import { laws } from 'penpals-law';
 let worker = null;
 const waiting = new Map();
@@ -24,13 +24,6 @@ function ask(msg) {
 }
 
 export const verifyBookHere = (text) => ask({ type: 'verify', text }).then((d) => d.report);
-export const verifyProofHere = (bundle) => ask({ type: 'verifyProof', bundle }).then((d) => d.report);
-export const regrowHere = (body, seed) => ask({ type: 'regrow', body, seed }).then((d) => d.ok);
-export const traceHere = (body, seed, cell) => ask({ type: 'trace', body, seed, cell }).then((d) => d.trace);
-// The scene's field of a record grown here (law 2), with the paper's own fibers: own and open sheets.
-export const sceneHere = (body, seed, view) => ask({ type: 'depth', body, seed, mode: 'scene', view }).then(({ field, detail }) => ({ field, detail }));
-// When each cell's ink went down (show the moments): own and open sheets.
-export const momentsHere = (body, seed) => ask({ type: 'moments', body, seed }).then(({ box, at }) => ({ box, at }));
 
 const urlOf = async (w, h, rgba) => {
   const c = document.createElement('canvas');
@@ -57,11 +50,4 @@ export function growLook(body, seed, scale, view = { ageH: 0, views: 0 }) {
       ask({ type: 'look', body, seed, scale, view }).then(({ box, rgba }) => urlOf(box[2], box[3], rgba)),
     );
   return looks.get(k);
-}
-
-// Into the paper (law 2): mode 'side' cuts along cut = [x0, y0, x1, y1] (sheet
-// cells); 'relief' lights the top. → { url, width, height }
-export async function depthHere(body, seed, { mode, cut = null, view = { ageH: 0, views: 0 } }) {
-  const d = await ask({ type: 'depth', body, seed, mode, cut, view });
-  return { url: await urlOf(d.width, d.height, d.rgba), width: d.width, height: d.height, rgba: new Uint8Array(d.rgba.buffer, d.rgba.byteOffset, d.rgba.byteLength) };
 }

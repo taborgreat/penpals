@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { DROP_MS } from './sight.js';
 
 // Whether an element is near the view (in it, or within `margin` of it), held
 // for `dropMs` after it leaves (cleanup-and-speed.md §5b): what is out of sight is
 // not asked for, and what has been out of it a while is let go.
+export const DROP_MS = 20000; // what left the view is let go after this (a glance away and back costs nothing)
 export function useNear(ref, { margin = '50%', dropMs = DROP_MS } = {}) {
   const [near, setNear] = useState(false);
   useEffect(() => {

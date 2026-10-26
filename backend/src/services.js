@@ -12,11 +12,9 @@ export const setPool = (p) => {
 export const getPool = () => pool;
 
 // Grow acts under `law` on the paper of `seed` (the job only ever sees the
-// paperKey). `view` is the look's moment ({ ageH, views } buckets); `mode`
-// 'side' (with `cut`) or 'scene' asks for those instead; `lod` the look at a
-// level of detail (each pixel 2^lod cells a side: sight.js).
-export function settleOnServer({ law, acts, seed, family, scale = 64, png = false, lod = 0, view, mode, cut, priority = 'view', key, timeout }) {
-  return pool.run({ law, acts, paperKey: K.paperKeyOf(seed), family, scale, png, lod, view, mode, cut }, { key, priority, timeout: timeout ?? config.render.timeoutMs.book });
+// paperKey). `view` is the look's moment ({ ageH, views } buckets).
+export function settleOnServer({ law, acts, seed, family, scale = 64, png = false, view, priority = 'view', key, timeout }) {
+  return pool.run({ law, acts, paperKey: K.paperKeyOf(seed), family, scale, png, view }, { key, priority, timeout: timeout ?? config.render.timeoutMs.book });
 }
 
 // The moment a record's look is drawn at: how long it has aged and how often it

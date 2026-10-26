@@ -29,7 +29,6 @@ import { acoustics } from '../sound/room.js';
 import { crackles } from '../sound/candle.js';
 import { RULED, RULE_ABS } from '../book/ruled.js';
 import { isPhone } from './support.js';
-import { sightOf } from './sight.js';
 import { rainNear } from './rain.js';
 import * as WK from './keys.js';
 
@@ -48,8 +47,6 @@ import * as WK from './keys.js';
 //   cutSide     (a, b) => Promise<{ width, height, rgba }>: the cross-section picture for the cut plane
 //   moments     () => Promise<{ box, at } | [{ id, box, at }]>: show the moments (own and open sheets)
 //   momentsKey  changes when the writing does: shown moments are banded again
-//   onSight     (sight | null) => …: what the eye sees, once the view settles (sight.js);
-//               null while the view is out of sight
 //   ground      the sheets lie on the page (a journal page), not on the table
 //   onFlat      the viewer chose the flat look
 //   toolsHost   an element to put the tools in (a pad's own bar, off the page), else over the view
@@ -87,7 +84,6 @@ import * as WK from './keys.js';
 //               hover(at), down(at), tiltBy(degrees) }: a thing in the hand (rooms.md §3b): a click on
 //               a pickable picks it up; held, it follows the pointer over the table (at: the point
 //               there, room m), E held makes the mouse tilt it, a click sets it down
-//   focus       { at: [x, y] (page px), size, n }: the eye goes to that place on the table
 //   world       the being in the world (one-world.md, outside.md Part 3, scene/keys.js): seated at
 //               the table, W A S D stand up and walk, Space jumps (twice: flies), Shift crouches or
 //               lowers, a drag turns the head, the scroll is the eye's zoom, E picks up, sets down,
@@ -113,7 +109,6 @@ function storedRelief() {
     return RELIEF;
   }
 }
-const SIGHT_MS = 150; // the view still this long: what it sees is told (and asked for)
 const SETTLE_MS = 40; // while the eye adapts (it is slow: seconds), drawn this often
 const FOV = 40;
 // Look: the head turned in the room (light-waves §9): drag to turn, W A S D Q E to fly;
@@ -146,7 +141,6 @@ const SceneView = forwardRef(function SceneView(
     cutSide,
     moments,
     momentsKey,
-    onSight,
     ground = false,
     onFlat,
     paper = null,
@@ -173,7 +167,6 @@ const SceneView = forwardRef(function SceneView(
     space = null,
     outside = null,
     hands = null,
-    focus = null,
     hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
     world = false,
   },
@@ -300,8 +293,6 @@ const SceneView = forwardRef(function SceneView(
     const d = toRoomDir(f.forward);
     return { mode: 'fly', pos: pageToRoom(f.eye, origin()), yaw: (Math.atan2(d[0], d[1]) * 180) / Math.PI, pitch: (Math.asin(Math.max(-1, Math.min(1, d[2]))) * 180) / Math.PI, size: 1, vz: 0 };
   }
-  const onSightRef = useRef(onSight);
-  onSightRef.current = onSight;
   const onPoseRef = useRef(onPose);
   onPoseRef.current = onPose;
   S.beings = beings;
@@ -331,24 +322,6 @@ const SceneView = forwardRef(function SceneView(
       if (k >= 1) S.back = null;
     }
     return theLight().at({ now, date: worldClock(new Date()), override, eye: eyeRef.current ?? undefined, gaze: gazeOf() });
-  }
-
-  // What the eye sees, told once the view has settled (SIGHT_MS after it stops).
-  function seen(cam, moving) {
-    if (!onSightRef.current) return;
-    const key = (
-      cam.mode === 'pose' ? ['pose', ...cam.eye.map((v) => Math.round(v)), ...cam.forward.map((v) => v.toFixed(3))] : [cam.mode, cam.target[0], cam.target[1], cam.dist, cam.az, cam.el, cam.view]
-    )
-      .concat(S.css)
-      .join();
-    if (key === S.sightKey && !moving) return;
-    clearTimeout(S.sightTimer);
-    S.sightTimer = setTimeout(() => {
-      if (S.hidden) return;
-      S.sightKey = key;
-      const dpr = window.devicePixelRatio || 1;
-      onSightRef.current?.(sightOf(cam, S.css[0] * dpr, S.css[1] * dpr));
-    }, SIGHT_MS);
   }
 
   function draw(now) {
@@ -549,7 +522,6 @@ const SceneView = forwardRef(function SceneView(
     S.view.setHands(carrying?.hands?.() ?? []); // (the bare hands reaching in the room: anyone's)
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
-    seen(cam, moving);
     tellPlace();
     // your head, for the others (room/presence.js sends it when it has moved enough)
     if (onPoseRef.current && head) {
@@ -613,11 +585,6 @@ const SceneView = forwardRef(function SceneView(
     const io = new IntersectionObserver(([e]) => {
       S.hidden = !e.isIntersecting;
       view.setVisible(!S.hidden);
-      if (S.hidden) {
-        clearTimeout(S.sightTimer);
-        S.sightKey = null;
-        onSightRef.current?.(null); // out of sight: nothing is asked for
-      }
       if (!S.hidden) schedule();
     });
     io.observe(wrapRef.current);
@@ -633,7 +600,6 @@ const SceneView = forwardRef(function SceneView(
       clearTimeout(S.flicker);
       clearTimeout(S.settle);
       clearTimeout(S.still);
-      clearTimeout(S.sightTimer);
       cancelAnimationFrame(S.raf);
       S.raf = 0;
       for (const a of S.applied.values()) a.unsub?.();
@@ -793,21 +759,6 @@ const SceneView = forwardRef(function SceneView(
 
   // the others moved: draw them where they are going
   useEffect(schedule, [beings]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // a place on the table to look at (a shared sheet to write on): the eye goes there, seated
-  useEffect(() => {
-    if (!focus?.at || fixed) return;
-    if (S.pose) {
-      S.pose = null;
-      S.glide = null;
-      setLooking(false);
-    }
-    const from = S.shown ?? S.cam;
-    const to = { ...S.home, target: [...focus.at], dist: Math.max(focus.size ?? 0, 200) * 1.4, el: Math.max(from.el ?? 55, 62), az: 0 };
-    S.anim = { from, to, t0: performance.now(), ms: 600 };
-    S.cam = to;
-    schedule();
-  }, [focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the 2D/3D switch: the camera moves, the page under it does not
   useEffect(() => {

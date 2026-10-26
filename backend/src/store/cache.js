@@ -14,8 +14,7 @@ const entries = new Map(); // path → { size, used }
 let total = 0;
 
 export const lookName = (inkId, scale, law, view = { ageH: 0, views: 0 }) => `${inkId}@${scale}.L${law}${law >= 2 ? `-a${view.ageH}-e${view.views}` : ''}-r${config.render.rev}`;
-export const lookPath = (userId, inkId, scale, law, view, lod = 0) => path.join(cacheDir, userId, `${lookName(inkId, scale, law, view)}${lod ? `-l${lod}` : ''}.png`);
-// A sheet's whole scene field (deflated PNKS), that every window is cut from (sight.js).
+export const lookPath = (userId, inkId, scale, law, view) => path.join(cacheDir, userId, `${lookName(inkId, scale, law, view)}.png`);
 
 export async function loadCache() {
   entries.clear();
