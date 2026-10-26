@@ -36,7 +36,9 @@ const msOf = (l) => Date.parse(l.at);
 const stepOf = (ms) => floorDiv(ms, STEP_MS);
 const metres = (p) => p.map((v) => v / 1000);
 // (with bodies, any act that moves a thing may move a candle: it may be pushed)
-const isWaxy = (l, bodies) => l.kind === 'lay' || CANDLES.includes(l.act?.thing) || (!!bodies && l.act?.kind === 'room' && ['place', 'tilt', 'carry'].includes(l.act.act));
+// (and who comes and goes: the last one to leave puts the candles out, rooms.md §1b)
+const isWaxy = (l, bodies) =>
+  l.kind === 'lay' || l.kind === 'enter' || l.kind === 'leave' || CANDLES.includes(l.act?.thing) || (!!bodies && l.act?.kind === 'room' && ['place', 'tilt', 'carry'].includes(l.act.act));
 
 // The candles from the start, and what they have let fall.
 function fresh(bodies = null) {
@@ -47,6 +49,7 @@ function fresh(bodies = null) {
     drips: [],
     events: [],
     mark: null,
+    here: [], // who is in the house (its enter and leave lines, the server's)
     bodies: bodies ? startBodies(bodies.start) : null,
     candles: CANDLES.map((thing) => ({ cd: newCandle(), lit: false, holder: null, pos: bodies?.start[thing] ?? null, deg: 0, way: [1, 0] })),
   };
@@ -59,6 +62,12 @@ const fromMark = (s) => ({ ...structuredClone(s.mark), drips: s.drips.slice(0, s
 const cold = (c) => !c.lit && c.cd.rings.every((ring) => ring.cells.every((x) => x.E === 0));
 
 function apply(s, l, bodies) {
+  if (l.kind === 'enter' || l.kind === 'leave') {
+    // the last one out puts the candles out as they go (rooms.md §1b: lit only while a being is here)
+    s.here = l.kind === 'enter' ? [...new Set([...s.here, l.by])] : s.here.filter((b) => b !== l.by);
+    if (l.kind === 'leave' && !s.here.length) for (const c of s.candles) c.lit = false;
+    return;
+  }
   if (l.kind === 'lay') {
     s.lying = s.lying.filter((x) => x.paper !== l.paper);
     if (l.rest) s.lying = [...s.lying, { paper: l.paper, at: l.rest, size: l.size }];

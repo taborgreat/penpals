@@ -32,13 +32,9 @@ const byHand = { on: false }; // (the e2e lights them itself: globalThis.__candl
 
 // Which candles burn and which are in someone's hand, by the room's signed acts. → { lit, held } ('01' strings)
 function candlesOf(lines) {
-  const lit = {},
+  const lit = R.litOf(lines), // (the last one out puts them out: law/room.js)
     held = {};
-  for (const l of lines) {
-    const a = l.act;
-    if (a?.act === 'light' || a?.act === 'out') lit[a.thing] = a.act === 'light';
-    if (a?.act === 'place') held[a.thing] = a.to === null;
-  }
+  for (const l of lines) if (l.act?.act === 'place') held[l.act.thing] = l.act.to === null;
   return { lit: R.CANDLES.map((c) => (lit[c] ? 1 : 0)).join(''), held: R.CANDLES.map((c) => (held[c] ? 1 : 0)).join('') };
 }
 const CATCH_UP_MS = 120000; // the candles are regrown this much of the room's time at a go, between frames
@@ -422,7 +418,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   // Lighting the candles and putting them out are acts (matter-fixes §2). As the sun goes down by
   // the world's clock (law/room.js isNight), or as one comes in at night, the first of those here
   // (by name) lights them; as it comes up, puts them out; the last one to leave puts them out as it
-  // goes. A candle someone lit or put out by hand (one-world.md, its panel: lightCandle) is left as
+  // goes (that, the chain: law/room.js litOf, law/wax.js). A candle someone lit or put out by hand (one-world.md, its panel: lightCandle) is left as
   // they had it until the sun turns again. (globalThis.__candles, for the e2e: light(which),
   // out(which) by hand, and the clock leaves them be.)
   const [dusk, setNight] = useState(() => R.isNight(Date.now()));
@@ -449,8 +445,6 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       }
     });
   }, [tends, night, lit, name, key, roomKey]);
-  const last = useRef({ alone: true, lit });
-  last.current = { alone: !others.length, lit };
   useEffect(() => {
     if (!body || !key || !roomKey) return;
     globalThis.__candles = {
@@ -459,18 +453,6 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       candle: (which) => candles.candle(which),
     };
   }, [name, body, key, roomKey, candles]);
-  useEffect(() => {
-    if (!body || !key || !roomKey) return undefined;
-    const bye = () => {
-      if (byHand.on || !last.current.alone) return;
-      R.CANDLES.forEach((thing, i) => last.current.lit[i] === '1' && roomAct(name, key, roomKey, { act: 'out', thing }, { keepalive: true }));
-    };
-    window.addEventListener('pagehide', bye);
-    return () => {
-      window.removeEventListener('pagehide', bye);
-      bye();
-    };
-  }, [name, body, key, roomKey]);
   // (for the checks, e2e/oneworld.mjs: everyone else in the world as this screen sees them, in its frame)
   globalThis.__world = { seen: () => seen.map((b) => ({ name: b.name, house: b.house, at: b.to?.pos ?? null })), opens: () => world.opens };
   // (for the checks, e2e: the papers here and where each lies (room m), the one in your hand, your book)

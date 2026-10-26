@@ -56,6 +56,22 @@ export const OPEN_AT_FIRST = Object.freeze({ window: false, shutters: true, door
 export const openNow = (things, thing) => things?.[thing]?.open ?? OPEN_AT_FIRST[thing];
 export const THINGS = [...CANDLES, ...PENS, 'jar', 'stamper', 'pendulum', ...OPENINGS];
 export const ACTS = ['light', 'out', 'place', 'tilt', 'carry', 'reach', 'set', 'open', 'shut'];
+// Which candles burn, by the room's lines: its acts, and who came and went (the server's enter and leave
+// lines): the last one out puts them out as they go (rooms.md §1b; law/wax.js the same). → { [candle]: bool }
+export function litOf(lines) {
+  const lit = {};
+  let here = [];
+  for (const l of lines) {
+    if (l.kind === 'enter') here = [...new Set([...here, l.by])];
+    else if (l.kind === 'leave') {
+      here = here.filter((b) => b !== l.by);
+      if (!here.length) for (const c of CANDLES) lit[c] = false;
+    }
+    const a = l.act;
+    if (a?.kind === 'room' && (a.act === 'light' || a.act === 'out')) lit[a.thing] = a.act === 'light';
+  }
+  return lit;
+}
 export const TILT_MAX = 90;
 export const TILT_STEP = 5; // degrees: a tilt act only past this turn or a step moved (being.js: as the head's)
 // One world, one sun, one clock (rooms.md §1b): Pacific. Night is the sun down by it (law/sun.js:
@@ -154,7 +170,7 @@ export const verifyRoomActSeal = (act, seal) => verify(fromB64url(seal, 64), sea
 export function isTiltAct(last, lastAt, next, now) {
   if (!last) return true;
   if (now - lastAt < 1000 / MAX_RATE) return false;
-  const moved = Math.hypot(...next.pos.map((v, k) => v - last.pos[k]));
+  const moved = Math.sqrt(next.pos.reduce((s, v, k) => s + (v - last.pos[k]) ** 2, 0)); // (exact everywhere: no hypot)
   return moved > STEP_M || Math.abs(next.deg - last.deg) >= TILT_STEP || (next.deg === 0) !== (last.deg === 0);
 }
 

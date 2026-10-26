@@ -9,7 +9,7 @@
 // is an act sealed by its key (law/room.js), stamped here as it came:
 //   { n, at, act, seal }
 // Where each thing is, and which candles burn, are read from them; the law regrows the
-// candles and every drip from them alone (law/wax.js). Where shared sheets lie on the
+// candles and every drip from them alone (law/wax.js). Where papers lie in the
 // house is written here as they come to rest and leave (store/papers.js): { kind: 'lay', paper,
 // rest: [x, y, z] mm (where it rests: its middle), size: [w, h] (its units) | rest null (it left) }, so
 // what is under a falling drip is read from the chain too.
@@ -40,7 +40,7 @@ const metres = (mm) => mm.map((v) => v / 1000);
 // ('<key>.<k>').
 function stateOf(lines) {
   const things = {},
-    lit = {},
+    lit = R.litOf(lines), // (the last one out puts them out: law/room.js)
     counted = new Set();
   for (const l of lines) {
     const a = l.act;
@@ -49,7 +49,6 @@ function stateOf(lines) {
     if (a.act === 'place') things[a.thing] = { ...things[a.thing], at: a.to === null ? null : metres(a.to), by: nameOf(a.by) };
     if (a.act === 'set') things[a.thing] = { ...things[a.thing], set: a.set };
     if (a.act === 'open' || a.act === 'shut') things[a.thing] = { ...things[a.thing], open: a.act === 'open' };
-    if (a.act === 'light' || a.act === 'out') lit[a.thing] = a.act === 'light';
   }
   return { things, lit, counted };
 }
@@ -165,6 +164,7 @@ export async function part(ownerId, client) {
     if (b.links <= 0 && r.beings.get(client.userId) === b) {
       r.beings.delete(client.userId);
       await record(ownerId, r, { by: client.name, kind: 'leave' });
+      if (!r.beings.size) for (const c of R.CANDLES) r.lit[c] = false; // (the last one out: the candles out, law/room.js litOf)
       tellAll(r, 'being', { kind: 'leave', name: client.name });
       if (world.get(client.name)?.house === getAccount(ownerId)?.publicKey) {
         world.delete(client.name);

@@ -161,3 +161,49 @@ test('a candle put out cools even after everyone leaves: re-entered the next day
   assert.equal(C.liquidOf(cd), 0, 'set solid');
   assert.equal(cd.burnt + cd.dripped + C.massOf(cd), C.MADE_UG, 'none of it lost');
 });
+
+test('a candle is replaced only when it is spent: lit again before then it burns on as it was; burnt to its foot, a new one stands in its place', () => {
+  const room = W.createRoomWax({ landing });
+  const lines = chain(
+    [
+      [0, ana, 'light'],
+      [30 * 60000, ana, 'out'],
+      [31 * 60000, ana, 'light'],
+      [32 * 60000, ana, 'out'],
+    ],
+    { paper: false },
+  );
+  room.advance(lines, T0 + 33 * 60000);
+  const again = room.candle(0).cd;
+  assert.ok(again.burnt > 0 && C.massOf(again) < C.MADE_UG, 'the same candle, burnt as far as it burned');
+  const down = chain(
+    [
+      [0, ana, 'light'],
+      [5 * 3600000, ana, 'out'],
+      [5 * 3600000 + 60000, ana, 'light'],
+    ],
+    { paper: false },
+  );
+  const r = W.createRoomWax({ landing });
+  r.advance(down, T0 + 5 * 3600000 + 30000);
+  assert.ok(C.spent(r.candle(0).cd), 'burnt to its foot');
+  r.advance(down, T0 + 5 * 3600000 + 62000);
+  const fresh = r.candle(0).cd;
+  assert.ok(!C.spent(fresh) && fresh.burnt < again.burnt / 100, 'lit again: a new one, barely burnt');
+});
+
+test('the last one to leave puts the candles out (rooms.md §1b): read from the chain, not left to a screen', () => {
+  const lines = chain([[60000, ana, 'light']], { paper: false });
+  const going = (ms, by, kind) => ({ n: 0, at: new Date(T0 + ms).toISOString(), by, kind });
+  const all = [going(0, 'ana', 'enter'), going(1000, 'bo', 'enter'), ...lines, going(10 * 60000, 'ana', 'leave'), going(20 * 60000, 'bo', 'leave')].map((l, i) => ({ ...l, n: i + 1 }));
+  const room = W.createRoomWax({ landing });
+  room.advance(all, T0 + 15 * 60000);
+  assert.equal(room.candle(0).lit, true, 'one left, the other still here: it burns on');
+  room.advance(all, T0 + 25 * 60000);
+  assert.equal(room.candle(0).lit, false, 'the last one gone: out');
+  assert.equal(R.litOf(all)['candle-0'], false, "and the room's own reading of its acts agrees (law/room.js litOf)");
+  assert.equal(R.litOf(all.slice(0, -1))['candle-0'], true, 'while bo was still there, lit');
+  const burnt = room.candle(0).cd.burnt;
+  room.advance(all, T0 + 60 * 60000);
+  assert.equal(room.candle(0).cd.burnt, burnt, 'and it burns no more');
+});
