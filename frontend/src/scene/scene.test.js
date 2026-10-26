@@ -257,3 +257,19 @@ test('the room drawn: its meshes cover every patch, each vertex lit by the patch
   const eye = frame(out).eye;
   assert.ok(eye[2] > 0 && Math.abs(eye[0]) < 40000 && Math.abs(eye[1]) < 40000, 'in the room');
 });
+
+test('looking out at the sun dazzles the eye: it settles on far more light than looking out away from it (light-waves §7)', async () => {
+  const noon = new Date(Date.UTC(2026, 5, 21, 19)); // midsummer noon, Pacific
+  const sun = sunAt(noon);
+  const dir = [Math.sin((sun.az * Math.PI) / 180) * Math.cos((sun.el * Math.PI) / 180), Math.cos((sun.az * Math.PI) / 180) * Math.cos((sun.el * Math.PI) / 180), Math.sin((sun.el * Math.PI) / 180)];
+  const levelAfter = async (forward) => {
+    const light = roomLight();
+    const look = { forward, fov: 40, outdoors: true };
+    await settled(light, noon, { gaze: 'outside', look });
+    for (let t = 2; t <= 20; t++) light.at({ now: t * 1000, date: noon, gaze: 'outside', look });
+    return light.state.eye.level;
+  };
+  const toward = await levelAfter(dir);
+  const away = await levelAfter([-dir[0], -dir[1], 0.1]);
+  assert.ok(toward > 5 * away, `the sun in view: ${toward.toFixed(0)} cd/m², away from it: ${away.toFixed(0)}`);
+});

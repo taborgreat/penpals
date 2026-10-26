@@ -97,3 +97,18 @@ test('a room left and come back to holds the same smoke as one watched the whole
   assert.deepEqual([...watched.heat.cells.smoke], [...left.heat.cells.smoke]);
   assert.deepEqual([...watched.heat.cells.E], [...left.heat.cells.E]);
 });
+
+test("an open door lets the smoke out too (world.md 3b: the house's openings, each as it is)", () => {
+  const shut = createRoomAir(geom),
+    open = createRoomAir(geom);
+  const cold = { outside: -10 };
+  for (const a of [shut, open]) {
+    a.to(T0);
+    burn(a, T0, 1200, [flameAt(0)], cold);
+  }
+  const before = open.smoke();
+  burn(shut, T0 + 1200, 1800, [], cold);
+  burn(open, T0 + 1200, 1800, [], { ...cold, door: true });
+  assert.ok(open.heat.vented.smoke > 0, `out through it: ${((100 * open.heat.vented.smoke) / before).toFixed(2)}%`);
+  assert.ok(open.smoke() < shut.smoke(), `${(open.smoke() / 1e6).toFixed(3)} g left, ${(shut.smoke() / 1e6).toFixed(3)} g shut`);
+});

@@ -12,7 +12,7 @@
 //   Window   a sound on the other side of the window comes through it: what reaches the pane, given
 //            off again from the pane into the half space beyond, all of it open, what the glass lets
 //            through (the mass law: sound/bands.js throughPane) shut.
-//   acoustics(geom, { open }) → { volume, area, rt60, send, delay, geom, open }
+//   acoustics(geom, { open, door }) → { volume, area, rt60, send, delay, geom, open, door }
 //   reflections(pos, ac) → [{ pos (the image), keep (by band) }]
 //   through(e, head, ac) → the event as heard where the head is (inside or out), or e itself
 //   roomIR(ac, rate, seed) → [left, right]: the tail, each band at its time and level
@@ -26,7 +26,7 @@ const MATTER_OF = { floor: 'wood', table: 'wood', plaster: 'plaster', glass: 'gl
 const matterOf = (m) => MATTER_OF[m] ?? (MATTER[m] ? m : 'plaster');
 const NP = 10 * Math.LOG10E; // dB in a neper of intensity
 
-export function acoustics(geom, { open = false } = {}) {
+export function acoustics(geom, { open = false, door = false } = {}) {
   const [W, D, H] = geom.size;
   const volume = W * D * H;
   const drink = new Array(NB).fill(0);
@@ -37,7 +37,7 @@ export function acoustics(geom, { open = false } = {}) {
     area += s;
   };
   for (const p of geom.patches) face(p.matter, p.area);
-  for (const o of geom.openings) face(open ? 'open' : 'glass', o.area);
+  for (const o of geom.openings) face(o.kind === 'door' ? (door ? 'open' : 'wood') : open ? 'open' : 'glass', o.area); // (the door: its wood, or open)
   const rt60 = [],
     send = [];
   for (let b = 0; b < NB; b++) {
@@ -47,22 +47,23 @@ export function acoustics(geom, { open = false } = {}) {
     rt60.push((24 * Math.LN10 * volume) / (SPEED * A));
     send.push((16 * Math.PI * (1 - mean)) / A);
   }
-  return { volume, area, rt60, send, delay: (4 * volume) / area / SPEED, geom, open };
+  return { volume, area, rt60, send, delay: (4 * volume) / area / SPEED, geom, open, door };
 }
 
 // Within the room's box?
 export const inside = (pos, geom) => pos[0] >= 0 && pos[1] >= 0 && pos[2] >= 0 && pos[0] <= geom.size[0] && pos[1] <= geom.size[1] && pos[2] <= geom.size[2];
 const onWindow = (geom, x, z) => x >= geom.window.x0 && x <= geom.window.x1 && z >= geom.window.z0 && z <= geom.window.z1;
+const onDoor = (geom, x, z) => !!geom.door && x >= geom.door.x0 && x <= geom.door.x1 && z >= geom.door.z0 && z <= geom.door.z1;
 
 // The six first reflections of a sound at pos, for a head at `at`: each image, and what the face
 // keeps of each band where the way meets it.
 export function reflections(pos, at, ac) {
-  const { geom, open } = ac;
+  const { geom, open, door } = ac;
   const [W, D, H] = geom.size;
   const planes = [
     [0, 0, 'plaster'],
     [0, W, 'plaster'],
-    [1, 0, 'plaster'],
+    [1, 0, 'near'],
     [1, D, 'far'],
     [2, 0, 'floor'],
     [2, H, 'plaster'],
@@ -75,6 +76,12 @@ export function reflections(pos, at, ac) {
     const s = (v - img[k]) / (at[k] - img[k]);
     const hit = img.map((c, j) => c + (at[j] - c) * s);
     let matter = m;
+    if (m === 'near') {
+      if (onDoor(geom, hit[0], hit[2])) {
+        if (door) continue; // (out through the open door)
+        matter = 'wood';
+      } else matter = 'plaster';
+    }
     if (m === 'far') {
       if (onWindow(geom, hit[0], hit[2])) {
         if (open) continue; // (out through the open window: nothing comes back)
@@ -86,19 +93,25 @@ export function reflections(pos, at, ac) {
   return out;
 }
 
-// A sound on the other side of the window from the head comes through it: given off from the pane
-// (all of it open, what the glass lets through shut), as loud as what reached the pane over its
-// area, into the half space; later by its way to the pane, and drunk by the air on it.
+// A sound on the other side of the house's wall from the head comes through it where it can: the window
+// (all of it open, what the glass lets through shut) and the door while it is open, each given off as
+// loud as what reached it over its area, into the half space; later by its way there, and drunk by the
+// air on it. The louder way is the one heard.
 export function through(e, head, ac) {
-  const { geom, open } = ac;
+  const { geom, open, door } = ac;
   if (inside(e.pos, geom) === inside(head.pos, geom)) return e;
+  const ways = [];
   const w = geom.window;
-  const pane = [(w.x0 + w.x1) / 2, geom.size[1], (w.z0 + w.z1) / 2];
-  const d = Math.max(Math.hypot(...e.pos.map((v, k) => v - pane[k])), 1e-3);
-  const S = (w.x1 - w.x0) * (w.z1 - w.z0);
-  const pass = open ? new Array(NB).fill(1) : throughPane('glass', PANE);
-  const k = S / (2 * Math.PI * d * d);
-  return { ...e, t: e.t + d / SPEED, pos: pane, bands: e.bands.map((x, b) => x * k * pass[b] * 10 ** ((-airAbsorption(BANDS[b]) * d) / 10)) };
+  ways.push({ at: [(w.x0 + w.x1) / 2, geom.size[1], (w.z0 + w.z1) / 2], S: (w.x1 - w.x0) * (w.z1 - w.z0), pass: open ? new Array(NB).fill(1) : throughPane('glass', PANE) });
+  const dr = geom.door;
+  if (dr && door) ways.push({ at: [(dr.x0 + dr.x1) / 2, 0, (dr.z0 + dr.z1) / 2], S: (dr.x1 - dr.x0) * (dr.z1 - dr.z0), pass: new Array(NB).fill(1) });
+  const heard = ways.map(({ at, S, pass }) => {
+    const d = Math.max(Math.hypot(...e.pos.map((v, k) => v - at[k])), 1e-3);
+    const k = S / (2 * Math.PI * d * d);
+    return { ...e, t: e.t + d / SPEED, pos: at, bands: e.bands.map((x, b) => x * k * pass[b] * 10 ** ((-airAbsorption(BANDS[b]) * d) / 10)) };
+  });
+  const loud = (x) => x.bands.reduce((a, v) => a + v, 0);
+  return heard.reduce((a, x) => (loud(x) > loud(a) ? x : a));
 }
 
 // The tail: per band, noise falling 60 dB in its time, its energy the band's share of the room's

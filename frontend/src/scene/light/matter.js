@@ -13,8 +13,8 @@
 //   grown   plaster and wood cells mix their surface's light and dark curves
 //           by the cell's tone (surface.js): R = mix(light, dark, tone / 255),
 //           linear, so a region's average tone gives its average colour
-// Gloss is roughness, a property apart: wet beads reflect the light's own
-// spectrum like a mirror.
+// Gloss is not a property set here: it is the surface's own faces and its
+// matter's index (light/shine.js), wet beads among them.
 
 import { N, HEAT } from './axis.js';
 import { INK, GALL, MATTER, PAPER_HEAT } from './curves.js';
@@ -27,7 +27,10 @@ export { MATTER };
 // (1/1024 absorbance, as F0..F2 in the facts); `gall`: the law's gall at its
 // darkness (gallAmount below).
 export function inkAbsorbance(abs, gall = 0, out = new Float64Array(N)) {
-  const r = abs[0] / 1024, g = abs[1] / 1024, b = abs[2] / 1024, k = gall / GALL_ABS;
+  const r = abs[0] / 1024,
+    g = abs[1] / 1024,
+    b = abs[2] / 1024,
+    k = gall / GALL_ABS;
   for (let i = 0; i < N; i++) out[i] = r * INK[0][i] + g * INK[1][i] + b * INK[2][i] + k * GALL[i];
   return out;
 }
@@ -87,10 +90,3 @@ export function pageCurve(paper, inked, cells) {
   }
   return sum.map((v) => v / Math.max(1, cells));
 }
-
-// Gloss: how rough each matter's surface is (0 a mirror, 1 matte), and how
-// much of the light a smooth face sends back like a mirror, the light's own
-// spectrum (Schlick's Fresnel, F0 by matter).
-export const ROUGHNESS = Object.freeze({ paper: 0.9, plaster: 1, floor: 0.4, table: 0.3, wax: 0.35, wick: 1, brass: 0.25, wet: 0.03, glass: 0 });
-export const F0 = Object.freeze({ wet: 0.02, glass: 0.04, wax: 0.03, floor: 0.04, table: 0.04 }); // (a metal's mirror is its own colour: brass reflects by its curve)
-export const fresnel = (f0, cos) => f0 + (1 - f0) * (1 - Math.max(0, Math.min(1, cos))) ** 5;

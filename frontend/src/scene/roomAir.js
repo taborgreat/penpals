@@ -40,7 +40,9 @@ export function createRoomAir(geom) {
   });
   const w = geom.window;
   const windowFace = (x, y, z, k) => k === 3 && mid(x) > w.x0 && mid(x) < w.x1 && mid(z) > w.z0 && mid(z) < w.z1;
-  let open = false;
+  const d = geom.door; // (in the near wall: its face k 4)
+  const doorFace = (x, y, z, k) => !!d && k === 4 && mid(x) > d.x0 && mid(x) < d.x1 && mid(z) > d.z0 && mid(z) < d.z1;
+  let open = '';
   let origin = null; // the world's clock (s) the air began at
   let k = 0; // its steps since (the clock it has come to: origin + k·AIR_DT, counted, never summed)
   const clock = () => origin + k * AIR_DT;
@@ -50,11 +52,11 @@ export function createRoomAir(geom) {
   return {
     heat,
     // the air come to `t` (s, the world's clock): flames ([{ lit, pos (room m), heatRate (W), smokeRate
-    // (g/s) }]: the light's), the window open or not, the outside's heat (°C above the room's air)
-    to(t, { flames = [], open: o = false, outside = 0 } = {}) {
-      if (o !== open) {
-        open = o;
-        heat.openings(open ? windowFace : null);
+    // (g/s) }]: the light's), the window open or not, the door, the outside's heat (°C above the room's air)
+    to(t, { flames = [], open: o = false, door = false, outside = 0 } = {}) {
+      if (`${o}|${door}` !== open) {
+        open = `${o}|${door}`;
+        heat.openings(o || door ? (x, y, z, k) => (o && windowFace(x, y, z, k)) || (door && doorFace(x, y, z, k)) : null);
       }
       heat.outside(Math.round(outside * 1000));
       if (origin === null || t < clock()) {

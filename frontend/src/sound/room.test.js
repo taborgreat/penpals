@@ -63,3 +63,19 @@ test('a source outside is muffled until the window opens', () => {
   const [e] = strokeSounds([{ x: 0, y: 0, t: 0, p: 0.5 }]);
   assert.equal(through({ ...e, pos: [1, 1, 1] }, head, acoustics(geom)).pos[0], 1);
 });
+
+test('the door, open, is a way out and in too: the room rings shorter, a sound beyond it heard through it, none back from it', () => {
+  const shut = acoustics(geom);
+  const open = acoustics(geom, { door: true });
+  assert.ok(open.rt60.every((t, b) => t < shut.rt60[b]), 'its sound leaves by the open door');
+  const head = { pos: [geom.size[0] / 2, 1, 1.2], yaw: 0, pitch: 0 };
+  const out = { t: 0, pos: [(geom.door.x0 + geom.door.x1) / 2, -4, 1.2], bands: BANDS.map(() => 1), dur: 0.02, attack: 0.001, seed: 1, kind: 'test' };
+  const heard = through(out, head, open);
+  assert.equal(heard.pos[1], 0, 'heard from the doorway');
+  assert.ok(heard.bands[8] > 100 * through(out, head, shut).bands[8], 'crisp only while it is open');
+  // a source before the door, heard from inside: the near wall's reflection is the door's, gone when it is open
+  const atDoor = [(geom.door.x0 + geom.door.x1) / 2, 0.5, 1];
+  const ear = [atDoor[0], 1, 1];
+  assert.equal(reflections(atDoor, ear, shut).length, 6);
+  assert.equal(reflections(atDoor, ear, open).length, 5, 'out through the open door');
+});

@@ -33,13 +33,14 @@ const SEED_OF = (surface) => (surface.id.startsWith('table') ? 'table' : surface
 // paper and ink, matter.js pageCurve). Patches can be overridden (a wall
 // written on) through `curves`: { [patchIndex]: reflectance }.
 export function roomAbsorption(room, { page = paperCurve([0xf7, 0xf3, 0xea]), seeds = {}, curves = {} } = {}) {
-  return patchAbsorption(room.patches, (p, i) => {
-    if (curves[i]) return curves[i];
-    if (p.matter === 'paper') return page;
-    const surface = room.surfaces[p.surface];
-    const name = SEED_OF(surface);
-    return grownCurve(p.matter, meanTone(KIND[p.matter], seeds[name] ?? defaultSeed(name)));
-  });
+  return patchAbsorption(room.patches, (p, i) => curves[i] ?? patchCurve(room, i, { page, seeds }));
+}
+// A patch's own reflectance, nothing written on it: the page's paper, or its surface's grown average.
+export function patchCurve(room, i, { page = paperCurve([0xf7, 0xf3, 0xea]), seeds = {} } = {}) {
+  const p = room.patches[i];
+  if (p.matter === 'paper') return page;
+  const name = SEED_OF(room.surfaces[p.surface]);
+  return grownCurve(p.matter, meanTone(KIND[p.matter], seeds[name] ?? defaultSeed(name)));
 }
 
 // The sources by day for a sun at { az, el } (degrees; air.js sunPlace).

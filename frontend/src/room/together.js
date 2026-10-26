@@ -235,7 +235,9 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
         const g = surfaceGuesses.current.get(v.paper);
         const live = g?.writer === w && g.field === field ? g.live : guessOver(w.live, field);
         surfaceGuesses.current.set(v.paper, { writer: w, field, live });
-        return [{ id: `surface:${v.paper}`, surface: v.where.surface, origin: [0, 0], cellUnits: 1 / CELLS, box: [0, 0, v.birth.size[0] * CELLS, v.birth.size[1] * CELLS], live }];
+        // (and its ink as stamped, for the room's light: scene/inkLight.js)
+        const ink = field ? { origin: [field.box[0] / CELLS, field.box[1] / CELLS], box: field.box, rgba: field.rgba } : null;
+        return [{ id: `surface:${v.paper}`, surface: v.where.surface, origin: [0, 0], cellUnits: 1 / CELLS, box: [0, 0, v.birth.size[0] * CELLS, v.birth.size[1] * CELLS], live, ink }];
       }),
     [surfaces, fields, writers],
   );

@@ -11,8 +11,8 @@
 //
 // With one view on screen (write mode, a letter, a pad) the renderer draws
 // straight into it; with several, each view's frame is copied to its own canvas.
-// The paper rests on the table of a room (light-waves §4: roomDraw.js; a
-// journal's sheets on its page, the page on the table), each casting a soft
+// The papers rest on the table of a room (light-waves §4: roomDraw.js; or on
+// whatever they were let go on), each casting a soft
 // shadow; the room's surfaces are grown cell by cell in the shader, the window
 // shows the outside; two candles stand on the table, burning down, their
 // flames shivering with their light (light.js). Light is a range of waves: the
@@ -26,7 +26,7 @@ import * as THREE from 'three';
 import { frame } from './camera.js';
 import { toHalf } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
-import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
+import { curves, paperCurve, cellReflectance, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { DROP_PX, DETAIL_PX } from './light/surface.js';
 import { STAMPER, PEN, JAR, PENDULUM, HAND } from './light/room.js';
 import { room as RL, outside as LO } from 'penpals-law';
@@ -38,6 +38,7 @@ import { STONE_SQUAT } from './reach.js';
 import { createShadows } from './shadows.js';
 import { createMarks } from './marks.js';
 import { SEED_NAME } from './surfaces.js';
+import { roomSeedsOf } from '../room/seeds.js';
 import { shelfLayout } from './shelf.js';
 
 export const CHUNK = 128; // cells a side
@@ -491,10 +492,18 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     return h;
   };
   const SHELL = new Set(['wall-near', 'wall-far', 'wall-left', 'wall-right', 'ceiling']);
-  const shellGeos = R.meshes.flatMap((m, i) => (SHELL.has(m.id) ? [turnedOut(R.geos[i])] : []));
-  const insideGeos = R.meshes.map((m, i) => ({ geo: withNormals(R.geos[i]), wood: m.kind === 'table' || m.kind === 'floor' }));
+  const shellGeos = R.meshes.flatMap((m, i) => (SHELL.has(m.id) ? [{ geo: turnedOut(R.geos[i]), id: m.id }] : []));
+  const insideGeos = R.meshes.map((m, i) => ({ geo: withNormals(R.geos[i]), wood: m.kind === 'table' || m.kind === 'floor', id: m.id }));
+  // each house's surfaces grown from its owner's key, as its walls are inside (room/seeds.js)
+  const seeded = (mesh, seeds, id) => {
+    const named = seeds?.[SEED_NAME(id)];
+    mesh.userData.surface = id;
+    if (named) mesh.userData.seed = grown.seedMix(named);
+    else delete mesh.userData.seed;
+    return mesh;
+  };
   const ownShell = new THREE.Group(); // (this house's walls, from outside)
-  for (const g of shellGeos) ownShell.add(new THREE.Mesh(g, outMats.house));
+  for (const { geo, id } of shellGeos) ownShell.add(seeded(new THREE.Mesh(geo, outMats.house), roomSeeds, id));
   roomGroup.add(ownShell);
   const placeBox = (mesh, [x0, y0, z0, x1, y1, z1]) => {
     mesh.scale.set(x1 - x0, y1 - y0, z1 - z0);
@@ -505,8 +514,9 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     const g = new THREE.Group();
     g.userData.house = true; // (its parts' geometry is shared: kept when it goes)
     g.position.set(...h.at);
-    for (const sg of shellGeos) g.add(new THREE.Mesh(sg, outMats.house));
-    for (const { geo, wood } of insideGeos) g.add(new THREE.Mesh(geo, wood ? outMats.timber : outMats.house));
+    const seeds = roomSeedsOf(h.key);
+    for (const { geo, id } of shellGeos) g.add(seeded(new THREE.Mesh(geo, outMats.house), seeds, id));
+    for (const { geo, wood, id } of insideGeos) g.add(seeded(new THREE.Mesh(geo, wood ? outMats.timber : outMats.house), seeds, id));
     for (const pg of R.panes) g.add(new THREE.Mesh(pg, paneMat));
     for (const o of GEOM.objects) if (o.box && (o.kind === 'leg' || o.kind === 'frame')) g.add(placeBox(new THREE.Mesh(box, outMats.timber), o.box));
     const d = GEOM.door;
@@ -908,6 +918,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       const m = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), handMat);
       m.frustumCulled = false;
       roomGroup.add(m);
+      shadows.add(m); // (a hand is matter: it stands in the light)
       handMeshes.push(m);
     }
     handMeshes.forEach((m, i) => {
@@ -915,6 +926,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       if (!m.visible) return;
       m.scale.set(HAND.r, HAND.r, HAND.h / 2);
       m.position.set(list[i][0], list[i][1], list[i][2] + HAND.h / 2);
+      lightHere([m], m.position.toArray()); // (and takes the room's light where it is)
     });
   }
   // one pen drawn, in the hand or lying (setPens)
@@ -1612,6 +1624,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setSeeds(next) {
       roomSeeds = next;
       for (const m of roomMats) m.seed.value = seedOf(m.seedName);
+      for (const m of ownShell.children) seeded(m, roomSeeds, m.userData.surface); // (its walls from outside: whose they are)
       for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...penBodyMats, penMats.tine, jarMat, stamperMats.handle, stamperMats.face, ...Object.values(pendulumMats)])
         if (m.thing) m.seedBase = thingSeedOf(m.thing);
       marks.reseed();
@@ -1714,7 +1727,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       }
       lightHere([pendulumFoot, pendulumPost, pendulumArm, pendulumBob, pendulumThread], [at[0], at[1], at[2] + P.height / 2]);
     },
-    // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], their cloth's colour.
+    // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], the dye their cloth is bound in.
     setShelf(books) {
       for (const o of [...shelf.group.children]) {
         shelf.group.remove(o);
@@ -1736,9 +1749,12 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       shelf.mats.push(wood);
       put(board, wood);
       boxes.forEach((b, k) => {
-        const cloth = paperCurve(books[k].color);
-        const mat = gpu.objectMaterial(lights, { kind: grown.CLOTH, pair: { light: cloth, dark: cloth }, webgpu: own });
-        mat.matter = { light: cloth, dark: cloth };
+        // its cloth: the fibre's own threads (light and dark), dyed: the dye drinks through them as ink
+        // does (light/matter.js), nothing painted
+        const dye = books[k].color.map((c) => 1024 * Math.log(255 / Math.max(1, c)));
+        const cloth = { light: cellReflectance(Float64Array.from(curves.MATTER.cloth.light), dye), dark: cellReflectance(Float64Array.from(curves.MATTER.cloth.dark), dye) };
+        const mat = gpu.objectMaterial(lights, { kind: grown.CLOTH, seed: thingSeedOf(`book:${books[k].id}`), pair: cloth, webgpu: own });
+        mat.matter = cloth;
         shelf.mats.push(mat);
         put(b, mat);
       });
@@ -1898,8 +1914,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       stats.frames++;
       stats.renderMs += performance.now() - t0;
     },
-    // The page the sheets lie on (a journal page): paper, lit, a sheet's thickness
-    // below them, so a tear in one shows the page behind. null: the table.
+    // A page the sheets lie on (the lobby's slip, a pad's page): paper, lit, a sheet's
+    // thickness below them, so a tear in one shows the page behind. null: the table.
     setGround(size) {
       if (ground) {
         scene.remove(ground);

@@ -29,7 +29,8 @@ import KeyGate from '../components/KeyGate.jsx';
 // (into your book, at a path), the book pulled down from the shelf (the papers in it: one taken out), a
 // candle, the stamper; at your own table with nothing in hand, new paper.
 const PAGE = [1000, 1400]; // (page px: the writing place in front of the chair, the camera's home)
-// The cloth a book on the shelf is bound in (rooms.md §3): one of these, by its owner's key.
+// The dye of the cloth a book on the shelf is bound in (rooms.md §3): one of these, by its owner's key (as if
+// ink on white: engine.js dyes the cloth's own threads with it). Tabor's to set.
 const CLOTHS = [
   [104, 28, 32],
   [32, 64, 44],

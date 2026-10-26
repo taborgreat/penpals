@@ -5,6 +5,8 @@ import { groundOf } from './ground.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
 import { theLight, originOf, withinRoom, returnTo, sunAt, worldClock, GEOM } from './light.js';
 import { roomCamera, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
+import { patchCurve } from './light/settle.js';
+import { markedCurves } from './inkLight.js';
 import { surfaceFrame, fromRoom, toRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
 import { poseNow } from '../room/presence.js';
@@ -48,12 +50,13 @@ import * as WK from './keys.js';
 //   cutSide     (a, b) => Promise<{ width, height, rgba }>: the cross-section picture for the cut plane
 //   moments     () => Promise<{ box, at } | [{ id, box, at }]>: show the moments (own and open sheets)
 //   momentsKey  changes when the writing does: shown moments are banded again
-//   ground      the sheets lie on the page (a journal page), not on the table
+//   ground      the sheets lie on a page (the lobby's slip, a pad's), not on the table
 //   onFlat      the viewer chose the flat look
 //   toolsHost   an element to put the tools in (a pad's own bar, off the page), else over the view
 //   seeds       whose room this is: { [surface name]: [s0, s1] } (rooms.md §1, room/seeds.js), else the shared room
 //   marks       ink on the room's surfaces (rooms.md §2): [{ id, surface, origin: [x, y], cellUnits,
-//                  box: [x0, y0, w, h] (cells), rgba?: the box's transmittance, live?: { tiles(), onTiles(fn) } }]
+//                  box: [x0, y0, w, h] (cells), rgba?: the box's transmittance, live?: { tiles(), onTiles(fn) },
+//                  ink?: { origin, box, rgba } (a live one's ink as stamped: what the room's light takes) }]
 //   wallWriter  { down(surface, p, ev, type), move(p, ev), up(p, ev), cancel() }: writing on a surface
 //               from Look (the pen pointed at it: rooms.md §2), p in that surface's page units
 //   eye         where the eye's lids and colour are headed ({ lids, color }, light-waves §7)
@@ -317,7 +320,8 @@ const SceneView = forwardRef(function SceneView(
       override = k < 1 ? returnTo(S.back.from, sunAt(worldClock(new Date())), k) : null;
       if (k >= 1) S.back = null;
     }
-    return theLight().at({ now, date: worldClock(new Date()), override, eye: eyeRef.current ?? undefined, gaze: gazeOf() });
+    const look = S.pose ? { forward: roomCamera.look(S.pose).forward, fov: FOV, outdoors: !inBox(GEOM, S.pose.pos) } : null; // (the sun in view dazzles)
+    return theLight().at({ now, date: worldClock(new Date()), override, eye: eyeRef.current ?? undefined, gaze: gazeOf(), look });
   }
 
   function draw(now) {
@@ -652,12 +656,22 @@ const SceneView = forwardRef(function SceneView(
     schedule();
   }, [sheets, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // whose room: its surfaces grown from its owner's key
+  // whose room: its surfaces grown from its owner's key (drawn, and in the room's light)
   useEffect(() => {
     if (!S.view) return;
     S.view.setSeeds(seeds);
+    theLight().setSeeds(seeds ?? {});
     schedule();
   }, [seeds, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the ink on its surfaces in the room's light (light-waves §4): each patch it lies on refuses what its
+  // cells do (scene/inkLight.js), the room's light settled anew
+  useEffect(() => {
+    const light = theLight();
+    const room = light.geom;
+    const stamped = (marks ?? []).flatMap((m) => (m.rgba ? [m] : m.ink ? [{ ...m, ...m.ink }] : [])); // (as stamped: a live mark's ink beside its guess)
+    light.setInk(markedCurves(room, stamped, (i) => patchCurve(room, i, { seeds: seeds ?? {} })));
+  }, [marks, seeds]);
 
   // ink on the room's surfaces
   const showMarks = () => {
@@ -988,10 +1002,11 @@ const SceneView = forwardRef(function SceneView(
     S.outsideKey = null;
     loadOutside();
   }, [opensKey, outside?.plot?.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doorOpen = !!carrying?.opens?.door;
   useEffect(() => {
-    roomIs(acoustics(GEOM, { open: windowOpen }));
-    theLight().setWindow(windowOpen); // (the room's air: what it lets out, world.md 3b)
-  }, [windowOpen]);
+    roomIs(acoustics(GEOM, { open: windowOpen, door: doorOpen })); // (the window, and the door: what they let out and in)
+    theLight().setWindow(windowOpen); // (the room's air: what it lets out, world.md 3b; the door: the light's opens)
+  }, [windowOpen, doorOpen]);
   // the weather over this space (world.md Phase 4: its seed the space's, so everyone there has the
   // same): heard from its totals; its air the outside the window opens to
   useEffect(() => {
@@ -1308,7 +1323,7 @@ const SceneView = forwardRef(function SceneView(
     S.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     S.press = { x: e.clientX, y: e.clientY };
     if (carrying && (e.button === 0 || e.pointerType !== 'mouse')) {
-      // the hand: holding something, a click sets it down (the stamper, over a shared sheet, presses
+      // the hand: holding something, a click sets it down (the stamper, over a paper, presses
       // into it instead: rooms.md §5); else a click on a thing picks it up
       if (carrying.holding) {
         if (carrying.kind === 'stamper' && tableWriter) {
@@ -1393,7 +1408,7 @@ const SceneView = forwardRef(function SceneView(
       return;
     }
     if (tableWriter && penMode && leftish && !e.shiftKey && canWrite(S.shown ?? S.cam)) {
-      // the pen on a shared sheet lying on the table: it writes there, in that sheet's own units
+      // the pen on a paper lying on the table: it writes there, in that paper's own units
       const at = pageOf(e);
       const on = at && tableWriter.sheets.find((t) => inSheet(t, at));
       if (on) {
@@ -2012,7 +2027,7 @@ const SceneView = forwardRef(function SceneView(
       {!world && !fixed && penMode && !steep && mode === '3d' && (
         <p className="scene-hint quiet">
           {(writer || tableWriter) && !looking
-            ? `The pen: drag to write${writer ? '' : ' on a shared sheet'} · right-drag to turn · H for the hand`
+            ? `The pen: drag to write${writer ? '' : ' on a paper'} · right-drag to turn · H for the hand`
             : looking
               ? `The pen: write on a wall, the floor, the ceiling · drag the room to turn your head · F to ${walking ? 'fly' : 'walk'} · [ ] size${size < 1 ? ` (${size >= 0.01 ? size.toFixed(2) : size.toExponential(0)})` : ''} · L to sit`
               : 'L to look around and write on the walls · H for the hand'}

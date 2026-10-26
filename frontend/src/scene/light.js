@@ -180,6 +180,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     weather: null, // law/weather.js weatherAt, now
     opens: { door: false, shutters: true }, // what lets the outside in (outside.md Phase 4: a shut one is a wall)
     even: null, // the room under an even sky of unit radiance (the solver's; asked once)
+    seeds: {}, // whose house: its surfaces' seeds by name (room/seeds.js), as its walls are grown
+    ink: { curves: {}, key: '' }, // the patches ink lies on, each its reflectance (scene/inkLight.js)
   };
   // The room's light in parts (the worker's settle): the day and each flame
   // (unit strength), and what of each comes straight from the sun's disk or a
@@ -191,7 +193,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     const candles = [0, 1].map((which) => ({ ...(S.candles?.[which] ?? NEW_CANDLE), lit: undefined, which, at: S.candleAt[which] ?? undefined }));
     const cloud = cloudOf(S.weather);
     const closed = !S.opens.door && !S.opens.shutters; // (shut up: no daylight comes in)
-    settle({ sun: sun.el > -6 && !closed ? { az: sun.az, el: sun.el, cloud, opens: S.opens } : null, present: true, direct: true, even: !S.even, candles }).then(
+    settle({ sun: sun.el > -6 && !closed ? { az: sun.az, el: sun.el, cloud, opens: S.opens } : null, present: true, direct: true, even: !S.even, candles, curves: S.ink.curves, seeds: S.seeds }).then(
       (r) => {
         if (r.even) S.even = r.even;
         if (S.asked !== key) return; // a newer one is coming
@@ -211,11 +213,27 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     },
     get state() {
       const at = S.geom.page * N;
-      return { room: !!S.room, parts: S.parts && { key: S.parts.key, day: Array.from(S.parts.day.slice(at, at + N)) }, asked: S.asked, eye: S.eye };
+      return { room: !!S.room, parts: S.parts && { key: S.parts.key, day: Array.from(S.parts.day.slice(at, at + N)) }, asked: S.asked, eye: S.eye, ink: Object.keys(S.ink.curves).map(Number) };
     },
     setRoom(room) {
       S.room = room;
       S.geom = room;
+    },
+    // Whose house it is: its surfaces' seeds (room/seeds.js); the room's light settles anew by them.
+    setSeeds(seeds) {
+      const was = JSON.stringify(S.seeds);
+      S.seeds = seeds ?? {};
+      if (JSON.stringify(S.seeds) !== was) for (const fn of S.listeners) fn();
+    },
+    // Ink on its surfaces (scene/inkLight.js markedCurves): { [patch]: reflectance }; the room's light
+    // settles anew when it changes (light-waves §4: ink changes the light)
+    setInk(curves) {
+      const key = Object.entries(curves ?? {})
+        .map(([p, R]) => `${p}:${R.map((v) => Math.round(v * 1000)).join('.')}`)
+        .join('|');
+      if (key === S.ink.key) return;
+      S.ink = { curves: curves ?? {}, key };
+      for (const fn of S.listeners) fn();
     },
     onSettled(fn) {
       S.listeners.add(fn);
@@ -263,7 +281,9 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       S.weather = w;
       if (cloudOf(w) !== was) for (const fn of S.listeners) fn(); // (the room's light settles anew)
     },
-    at({ now, date, override = null, present = true, eye = { lids: 1, color: 1 }, gaze = null }) {
+    // look: which way the eye looks ({ forward (room), fov (degrees), outdoors }): the sun's disk in view
+    // dazzles it (light-waves §7)
+    at({ now, date, override = null, present = true, eye = { lids: 1, color: 1 }, gaze = null, look = null }) {
       const dt = S.t === null ? 0 : Math.min(1, Math.max(0, (now - S.t) / 1000));
       S.t = now;
       const place = override ?? sunAt(date);
@@ -297,7 +317,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       });
       // the room's air: the flames' heat and smoke, the window; its soot's haze (scene only)
       S.air ??= createRoomAir(S.geom);
-      S.air.to(date.getTime() / 1000, { flames, open: S.open, outside: S.outside });
+      S.air.to(date.getTime() / 1000, { flames, open: S.open, door: S.opens.door, outside: S.outside });
       const haze = hazeOf(S.air.soot());
       const [gw, gd, gh] = S.geom.size;
       const free = (4 * gw * gd * gh) / (2 * (gw * gd + gw * gh + gd * gh)); // the room's mean free path, m
@@ -312,6 +332,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         Math.round(place.el * 2),
         ...flames.map((f) => [Math.round(f.height * 2000), ...f.pos.map((v) => Math.round(v * 200))].join(':')),
         lit ? 1 : 0,
+        S.ink.key,
+        JSON.stringify(S.seeds),
       ].join();
       if (!S.parts || S.parts.key !== key) request(key, sun);
       // each patch's ambient light now (its flames at their strength now), and all that reaches the page
@@ -347,6 +369,13 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         // looking out: the daylight itself (the sky's and the sun's on a level face), as a white face gives it
         // back: as the eye settles on the page indoors (an eye takes the light for white, not the grass)
         seen = skyE.map((v, b) => (v + (level ? level.beam[b] * Math.max(0, sun.dir[2]) : 0)) / Math.PI);
+        // the sun's disk in view: its beam (through the glass, from in the house), spread over what the eye sees
+        const half = look && level ? (look.fov * Math.PI) / 360 : 0;
+        if (half && look.forward[0] * sun.dir[0] + look.forward[1] * sun.dir[1] + look.forward[2] * sun.dir[2] > Math.cos(half)) {
+          const view = 2 * Math.PI * (1 - Math.cos(half));
+          const beam = look.outdoors ? level.beam : sun.E;
+          seen = seen.map((v, b) => v + beam[b] / view);
+        }
       } else if (on) {
         // a surface of the room: all the light it takes, what its matter gives back
         const at = gaze * N;
