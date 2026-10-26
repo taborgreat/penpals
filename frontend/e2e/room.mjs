@@ -322,7 +322,14 @@ try {
   const middleM = (await lyingOn(page)).find((x) => x.paper === id).at;
   const rim = C.rimPoint(await page.evaluate(() => globalThis.__candles.candle(0).cd), [0, 0, middleM[2]], 60);
   const handM = [middleM[0] - rim[0], middleM[1] - rim[1], middleM[2]];
-  const foot = geom.candles[0];
+  // the candle where its body is now (free matter: a hand or a carried thing may have nudged it since it was
+  // made: room/carry.js __things), standing (aimed at a little above its holder) or lying (at its middle)
+  const body = await page.evaluate(() => ({ at: globalThis.__things.at('candle-0'), lying: globalThis.__things.bodies()['candle-0']?.lying ?? null }));
+  const foot = body.at;
+  const candleM = body.lying ? [foot[0] + body.lying[0] * 0.05, foot[1] + body.lying[1] * 0.05, foot[2] + 0.01] : [foot[0], foot[1], foot[2] + 0.1];
+  const from = geom.candles[0];
+  if (Math.hypot(foot[0] - from[0], foot[1] - from[1]) > 0.005 || body.lying)
+    console.log(`   (the candle is not where it was made: at ${foot.map((v) => v.toFixed(3)).join(', ')}${body.lying ? ', lying' : ''})`);
   // standing, the head turned to the candle: a click takes it up; turned to where the hand holds it over the paper
   await standUp(page);
   await page.evaluate((p) => globalThis.__sceneLook.at([p[0] - 0.3, p[1] - 0.4, 1.4]), foot);
@@ -330,7 +337,7 @@ try {
   // from where it came to rest, again before each try)
   for (let tries = 0; ; tries++) {
     await page.waitForTimeout(800);
-    await page.evaluate((p) => globalThis.__sceneLook.aim(p), [foot[0], foot[1], foot[2] + 0.1]);
+    await page.evaluate((p) => globalThis.__sceneLook.aim(p), candleM);
     await page.waitForTimeout(300);
     await takeUp(page, mid); // (E: the hand takes it up)
     if (
@@ -344,9 +351,14 @@ try {
       break;
     if (tries === 3) {
       if (process.env.ROOM_SHOT) await page.screenshot({ path: process.env.ROOM_SHOT });
+      const probe = (fn) => page.evaluate(fn).catch((err) => `(${err.message})`);
+      console.log(
+        `   under the pointer: ${JSON.stringify(await probe(() => globalThis.__under?.()))}; ahead ${JSON.stringify(await probe(() => globalThis.__sceneLook?.ahead?.()))}; the candle ${JSON.stringify(candleM)}`,
+      );
       throw new Error('the candle was not taken up');
     }
     console.log('   (the click took nothing: again)');
+    if ((await page.evaluate(() => globalThis.__sceneLook.pose()?.mode)) !== 'walk') await standUp(page); // (E at the chair sat him down)
   }
   await page.evaluate((p) => globalThis.__sceneLook.aim(p), handM);
   await page.waitForTimeout(800);
