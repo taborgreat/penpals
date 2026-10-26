@@ -40,34 +40,30 @@ export const G = 9.81; // m / s²
 export const FOV = 40; // degrees, vertical
 
 // --- what is solid ---
-// The room's boxes the eye cannot enter: the table's slab, the paper on it,
-// the legs, the window's frame, the holders (as their boxes). Made once per geometry.
+// The room's boxes the eye cannot enter: the table's slab, the legs, the window's frame, the holders (as
+// their boxes). Made once per geometry. Papers lie anywhere (law/paper.js): they are `ground` (scene/ground.js:
+// the top of the paper lying at (x, y), room m, or null), wherever they lie.
 const solidsOf = new WeakMap();
 export function solids(geom) {
   let s = solidsOf.get(geom);
   if (s) return s;
-  const tb = geom.table, pg = geom.pageRect;
+  const tb = geom.table;
   s = [
     [tb.x0, tb.y0, tb.bottom, tb.x1, tb.y1, tb.top],
-    [pg.x0, pg.y0, tb.top, pg.x1, pg.y1, geom.pageOrigin[2]],
     ...(geom.objects ?? []).map((o) => o.box ?? [o.center[0] - o.radius, o.center[1] - o.radius, o.z0, o.center[0] + o.radius, o.center[1] + o.radius, o.z1]),
   ];
   solidsOf.set(geom, s);
   return s;
 }
-const PAPER = 1; // the paper's box in solids(): where the page's heights are given, they are its top instead
 const boxDistance = (p, b) => Math.hypot(Math.max(b[0] - p[0], 0, p[0] - b[3]), Math.max(b[1] - p[1], 0, p[1] - b[4]), Math.max(b[2] - p[2], 0, p[2] - b[5]));
-const onPage = (geom, x, y) => x >= geom.pageRect.x0 && x <= geom.pageRect.x1 && y >= geom.pageRect.y0 && y <= geom.pageRect.y1;
 
 // How far the nearest surface is from p (0 when p is inside something).
 export function clearance(geom, p, ground = null) {
   const [W, D, H] = geom.size;
   let c = Math.min(p[0], W - p[0], p[1], D - p[1], p[2], H - p[2]);
-  const heights = !!ground && onPage(geom, p[0], p[1]);
-  solids(geom).forEach((b, k) => {
-    if (!(heights && k === PAPER)) c = Math.min(c, boxDistance(p, b));
-  });
-  if (heights) c = Math.min(c, p[2] - geom.pageOrigin[2] - ground(p[0], p[1]));
+  for (const b of solids(geom)) c = Math.min(c, boxDistance(p, b));
+  const g = ground?.(p[0], p[1]) ?? null;
+  if (g !== null && p[2] >= g - 1e-3) c = Math.min(c, p[2] - g); // (a paper under it)
   return Math.max(0, c);
 }
 
@@ -121,25 +117,20 @@ export function fly(geom, pose, { forward = 0, right = 0, up = 0 } = {}, dt, { g
 
 // --- walking ---
 // The highest surface under (x, y) no higher than `limit` (feet height): the
-// floor, a box's top, the paper and the page's heights.
+// floor, a box's top, a paper lying there (its facts' heights).
 export function supportAt(geom, x, y, limit, ground = null, outside = null) {
   const [W, D] = geom.size;
   if (outside && (x < 0 || y < 0 || x > W || y > D)) {
     return outside.ground(x, y); // (out of the house: the outside's dirt, outside.md Phase 4)
   }
   let s = 0;
-  const heights = !!ground && onPage(geom, x, y);
-  solids(geom).forEach((b, k) => {
-    if (!(heights && k === PAPER) && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && b[5] <= limit && b[5] > s) s = b[5];
-  });
-  if (heights) {
-    const g = geom.pageOrigin[2] + ground(x, y);
-    if (g <= limit && g > s) s = g;
-  }
+  for (const b of solids(geom)) if (x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && b[5] <= limit && b[5] > s) s = b[5];
+  const g = ground?.(x, y) ?? null;
+  if (g !== null && g <= limit && g > s) s = g;
   return s;
 }
 // Whether something rises in the way of a being standing at (x, y) with its
-// feet at `feet`: a box, the page's heights or the room's walls. outside ({ door
+// feet at `feet`: a box, a paper's heights or the room's walls. outside ({ door
 // (open or not), ground(x, y), houses: [{ at (its corner, room m), door (open or
 // not) }] }): the house's door, and the world beyond it (outside.md Phase 4):
 // through the open door's way, out onto the dirt, where only the houses' walls
@@ -163,9 +154,9 @@ function blocked(geom, x, y, feet, eyeH, ground, outside = null) {
   }
   if (x < r || y < r || x > W - r || y > D - r) return true;
   const top = feet + STEP * eyeH;
-  const heights = !!ground && onPage(geom, x, y);
-  if (solids(geom).some((b, k) => !(heights && k === PAPER) && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && b[5] > top && b[2] < feet + eyeH)) return true;
-  return heights && geom.pageOrigin[2] + ground(x, y) > top;
+  if (solids(geom).some((b) => x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && b[5] > top && b[2] < feet + eyeH)) return true;
+  const g = ground?.(x, y) ?? null;
+  return g !== null && g > top && g < feet + eyeH; // (a paper's heights: a ridge too tall to step up)
 }
 
 // input: { forward, right } −1..1 along the ground (the head's pitch does not matter).

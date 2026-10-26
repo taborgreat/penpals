@@ -10,6 +10,9 @@ import { CELL_M } from './surface.js';
 const geom = roomGeometry();
 const [W, D, H] = geom.size;
 const paperTop = geom.pageOrigin[2];
+// a paper lying where the page is, in front of the seat (scene/ground.js: its top where it lies, else null)
+const pg = geom.pageRect;
+const paperThere = (x, y) => (x >= pg.x0 && x <= pg.x1 && y >= pg.y0 && y <= pg.y1 ? paperTop : null);
 
 test('seated: the writing view looks at the page; writing only from the seat', () => {
   const s = seat(geom);
@@ -23,13 +26,13 @@ test('seated: the writing view looks at the page; writing only from the seat', (
 test('fly: speed and the near plane follow the distance to the nearest surface, so everything scales with you', () => {
   const mid = [W / 2, D / 2 - 0.5, 1.6];
   const close = [geom.pageOrigin[0] + 0.1, geom.pageOrigin[1] - 0.1, paperTop + 1e-4]; // a tenth of a millimetre over the page
-  const cMid = clearance(geom, mid), cClose = clearance(geom, close);
+  const cMid = clearance(geom, mid, paperThere), cClose = clearance(geom, close, paperThere);
   assert.ok(Math.abs(cClose - 1e-4) < 1e-9);
   assert.ok(speedAt(cMid) > 1000 * speedAt(cClose));
   assert.ok(nearAt(cClose) < cClose && nearAt(cMid) < cMid, 'the near plane is always short of the nearest surface');
   // diving at the page: the eye slows as it comes, down past a cell's size, and never touches
   let p = { ...seat(geom), mode: 'fly', pos: [geom.pageOrigin[0] + 0.1, geom.pageOrigin[1] - 0.1, paperTop + 0.2], pitch: -89.9 };
-  for (let k = 0; k < 400; k++) p = fly(geom, p, { forward: 1 }, 0.05);
+  for (let k = 0; k < 400; k++) p = fly(geom, p, { forward: 1 }, 0.05, { ground: paperThere });
   const gap = p.pos[2] - paperTop;
   assert.ok(gap > 0 && gap < CELL_M, `down among the cells: ${gap.toExponential(2)} m above the paper`);
 });
@@ -72,16 +75,17 @@ test('walk: gravity holds the being to what it stands on; off an edge it falls u
   assert.equal(b.vz, 0);
 });
 
-test('walk: at bead size the page is the ground: down into a dent, stopped by a ridge', () => {
+test('walk: at bead size the paper is the ground: down into a dent, stopped by a ridge', () => {
   const size = 1e-4; // an eye 0.16 mm up
   const x0 = geom.pageOrigin[0] + 0.05, y = geom.pageOrigin[1] - 0.05;
   const cell = CELL_M;
   // a dent 10 cells wide and 0.02 mm deep, then a ridge far taller than a step
+  // (the paper lying there: its top, room m)
   const ground = (x) => {
     const c = (x - x0) / cell;
-    if (c > 20 && c < 30) return -2e-5;
-    if (c > 60 && c < 64) return 2e-4;
-    return 0;
+    if (c > 20 && c < 30) return paperTop - 2e-5;
+    if (c > 60 && c < 64) return paperTop + 2e-4;
+    return paperTop;
   };
   let b = { mode: 'walk', pos: [x0, y, paperTop + EYE * size], yaw: 90, pitch: 0, size, vz: 0 };
   let lowest = Infinity;
@@ -89,7 +93,7 @@ test('walk: at bead size the page is the ground: down into a dent, stopped by a 
     b = walk(geom, b, { forward: 1 }, 0.01, { ground });
     const feet = b.pos[2] - EYE * size;
     lowest = Math.min(lowest, feet - paperTop);
-    assert.ok(feet >= paperTop + ground(b.pos[0]) - 1e-12, 'never under the surface');
+    assert.ok(feet >= ground(b.pos[0]) - 1e-12, 'never under the surface');
   }
   assert.ok(Math.abs(lowest + 2e-5) < 1e-9, 'it went down into the dent');
   assert.ok((b.pos[0] - x0) / cell < 60, 'the ridge is a wall');
