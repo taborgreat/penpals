@@ -39,7 +39,8 @@
 // World metres: x east, y north, z up (the ground's height: law/outside.js).
 import { MATTER, BEINGS } from './matter.js';
 import { dayOf, yearOf, sunAt } from './sun.js';
-import { treeNow, groundAt, matterAt, waterAt, EPOCH, WATER } from './outside.js';
+import { treeNow, groundAt, matterAt, waterAt, EPOCH, WATER, SEED } from './outside.js';
+import { weatherAt } from './weather.js';
 import { leafyOn } from './tree.js';
 import { exp, log, pow, sin, cos } from './dmath.js';
 
@@ -535,7 +536,8 @@ export const nestsOf = (tree, d, facts = null) => {
 // Each goes bout by bout (`rests` and the longest flight its reach takes): it sits a while where the last
 // bout left it, then flies to this bout's place (by the law, from rest), and sits there. A gall bug goes
 // from tip to tip of its oak; a hive bug out to the grass and home; a bird down to the grass and up to its
-// tree (its nest, while it has eggs). Out of the light, or too cold to fly, it stays home.
+// tree (its nest, while it has eggs). Out of the light, too cold to fly, or (a bird) in rain harder than it
+// shelters from, it stays home.
 const paths = new Map();
 function pathOf(key, make) {
   if (!paths.has(key)) {
@@ -570,7 +572,8 @@ export function beingsAt(tree, L, ms) {
     const leg = pathOf(`${id}@${k}`, () => {
       const active = (kk) => {
         const at = (off + kk * bout) * 1000;
-        return sunAt(at)[2] > 0 && dayOf(dayAt(at)).warmth >= B.above;
+        // (in the light, warm enough to fly, and not raining harder than it shelters from: the world's weather)
+        return sunAt(at)[2] > 0 && dayOf(dayAt(at)).warmth >= B.above && !(B.song?.shelter !== undefined && weatherAt(SEED, at).rain > B.song.shelter);
       };
       const dest = (kk) => (active(kk) ? placeOf(kk) : home);
       return { from: dest(k - 1), to: dest(k), depart: k * bout + draw(id, k, 1) * B.rests, seed: hashOf(id) };

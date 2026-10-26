@@ -114,3 +114,32 @@ test('the numbers follow food and warmth: a hive grows its comb in the warm, and
   // a bug, as warm as the air, burns less in the cold
   assert.ok(L.burnOf('hivebug', 5) < L.burnOf('hivebug', 25));
 });
+
+test('a bird shelters from rain: through hours of rain harder than it shelters from, none of them flies; on a fine day they do', async () => {
+  const { weatherAt } = await import('../weather.js');
+  const { SEED } = await import('../outside.js');
+  const { sunAt } = await import('../sun.js');
+  const t = trees.find((x) => lifeOf(x).birds?.adults.length);
+  assert.ok(t, 'a tree with birds');
+  const H = 3600000;
+  const flyingAt = (ms) => L.beingsAt(t, L.lifeOf(t, Math.floor(ms / 86400000) + 719528), ms).filter((b) => b.kind === 'bird' && b.flying).length;
+  // the third hour of a rainy spell by day, and a dry warm day's hours
+  let wet = null;
+  for (let ms = Date.UTC(2026, 3, 1); ms < Date.UTC(2026, 8, 1) && wet === null; ms += H)
+    if ([0, 1, 2].every((h) => weatherAt(SEED, ms + h * H).rain > BEINGS.bird.song.shelter && sunAt(ms + h * H)[2] > 0.3)) wet = ms + 2 * H;
+  assert.ok(wet !== null, 'some rain by day in a spring and summer');
+  // (an instant it has rained harder than that for two bouts: a bout begun dry may still be flying home)
+  const bout = (BEINGS.bird.rests + (2 * BEINGS.bird.reach) / L.bodyOf('bird').cruise) * 1000;
+  const sheltering = (ms) => [0, 1, 2].every((n) => weatherAt(SEED, ms - n * bout).rain > BEINGS.bird.song.shelter);
+  let checked = 0;
+  for (let s = -7200; s < 1800; s += 60)
+    if (sheltering(wet + s * 1000)) {
+      assert.equal(flyingAt(wet + s * 1000), 0, `rain at ${new Date(wet + s * 1000).toISOString()}: none flies`);
+      checked++;
+    }
+  assert.ok(checked > 30, `${checked} instants in the rain`);
+  let dryFlying = 0;
+  for (let ms = Date.UTC(2026, 5, 10, 18); ms < Date.UTC(2026, 5, 20, 18) && !dryFlying; ms += 86400000)
+    if (weatherAt(SEED, ms).rain === 0) for (let s = 0; s < 3600 && !dryFlying; s += 20) dryFlying += flyingAt(ms + s * 1000);
+  assert.ok(dryFlying > 0, 'and on a fine day they fly');
+});
