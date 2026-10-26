@@ -155,6 +155,7 @@ export default function House({ name, editable = false, panel = null, onHold = n
           onSeen={together.scene.onSeen}
           ash={together.scene.ash}
           fireGives={together.scene.fireGives}
+          waxLying={together.scene.waxLying}
           wallWriter={together.scene.wallWriter}
           shelf={shelf}
           beings={together.scene.beings}

@@ -334,6 +334,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
           tilt,
           way,
           pos: [foot[0] + Math.sin(a) * st.flameAt * way[0], foot[1] + Math.sin(a) * st.flameAt * way[1], foot[2] + Math.cos(a) * st.flameAt],
+          shape: c.shape ?? null, // (its rings as the law has them: the drawn candle's cup)
           I: flameLight(st),
           lit: lit && !st.spent,
         };

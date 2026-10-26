@@ -30,6 +30,7 @@ const until = async (p, fn, what, ms = 15000) => {
 try {
   const { page } = await W.personIn(browser);
   W.watch(page);
+  page.on('console', (m) => m.type() === 'warning' && m.text().startsWith('[fire]') && console.log('  [warn]', m.text())); // (the fire's worker's errors)
   await page.goto(srv.base);
   await W.register(page, 'ash');
   await page.waitForURL(/\/u\/ash$/, { timeout: 90000 });
@@ -130,7 +131,7 @@ try {
   console.log(`   the paper catching after ${((Date.now() - t0) / 1000).toFixed(0)} s: ${burnt.burnt[paper.paper]} cm² burnt away so far`);
   await page.waitForTimeout(15000);
   const later = await fires(page);
-  console.log(`   15 s on: ${later.alight} cells alight, ${later.glowing} glowing (its flames), ${later.burnt[paper.paper]} cm² of the paper burnt away, ${later.left} cells of ash lying`);
+  console.log(`   15 s on: ${later.alight} cells alight, ${later.flames} flames drawn, ${later.burnt[paper.paper]} cm² of the paper burnt away, ${later.left} cells of ash lying`);
   const give = later.gives[0];
   if (give)
     console.log(
@@ -139,7 +140,7 @@ try {
   const smoke = await page.evaluate(() => globalThis.__smokeNow?.());
   console.log(`   the room's smoke drawn: ${smoke.cells} of its air's cells, the densest ${(smoke.most * 1e6).toFixed(3)} mg/m³ of soot`);
   if (process.env.FIRE_SHOT_MID) await page.screenshot({ path: process.env.FIRE_SHOT_MID });
-  if (!later.glowing) throw new Error('no flame glows');
+  if (!later.flames) throw new Error('no flames');
   if (!smoke.cells) throw new Error('no smoke in the room');
   // and on the paper itself: its cells gone from its record, as it is grown on this screen
   const holes = await until(page, async () => (await page.evaluate(() => globalThis.__papers?.lying() ?? [])).find((x) => x.paper === paper.paper)?.holes, 'the paper grown with its burns', 30000);

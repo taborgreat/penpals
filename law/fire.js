@@ -22,12 +22,12 @@
 //     was), candles ([{ which, cd, lit, at (its foot), lying ([ux, uy] | null) }]: the room's candles), things ({ [thing]:
 //     its body, law/bodies.js }: the room's other things), lying ([{ paper, at: [x, y, z] mm (its middle), size: [w, h]
 //     (its units) }]), ctx }) → a fire:
-//     { step(n) (n steps of DT), done, t (s run), burning() → [[x, y, z]] (room m: cells alight), glowing() → [[x, y, z,
-//       K]] (cells hot enough to glow: its flames as seen), smoke() → [[x, y, z, µg]] (its smoke, summed in the room's
-//       air's cells, their middles), burnt(paper) →
+//     { step(n) (n steps of DT), done, t (s run), burning() → [[x, y, z]] (room m: cells alight), smoke() → [[x, y,
+//       z, µg]] (its smoke, summed in the room's air's cells, their middles), burnt(paper) →
 //       [{ t (s from its kindling), x, y, w, h }] (its units: each cell burnt away, its corner), left() → [[x, y, z,
 //       matter, µg]] (char and ash, where they lie), hottest() → { [owner]: °C }, flame() → { light (J shone so far),
-//       K (its flames' heat: the hottest air on anything alight; 0 with none) }, vented (law/heat.js's: what rose out
+//       K (its flames' heat: the hottest air on anything alight; 0 with none), released (J its burning has given),
+//       fuel (what has burnt the most) }, vented (law/heat.js's: what rose out
 //       of its top, nJ and µg), soot() (ppm of its smoke that is soot: what burnt, by each one's row), took (µg of the room's matter it took in as it grew), box ([x0, y0, z0, x1, y1, z1] room
 //       m: the grid now), heat (the grid) }
 //   ctx: { house: { size: [W, D, H], shell: { floor, walls, ceiling } (m thick: law/room.js HOUSE), solids: [{ id,
@@ -49,9 +49,6 @@ export const DT = DX; // s (as the house-fire test steps it)
 export const AIR_CELL = 0.1; // m: the room's air's grain (world.md Phase 3b: 10 cm cells)
 const A = Math.round(AIR_CELL / DX); // (the grid's cells to one of the room's air's)
 const GROWS = (1 | 2 | 4 | 8 | 16) << 6; // (law/heat.js edges: matter warm at its top or a side)
-// The least heat anything glows at to the eye (K): Draper's point, where a black body's first dull red is seen in the
-// dark. What is hotter is the fire's flame as seen (glowing(): its hot air and what burns).
-export const GLOW_K = 798;
 const PAPER = idOf('paper'),
   CHAR = idOf('char'),
   ASH = idOf('ash');
@@ -361,16 +358,6 @@ export function kindle({ at, way, which = 0, cd, candles = null, things = {}, ly
     },
     // the cells alight now (room m: their middles)
     burning: () => [...h.live()].filter((i) => h.at(...h.coords(i)).burning).map(middle),
-    // what glows now (its flames as an eye sees them): each cell as hot as Draper's point or hotter, [x, y, z, K]
-    glowing() {
-      const out = [];
-      const least = (GLOW_K - 273.15 - AIR.temp) * 1000;
-      for (const i of h.live()) {
-        const T = h.at(...h.coords(i)).T;
-        if (T >= least) out.push([...middle(i), AIR.temp + 273.15 + T / 1000]);
-      }
-      return out;
-    },
     burnt: (paper) => burnt.get(paper) ?? [],
     // what fire left, where it lies: char and ash (room m: their cells' middles; µg)
     left() {
@@ -420,7 +407,11 @@ export function kindle({ at, way, which = 0, cd, candles = null, things = {}, ly
           if (c.matter === 'air' && c.T > T) T = c.T;
         }
       }
-      return { light: h.burnt.light * 1e-9, K: T > 0 ? AIR.temp + 273.15 + T / 1000 : 0 };
+      // (and the heat its burning has released, J, and what has burnt the most: its fuel)
+      const of = Object.entries(h.burnt.of);
+      const released = of.reduce((n, [name, ug]) => n + ug * MATTER[name].heat.releases, 0) * 1e-9;
+      const fuel = of.reduce((a, b) => (!a || b[1] > a[1] ? b : a), null)?.[0] ?? null;
+      return { light: h.burnt.light * 1e-9, K: T > 0 ? AIR.temp + 273.15 + T / 1000 : 0, released, fuel };
     },
     // of its smoke, how much is soot (‰ of a million: what burnt, each by its row's soot)
     soot() {

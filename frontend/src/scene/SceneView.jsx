@@ -163,6 +163,7 @@ const SceneView = forwardRef(function SceneView(
     onSeen = null, // (ids) the papers and written surfaces the eye has in view (rooms.md §8: only they grow)
     ash = null, // what fires left (law/fire.js left): [[x, y, z, 'ash' | 'char', w, thick]] (room m)
     fireGives = null, // what a fire gives the room now: its light, and what rises into its air (light.js setFires)
+    waxLying = null, // the wax lying with no chain to grow it on: { dish: [m deep], pools: [[x, y, z, r, h]] } (room m)
     wallWriter = null,
     eye: eyeProp = null,
     fixed: fixedProp = false,
@@ -753,6 +754,11 @@ const SceneView = forwardRef(function SceneView(
   useEffect(() => {
     theLight().setFires(fireGives ?? []);
   }, [fireGives]);
+  useEffect(() => {
+    if (!S.view) return;
+    S.view.setWax(waxLying ?? { dish: [0, 0], pools: [] });
+    schedule();
+  }, [waxLying, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ink on the room's surfaces
   const showMarks = () => {

@@ -1080,17 +1080,60 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     const flame = new THREE.Sprite(gpu.flameMaterial());
     flame.center.set(0.5, 0.18); // its foot on the wick
     flame.renderOrder = 10;
-    for (const o of [wax, wick, flame]) scene.add(o);
-    return { wax, wick, flame };
+    // the wax that ran into its holder's dish, set there (as deep as its mass makes it)
+    const dish = new THREE.Mesh(cylinder, thingMat('wax', `dish-${i}`, 'round'));
+    dish.visible = false;
+    shadows.add(dish);
+    candleMats.push(dish.material);
+    for (const o of [wax, wick, flame, dish]) scene.add(o);
+    return { wax, wick, flame, dish, shapeKey: '' };
   });
-  // a fire's flames (law/fire.js glowing: its cells hot enough to glow), each as a candle's flame is drawn, a cell
-  // wide, its glow a black body's as hot as it is (ε of one: as bright as the fire's light makes it), through the eye
+  // a candle as the law has it (law/candle.js shapeOf): each ring about its wick as high as it stands, turned
+  // about its axis (its round 1, its height 1: drawn at its round and height, as the plain one is)
+  const latheOf = (shape) => {
+    const H = Math.max(...shape.map((s) => s.top)) || 1,
+      R = shape.at(-1).r1;
+    const pts = [new THREE.Vector2(0, 0), new THREE.Vector2(1, 0)];
+    for (let k = shape.length - 1; k >= 0; k--) pts.push(new THREE.Vector2(shape[k].r1 / R, shape[k].top / H), new THREE.Vector2(shape[k].r0 / R, shape[k].top / H));
+    return new THREE.LatheGeometry(pts, 28).rotateX(Math.PI / 2);
+  };
+  let dishDeep = [0, 0];
+  // the wax lying on matter with no chain to grow it on (the table, the floor never written on): each pool a round
+  // of set wax
+  let poolMesh = null;
+  const poolMat = thingMat('wax', 'pools', 'round');
+  const placePools = (pools) => {
+    if (!lightOrigin) return;
+    if (poolMesh && poolMesh.instanceMatrix.count < pools.length) {
+      scene.remove(poolMesh);
+      poolMesh.dispose();
+      poolMesh = null;
+    }
+    if (!pools.length && !poolMesh) return;
+    if (!poolMesh) {
+      poolMesh = new THREE.InstancedMesh(cylinder, poolMat, Math.max(64, pools.length * 2));
+      poolMesh.frustumCulled = false;
+      shadows.add(poolMesh);
+      scene.add(poolMesh);
+    }
+    const m = new THREE.Matrix4();
+    pools.forEach(([x, y, z, r, h], k) => {
+      m.makeScale(r * PX_PER_M, r * PX_PER_M, h * PX_PER_M).setPosition(...worldOf([x, y, z], lightOrigin));
+      poolMesh.setMatrixAt(k, m);
+    });
+    poolMesh.count = pools.length;
+    poolMesh.instanceMatrix.needsUpdate = true;
+    if (pools.length) lightHere([poolMesh], pools[0].slice(0, 3));
+  };
+  let poolsNow = [];
+  // a fire's flames (law/fire.js: over each cell alight, as tall as the heat it gives makes it), each as a candle's
+  // flame is drawn: its glow a black body's as hot as its fuel burns, as bright as its share of the fire's light,
+  // through the eye
   const fireFlames = [];
   let fireCells = [];
   const glowOf = new Map(); // (a black body's radiance by its heat, to 10 K)
   const placeFire = () => {
     if (!lightOrigin) return;
-    const fw = FIRE.DX * PX_PER_M;
     while (fireFlames.length < fireCells.length) {
       const f = new THREE.Sprite(gpu.flameMaterial());
       f.center.set(0.5, 0.18);
@@ -1102,14 +1145,25 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       const c = fireCells[k];
       f.visible = !!c;
       if (!c) return;
-      f.position.set(...worldOf(c, lightOrigin));
-      f.scale.set(fw, fw * 1.5, 1);
-      const hot = Math.round(c[3] / 10) * 10;
-      if (!glowOf.has(hot)) glowOf.set(hot, blackbody(hot));
+      const [, , , tall, K, W] = c;
+      const fh = tall * PX_PER_M;
+      f.position.set(...worldOf([c[0], c[1], c[2] - FIRE.DX / 2], lightOrigin));
+      f.scale.set(fh * 0.42, fh, 1);
+      const hot = Math.round(K / 10) * 10;
+      if (!glowOf.has(hot)) {
+        const B = blackbody(hot);
+        const all = B.reduce((t, v) => t + v, 0);
+        glowOf.set(
+          hot,
+          B.map((v) => v / all),
+        );
+      }
+      // (its radiance: its light every way alike, W/sr, over its outline, as a candle's flame's: light.js)
+      const area = tall * tall * 0.42 * (Math.PI / 4);
       const seen = lightNow
         ? seenRgb(
             lightNow.W,
-            glowOf.get(hot).map((v) => v * c[4]),
+            glowOf.get(hot).map((v) => (v * W) / (4 * Math.PI) / area),
           )
         : [0, 0, 0];
       f.material.core.value.setRGB(...seen);
@@ -1704,6 +1758,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       for (const s of sheets.values()) lightSheet(s);
       placeFire();
       placeAsh();
+      placePools(poolsNow);
       placeSmoke(l.smoke, l.W);
       // what lies outside takes the sky's light (on a level face: the light's), and the sun straight
       if (l.sunOut) gpu.setSpectrum(lights.sunOut, l.sunOut);
@@ -1735,7 +1790,16 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         const foot = W(fl.foot);
         const top = foot[2] + fl.height * PX_PER_M;
         const wickH = (fl.wick / 1000) * PX_PER_M;
-        const { wax, wick, flame } = candles[i];
+        const { wax, wick, flame, dish } = candles[i];
+        // its cup: the rings as the law has them (its pool level about the wick, its rim standing over it)
+        if (fl.shape) {
+          const key = fl.shape.map((s) => Math.round(s.top * 1e4)).join();
+          if (key !== candles[i].shapeKey) {
+            if (wax.geometry !== cylinder) wax.geometry.dispose();
+            wax.geometry = latheOf(fl.shape);
+            candles[i].shapeKey = key;
+          }
+        }
         // carried, it leans with the hand (rooms.md §3b), or lies the way it fell, its holder under it
         const lean = ((fl.tilt ?? 0) * Math.PI) / 180;
         const [ux, uy] = fl.way ?? [1, 0];
@@ -1751,6 +1815,13 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         if (holder) {
           holder.position.set(fl.foot[0], fl.foot[1], fl.foot[2] + (holder.scale.z || 0) / 2);
           holder.quaternion.copy(turn);
+          // what ran into its dish, set there over the holder, leaning with it
+          dish.visible = dishDeep[i] > 0;
+          const dz = holder.scale.z * PX_PER_M; // (the holder's: room m)
+          dish.position.set(foot[0] + Math.sin(lean) * dz * ux, foot[1] + Math.sin(lean) * dz * uy, foot[2] + Math.cos(lean) * dz);
+          dish.quaternion.copy(turn);
+          dish.scale.set(holder.scale.x * PX_PER_M, holder.scale.y * PX_PER_M, Math.max(1e-3, dishDeep[i] * PX_PER_M));
+          lightHere([dish], fl.foot);
         }
         flame.visible = fl.lit;
         const fh = fl.flameSize * PX_PER_M;
@@ -1937,6 +2008,13 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setFire(cells) {
       fireCells = cells ?? [];
       placeFire();
+    },
+    // The wax lying with no chain to grow it on: { dish: [m deep in each holder's dish], pools: [[x, y, z, r, h]] (room
+    // m: each pool's foot, its round, its depth) }
+    setWax({ dish, pools }) {
+      dishDeep = dish ?? [0, 0];
+      poolsNow = pools ?? [];
+      placePools(poolsNow);
     },
     // What fires left (law/fire.js): [[x, y, z (room m: where it lies, its foot), 'ash' | 'char', w (m), thick (m)]]
     setAsh(cells) {

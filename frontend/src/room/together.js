@@ -26,13 +26,13 @@ import { dripsOnSurface } from './drops.js';
 import { wax as WX, room as R, candle as C, paper as P, fire as F, matter as M } from 'penpals-law';
 import { GEOM, theLight, originOf } from '../scene/light.js';
 import { PX_PER_M } from '../scene/light/index.js';
-import { HAND } from '../scene/light/room.js';
+import { HAND, HOLDER } from '../scene/light/room.js';
+import * as MK from 'penpals-law/making';
 import { frameOf, inBox } from '../scene/outside.js';
 import { api } from '../api.js';
 
 const byHand = { on: false }; // (the e2e lights them itself: globalThis.__candles)
 const FIRE_CTX = fireContext(GEOM); // (the room's matter as a fire takes it: law/fire.js)
-const SIGMA = 5.670374419e-8; // W / m² / K⁴ (Stefan–Boltzmann)
 
 // Which candles burn and which are in someone's hand, by the room's signed acts. → { lit, held } ('01' strings)
 function candlesOf(lines) {
@@ -78,7 +78,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       theLight().setCandles(
         R.CANDLES.map((_, which) => {
           const c = candles.candle(which);
-          return { lit: c.lit, height: C.heightOf(c.cd), ...C.flameOf(c.cd), spent: C.spent(c.cd) };
+          return { lit: c.lit, height: C.heightOf(c.cd), ...C.flameOf(c.cd), spent: C.spent(c.cd), shape: C.shapeOf(c.cd) };
         }),
       );
       if (until < now) timer = setTimeout(go, 0);
@@ -100,11 +100,11 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       fireWorkers.current.set(id, w);
       w.onmessage = ({ data }) => {
         if (data.error) return console.warn('[fire]', data.error);
-        const { t: at, burning, glow, smoke, soot, left, light, K, vented, box } = data;
+        const { t: at, burning, smoke, soot, left, light, K, released, fuel, vented, box } = data;
         setFires((m) =>
           new Map(m).set(id, {
             t0: k.t,
-            snaps: [...(m.get(id)?.snaps ?? []), { t: at, burning, glow, smoke, soot, left, light, K, vented, box }],
+            snaps: [...(m.get(id)?.snaps ?? []), { t: at, burning, smoke, soot, left, light, K, released, fuel, vented, box }],
             burnt: data.burnt,
             hottest: data.hottest,
             done: data.done,
@@ -144,11 +144,14 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       alight += snap.burning.length;
       const dt = snap.t - prev.t || 1;
       const light = (snap.light - prev.light) / dt;
-      // what glows, each cell as bright as its heat makes it, all of them shining the light its flames gave (W):
-      // ε of a black body's (each cell a round as wide as it is: σT⁴ over π DX²)
-      const glows = snap.glow.reduce((n, c) => n + SIGMA * c[3] ** 4 * Math.PI * F.DX * F.DX, 0);
-      const eps = glows > 0 ? Math.min(1, light / glows) : 0;
-      flames.push(...snap.glow.map((c) => [...c, eps]));
+      // a flame over each cell alight, as tall as the heat it gives makes it (Heskestad's: L = 0.235 Q^⅖ − 1.02 D,
+      // Q kW, D the cell), as hot as its fuel burns (law/making.js fireHeat: its row's), its share of the fire's
+      // light (W): [x, y, z, L (m), K, W]
+      const n = snap.burning.length;
+      const q = (snap.released - (prev.released ?? 0)) / dt / n / 1000; // kW a cell
+      const tall = Math.max(F.DX, 0.235 * Math.max(0, q) ** 0.4 - 1.02 * F.DX);
+      const flameK = snap.fuel ? MK.fireHeat(snap.fuel) + 273.15 : snap.K;
+      flames.push(...snap.burning.map((c) => [...c, tall, flameK, light / n]));
       const mid = [0, 1, 2].map((a) => snap.burning.reduce((n, c) => n + c[a], 0) / snap.burning.length);
       gives.push({
         pos: mid,
@@ -264,6 +267,32 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     return [...stamped, ...[...begun.values()].map((b) => b.view).filter((v) => !stamped.some((x) => x.where.surface === v.where.surface))];
   }, [here, begun]);
   const surfacesRef = useRef(surfaces);
+  // The wax lying where there is no chain to grow it on (law/wax.js drips): what ran into each holder's dish, and
+  // what fell on the table or the floor while it has never been written on. Each as set wax stands: no deeper than
+  // its capillary depth (law/candle.js HOLD_M) or than a drop of it is round; drips landed together, one pool.
+  const waxLying = useMemo(() => {
+    const ug = (m) => (m * 1e-9) / M.MATTER.wax.density; // (m³)
+    const dish = [0, 0];
+    const at = new Map();
+    const grown = new Set(surfaces.map((v) => v.where.surface));
+    for (const d of wax.drips) {
+      if (d.on?.on === 'dish') dish[d.which] += d.m;
+      else if ((d.on?.on === 'table' || d.on?.on === 'floor') && !grown.has(d.on.on)) {
+        const k = d.on.at.map((v) => Math.round(v * 1000)).join();
+        const was = at.get(k);
+        at.set(k, [d.on.at[0], d.on.at[1], d.on.on === 'table' ? GEOM.table.top : 0, (was?.[3] ?? 0) + d.m]);
+      }
+    }
+    const holder = Math.PI * (HOLDER.radius ** 2 - C.CANDLE.radius ** 2);
+    return {
+      dish: dish.map((m) => ug(m) / holder), // (m deep in its dish)
+      pools: [...at.values()].map(([x, y, z, m]) => {
+        const V = ug(m);
+        const h = Math.min(C.HOLD_M, Math.cbrt(V / Math.PI));
+        return [x, y, z, Math.sqrt(V / (Math.PI * h)), h];
+      }),
+    };
+  }, [wax, surfaces]);
   surfacesRef.current = surfaces;
   useEffect(() => {
     const keep = new Set([...placed.filter((p) => p.mayWrite).map((p) => p.view.paper), ...surfaces.filter((v) => mayMark(v, myKey)).map((v) => v.paper)]);
@@ -582,13 +611,15 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       light: (which) => ((byHand.on = true), roomAct(name, key, roomKey, { act: 'light', thing: R.CANDLES[which] })),
       out: (which) => ((byHand.on = true), roomAct(name, key, roomKey, { act: 'out', thing: R.CANDLES[which] })),
       candle: (which) => candles.candle(which),
+      // the wax lying with no chain to grow it on: how deep in each dish (m), and the pools on the table or floor
+      wax: () => waxLying,
       // (any act on the room's things, as a hand makes it: e2e/fire.mjs knocks a candle over as the house-fire test does)
       act: (a) => roomAct(name, key, roomKey, a),
       // the fires (law/fire.js): kindled, cells alight now, each paper's cells burnt away so far
       fires: () => ({
         kindled: kindlings.length,
         alight: fireNowOf.alight,
-        glowing: flames.length,
+        flames: flames.length, // (drawn: a flame over each cell alight)
         burnt: Object.fromEntries([...fires.values()].flatMap((f) => Object.entries(f.burnt).map(([p, l]) => [p, l.length]))),
         left: fireNowOf.left.length, // (cells of char and ash lying)
         hottest: Object.assign({}, ...[...fires.values()].map((f) => f.hottest)), // (°C each thing reached)
@@ -596,7 +627,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
         box: [...fires.values()].at(-1)?.snaps.at(-1)?.box ?? null,
       }),
     };
-  }, [name, body, key, roomKey, candles, kindlings, flames, fires, fireNowOf]);
+  }, [name, body, key, roomKey, candles, kindlings, flames, fires, fireNowOf, waxLying]);
   // (for the checks, e2e/oneworld.mjs: everyone else in the world as this screen sees them, in its frame)
   globalThis.__world = { seen: () => seen.map((b) => ({ name: b.name, house: b.house, at: b.to?.pos ?? null })), opens: () => world.opens };
   // (for the checks, e2e: the papers here and where each lies (room m), the one in your hand, your book)
@@ -631,9 +662,10 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       flames,
       ash: fireNowOf.ash,
       fireGives: fireNowOf.gives,
+      waxLying,
       onSeen,
     }),
-    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key, flames, fireNowOf, onSeen],
+    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key, flames, fireNowOf, waxLying, onSeen],
   );
   return {
     others,

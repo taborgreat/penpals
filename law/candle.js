@@ -30,6 +30,8 @@
 //   heightOf(state) (m)     liquidOf(state) (µg)     massOf(state) (µg)     rimPoint(state, foot, deg, way)
 //   (way: [ux, uy], the way it leans in the plane: toward +x unless said)
 //   flameOf(state) → { fed (0..1), burntS }: what the drawn flame reads (scene/light/candle.js)
+//   shapeOf(state) → [{ r0, r1, top, liquid } (m)]: each ring as it stands, its pool's depth (the drawn candle's)
+//   HOLD_M (m): how deep liquid wax stands at a dry edge before it runs (its capillary length)
 
 import { MATTER, AIR } from './matter.js';
 import { phaseOf } from './heat.js';
@@ -70,7 +72,7 @@ const DRAW = WICK.draws * STEP_S; // µg the wick lifts a step
 const WICK_HOLDS = Math.round(WAX.density * Math.PI * CANDLE.wickRadius ** 2 * CANDLE.wick * (WICK.pores / 1000) * 1e9);
 const LAYERS = Math.round(CANDLE.length / DR);
 const G = 9.81; // m/s²
-const HOLD_M = Math.sqrt(WAX.tension / 1000 / (WAX.density * G)); // how deep liquid wax stands at a dry edge before it runs
+export const HOLD_M = Math.sqrt(WAX.tension / 1000 / (WAX.density * G)); // how deep liquid wax stands at a dry edge before it runs
 // heights in the law's own measure: sixteenths of a cell (DR), as integers
 const SUB = 16;
 const HOLD = Math.round((HOLD_M / DR) * SUB);
@@ -117,6 +119,9 @@ function topLiquid(ring) {
   return sum;
 }
 export const liquidOf = (cd) => cd.rings.reduce((a, r) => a + topLiquid(r), 0);
+// Its shape as it stands (matter-fixes §2: the drawn candle is the law's): each ring about the wick, its round (m),
+// how high its top stands over the candle's foot (m), and how deep the liquid at its top is (m).
+export const shapeOf = (cd) => cd.rings.map((r, k) => ({ r0: k * DR, r1: (k + 1) * DR, top: (topOf(cd, k) / SUB) * DR, liquid: (topLiquid(r) / FULL[k]) * DR }));
 // Its flame as the scene draws it (matter-fixes §6): how well fed it was in the last step (0..1, of
 // what the wick draws) and how long it has burnt in all (s, at that draw), for its wick's cycles.
 export const flameOf = (cd) => ({ fed: (cd.fed ?? 0) / DRAW, burntS: cd.burnt / DRAW });

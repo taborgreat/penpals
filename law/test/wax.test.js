@@ -12,6 +12,7 @@ import { keys as K, b64url } from '../index.js';
 import { lawOf } from '../laws.js';
 import { testPaperKey } from '../tools/fixtures.js';
 import { WAX_MELT } from '../v2/constants.js';
+import { MATTER } from '../matter.js';
 
 const keyOf = (n) => {
   const sk = K.skFromK(new Uint8Array(32).fill(n));
@@ -206,4 +207,24 @@ test('the last one to leave puts the candles out (rooms.md §1b): read from the 
   const burnt = room.candle(0).cd.burnt;
   room.advance(all, T0 + 60 * 60000);
   assert.equal(room.candle(0).cd.burnt, burnt, 'and it burns no more');
+});
+
+test('the drawn candle is the law’s: its rings as they stand, the pool about its wick below its rim, molten', () => {
+  const cd = C.newCandle();
+  const fresh = C.shapeOf(cd);
+  assert.ok(
+    fresh.every((s) => Math.abs(s.top - C.heightOf(cd)) < 1e-9 && s.liquid === 0),
+    'new: flat and cold',
+  );
+  for (let s = 0; s < 240; s++) C.stepCandle(cd, { lit: true });
+  const shape = C.shapeOf(cd);
+  assert.equal(shape.at(-1).r1, C.CANDLE.radius, 'its rings out to its round');
+  assert.ok(Math.abs(Math.max(...shape.map((s) => s.top)) - C.heightOf(cd)) < 1e-9, 'its rim is its height');
+  assert.ok(shape[0].top < C.heightOf(cd), 'the pool by its wick stands below its rim');
+  assert.ok(shape[0].liquid > 0, 'and is molten');
+  // what lies molten at the rings' tops is the candle's pool
+  const deep = shape.reduce((n, s) => n + s.liquid * Math.PI * (s.r1 ** 2 - s.r0 ** 2), 0) * MATTER.wax.density * 1e9;
+  assert.ok(Math.abs(deep - C.liquidOf(cd)) <= C.liquidOf(cd) * 0.01 + shape.length, `${deep.toFixed(0)} µg of ${C.liquidOf(cd)}`);
+  // set wax stands no deeper than its capillary depth before it runs
+  assert.ok(C.HOLD_M > 0.001 && C.HOLD_M < 0.003, `${(C.HOLD_M * 1000).toFixed(2)} mm`);
 });

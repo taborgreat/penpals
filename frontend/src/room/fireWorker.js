@@ -3,8 +3,7 @@
 // the same kindling.
 // In: { id, kindling ({ t, which, at, way, cd, candles, things, lying }: law/wax.js), ctx (law/fire.js: room/table.js
 //   fireContext) }
-// Out (a second of it at a time, and when it is over): { id, t (s grown), burning ([[x, y, z]] room m), glow ([[x, y,
-// z, K]]: what glows), smoke ([[x, y, z, µg]]: in the room's air's cells), burnt
+// Out (a second of it at a time, and when it is over): { id, t (s grown), burning ([[x, y, z]] room m), smoke ([[x, y, z, µg]]: in the room's air's cells), burnt
 // ({ [paper]: [{ t, x, y, w, h }] }), left ([[x, y, z, matter, µg]]: char and ash), hottest ({ [owner]: °C }), light
 // (J its flames have shone so far), K (their heat), vented ({ heat (J), smoke (g) }: what has risen into the room's
 // air so far), box (room m), done }
@@ -19,12 +18,11 @@ globalThis.onmessage = ({ data }) => {
     const papers = k.lying.map((p) => p.paper);
     for (;;) {
       fire.step(SECOND);
-      const { light, K } = fire.flame();
+      const { light, K, released, fuel } = fire.flame();
       globalThis.postMessage({
         id,
         t: fire.t,
         burning: fire.burning(),
-        glow: fire.glowing(),
         smoke: fire.smoke(),
         soot: fire.soot(),
         burnt: Object.fromEntries(papers.map((p) => [p, fire.burnt(p)])),
@@ -32,6 +30,8 @@ globalThis.onmessage = ({ data }) => {
         hottest: fire.hottest(),
         light,
         K,
+        released,
+        fuel,
         vented: { heat: fire.vented.heat * 1e-9, smoke: fire.vented.smoke * 1e-6 },
         box: fire.box,
         done: fire.done,
