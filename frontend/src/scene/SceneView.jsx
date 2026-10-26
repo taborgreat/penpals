@@ -7,7 +7,7 @@ import { theLight, originOf, withinRoom, returnTo, sunAt, worldClock, GEOM } fro
 import { roomCamera, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
 import { patchCurve } from './light/settle.js';
 import { markedCurves, papersCurves } from './inkLight.js';
-import { surfaceFrame, fromRoom, toRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
+import { surfaceFrame, fromRoom, toRoom, onSurface, surfaceOfHit, setPenPlace, SURFACE_IDS } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
 import { poseNow } from '../room/presence.js';
 import { lawPen, lineWidthPx } from '../ink/pens.js';
@@ -160,6 +160,7 @@ const SceneView = forwardRef(function SceneView(
     seeds: seedsProp = null,
     marks = null,
     flames = null, // a fire's cells alight now (law/fire.js; room m): [[x, y, z]]
+    onSeen = null, // (ids) the papers and written surfaces the eye has in view (rooms.md §8: only they grow)
     wallWriter = null,
     eye: eyeProp = null,
     fixed: fixedProp = false,
@@ -537,6 +538,7 @@ const SceneView = forwardRef(function SceneView(
     if (S.outsideSpec && S.pose) S.view.setEyeNear(eyeNow()?.pos ?? null); // (the ground near the eye, fine)
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
+    tellSeen(now);
     tellPlace();
     // your head, for the others (room/presence.js sends it when it has moved enough)
     if (onPoseRef.current && head) {
@@ -691,6 +693,48 @@ const SceneView = forwardRef(function SceneView(
     });
     light.setInk({ ...inked, ...papersCurves(room, lying, (i) => inked[i] ?? patchCurve(room, i, { seeds: seeds ?? {} }), light.paper) });
   }, [marks, seeds, sheets, page[0], page[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // What the eye has in view of the papers and the written surfaces (rooms.md §8; cleanup-and-speed.md §5b: what
+  // is out of view loads nothing): told now and then, as it changes.
+  const SEEN_MS = 300; // (a drawing's: how often it is asked)
+  const tellSeen = (now) => {
+    if (!onSeen || !S.view || now - (S.seenAt ?? 0) < SEEN_MS) return;
+    S.seenAt = now;
+    const o = origin();
+    const items = [];
+    for (const s of S.sheetsNow ?? []) {
+      if (!s.paper || !s.size) continue;
+      const z = s.lift ?? 0;
+      items.push([s.paper, [s.origin[0], -s.origin[1] - s.size[1], z - 20, s.origin[0] + s.size[0], -s.origin[1], z + 20]]);
+    }
+    // (the house's surfaces: whichever is in view, its ink grows: rooms.md §2)
+    for (const id of SURFACE_IDS) {
+      const f = surfaceFrame(GEOM, id);
+      if (!f) continue;
+      const corners = [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ].map(([a, b]) =>
+        roomToPage(
+          [0, 1, 2].map((k) => f.origin[k] + f.right[k] * a * f.size[0] + f.down[k] * b * f.size[1]),
+          o,
+        ),
+      );
+      const xs = corners.map((c) => c[0]),
+        ys = corners.map((c) => -c[1]),
+        zs = corners.map((c) => c[2]);
+      items.push([`surface:${id}`, [Math.min(...xs), Math.min(...ys), Math.min(...zs) - 20, Math.max(...xs), Math.max(...ys), Math.max(...zs) + 20]]);
+    }
+    if (!items.length) return;
+    const inView = S.view.inView(items.map(([, b]) => b));
+    const ids = items.filter((_, k) => inView[k]).map(([id]) => id);
+    const key = ids.join();
+    if (key === S.seenKey) return;
+    S.seenKey = key;
+    onSeen(ids);
+  };
 
   // a fire's flames (law/fire.js): its cells alight now, room m
   useEffect(() => {

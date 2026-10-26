@@ -1110,6 +1110,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   const sheets = new Map();
   let section = null;
   let cam3 = persp;
+  const seenFrustum = new THREE.Frustum(),
+    seenM = new THREE.Matrix4(),
+    seenBox = new THREE.Box3(),
+    seenA = new THREE.Vector3(),
+    seenB = new THREE.Vector3();
   let ground = null;
   let groundSize = null; // [w, h] page px while a page lies under the sheets
   let lightKey = '';
@@ -1828,6 +1833,14 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         shelf.mats.push(mat);
         put(b, mat);
       });
+    },
+    // Which of these boxes (world: page px, y up: [x0, y0, z0, x1, y1, z1]) the last frame saw (rooms.md §8,
+    // cleanup-and-speed.md §5b: what the eye sees is what loads). → [bool]
+    inView(boxes) {
+      if (!cam3) return boxes.map(() => true);
+      cam3.updateMatrixWorld();
+      seenFrustum.setFromProjectionMatrix(seenM.multiplyMatrices(cam3.projectionMatrix, cam3.matrixWorldInverse));
+      return boxes.map((b) => seenFrustum.intersectsBox(seenBox.set(seenA.set(b[0], b[1], b[2]), seenB.set(b[3], b[4], b[5]))));
     },
     // A fire's cells alight now (law/fire.js; room m): a flame on each.
     setFire(cells) {

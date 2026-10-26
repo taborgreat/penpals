@@ -171,7 +171,16 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   }, [myRoom, key, family?.grain, family?.weight]);
 
   const views = useMemo(() => [...here, ...outside.filter((v) => !here.some((x) => x.paper === v.paper)), ...(held ? [held] : [])], [here, outside, held]);
-  const fields = usePaperFields(views, dripsOf, burnsOf);
+  // What the eye has seen of the papers and written surfaces here (rooms.md §8; cleanup-and-speed.md §5b: load by
+  // the senses): only those grow, and once seen they are kept; the paper in the hand too, and the pen's face (it goes where the
+  // pen goes).
+  const [seenPapers, setSeenPapers] = useState(() => new Set());
+  const onSeen = useCallback((ids) => setSeenPapers((s) => (ids.every((id) => s.has(id)) ? s : new Set([...s, ...ids]))), []);
+  const grownViews = useMemo(
+    () => views.filter((v) => (v.where?.surface ? v.where.surface === 'pen' || seenPapers.has(`surface:${v.where.surface}`) : seenPapers.has(v.paper)) || v.paper === held?.paper),
+    [views, seenPapers, held],
+  );
+  const fields = usePaperFields(grownViews, dripsOf, burnsOf);
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
   const origin = useMemo(() => originOf(pageW, pageH, GEOM), [pageW, pageH]);
@@ -565,8 +574,8 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   };
 
   const scene = useMemo(
-    () => ({ sheets: sceneSheets, marks, wallWriter, tableWriter: key ? tableWriter : null, beings: seen, opens: world.opens, onPose: report, heard, papers: key ? hand : null, flames }),
-    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key, flames],
+    () => ({ sheets: sceneSheets, marks, wallWriter, tableWriter: key ? tableWriter : null, beings: seen, opens: world.opens, onPose: report, heard, papers: key ? hand : null, flames, onSeen }),
+    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key, flames, onSeen],
   );
   return {
     others,
