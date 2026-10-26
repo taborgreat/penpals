@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { keys as K, b64url } from '../index.js';
 import * as H from '../hands.js';
 import * as MK from '../making.js';
+import { MATTER } from '../matter.js';
 import { near, treeNow, matterAt } from '../outside.js';
 import * as LIFE from '../life.js';
 
@@ -56,10 +57,20 @@ test('fire from rubbing: wood on wood catches, if rubbed long enough; a stone on
   assert.ok(![...state.made.values()].some((m) => m.kind === 'fire'), 'a few strokes: warm, no more');
   const fire = act({ act: 'rub', tool: a, thing: b, strokes: 900, at });
   assert.equal(state.made.get(fire)?.kind, 'fire', 'rubbed on: it catches');
+  assert.ok(!state.things.has(b), 'the fire is that stick, burning');
   act({ act: 'put', thing: a, to: at });
   act({ act: 'take', thing: stone.id });
-  act({ act: 'rub', tool: stone.id, thing: b, strokes: 900, at });
+  act({ act: 'rub', tool: stone.id, thing: a, strokes: 900, at });
   assert.equal([...state.made.values()].filter((m) => m.kind === 'fire').length, 1, 'a stone, as long: it carries the heat away');
+  // it burns its wood down, as fast as its row burns over the faces it shows the air; then it is out, its ash left
+  const f = { ...state.made.get(fire), lit: 0 };
+  assert.ok(f.grams > 0 && f.area > 0);
+  const lasts = f.grams / (MATTER.wood.heat.burnRate * f.area); // s
+  assert.equal(H.fireNow(f, 1000).out, false, 'burning');
+  const after = H.fireNow(f, Math.ceil(lasts * 1000) + 1000);
+  assert.ok(after.out && after.left === 0, `out after ${lasts.toFixed(0)} s`);
+  assert.ok(Math.abs(after.ash - (f.grams * MATTER.wood.heat.leaves) / 1000) < 1e-9, 'its ash, what its row leaves');
+  assert.equal(H.check(state, { v: 1, kind: 'outside', by, k: 99, act: 'fire', thing: fire, fire }, null) === 'the fire is out', false);
   assert.ok(MK.rubbed('stone', 'wood', 900).dT < MK.rubbed('wood', 'wood', 900).dT / 5);
 });
 

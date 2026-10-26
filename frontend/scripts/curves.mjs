@@ -35,17 +35,41 @@ const OUT = path.join(here, '..', 'src', 'scene', 'light', 'curves.js');
 
 // CIE 1931 2° standard observer, 380–720 nm every 10 nm: x̄, ȳ, z̄.
 const CIE = {
-  380: [0.001368, 0.000039, 0.00645], 390: [0.004243, 0.00012, 0.02005], 400: [0.01431, 0.000396, 0.06785],
-  410: [0.04351, 0.00121, 0.2074], 420: [0.13438, 0.004, 0.6456], 430: [0.2839, 0.0116, 1.3856],
-  440: [0.34828, 0.023, 1.74706], 450: [0.3362, 0.038, 1.77211], 460: [0.2908, 0.06, 1.6692],
-  470: [0.19536, 0.09098, 1.28764], 480: [0.09564, 0.13902, 0.81295], 490: [0.03201, 0.20802, 0.46518],
-  500: [0.0049, 0.323, 0.272], 510: [0.0093, 0.503, 0.1582], 520: [0.06327, 0.71, 0.07825],
-  530: [0.1655, 0.862, 0.04216], 540: [0.2904, 0.954, 0.0203], 550: [0.43345, 0.99495, 0.00875],
-  560: [0.5945, 0.995, 0.0039], 570: [0.7621, 0.952, 0.0021], 580: [0.9163, 0.87, 0.00165],
-  590: [1.0263, 0.757, 0.0011], 600: [1.0622, 0.631, 0.0008], 610: [1.0026, 0.503, 0.00034],
-  620: [0.85445, 0.381, 0.00019], 630: [0.6424, 0.265, 0.00005], 640: [0.4479, 0.175, 0.00002],
-  650: [0.2835, 0.107, 0], 660: [0.1649, 0.061, 0], 670: [0.0874, 0.032, 0], 680: [0.04677, 0.017, 0],
-  690: [0.0227, 0.00821, 0], 700: [0.011359, 0.004102, 0], 710: [0.00579, 0.002091, 0], 720: [0.002899, 0.001047, 0],
+  380: [0.001368, 0.000039, 0.00645],
+  390: [0.004243, 0.00012, 0.02005],
+  400: [0.01431, 0.000396, 0.06785],
+  410: [0.04351, 0.00121, 0.2074],
+  420: [0.13438, 0.004, 0.6456],
+  430: [0.2839, 0.0116, 1.3856],
+  440: [0.34828, 0.023, 1.74706],
+  450: [0.3362, 0.038, 1.77211],
+  460: [0.2908, 0.06, 1.6692],
+  470: [0.19536, 0.09098, 1.28764],
+  480: [0.09564, 0.13902, 0.81295],
+  490: [0.03201, 0.20802, 0.46518],
+  500: [0.0049, 0.323, 0.272],
+  510: [0.0093, 0.503, 0.1582],
+  520: [0.06327, 0.71, 0.07825],
+  530: [0.1655, 0.862, 0.04216],
+  540: [0.2904, 0.954, 0.0203],
+  550: [0.43345, 0.99495, 0.00875],
+  560: [0.5945, 0.995, 0.0039],
+  570: [0.7621, 0.952, 0.0021],
+  580: [0.9163, 0.87, 0.00165],
+  590: [1.0263, 0.757, 0.0011],
+  600: [1.0622, 0.631, 0.0008],
+  610: [1.0026, 0.503, 0.00034],
+  620: [0.85445, 0.381, 0.00019],
+  630: [0.6424, 0.265, 0.00005],
+  640: [0.4479, 0.175, 0.00002],
+  650: [0.2835, 0.107, 0],
+  660: [0.1649, 0.061, 0],
+  670: [0.0874, 0.032, 0],
+  680: [0.04677, 0.017, 0],
+  690: [0.0227, 0.00821, 0],
+  700: [0.011359, 0.004102, 0],
+  710: [0.00579, 0.002091, 0],
+  720: [0.002899, 0.001047, 0],
 };
 const cmfBin = (k) => Float64Array.from({ length: N }, (_, i) => (i === HEAT ? 0 : 0.25 * CIE[LAMBDA[i] - 10][k] + 0.5 * CIE[LAMBDA[i]][k] + 0.25 * CIE[LAMBDA[i] + 10][k]));
 const CMF = { x: cmfBin(0), y: cmfBin(1), z: cmfBin(2) };
@@ -87,6 +111,10 @@ const MATTER = {
   // waves most); a bird's feathers, a sparrow's brown, the dark its streaks
   chitin: { light: curve((l) => 0.04 + 0.12 * rise(l, 610, 40), 0.3), dark: curve((l) => 0.02 + 0.05 * rise(l, 630, 40), 0.25) },
   feather: { light: curve((l) => 0.1 + 0.3 * rise(l, 580, 50), 0.45), dark: curve((l) => 0.04 + 0.12 * rise(l, 600, 50), 0.35) },
+  // what fire leaves (law/matter.js ash, char): wood ash, a pale grey, the dark its unburnt flecks; char,
+  // all but black
+  ash: { light: curve((l) => 0.42 + 0.04 * rise(l, 600, 80), 0.4), dark: curve((l) => 0.2 + 0.03 * rise(l, 600, 80), 0.3) },
+  char: curve((l) => 0.035 + 0.01 * rise(l, 600, 80), 0.1),
 };
 const PAPER_HEAT = 0.72; // paper's reflectance in the heat bin (its visible curve comes from its colour, matter.js)
 const INK_HEAT = 0; // dyes are clear past the red
@@ -97,7 +125,15 @@ const NOON = daylight(toward(0, NOON_EL));
 const white = NOON.map((v) => v / Math.PI); // a white page's radiance
 const WXYZ = xyzOf(white, CMF, LUMENS);
 const SCREEN = screenMatrix(WXYZ, adaptDegree(WXYZ[1]), brightness(WXYZ[1]) / WXYZ[1]);
-const seen = (R) => display(xyzOf(white.map((v, i) => v * R[i]), CMF, LUMENS), SCREEN);
+const seen = (R) =>
+  display(
+    xyzOf(
+      white.map((v, i) => v * R[i]),
+      CMF,
+      LUMENS,
+    ),
+    SCREEN,
+  );
 const labOf = (R) => srgbToLab(seen(R));
 
 // The law's absorbance of a colour (ABS_Q, in absorbance units): a = ln(255 / c), c = 0 as 1.
@@ -107,7 +143,11 @@ const reflect = (B, a) => Float64Array.from({ length: N }, (_, i) => Math.exp(-(
 
 // What the basis is fitted to: the palette, the papers, a few greys.
 const PALETTE = SIGNATURE_COLORS.map((c) => ({ name: c.id, rgb: toRgb(c.light), w: 2, palette: true }));
-const PAPERS = [['plain', '#f7f3ea'], ['cream', '#f2e8d0'], ['parchment', '#eddcb6']].map(([name, hex]) => ({ name, rgb: toRgb(hex), w: 0.5 }));
+const PAPERS = [
+  ['plain', '#f7f3ea'],
+  ['cream', '#f2e8d0'],
+  ['parchment', '#eddcb6'],
+].map(([name, hex]) => ({ name, rgb: toRgb(hex), w: 0.5 }));
 const GREYS = [40, 96, 160, 220].map((g) => ({ name: `grey ${g}`, rgb: [g, g, g], w: 2 }));
 const TARGETS = [...PALETTE, ...PAPERS, ...GREYS].map((t) => ({ ...t, a: absOf(t.rgb), lab: srgbToLab(t.rgb.map((v) => v / 255)) }));
 
@@ -148,7 +188,10 @@ function fit(residual, p0, iterations = 200) {
     let better = false;
     for (let tries = 0; tries < 12 && !better; tries++) {
       const A = JtJ.map((row, a) => row.map((v, b) => v + (a === b ? mu * (v + 1e-9) : 0)));
-      const d = solveLinear(A, Jtr.map((v) => -v));
+      const d = solveLinear(
+        A,
+        Jtr.map((v) => -v),
+      );
       const q = p.map((v, j) => v + d[j]);
       const rq = residual(q);
       const cq = rq.reduce((s, v) => s + v * v, 0);
@@ -171,7 +214,10 @@ function fit(residual, p0, iterations = 200) {
 // Parameters per curve: log A, lo, hi, log s1, log s2 (nm). Edges are kept from
 // growing sharper than SOFTEST nm.
 const SOFTEST = 14;
-const windowCurve = ([la, lo, hi, l1, l2]) => (l) => Math.exp(la) * rise(l, lo, Math.exp(l1)) * rise(-l, -hi, Math.exp(l2));
+const windowCurve =
+  ([la, lo, hi, l1, l2]) =>
+  (l) =>
+    Math.exp(la) * rise(l, lo, Math.exp(l1)) * rise(-l, -hi, Math.exp(l2));
 const unpack = (p) => [0, 1, 2].map((k) => curve(windowCurve(p.slice(5 * k, 5 * k + 5)), INK_HEAT));
 function inkResidual(p) {
   const B = unpack(p);
@@ -183,7 +229,11 @@ function inkResidual(p) {
   for (let k = 0; k < 3; k++) for (const j of [3, 4]) r.push(4 * Math.max(0, Math.log(SOFTEST) - p[5 * k + j]));
   return r;
 }
-const START = [[2.4, 585, 760, 14, 20], [2.4, 490, 590, 14, 14], [2.4, 340, 495, 20, 14]].flatMap(([a, lo, hi, s1, s2]) => [Math.log(a), lo, hi, Math.log(s1), Math.log(s2)]);
+const START = [
+  [2.4, 585, 760, 14, 20],
+  [2.4, 490, 590, 14, 14],
+  [2.4, 340, 495, 20, 14],
+].flatMap(([a, lo, hi, s1, s2]) => [Math.log(a), lo, hi, Math.log(s1), Math.log(s2)]);
 const check = process.argv.includes('--check');
 const INK = unpack(fit(inkResidual, START));
 
@@ -193,7 +243,10 @@ const gallTarget = (share) => {
   const rgb = OAK_GALL.map((c) => Math.round(255 * (c / 255) ** share));
   return { rgb, lab: srgbToLab(rgb.map((v) => v / 255)) };
 };
-const GALL_TARGETS = [{ share: 1, ...gallTarget(1) }, { share: GALL_FRESH / 256, ...gallTarget(GALL_FRESH / 256) }];
+const GALL_TARGETS = [
+  { share: 1, ...gallTarget(1) },
+  { share: GALL_FRESH / 256, ...gallTarget(GALL_FRESH / 256) },
+];
 const unpackGall = (p) => Float64Array.from({ length: N }, (_, i) => (i === HEAT ? GALL_HEAT : Math.exp(p[i])));
 function gallResidual(p) {
   const G = unpackGall(p);
@@ -205,7 +258,12 @@ function gallResidual(p) {
   for (let i = 1; i < BINS - 1; i++) r.push(2 * (G[i - 1] - 2 * G[i] + G[i + 1]));
   return r;
 }
-const GALL = unpackGall(fit(gallResidual, LAMBDA.map(() => Math.log(1.6))));
+const GALL = unpackGall(
+  fit(
+    gallResidual,
+    LAMBDA.map(() => Math.log(1.6)),
+  ),
+);
 // oak gall ink standing in its jar (rooms.md §3c): deep, so darker than at full darkness on a page (a
 // surface × e^−A, what the gall curve is fitted to): its light as two such films over white, its dark as three
 MATTER.ink = { light: GALL.map((a) => Math.exp(-2 * a)), dark: GALL.map((a) => Math.exp(-3 * a)) };
@@ -271,6 +329,8 @@ export const MATTER = Object.freeze({
   stone: ${pair(MATTER.stone)},
   chitin: ${pair(MATTER.chitin)},
   feather: ${pair(MATTER.feather)},
+  ash: ${pair(MATTER.ash)},
+  char: ${arr(MATTER.char)},
 });
 export const PAPER_HEAT = ${PAPER_HEAT};
 

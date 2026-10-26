@@ -17,6 +17,8 @@
 //            fast as the heat soaks into them; past the wood's burning heat, it is fire. A stone
 //            carries the heat away too fast: rubbed on wood, it makes none.
 //   A fire's heat: what its wood gives burning, less what leaves as light, into the air it burns with.
+//            It is that wood burning: as fast as its row burns over the faces it shows the air (its
+//            burnRate), until its wood is gone; then it is out, and what its row leaves is ash.
 //   Clay     only what heat hardens can be formed and keep its shape (its row's `hardens`): clay is
 //            pressed into a cup; in a fire past its hardening heat, it is fired (pottery) and holds water.
 //   Ink      oak galls crushed and soaked in water with crushed ore: the ore's metal and the galls'
@@ -92,6 +94,12 @@ export function rubbed(tool, wood, strokes) {
 export function fireHeat(fuel = 'wood') {
   const h = row(fuel).heat;
   return AIR.temp + (h.releases * (1 - h.shines / 1000)) / ((1 + h.air) * row('air').heat.holds);
+}
+// a fire of `grams` of `fuel` showing `area` m² to the air, `seconds` after it caught: { left (g), ash (g), out }
+export function burning(fuel, grams, area, seconds) {
+  const h = row(fuel).heat;
+  const burnt = Math.min(grams, h.burnRate * area * Math.max(0, seconds));
+  return { left: grams - burnt, ash: (burnt * (h.leaves ?? 0)) / 1000, out: burnt >= grams };
 }
 export const formable = (matter) => !!row(matter).heat.hardens;
 export const fires = (matter, fuel = 'wood') => formable(matter) && fireHeat(fuel) >= row(matter).heat.hardens;

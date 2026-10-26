@@ -28,12 +28,13 @@ export function stampOutside(act, seal) {
     if (bad) throw httpError(400, 'bad_outside', `That is ${bad}.`);
     if (!H.sealed(act, seal)) throw httpError(401, 'bad_seal', 'That act is not sealed by its key.');
     if (act.day !== undefined && Math.abs(act.day - today()) > 1) throw httpError(409, 'outside_refused', 'Not done: that day is not today.');
-    const why = H.check(state, act);
+    const at = new Date();
+    const why = H.check(state, act, at.getTime());
     if (why) throw httpError(409, 'outside_refused', `Not done: ${why}.`);
-    const line = { n: lines.length + 1, at: new Date().toISOString(), act, seal };
+    const line = { n: lines.length + 1, at: at.toISOString(), act, seal };
     await appendLine(outsideFile(), JSON.stringify(line));
     lines.push(line);
-    H.apply(state, act);
+    H.apply(state, act, at.getTime());
     return line;
   });
 }

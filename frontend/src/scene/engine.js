@@ -469,6 +469,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     wax: outMat('wax', grown.WAX),
     chitin: outMat('chitin'),
     feather: outMat('feather'),
+    ash: outMat('ash'),
   };
 
   // A house as it stands in the world (one-world.md: every house the same house): its walls and its roof
@@ -777,7 +778,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         (x) => m4.compose(new THREE.Vector3(x.at[0], x.at[1], x.at[2] + x.r), q.identity(), new THREE.Vector3(x.r, x.r, x.r)),
       );
     // what hands made, lying: a fibre or a string a thin rod; a lump, a gall, powder a heap; a cup, a
-    // candle upright; metal a bar; an axe its stick with its stone; a fire, its wood glowing
+    // candle upright; metal a bar; an axe its stick with its stone; a fire, its wood glowing, burnt out its ash
     const SIZE = {
       fibre: [0.15, 0.004, 0.004],
       string: [0.3, 0.003, 0.003],
@@ -789,6 +790,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       metal: [0.06, 0.02, 0.01],
       axe: [0.4, 0.03, 0.03],
       fire: [0.12, 0.12, 0.08],
+      ash: [0.1, 0.1, 0.015], // (a fire burnt out: its ash in a low heap)
     };
     const MAT = {
       grass: outMats.grass,
@@ -801,6 +803,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       metal: outMats.metal,
       wax: outMats.wax,
       wood: outMats.stick,
+      ash: outMats.ash,
     };
     for (const [matter, mat] of Object.entries(MAT))
       instanced(

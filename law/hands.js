@@ -189,7 +189,13 @@ const featherLies = (state, id, day) => {
   return !!tree && f.day <= day && LIFE.lifeOf(tree, day, state).feathers.some((x) => x.id === id);
 };
 
-export function check(state, act) {
+// a fire as it is at `ms` (the world's clock; null: as it caught): its wood burning down (law/making.js burning)
+export function fireNow(fire, ms = null) {
+  return MK.burning(fire.fuel, fire.grams ?? 0, fire.area ?? 0, ms === null || fire.lit === undefined ? 0 : (ms - fire.lit) / 1000);
+}
+
+// ms: when the act is stamped (the world's clock; null: no clock, as at once)
+export function check(state, act, ms = null) {
   const bad = shapeOf(act);
   if (bad) return bad;
   if (act.k !== (state.k.get(act.by) ?? 0) + 1) return 'that act is out of order';
@@ -242,7 +248,8 @@ export function check(state, act) {
   if (act.act === 'swing') return first(mine(act.thing), is(act.thing, 'axe'), treeOf(act.at) ? null : 'there is no such tree');
   if (act.act === 'rub') return first(mine(act.tool), near(act.thing));
   if (act.act === 'form') return first(mine(act.thing), is(act.thing, 'lump'));
-  if (act.act === 'fire') return first(near(act.thing), is(act.thing, 'cup'), is(act.fire, 'fire'));
+  const lit = (id) => (madeOf(state, id)?.kind === 'fire' && fireNow(madeOf(state, id), ms).out ? 'the fire is out' : null);
+  if (act.act === 'fire') return first(near(act.thing), is(act.thing, 'cup'), is(act.fire, 'fire'), lit(act.fire));
   if (act.act === 'pick')
     return first(
       free(),
@@ -252,7 +259,7 @@ export function check(state, act) {
     );
   if (act.act === 'crush') return first(mine(act.tool), near(act.thing), act.thing.startsWith('stone:') || madeOf(state, act.thing)?.kind === 'gall' ? null : 'only a gall or a stone is crushed');
   if (act.act === 'mix') return first(mine(act.cup), is(act.cup, 'cup'), near(act.thing), is(act.thing, 'powder', 'wax'));
-  if (act.act === 'melt') return first(near(act.cup), is(act.cup, 'cup'), is(act.fire, 'fire'));
+  if (act.act === 'melt') return first(near(act.cup), is(act.cup, 'cup'), is(act.fire, 'fire'), lit(act.fire));
   if (act.act === 'pour') return first(mine(act.cup), is(act.cup, 'cup'), near(act.into), is(act.into, 'cup'));
   if (act.act === 'dip') return first(mine(act.string), is(act.string, 'string'), near(act.cup), is(act.cup, 'cup'));
   // carve: the tool in the hand; the stick in the hand or lying, the tree standing
@@ -262,7 +269,7 @@ export function check(state, act) {
   return null;
 }
 
-export function apply(state, act) {
+export function apply(state, act, ms = null) {
   state.k.set(act.by, act.k);
   state.n++;
   const id = `made:${state.n}`;
@@ -326,7 +333,15 @@ export function apply(state, act) {
   if (act.act === 'rub') {
     const tool = bodyOf(state, act.tool),
       wood = bodyOf(state, act.thing);
-    if (tool && wood && MK.rubbed(tool.matter, wood.matter, act.strokes).catches) make({ kind: 'fire', matter: 'wood', fuel: wood.matter }, [...act.at]);
+    if (tool && wood && MK.rubbed(tool.matter, wood.matter, act.strokes).catches) {
+      // the rubbed wood catches: the fire is it burning (its wood's mass, the faces it shows the air)
+      const r = wood.r ?? 0.01,
+        L = wood.length ?? 2 * r;
+      const grams = Math.PI * r * r * L * MATTER[wood.matter].density * 1000;
+      const area = 2 * Math.PI * r * L + 2 * Math.PI * r * r;
+      if (!act.thing.startsWith('made:') || madeOf(state, act.thing)?.kind !== 'fire') gone(act.thing);
+      make({ kind: 'fire', matter: wood.matter, fuel: wood.matter, grams, area, ...(ms === null ? {} : { lit: ms }) }, [...act.at]);
+    }
   }
   if (act.act === 'form') {
     const lump = madeOf(state, act.thing);
@@ -414,8 +429,9 @@ export function grow(lines, { seals = false } = {}) {
   const state = start();
   for (const l of lines) {
     if (seals && !sealed(l.act, l.seal)) continue;
-    if (check(state, l.act)) continue;
-    apply(state, l.act);
+    const ms = l.at ? Date.parse(l.at) : null; // (when it was stamped: a fire burns by the world's clock)
+    if (check(state, l.act, ms)) continue;
+    apply(state, l.act, ms);
   }
   return state;
 }

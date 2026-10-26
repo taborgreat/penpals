@@ -136,7 +136,9 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms
   for (const [id, t] of things) {
     const m = facts?.made?.get(id);
     if (!m || !t.at || !near(mm(t.at))) continue;
-    made.push({ id, kind: m.kind, matter: m.matter, at: mm(t.at), holding: m.holding ?? null });
+    // (a fire: its wood burning down by the world's clock; out, its ash: law/hands.js fireNow)
+    const out = m.kind === 'fire' && H.fireNow(m, ms).out;
+    made.push({ id, kind: out ? 'ash' : m.kind, matter: out ? 'ash' : m.matter, at: mm(t.at), holding: m.holding ?? null });
   }
   return {
     ways,
