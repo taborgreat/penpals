@@ -23,10 +23,10 @@ import { usePaperFields, createPaperWriter, guessOver, sceneSheetOf, mayMark, se
 import { CELLS } from '../ink/live.js';
 import { waxContext } from './table.js';
 import { dripsOnSurface } from './drops.js';
-import { wax as WX, room as R, candle as C, paper as P } from 'penpals-law';
+import { wax as WX, room as R, candle as C, paper as P, fire as F } from 'penpals-law';
 import { GEOM, theLight, originOf } from '../scene/light.js';
 import { PX_PER_M } from '../scene/light/index.js';
-import { HAND } from '../scene/light/room.js';
+import { HAND, HOLDER } from '../scene/light/room.js';
 import { frameOf, inBox } from '../scene/outside.js';
 import { api } from '../api.js';
 
@@ -61,6 +61,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   // The light draws them as they are (scene/light.js setCandles): lit or out, how far down, how fed.
   const candles = useMemo(() => WX.createRoomWax(waxContext({ geom: GEOM })), [name]);
   const [wax, setWax] = useState({ drips: [], n: 0 });
+  const [kindlings, setKindlings] = useState([]); // (each lit candle that came to lie: law/wax.js fires)
   useEffect(() => () => theLight().setCandles(null), [candles]);
   useEffect(() => {
     if (!lines.length) return undefined;
@@ -70,6 +71,8 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       const until = Math.min(now, (candles.at() ?? Date.parse(lines[0].at)) + CATCH_UP_MS);
       const drips = candles.advance(lines, until);
       setWax((w) => (w.drips === drips && w.n === drips.length ? w : { drips, n: drips.length }));
+      const kindled = candles.fires();
+      setKindlings((k) => (k.length === kindled.length ? k : [...kindled]));
       theLight().setCandles(
         R.CANDLES.map((_, which) => {
           const c = candles.candle(which);
@@ -82,6 +85,63 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     go();
     return () => clearTimeout(timer);
   }, [candles, lines, inHand, burning]);
+  // The fires (law/fire.js): each lit candle that came to lie, grown from its kindling off the main thread (every
+  // screen grows the same, from the room's chain alone), shown as the world's clock has it: what is alight now,
+  // and what of each paper has burnt away so far.
+  const [fires, setFires] = useState(() => new Map()); // id → { t0 (ms), snaps: [[s, burning]], burnt, done }
+  const fireWorkers = useRef(new Map());
+  useEffect(() => {
+    const t = GEOM.table;
+    for (const k of kindlings) {
+      const id = `${k.t}:${k.which}`;
+      if (fireWorkers.current.has(id)) continue;
+      const w = new Worker(new URL('./fireWorker.js', import.meta.url), { type: 'module' });
+      fireWorkers.current.set(id, w);
+      const onTable = k.at[2] > t.top / 2;
+      const ctx = {
+        top: k.at[2],
+        under: 'wood',
+        within: onTable ? [t.x0, t.y0, t.x1, t.y1] : [0, 0, GEOM.size[0], GEOM.size[1]],
+        holder: { radius: HOLDER.radius, height: HOLDER.height },
+        units: PX_PER_M,
+      };
+      w.onmessage = ({ data }) => {
+        if (data.error) return console.warn('[fire]', data.error);
+        setFires((m) => new Map(m).set(id, { t0: k.t, snaps: [...(m.get(id)?.snaps ?? []), [data.t, data.burning]], burnt: data.burnt, done: data.done }));
+        if (data.done) w.terminate();
+      };
+      w.postMessage({ id, kindling: k, ctx });
+    }
+  }, [kindlings]);
+  useEffect(() => () => fireWorkers.current.forEach((w) => w.terminate()), []);
+  // (while one burns, a second at a time: what the clock has come to)
+  const [fireNow, setFireNow] = useState(() => Date.now());
+  const burningAny = [...fires.values()].some((f) => !f.done || f.snaps.at(-1)?.[0] * 1000 + f.t0 > fireNow);
+  useEffect(() => {
+    if (!burningAny) return undefined;
+    const tick = setInterval(() => setFireNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [burningAny]);
+  const flames = useMemo(() => {
+    const out = [];
+    for (const f of fires.values()) {
+      const s = (fireNow - f.t0) / 1000;
+      const snap = f.snaps.findLast(([t]) => t <= s);
+      if (snap && !(f.done && s > f.snaps.at(-1)[0])) out.push(...snap[1]);
+    }
+    return out;
+  }, [fires, fireNow]);
+  const burnsOf = useCallback(
+    (view) =>
+      [...fires.values()].flatMap((f) =>
+        F.burntOn(
+          (f.burnt[view.paper] ?? []).filter((b) => f.t0 + b.t * 1000 <= fireNow),
+          f.t0,
+          view.born ?? 0,
+        ),
+      ),
+    [fires, fireNow],
+  );
   // the drips that landed on it: a paper, or this house's table or floor (once it is matter with a chain)
   const dripsOf = useCallback((view) => (view.where?.surface ? dripsOnSurface(GEOM, wax.drips, view.where.surface, view.born ?? 0) : WX.dripsOn(wax.drips, view.paper, view.born ?? 0)), [wax]);
 
@@ -111,7 +171,9 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   }, [myRoom, key, family?.grain, family?.weight]);
 
   const views = useMemo(() => [...here, ...outside.filter((v) => !here.some((x) => x.paper === v.paper)), ...(held ? [held] : [])], [here, outside, held]);
-  const fields = usePaperFields(views, dripsOf);
+  const fields = usePaperFields(views, dripsOf, burnsOf);
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
   const origin = useMemo(() => originOf(pageW, pageH, GEOM), [pageW, pageH]);
   const frame = useMemo(() => (plot ? frameOf(GEOM, plot) : null), [plot?.join()]);
   // where each paper lies (room m: its middle), here or outside
@@ -403,6 +465,14 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
         w.breakSeal(seal.n, seal.at);
         return true;
       },
+      // a breath across a paper lying here (law/paper.js blow: what lies loose on it is blown along it):
+      // where it meets it (its units), the way it blows (degrees, its x toward its y), how far the mouth is (mm)
+      blow(paper, q, dir, dist) {
+        const p = placedRef.current.find((x) => x.view.paper === paper);
+        if (!p || !key) return null;
+        const at = (v) => Math.max(0, Math.round(v * 10));
+        return paperAct(key, p.view, 'blow', { blow: { x: at(q.x), y: at(q.y), dir: ((Math.round(dir) % 360) + 360) % 360, dist: Math.max(1, Math.min(10000, Math.round(dist))) } }).catch(fail);
+      },
     }),
     [placed, held, key, roomKey, frame, myKey, writerFor],
   );
@@ -468,21 +538,35 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       light: (which) => ((byHand.on = true), roomAct(name, key, roomKey, { act: 'light', thing: R.CANDLES[which] })),
       out: (which) => ((byHand.on = true), roomAct(name, key, roomKey, { act: 'out', thing: R.CANDLES[which] })),
       candle: (which) => candles.candle(which),
+      // (any act on the room's things, as a hand makes it: e2e/fire.mjs knocks a candle over as the house-fire test does)
+      act: (a) => roomAct(name, key, roomKey, a),
+      // the fires (law/fire.js): kindled, cells alight now, each paper's cells burnt away so far
+      fires: () => ({ kindled: kindlings.length, alight: flames.length, burnt: Object.fromEntries([...fires.values()].flatMap((f) => Object.entries(f.burnt).map(([p, l]) => [p, l.length]))) }),
     };
-  }, [name, body, key, roomKey, candles]);
+  }, [name, body, key, roomKey, candles, kindlings, flames, fires]);
   // (for the checks, e2e/oneworld.mjs: everyone else in the world as this screen sees them, in its frame)
   globalThis.__world = { seen: () => seen.map((b) => ({ name: b.name, house: b.house, at: b.to?.pos ?? null })), opens: () => world.opens };
   // (for the checks, e2e: the papers here and where each lies (room m), the one in your hand, your book)
   globalThis.__papers = {
     lying: () =>
-      placedRef.current.map((p) => ({ paper: p.view.paper, owner: p.view.owner, at: p.at, lines: p.view.lines.length, grown: p.grown, facts: p.facts, mayWrite: p.mayWrite, seals: p.seals })),
+      placedRef.current.map((p) => ({
+        paper: p.view.paper,
+        owner: p.view.owner,
+        at: p.at,
+        lines: p.view.lines.length,
+        grown: p.grown,
+        facts: p.facts,
+        mayWrite: p.mayWrite,
+        seals: p.seals,
+        holes: fieldsRef.current.get(p.view.paper)?.field?.flags.reduce((n, v) => n + (v & 1), 0) ?? 0, // (its cells gone: worn or burnt through)
+      })),
     held: () => held?.paper ?? null,
     book: () => book.map((v) => ({ paper: v.paper, path: v.where.book })),
   };
 
   const scene = useMemo(
-    () => ({ sheets: sceneSheets, marks, wallWriter, tableWriter: key ? tableWriter : null, beings: seen, opens: world.opens, onPose: report, heard, papers: key ? hand : null }),
-    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key],
+    () => ({ sheets: sceneSheets, marks, wallWriter, tableWriter: key ? tableWriter : null, beings: seen, opens: world.opens, onPose: report, heard, papers: key ? hand : null, flames }),
+    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key, flames],
   );
   return {
     others,

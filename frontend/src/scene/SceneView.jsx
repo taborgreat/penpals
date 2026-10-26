@@ -159,6 +159,7 @@ const SceneView = forwardRef(function SceneView(
     style,
     seeds: seedsProp = null,
     marks = null,
+    flames = null, // a fire's cells alight now (law/fire.js; room m): [[x, y, z]]
     wallWriter = null,
     eye: eyeProp = null,
     fixed: fixedProp = false,
@@ -690,6 +691,13 @@ const SceneView = forwardRef(function SceneView(
     });
     light.setInk({ ...inked, ...papersCurves(room, lying, (i) => inked[i] ?? patchCurve(room, i, { seeds: seeds ?? {} }), light.paper) });
   }, [marks, seeds, sheets, page[0], page[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // a fire's flames (law/fire.js): its cells alight now, room m
+  useEffect(() => {
+    if (!S.view) return;
+    S.view.setFire(flames ?? []);
+    schedule();
+  }, [flames, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ink on the room's surfaces
   const showMarks = () => {
@@ -1867,6 +1875,19 @@ const SceneView = forwardRef(function SceneView(
     }
     if (k === 'h' && canPen) {
       setHand(!hand); // the pen into the hand, or set down
+      return;
+    }
+    if (k === 'b' && !e.repeat && papers?.blow && S.lastPointer) {
+      // a breath (one-matter.md Phase 4: loose matter is blown): at the paper under the pointer, the way the eye
+      // looks along it, from as far as the head is
+      const on = paperAt(S.lastPointer);
+      const eye = eyeNow()?.pos;
+      if (on && eye) {
+        const { forward } = roomCamera.look(S.pose ?? poseOfCam(S.shown ?? S.cam));
+        const meet = roomPointOf(S.lastPointer);
+        const dist = meet ? Math.hypot(...meet.map((v, k2) => v - eye[k2])) * 1000 : 300;
+        papers.blow(on.paper, on.q, (Math.atan2(-forward[1], forward[0]) * 180) / Math.PI, dist);
+      }
       return;
     }
     if ((k === 'r' || k === 'g') && !e.repeat) {

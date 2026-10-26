@@ -76,6 +76,17 @@
 //      ink is colourless and all gall; a pen's colour is only its pigment. (Laws 2-4 told oak gall by its
 //      colour, OAK_GALL, and laid nothing else with it.)
 //
+//  17. a breath (one-matter.md Phase 4: loose matter can be blown): a round jet of air from the mouth, meeting the
+//      sheet `dist` mm from it and running along it the way it blows, slowing as the air's jet does (its decay
+//      × the mouth's width over how far it has gone) and spreading (its spread × that). Where its push (half the
+//      air's density × its speed²) beats what lies loose on a cell (its weight over the cell, × the friction of
+//      it on the face: both rows'), it lifts it, and carries it on until it slows too much to: it lands there,
+//      off the sheet if that is past its edge. The jet computes nothing but that; the being's breath is
+//      law/making.js BEING's. Nothing is deleted: what moves is moved.
+//  18. burnt (matter.md, the house fire; law/fire.js grows the fire, no one writes it): the cells of a rectangle of
+//      the sheet burnt away at their moment: gone (a hole), all they held with them (as smoke), and what their row
+//      leaves burnt (its ash) lying loose where they were.
+//
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry), under the nib (stamp), or over warm
 // tiles (heat).
@@ -180,7 +191,9 @@ import { floorDiv, ceilDiv, clamp, isqrt, LawError } from '../v1/int.js';
 import { penTimeline, precheck } from './acts.js';
 import { paperHasher } from '../v1/siphash.js';
 import { splatter } from './splat.js';
-import { MATTER, ROWS, idOf, cellNg, DROP_M } from '../matter.js';
+import { MATTER, ROWS, idOf, cellNg, DROP_M, ORDER, CELL_M } from '../matter.js';
+import { BEING as MK_BEING } from '../making.js';
+const G_EARTH = 9.81; // m/s²
 import { makeGrower } from '../grow.js';
 
 const PAPER = MATTER.paper;
@@ -574,6 +587,57 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     cuts.removed += ng;
     cuts.loose += ng;
     cuts.byMatter[m] = (cuts.byMatter[m] ?? 0) + ng;
+  }
+  // (17) A breath meeting the sheet at cell (cx, cy), `dist` mm from the mouth, blowing `dir` degrees.
+  function blow(cx, cy, dir, dist) {
+    const jet = MATTER.air.jet;
+    const reach = jet.decay * MK_BEING.mouth; // m: as far as it keeps its speed
+    const q0 = 0.5 * MATTER.air.density * MK_BEING.breath ** 2 * reach * reach; // N·m²/m²: its push × distance² (past its reach)
+    const ang = dir % 180,
+      flip = dir >= 180 ? -1 : 1;
+    const ux = (flip * COSSIN_Q14[2 * ang]) / 16384,
+      uy = (flip * COSSIN_Q14[2 * ang + 1]) / 16384;
+    const d0 = dist / 1000;
+    const face = (t, i) => ORDER[t.mat ? t.mat[i] : 0] ?? 'paper';
+    const moves = [];
+    for (const t of tiles.values()) {
+      if (!t.looseA) continue;
+      for (let i = 0; i < TT; i++) {
+        const ng = t.looseA[i];
+        if (!ng) continue;
+        const dx = t.tx * TILE + (i % TILE) - cx,
+          dy = t.ty * TILE + Math.floor(i / TILE) - cy;
+        const along = dx * ux + dy * uy,
+          across = -dx * uy + dy * ux;
+        if (along < 0) continue;
+        const x = d0 + along * CELL_M; // m from the mouth
+        if (Math.abs(across) * CELL_M > MK_BEING.mouth / 2 + jet.spread * x) continue; // (not under the jet)
+        const m = ORDER[t.looseM[i]];
+        const mu = Math.sqrt((MATTER[m].friction / 1000) * (MATTER[face(t, i)].friction / 1000));
+        const holds = (mu * ng * 1e-12 * G_EARTH) / (CELL_M * CELL_M); // N/m²: what it takes to lift it
+        const push = (x2) => (x2 <= reach * reach ? 0.5 * MATTER.air.density * MK_BEING.breath ** 2 : q0 / x2);
+        if (push(x * x) < holds) continue;
+        // carried on to where the jet no longer lifts it: push(x)² = holds there
+        const land = Math.max(x, Math.sqrt(q0 / holds));
+        const k = Math.floor((land - d0) / CELL_M) - Math.floor(along);
+        if (k <= 0) continue;
+        moves.push([t, i, ng, t.looseM[i], cx + Math.round(along * ux - across * uy) + Math.round(k * ux), cy + Math.round(along * uy + across * ux) + Math.round(k * uy)]);
+      }
+    }
+    for (const [t, i, ng, m, lx, ly] of moves) {
+      if (journals.length) cow(t);
+      if (dirty) dirty.add(t);
+      t.looseA[i] -= ng;
+      const [tl, il] = cellAt(lx, ly);
+      if (!tl.looseA) {
+        tl.looseA = new Int32Array(TT);
+        tl.looseM = new Uint8Array(TT);
+        tl.goneA = tl.goneA ?? new Int32Array(TT);
+      }
+      if (tl.looseA[il] < ng) tl.looseM[il] = m; // (what lies there most is what it is)
+      tl.looseA[il] += ng;
+      cuts.blown = (cuts.blown ?? 0) + ng;
+    }
   }
   // A cell's face worn as far as `level` of `strength`: the sheet's fibers that have gone, shed.
   function wearOff(t, i, row, level, strength) {
@@ -1460,6 +1524,35 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     if (batch) flushTick();
     runUntil(floorDiv(m.t, TICK_MS));
     const [cx, cy] = cellOf(m.x, m.y);
+    if (m.kind === 'burn') {
+      if (law < 5) throw new LawError('acts', 'a burn is law 5');
+      const [x1, y1] = cellOf(m.x + m.w, m.y + m.h);
+      for (let y = cy; y < y1; y++)
+        for (let x = cx; x < x1; x++) {
+          const [t, i] = cellAt(x, y);
+          if (t.flags[i] & TORN) continue;
+          t.flags[i] |= TORN;
+          const row = ROWS[t.mat ? t.mat[i] : 0];
+          const ash = Math.floor((cellNg(row, row.ink?.thickness ? row.ink.thickness / 1e6 : 1e-4) * (row.heat.leaves ?? 0)) / 1000);
+          cuts.burnt = (cuts.burnt ?? 0) + 1;
+          if (ash > 0) {
+            if (!t.looseA) {
+              t.looseA = new Int32Array(TT);
+              t.looseM = new Uint8Array(TT);
+              t.goneA = t.goneA ?? new Int32Array(TT);
+            }
+            t.looseA[i] += ash;
+            t.looseM[i] = idOf('ash');
+            cuts.loose += ash;
+          }
+        }
+      return;
+    }
+    if (m.kind === 'blow') {
+      if (law < 5) throw new LawError('acts', 'a breath is law 5');
+      blow(cx, cy, m.dir, m.dist);
+      return;
+    }
     if (m.kind === 'pour') {
       // (15) water landing where it is poured: on its cell, and as much as that holds on each ring
       // about it, out to where it has all landed (it lands on top, as ink does)

@@ -16,6 +16,8 @@
 //   act    { v: 3, kind: 'paper', paper, by, k, act, ... }   sealed by `by`
 //     marks  'stroke' stroke: b64url(PNKA of one stroke, in the paper's own frame)   'lift' lift: n (my stroke)
 //            'press' press: { x, y, depth, angle, tiltX, tiltY, cell, w, h, face, for }   'break' break: { seal, from, to }
+//            'blow' blow: { x, y (where the breath meets it: tenths of its units), dir (0..359), dist (mm from the
+//            mouth) }: a breath across it (law 5: what lies loose on it is blown), anyone's, where it lies
 //     moves  'take'                into by's hand, from where it lies (out of a mailbox or a book: its owner's)
 //            'put'   space, at     out of by's hand, let go in a space (a house, by its owner's key; or
 //                                  'outside') at [x, y, z] (mm: room or world): it falls flat until it rests
@@ -111,7 +113,7 @@ export function makeSurface({ sk, pk, paper, surface }) {
 }
 
 // An act on a paper (places in m: made whole millimetres here).
-export function makePaperAct({ sk, pk, paper, k, act, stroke = null, lift = null, press = null, broke = null, space = null, at = null, to = null, book = null }) {
+export function makePaperAct({ sk, pk, paper, k, act, stroke = null, lift = null, press = null, broke = null, space = null, at = null, to = null, book = null, blow = null }) {
   const body = { v: 3, kind: 'paper', paper, by: b64url(pk), k, act };
   if (act === 'stroke') body.stroke = b64url(stroke);
   if (act === 'lift') body.lift = lift;
@@ -120,6 +122,7 @@ export function makePaperAct({ sk, pk, paper, k, act, stroke = null, lift = null
   if (act === 'put') Object.assign(body, { space, at: mmOf(at) });
   if (act === 'post') body.to = to;
   if (act === 'shelve') body.book = [...book];
+  if (act === 'blow') body.blow = { x: blow.x, y: blow.y, dir: blow.dir, dist: blow.dist };
   checkPaperAct(body);
   return { act: body, seal: b64url(sign(sk, sealMsg(paperDigest(body)))) };
 }
@@ -138,6 +141,7 @@ export function checkPaperAct(body) {
     press: 'act,by,k,kind,paper,press,v',
     break: 'act,break,by,k,kind,paper,v',
     take: 'act,by,k,kind,paper,v',
+    blow: 'act,blow,by,k,kind,paper,v',
     put: 'act,at,by,k,kind,paper,space,v',
     post: 'act,by,k,kind,paper,to,v',
     shelve: 'act,book,by,k,kind,paper,v',
@@ -149,6 +153,11 @@ export function checkPaperAct(body) {
     if (rec.strokes.length !== 1) throw bad('one stroke an act');
   }
   if (body.act === 'lift' && !int(body.lift, 1, 1e9)) throw bad('a lift names a stroke by its place');
+  if (body.act === 'blow') {
+    const b = body.blow;
+    if (!b || typeof b !== 'object' || Object.keys(b).sort().join() !== 'dir,dist,x,y' || !int(b.x, 0, MAX_COORD) || !int(b.y, 0, MAX_COORD) || !int(b.dir, 0, 359) || !int(b.dist, 1, 10000))
+      throw bad('a malformed breath');
+  }
   if (body.act === 'put' && ((body.space !== 'outside' && !isKey(body.space)) || !isPlace(body.at))) throw bad('a paper is let go in a space, at a place');
   if (body.act === 'post' && !isKey(body.to)) throw bad('a letter names its mailbox by its key');
   if (body.act === 'shelve' && !isBook(body.book)) throw bad('a book is named by its path');
@@ -223,6 +232,7 @@ export const onTable = (where, { table } = CTX) => !!where?.space && !where.surf
 //   strokes: [{ n, by, lifted }], k: { [by]: last k }, seals: [{ n, for, broken }], lines, ctx }
 export const startState = (birth, ctx = CTX) => ({
   owner: birth.key,
+  law: birth.law, // (the law it grows under)
   where: birth.kind === 'surface' ? { space: birth.key, surface: birth.surface } : { space: birth.key, at: restOf(birth.key, birth.at, ctx) },
   strokes: [],
   k: {},
@@ -248,6 +258,7 @@ export function refusal(state, act) {
     return null;
   }
   if (act.act === 'put' || act.act === 'post') return w.hand === act.by ? null : 'it is not in your hand';
+  if (act.act === 'blow') return w.space ? (state.law >= 5 ? null : 'a breath is law 5') : 'it is not lying anywhere'; // (anyone's breath: it marks nothing)
   if (act.act === 'shelve') return w.hand !== act.by ? 'it is not in your hand' : state.owner !== act.by ? 'only its owner saves it into their book' : null;
   if (act.act === 'press' || act.act === 'break') {
     if (act.by !== state.owner) return 'only its owner presses or breaks a seal';
@@ -318,10 +329,11 @@ const shift = (s, dx, dy, dt) => ({
 });
 const asWater = (s) => ({ ...s, pens: s.pens.map((p, i) => (i === 0 || p.rgb ? { ...p, rgb: [...WATER], mask: undefined } : p)) });
 
-// lines: stamped, allowed (replay first); drips: those that landed on it (wax.js dripsOn).
+// lines: stamped, allowed (replay first); drips: those that landed on it (wax.js dripsOn); burns: its cells burnt
+// away (law/fire.js burntOn: [{ t (ms on its clock), x, y, w, h }]), each at its moment as a drip is.
 // → the PNKA record (law 3's format) of all its strokes and its wax.
-const MARKED = new Set(['stroke', 'drip', 'press', 'break']);
-export function compose(lines, drips = []) {
+const MARKED = new Set(['stroke', 'drip', 'press', 'break', 'blow', 'burn']);
+export function compose(lines, drips = [], burns = []) {
   const L = lawOf(SURFACE_LAW); // (reads every stroke a paper's or a surface's law takes)
   const lifted = new Set(lines.filter((l) => l.act.act === 'lift').map((l) => l.act.lift));
   const out = { orgX: 0, orgY: 0, strokes: [], marks: [] };
@@ -333,6 +345,11 @@ export function compose(lines, drips = []) {
     let i = all.length;
     while (i > 0 && all[i - 1].at > d.t) i--;
     all.splice(i, 0, { at: d.t, act: { act: 'drip', drip: d } });
+  }
+  for (const b of [...burns].sort((x, y) => x.t - y.t)) {
+    let i = all.length;
+    while (i > 0 && all[i - 1].at > b.t) i--;
+    all.splice(i, 0, { at: b.t, act: { act: 'burn', burn: b } });
   }
   for (const line of all) {
     const a = line.act;
@@ -379,6 +396,8 @@ export function compose(lines, drips = []) {
 // A wax act (or a drip that landed) as the law's mark, at its moment on the record's clock.
 function markOf(a, t) {
   if (a.act === 'drip') return { kind: 'drip', t, x: a.drip.x, y: a.drip.y, amt: a.drip.amt, heat: a.drip.heat };
+  if (a.act === 'blow') return { kind: 'blow', t, x: a.blow.x, y: a.blow.y, dir: a.blow.dir, dist: a.blow.dist };
+  if (a.act === 'burn') return { kind: 'burn', t, x: a.burn.x, y: a.burn.y, w: a.burn.w, h: a.burn.h };
   if (a.act === 'press') {
     const q = a.press;
     return { kind: 'press', t, x: q.x, y: q.y, depth: q.depth, angle: q.angle, tiltX: q.tiltX, tiltY: q.tiltY, cell: q.cell, w: q.w, h: q.h, face: fromB64url(q.face) };
@@ -389,9 +408,9 @@ function markOf(a, t) {
 // The paper as its acts and the drips that landed on it have made it: facts on its owner's paper, and
 // each press's impression (as it came out). → settled ({ facts, cells, box, seals, ... }) | null
 // law: the law it was born under (lawFor(birth))
-export function growPaper(lines, { seed, family, law, scale = 64, drips = [] }) {
+export function growPaper(lines, { seed, family, law, scale = 64, drips = [], burns = [] }) {
   const L = lawOf(law);
-  const rec = compose(lines, drips);
+  const rec = compose(lines, drips, burns);
   if (!rec.strokes.length && !rec.marks) return null;
   const acts = L.encodeActs(rec);
   const res = L.grow(L.decodeCanonical(acts), { paperKey: paperKeyOf(seed), family, scale });

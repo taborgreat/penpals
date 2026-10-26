@@ -11,7 +11,10 @@
 // Where each candle is, and how it leans, is its body's (law/bodies.js: carried, let go, falling, pushed and
 // knocked over by what the hands do to any of the room's things), when the caller gives its bodies
 // ({ room, shapes, start }); else where its last place or tilt act put it.
-//   createRoomWax({ landing, bodies }) → { advance(lines, until) → drips so far, candle(which), at() }
+// A lit candle that comes to lie (knocked over: its body lying) is the heat rule's from then (law/fire.js): its
+// flame is the fire's, which grows from that moment, its candle, its holder and the papers lying there as they
+// were (a kindling: { t, which, at (its foot, room m), way, cd (as it was), lying }); it burns here no more.
+//   createRoomWax({ landing, bodies }) → { advance(lines, until) → drips so far, candle(which), at(), fires() }
 //     (at: the ms the candles have been run to; advance again with a later until, or more lines)
 //     landing([x, y], lying) → { on: 'paper', paper, q } | { on: 'table' | 'floor', at }
 //     (lying: the papers in the room then, [{ paper, at, size }]); until: ms (the clock now)
@@ -47,6 +50,7 @@ function fresh(bodies = null) {
     step: null,
     lying: [],
     drips: [],
+    fires: [], // (kindlings: law/fire.js grows each)
     events: [],
     mark: null,
     here: [], // who is in the house (its enter and leave lines, the server's)
@@ -124,6 +128,11 @@ function run(s, lines, until, landing, bodies) {
     while (s.events.length && s.events[0][0] <= s.step) apply(s, s.events.shift()[1], bodies);
     const t = s.step * STEP_MS;
     s.candles.forEach((c, which) => {
+      if (s.bodies && c.lit && c.deg === 90 && c.pos) {
+        // lying, alight: the fire's now (law/fire.js), from this moment
+        s.fires.push({ t, which, at: [...c.pos], way: [...c.way], cd: structuredClone(c.cd), lying: s.lying.map((p) => ({ ...p })) });
+        c.lit = false;
+      }
       for (const d of stepCandle(c.cd, { lit: c.lit, deg: c.deg })) {
         const heat = Math.min(255, floorDiv(d.T, HEAT_MK));
         if (!c.pos || c.deg === 0) s.drips.push({ t, which, from: null, m: d.m, amt: d.m * AMT_PER_UG, heat, on: { on: 'dish' } });
@@ -153,6 +162,7 @@ export function createRoomWax({ landing, bodies = null }) {
     },
     candle: (which) => s.candles[which],
     bodies: () => s.bodies, // (where each of the room's things is: law/bodies.js)
+    fires: () => s.fires, // (each lit candle that came to lie: law/fire.js grows its fire)
     at: () => (s.step === null ? null : s.step * STEP_MS),
   };
 }

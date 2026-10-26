@@ -151,6 +151,7 @@ export default function House({ name, editable = false, panel = null, onHold = n
           sheets={together.scene.sheets}
           seeds={seeds}
           marks={together.scene.marks}
+          flames={together.scene.flames}
           wallWriter={together.scene.wallWriter}
           shelf={shelf}
           beings={together.scene.beings}

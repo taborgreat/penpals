@@ -31,7 +31,11 @@
 // does): format 4, the pen mask a varint, and one more pen field:
 //        b8 matter u8: what the nib is (law/matter.js ORDER: a stone, a stick's wood; absent, metal)
 //
-// Format 6 (law 5 only: one-matter.md Phase 3, no substance by its colour): format 5 and one more pen field:
+// Format 6 (law 5 only: one-matter.md Phase 3, no substance by its colour; Phase 4, loose matter blown): format 5,
+// one more mark, and one more pen field:
+//     5 blow:  varint dir (0..359: the way it blows, the record's x toward y) | varint dist (mm from the mouth to
+//              where the breath meets the sheet, at x, y)
+//     6 burn:  varint w | varint h (tenths: a rectangle of it, from x, y, burnt away: law/fire.js, no one's act)
 //        b9 gall u8 (1..255): how much oak gall the ink holds, of an oak gall ink's (absent: none). Its
 //        colour is only its pigment: an oak gall ink is colourless (WATER) and all gall.
 //
@@ -58,7 +62,7 @@ const SPATTER = 0x40;
 const WELL = 0x80;
 const MATTER_BIT = 0x100;
 const GALL_BIT = 0x200;
-export const MARK_KINDS = ['drip', 'press', 'break', 'pour'];
+export const MARK_KINDS = ['drip', 'press', 'break', 'pour', 'blow', 'burn'];
 export const POUR_MAX = 1 << 20; // drops a pour mark lands at most (more is several marks)
 const bad = (msg) => new LawError('acts', msg);
 
@@ -121,17 +125,18 @@ export function encodeActs(rec) {
   const w = new Writer();
   for (const b of MAGIC) w.byte(b);
   const masks = rec.strokes.flatMap((s) => s.pens.map((pen) => pen.mask ?? penMask(pen)));
-  const format = masks.some((m) => m & GALL_BIT)
-    ? 6
-    : masks.some((m) => m & MATTER_BIT)
-      ? 5
-      : rec.marks?.some((m) => m.kind === 'pour')
-        ? 4
-        : rec.marks?.length || !rec.strokes.length || masks.some((m) => m & WELL)
-          ? 3
-          : masks.some((m) => m & SPATTER)
-            ? 2
-            : 1;
+  const format =
+    masks.some((m) => m & GALL_BIT) || rec.marks?.some((m) => m.kind === 'blow' || m.kind === 'burn')
+      ? 6
+      : masks.some((m) => m & MATTER_BIT)
+        ? 5
+        : rec.marks?.some((m) => m.kind === 'pour')
+          ? 4
+          : rec.marks?.length || !rec.strokes.length || masks.some((m) => m & WELL)
+            ? 3
+            : masks.some((m) => m & SPATTER)
+              ? 2
+              : 1;
   w.byte(format);
   w.varint(rec.orgX);
   w.varint(rec.orgY);
@@ -192,6 +197,12 @@ export function encodeActs(rec) {
         for (const v of m.face) w.byte(v);
       } else if (m.kind === 'pour') {
         w.varint(m.amt);
+      } else if (m.kind === 'blow') {
+        w.varint(m.dir);
+        w.varint(m.dist);
+      } else if (m.kind === 'burn') {
+        w.varint(m.w);
+        w.varint(m.h);
       } else {
         w.varint(m.x1);
         w.varint(m.y1);
@@ -346,7 +357,7 @@ function readMarks(r, format) {
   };
   for (let k = 0; k < n; k++) {
     const kind = MARK_KINDS[r.byte() - 1];
-    if (!kind || (kind === 'pour' && format < 4)) throw bad('unknown mark');
+    if (!kind || (kind === 'pour' && format < 4) || ((kind === 'blow' || kind === 'burn') && format < 6)) throw bad('unknown mark');
     t += r.varint();
     if (t > MAX_DURATION) throw bad('too long');
     const m = { kind, t, x: coord(), y: coord() };
@@ -357,6 +368,14 @@ function readMarks(r, format) {
     } else if (kind === 'pour') {
       m.amt = r.varint();
       if (m.amt < 1 || m.amt > POUR_MAX) throw bad('pour out of range');
+    } else if (kind === 'blow') {
+      m.dir = r.varint();
+      m.dist = r.varint();
+      if (m.dir > 359 || m.dist < 1 || m.dist > 10000) throw bad('blow out of range');
+    } else if (kind === 'burn') {
+      m.w = r.varint();
+      m.h = r.varint();
+      if (m.w < 1 || m.h < 1 || m.w > MAX_COORD || m.h > MAX_COORD) throw bad('burn out of range');
     } else if (kind === 'press') {
       m.depth = r.byte();
       m.angle = r.byte();

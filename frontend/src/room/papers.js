@@ -98,7 +98,7 @@ export const strokeOf = (line) => lawOf(P.PAPER_LAW).decodeCanonical(fromB64url(
 let worker = null;
 let nextId = 1;
 const waiting = new Map();
-function grow(view, drips) {
+function grow(view, drips, burns = []) {
   worker ??= (() => {
     const w = new Worker(new URL('./paperWorker.js', import.meta.url), { type: 'module' });
     w.onmessage = ({ data }) => {
@@ -112,7 +112,7 @@ function grow(view, drips) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
     waiting.set(id, { resolve, reject });
-    worker.postMessage({ id, lines: view.lines, drips, seed: view.open.seed, family: view.birth.family, law: P.lawFor(view.birth), ageH: ageOf(view) });
+    worker.postMessage({ id, lines: view.lines, drips, burns, seed: view.open.seed, family: view.birth.family, law: P.lawFor(view.birth), ageH: ageOf(view) });
   });
 }
 const marks = (lines) => lines.filter((l) => P.MARKS.includes(l.act.act)).length;
@@ -122,7 +122,8 @@ const ageOf = (view) => {
   return last ? Math.max(0, (Date.now() - (view.born ?? 0) - last.at) / 3600000) : 0;
 };
 const AGE_EVERY_MS = 3600000; // (its look grown again as its age passes each whole hour: the law's buckets)
-export function usePaperFields(views, dripsOf = () => []) {
+// burnsOf(view): its cells a fire has burnt away so far (law/fire.js burntOn), as its marks.
+export function usePaperFields(views, dripsOf = () => [], burnsOf = () => []) {
   const [fields, setFields] = useState(() => new Map());
   const [hour, setHour] = useState(0); // (each hour: the ink's age passes into its next bucket)
   useEffect(() => {
@@ -133,14 +134,15 @@ export function usePaperFields(views, dripsOf = () => []) {
   useEffect(() => {
     for (const v of views) {
       const drips = dripsOf(v);
-      const what = `${marks(v.lines)}:${drips.length}:${viewBuckets(P.lawFor(v.birth), { ageH: ageOf(v) }).ageH}`;
+      const burns = burnsOf(v);
+      const what = `${marks(v.lines)}:${drips.length}:${burns.length}:${viewBuckets(P.lawFor(v.birth), { ageH: ageOf(v) }).ageH}`;
       if (asked.current.get(v.paper) === what) continue;
       asked.current.set(v.paper, what);
-      grow(v, drips)
+      grow(v, drips, burns)
         .then((r) => setFields((m) => (m.get(v.paper)?.n > r.n ? m : new Map(m).set(v.paper, { field: r.field, n: r.n, facts: r.facts, seals: r.seals }))))
         .catch((err) => console.warn('[paper]', err.message));
     }
-  }, [views, dripsOf, hour]);
+  }, [views, dripsOf, burnsOf, hour]);
   return fields;
 }
 

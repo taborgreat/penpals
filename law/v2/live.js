@@ -16,7 +16,7 @@
 //   finish(actsBytes)    settle everything: { cells, box, facts } exactly as grow()
 
 import { createSim, filmLevel, heldE, GALL_ABS } from './sim.js';
-import { settledCells, boxOf, factsDigest, GN } from './look.js';
+import { settledCells, boxOf, factsDigest, GN, looseDrops } from './look.js';
 import { TILE, TICK_MS, P_NONE, SCALE_ONE, W_SAT, W_WET, GALL_FRESH, TORN, DENT_SHIFT, DEPTH_SHIFT, THICK, WEAR_SHIFT, DENT_Z, FILM_Q } from './constants.js';
 import { EXP8 } from '../v1/tables.js';
 import { floorDiv } from '../v1/int.js';
@@ -42,7 +42,7 @@ export function heightTile(t, hf = new Int16Array(TT * 4)) {
   for (let i = 0; i < TT; i++) {
     const dent = t.dentA[i] >> DENT_SHIFT;
     const bead = t.W[i] > 0 ? Math.max(0, t.W[i] - heldE(t, i)) : 0; // what stands on top
-    const above = Math.min(32767, bead + filmLevel(t.filmA[i]) * FILM_Q);
+    const above = Math.min(32767, bead + filmLevel(t.filmA[i]) * FILM_Q + (t.looseA ? looseDrops(t.looseA[i], t.looseM[i]) : 0)); // (and loose matter lying on it: law 4)
     const surface = t.cockle[i] - dent * DENT_Z;
     hf[4 * i] = Math.max(-32768, Math.min(32767, surface + above));
     hf[4 * i + 1] = above;

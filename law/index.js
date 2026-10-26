@@ -19,6 +19,8 @@ export * as seal from './seal.js';
 export * as matter from './matter.js';
 export * as string from './string.js';
 export * as wax from './wax.js';
+export * as fire from './fire.js';
+export * as grass from './grass.js';
 export * as room from './room.js';
 export * as candle from './candle.js';
 export * as world from './world.js';

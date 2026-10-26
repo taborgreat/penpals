@@ -280,3 +280,46 @@ test("a house's wall is matter too: its owner's, where it is for good; its owner
   const asPaper = growPaper(s.lines, { seed: checkBirth(wall.birth, wall).seed, family: FAMILY, law: lawFor(wall.birth) });
   assert.notEqual(b64url(grown.facts), b64url(asPaper.facts), 'on plaster it is not as on paper');
 });
+
+test('a breath across a paper blows what lies loose on it along it, as far as the jet carries it; nothing is lost (law 5)', () => {
+  // the same hard dry scrape: its fibres lie loose where it wore
+  const r = record(
+    [
+      {
+        path: samplePath(
+          (u) => [20 + 30 * Math.abs(((u * 40) % 2) - 1), 20],
+          () => 30,
+          { pressure: () => 1 },
+        ),
+        pen: { ...BLUE, flow: 0 },
+        start: 0,
+        hasP: true,
+      },
+    ],
+    [0, 0],
+  );
+  const s = stamper();
+  assert.equal(s.act(ana, 'stroke', 1000, { stroke: L.encodeActs(r) }), null);
+  const before = growPaper(s.lines, { seed, family: FAMILY, law: PAPER_LAW });
+  const loose = (g) => g.cells.filter((c) => c[19] > 0);
+  const sum = (cells) => cells.reduce((n, c) => n + c[19], 0);
+  const meanX = (cells) => cells.reduce((n, c) => n + c[1] * c[19], 0) / sum(cells);
+  assert.ok(sum(loose(before)) > 0, 'fluff lies loose');
+  // blown along it, toward +x, from its left edge, the mouth 20 cm off
+  assert.equal(s.act(ana, 'blow', 9000, { blow: { x: 0, y: 200, dir: 0, dist: 200 } }), null);
+  const after = growPaper(s.lines, { seed, family: FAMILY, law: PAPER_LAW });
+  assert.equal(sum(loose(after)), sum(loose(before)), 'every ng of it still lies somewhere');
+  assert.ok(meanX(loose(after)) > meanX(loose(before)) + 20, `carried downwind: from x ${meanX(loose(before)).toFixed(0)} to ${meanX(loose(after)).toFixed(0)} (cells)`);
+  assert.ok(after.cuts.blown > 0);
+  // the other way, off its edge: nothing moves (the jet does not reach back)
+  const t = stamper();
+  t.act(ana, 'stroke', 1000, { stroke: L.encodeActs(r) });
+  t.act(ana, 'blow', 9000, { blow: { x: 0, y: 200, dir: 180, dist: 200 } });
+  const up = loose(growPaper(t.lines, { seed, family: FAMILY, law: PAPER_LAW }));
+  assert.equal(sum(up), sum(loose(before)));
+  assert.deepEqual(
+    up.map((c) => c[19]),
+    loose(before).map((c) => c[19]),
+    'the same fluff where it was',
+  );
+});

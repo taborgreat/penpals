@@ -1080,6 +1080,27 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     for (const o of [wax, wick, flame]) scene.add(o);
     return { wax, wick, flame };
   });
+  // a fire's flames (law/fire.js: its cells alight), each a flame as a candle's is, a cell's height tall
+  const fireFlames = [];
+  let fireCells = [];
+  const placeFire = () => {
+    if (!lightOrigin) return;
+    const fh = 0.02 * PX_PER_M; // (a drawing's: two of the fire's cells tall)
+    while (fireFlames.length < fireCells.length) {
+      const f = new THREE.Sprite(gpu.flameMaterial());
+      f.center.set(0.5, 0.18);
+      f.renderOrder = 10;
+      scene.add(f);
+      fireFlames.push(f);
+    }
+    fireFlames.forEach((f, k) => {
+      const c = fireCells[k];
+      f.visible = !!c;
+      if (!c) return;
+      f.position.set(...worldOf(c, lightOrigin));
+      f.scale.set(fh * 0.5, fh, 1);
+    });
+  };
   // the bakes: a quad over a chunk's own target
   const bakeScene = new THREE.Scene();
   const bakeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
@@ -1587,6 +1608,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       gpu.setSpectrum(lights.indirect, l.indirect);
       lightOrigin = origin;
       for (const s of sheets.values()) lightSheet(s);
+      placeFire();
       // what lies outside takes the sky's light (on a level face: the light's), and the sun straight
       if (l.sunOut) gpu.setSpectrum(lights.sunOut, l.sunOut);
       if (l.skyE)
@@ -1806,6 +1828,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         shelf.mats.push(mat);
         put(b, mat);
       });
+    },
+    // A fire's cells alight now (law/fire.js; room m): a flame on each.
+    setFire(cells) {
+      fireCells = cells ?? [];
+      placeFire();
     },
     // Ink on a surface (scene/marks.js): a mark set, its cells, its live tiles, gone.
     setMark(id, spec) {

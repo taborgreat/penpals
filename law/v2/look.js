@@ -29,7 +29,7 @@ import { EXP8, ABS_Q } from '../v1/tables.js';
 import { FADE, SURFACE } from './tables.js';
 import { GALL_ABS, darkAt, filmLevel } from './sim.js';
 import { T, concat, u16be } from '../tags.js';
-import { idOf } from '../matter.js';
+import { idOf, ORDER, MATTER, CELL_M, DROP_M } from '../matter.js';
 
 const TT = TILE * TILE;
 const VISIBLE = 4;
@@ -79,14 +79,15 @@ export function settledCells(tiles, { law = LAW } = {}) {
   return cells;
 }
 
-// The box of visible ink (pigment or gall), plus a margin.
-export function boxOf(cells) {
+// The box of visible ink (pigment or gall), plus a margin; from law 5 what is gone (a hole: worn or burnt
+// through) and what lies loose on it (fluff, shavings, ash) show too.
+export function boxOf(cells, { law = LAW } = {}) {
   let x0 = Infinity,
     y0 = Infinity,
     x1 = -Infinity,
     y1 = -Infinity;
   for (const c of cells) {
-    if (Math.max(c[2], c[3], c[4], c[5]) < VISIBLE && !c[15]) continue; // (wax shows too)
+    if (Math.max(c[2], c[3], c[4], c[5]) < VISIBLE && !c[15] && !(law >= 5 && (c[11] & TORN || c[19] > 0))) continue; // (wax shows too)
     const [y, x] = c;
     if (x < x0) x0 = x;
     if (x > x1) x1 = x;
@@ -258,10 +259,14 @@ export const hasInk = (c) => !!(c[2] || c[3] || c[4] || c[5]);
 // stands above it (the bead while wet: rows from live.cut carry it at [14];
 // once dry only the film the ink left on top, the ring a little higher; never
 // the peak) and how deep the liquid sank below it (levels of THICK).
+// Loose matter lying on a cell (law 4: fluff, shavings), as high as its mass stands at its row's density over
+// the cell, in drops of height (law/matter.js DROP_M, the heights' unit). A view of it, never a fact.
+export const looseDrops = (ng, matter) => (ng ? Math.round((ng * 1e-12) / MATTER[ORDER[matter]].density / (CELL_M * CELL_M) / DROP_M) : 0);
 export function heightOf(c) {
   return {
     surface: c[12] - c[6] * DENT_Z,
-    above: (c[14] ?? 0) + c[13] * FILM_Q + (c[15] ? (c[15] - c[16]) >> WAX_VIEW_SHIFT : 0), // (wax stands on top, a press dents it)
+    // (wax stands on top, a press dents it; loose matter lies on top, law 4)
+    above: (c[14] ?? 0) + c[13] * FILM_Q + (c[15] ? (c[15] - c[16]) >> WAX_VIEW_SHIFT : 0) + looseDrops(c[19] ?? 0, c[20] ?? 0),
     wet: (c[14] ?? 0) > 0,
     depth: c[7],
     torn: (c[11] & TORN) !== 0,

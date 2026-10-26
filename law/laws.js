@@ -122,6 +122,7 @@ LAWS[5] = Object.freeze({
   factsDigest: (o) => v2look.factsDigest({ ...o, law: 5 }),
   // its look ages if any of its inks held oak gall
   ages: (rec) => rec.strokes.some((s) => s.pens.some((p) => (p.gall ?? 0) > 0)),
+  boxOf: (cells) => v2look.boxOf(cells, { law: 5 }),
 });
 
 export class LawUnknown extends Error {

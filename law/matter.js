@@ -69,7 +69,18 @@ const PAPER_INK = Object.freeze({
 });
 
 export const MATTER = Object.freeze({
-  air: { density: 1, hardness: 0, strength: 0, friction: 0, heat: { holds: 1005, conducts: 26, melts: null, boils: null, burns: null }, light: 'air', ior: 1000, molar: 28.97, viscous: 18100 }, // feeds fire; carries heat, smoke and sound
+  air: {
+    density: 1,
+    hardness: 0,
+    strength: 0,
+    friction: 0,
+    heat: { holds: 1005, conducts: 26, melts: null, boils: null, burns: null },
+    light: 'air',
+    ior: 1000,
+    molar: 28.97,
+    viscous: 18100,
+    jet: { decay: 6.2, spread: 0.1 },
+  }, // feeds fire; carries heat, smoke and sound; a round jet of it slows as decay × its mouth's width over how far it has gone, and spreads as wide as spread × that
   water: {
     density: 1000,
     hardness: 0,
