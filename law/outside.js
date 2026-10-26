@@ -21,6 +21,7 @@ import { createTree, standsFrom } from './tree.js';
 import { PLOT_M, centreOf } from './world.js';
 import { HOUSE } from './room.js';
 import { weatherAt } from './weather.js';
+import { pow } from './dmath.js';
 
 export const SEED = 'penpals:the world'; // the world's public seed
 // How the ground rolls (a hill's breadth and height, m); how often a stone lies in a cell and how big
@@ -90,7 +91,7 @@ export function stonesIn(i, j) {
   if (draw(3, i, j) >= share) return [];
   const x = (i + draw(4, i, j)) * cell,
     y = (j + draw(5, i, j)) * cell;
-  const r = smallest * (biggest / smallest) ** draw(6, i, j); // (as many small as big, in each doubling)
+  const r = smallest * pow(biggest / smallest, draw(6, i, j)); // (as many small as big, in each doubling)
   const m = draw(11, i, j);
   return [{ id: `stone:${i},${j}`, at: [x, y, groundAt(x, y)], r, matter: m < OUTSIDE.stones.soft ? 'chalk' : m < OUTSIDE.stones.soft + OUTSIDE.stones.ore ? 'ore' : 'stone' }];
 }

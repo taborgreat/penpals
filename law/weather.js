@@ -29,7 +29,7 @@
 //     seen, and its thunder heard, when it falls) }
 import { MATTER, AIR } from './matter.js';
 import { sunAt, levelLight, dayOf } from './sun.js';
-import { exp } from './dmath.js';
+import { exp, pow } from './dmath.js';
 
 export const LAYER = 1000; // m: the air that turns over by day (Tabor's to set)
 export const CLIMATE = Object.freeze({ wet: [400, 950], spell: 2 }); // ‰ of what it holds, the air that comes over; days a spell (Tabor's to set)
@@ -139,7 +139,7 @@ function stepOnce(st, s, ms) {
   const env = season - STANDARD_LAPSE * LAYER;
   const buoy = up.T - env;
   const heats = (S * AIR.film) / (AIR.film + 4 * SIGMA * T0 * T0 * T0); // W/m²: the ground's sun handed to the air
-  const turns = heats > 0 ? Math.cbrt((G * LAYER * heats) / (RHO * CP * st.T)) : 0;
+  const turns = heats > 0 ? pow((G * LAYER * heats) / (RHO * CP * st.T), 1 / 3) : 0; // (dmath: the same everywhere)
   const storm = up.gave > 0 && buoy > 0 ? Math.sqrt((2 * G * LAYER * buoy) / env) : 0;
   const w = Math.max(turns, storm);
   st.wind = w;

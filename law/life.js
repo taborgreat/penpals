@@ -41,7 +41,7 @@ import { MATTER, BEINGS } from './matter.js';
 import { dayOf, yearOf, sunAt } from './sun.js';
 import { treeNow, groundAt, matterAt, waterAt, EPOCH, WATER } from './outside.js';
 import { leafyOn } from './tree.js';
-import { exp, log, pow } from './dmath.js';
+import { exp, log, pow, sin, cos } from './dmath.js';
 
 // Where the outside's life stands at the world's start (the seed's): the share of oaks with gall bugs
 // in them and how many galls they had laid the autumn before; the share with a hive on their trunk, its
@@ -238,7 +238,7 @@ function grassNear(x, y, r, seed, k) {
   for (let n = 0; n < 8; n++) {
     const a = 2 * Math.PI * draw(seed, k, n, 1),
       d = r * Math.sqrt(draw(seed, k, n, 2));
-    const p = [x + d * Math.cos(a), y + d * Math.sin(a)];
+    const p = [x + d * cos(a), y + d * sin(a)];
     if (matterAt(p[0], p[1]) === 'grass') return groundUnder(p);
   }
   return groundUnder([x, y]);
@@ -311,7 +311,7 @@ function startOf(tree) {
       r = Math.sqrt(nd.area / Math.PI);
     const B = BEINGS.hivebug;
     const each = Math.ceil(S.hivebug.bugs / B.lives);
-    L.hive = { at: lift(tree, [nd.base[0] + r * Math.cos(a), nd.base[1] + r * Math.sin(a), nd.base[2] + nd.len / 2]), wax: S.hivebug.wax, store: S.hivebug.store * 1000, bugs: [], brood: [] };
+    L.hive = { at: lift(tree, [nd.base[0] + r * cos(a), nd.base[1] + r * sin(a), nd.base[2] + nd.len / 2]), wax: S.hivebug.wax, store: S.hivebug.store * 1000, bugs: [], brood: [] };
     for (let k = 0; k < B.lives; k++) L.hive.bugs.push({ born: EPOCH - k, n: each });
   }
   if (draw(tree.id, 8) < S.bird.share && (!BEINGS.bird.drinks || waterNear(tree.at[0], tree.at[1], BEINGS.bird.reach))) {
@@ -479,12 +479,12 @@ function birdsDay(tree, L, d, w, hours, leaves) {
   if (P.moult?.year !== year && P.bred !== year && !brooding && !dayOf(d).lengthening && dayOf(d - 1).lengthening) P.moult = { from: d, year };
   if (P.moult?.year === year && d - P.moult.from < B.quills) {
     let wide = 1;
-    for (const t of T().tips) wide = Math.max(wide, Math.hypot(t.pos[0] - tree.at[0], t.pos[1] - tree.at[1]));
+    for (const t of T().tips) wide = Math.max(wide, Math.sqrt((t.pos[0] - tree.at[0]) ** 2 + (t.pos[1] - tree.at[1]) ** 2));
     P.adults.forEach((a, k) => {
       const id = `feather:${tree.id}/${d}/${k}`;
       const r = wide * Math.sqrt(draw(id, 1)),
         an = 2 * Math.PI * draw(id, 2);
-      L.feathers.push({ id, at: groundUnder([tree.at[0] + r * Math.cos(an), tree.at[1] + r * Math.sin(an)]), day: d, gone: d + rotted(id, MATTER.feather.rots) });
+      L.feathers.push({ id, at: groundUnder([tree.at[0] + r * cos(an), tree.at[1] + r * sin(an)]), day: d, gone: d + rotted(id, MATTER.feather.rots) });
     });
   }
 }

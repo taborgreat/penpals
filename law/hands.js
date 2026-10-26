@@ -94,7 +94,7 @@ export function branchOf(tree, branch, day) {
   const walk = (id) => (kids.get(id) ?? []).forEach((c) => (all.add(c), walk(c)));
   walk(branch);
   let reach = 0;
-  for (const n of T0.nodes) if (all.has(n.branch)) reach = Math.max(reach, Math.hypot(...n.base.map((v, k) => v - b.at[k])) + n.len);
+  for (const n of T0.nodes) if (all.has(n.branch)) reach = Math.max(reach, Math.sqrt(n.base.reduce((s, v, k) => s + (v - b.at[k]) ** 2, 0)) + n.len);
   return { foot: b.at, r: Math.sqrt(T0.nodes[b.node].area / Math.PI), reach, branches: all, trunk: b.parent === null };
 }
 // Whether a being's pull breaks it: the pull levered along its reach against its wood's strength.

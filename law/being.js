@@ -37,7 +37,7 @@ export function neck(body, yaw, pitch) {
 export function isAct(last, lastAt, pose, now) {
   if (!last) return true;
   if (now - lastAt < 1000 / MAX_RATE) return false;
-  const moved = Math.hypot(...pose.pos.map((v, k) => v - last.pos[k]));
+  const moved = Math.sqrt(pose.pos.reduce((s, v, k) => s + (v - last.pos[k]) ** 2, 0)); // (exact everywhere: no hypot)
   const turned = Math.max(Math.abs(wrap(pose.yaw - last.yaw)), Math.abs(pose.pitch - last.pitch), Math.abs(wrap((pose.body ?? pose.yaw) - (last.body ?? last.yaw))));
   return moved > STEP_M || turned > TURN_DEG;
 }
