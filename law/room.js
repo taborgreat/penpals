@@ -16,7 +16,7 @@
 //                                  carried does (Tabor, 2026-10-25: with nothing in it, the hand is your own matter)
 //            act 'open' | 'shut'   thing: the window (its sash: world.md Phase 3, what comes in through it),
 //                                  its shutters, or the door (outside.md Phase 4: shut, each is a wall)
-//            act 'set'             thing: a pen, set: its settings (its facts: one-world.md, the panel for the pen
+//            act 'set'             thing: a pen, set: its settings; the stamper, set: { name } its face (their facts: one-world.md, the panel for the pen
 //                                  in hand): what its nib is set to, its flow and spatter, its ink, and whether it
 //                                  is a dip pen (its line fading until it is dipped in the jar: rooms.md §3c)
 //   stamped line  { n, at (ISO: the stamper's clock), act, seal }
@@ -127,8 +127,9 @@ export function checkRoomAct(body) {
   if (body.act === 'tilt' && (!inRoom(body.pos) || !Number.isInteger(body.deg) || body.deg < 0 || body.deg > TILT_MAX)) throw bad('a malformed tilt');
   if (body.act === 'carry' && (OPENINGS.includes(body.thing) || !inRoom(body.pos))) throw bad('a malformed carry');
   if (body.act === 'set') {
-    if (!PENS.includes(body.thing)) throw bad('only a pen is set');
-    checkPenSet(NIB_OF[body.thing], body.set);
+    if (body.thing === 'stamper') checkStamperSet(body.set);
+    else if (!PENS.includes(body.thing)) throw bad('only a pen or the stamper is set');
+    else checkPenSet(NIB_OF[body.thing], body.set);
   }
   return body;
 }
@@ -155,6 +156,18 @@ function checkPenSet(nib, set) {
       if (!Number.isInteger(v) || v < lo || v > hi) throw bad(`a pen's ${f} is out of range`);
     }
   }
+}
+// The stamper's face: whose signature it takes (one-world.md: the panel for the stamper in hand), a fact of
+// it as a pen's settings are of the pen: { name } (a name as names are: 2-20 letters, numbers, underscores).
+function checkStamperSet(set) {
+  if (!set || typeof set !== 'object' || Array.isArray(set) || Object.keys(set).join() !== 'name') throw bad("not the stamper's face");
+  if (typeof set.name !== 'string' || !/^[a-z0-9_]{2,20}$/i.test(set.name)) throw bad("a stamper's face is a name");
+}
+// Whose seal the stamper's face is now: the last set act for it on the room's chain, else null (blank).
+export function stamperFace(lines) {
+  let name = null;
+  for (const l of lines) if (l.act?.act === 'set' && l.act.thing === 'stamper') name = l.act.set.name;
+  return name;
 }
 // Each pen's settings now: the last set act for it on the room's chain (lines in order, as stamped),
 // else none (it is as it was made: the panel's defaults for its nib).

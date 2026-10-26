@@ -274,6 +274,19 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   );
 
   const [tool, setTool] = useState('pen'); // 'pen' | { seal: { name, key, w, h, face } }
+  // the stamper's face as its chain has it: their seal, from their signature (backend routes/signatures.js)
+  const faceName = useMemo(() => R.stamperFace(lines), [lines]);
+  useEffect(() => {
+    if (!faceName) return setTool('pen');
+    let alive = true;
+    api
+      .get(`/api/signatures/${encodeURIComponent(faceName)}/seal`)
+      .then((r) => alive && r?.face && setTool({ seal: r }))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [faceName]);
   const toolRef = useRef(tool);
   toolRef.current = tool;
   // the scene: each paper where it lies, grown, your guess over it; the one in your hand, in it
@@ -406,10 +419,9 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     newPaper: ({ size = P.SIZES.half, rule = 0 } = {}) => (key && family ? bornPaper(key, family, newPaperAt(GEOM, size), { size, rule }).catch(fail) : null),
     lift: () => lastWritten.current?.lift(),
     useTool: (t) => setTool(t),
-    // the stamper set to someone: their seal's face, from their signature (backend routes/signatures.js)
-    async stamperFor(who) {
-      const r = await api.get(`/api/signatures/${encodeURIComponent(who)}/seal`).catch((err) => fail(err));
-      if (r?.face) setTool({ seal: r });
+    // the stamper's face set to someone's seal: an act on it, its fact for everyone (law/room.js stamperFace)
+    stamperFor(who) {
+      if (key && roomKey) roomAct(name, key, roomKey, { act: 'set', thing: 'stamper', set: { name: who } });
     },
     // the paper in your hand into your book, at a path (names, from the book's top); one out of it, into your hand
     shelve: (path) => (held && key ? (setHeld(null), moved(paperAct(key, held, 'shelve', { book: path }))) : null),

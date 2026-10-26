@@ -222,7 +222,7 @@ export async function act(ownerId, userId, owner, { act: a, seal } = {}) {
     if (now - b.lastTilt < 1000 / B.MAX_RATE) return { why: 'Too soon: a tilt is coarse.', status: 429 }; // at most five a second
     b.lastTilt = now;
   }
-  if (a.act === 'set' && (!held || held.at !== null || held.by !== b.name)) return { why: 'Only the one holding a pen sets it.', status: 409 };
+  if (a.act === 'set' && (!held || held.at !== null || held.by !== b.name)) return { why: 'Only the one holding it sets it.', status: 409 };
   if (a.act === 'light' && r.lit[a.thing]) return { why: 'It is lit already.', status: 409 };
   if (a.act === 'out' && !r.lit[a.thing]) return { why: 'It is out already.', status: 409 };
   if ((a.act === 'open' || a.act === 'shut') && R.openNow(r.things, a.thing) === (a.act === 'open')) return { why: a.act === 'open' ? 'It is open already.' : 'It is shut already.', status: 409 };

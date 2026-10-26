@@ -25,7 +25,7 @@ test('three pens and the jar are things on the table; each pen is set by an act,
   assert.throws(() => make(4, 'pen-flex', noSlant), /settings of this pen/);
   assert.throws(() => make(4, 'pen-broad', { ...BROAD, flow: 16 }), /flow is out of range/);
   assert.throws(() => make(4, 'pen', { ...PLAIN, color: 'red' }), /colour/);
-  assert.throws(() => make(4, 'candle-0', PLAIN), /only a pen/);
+  assert.throws(() => make(4, 'candle-0', PLAIN), /only a pen or the stamper/);
   assert.throws(() => R.makeRoomAct({ sk: ana.sk, pk: ana.pk, room: ROOM, k: 4, act: 'light', thing: 'pen-flex' }), /candle/);
   // and the jar is picked up and set down like anything else
   R.makeRoomAct({ sk: ana.sk, pk: ana.pk, room: ROOM, k: 5, act: 'place', thing: 'jar', to: [1.5, 2.8, 0.74] });
@@ -55,4 +55,14 @@ test('the window is opened and shut by acts; nothing else is, and it is nothing 
   assert.throws(() => act(3, 'open', 'candle-0'), /only a window/);
   assert.throws(() => act(3, 'light', 'window'), /candle|window/);
   assert.throws(() => R.makeRoomAct({ sk: ana.sk, pk: ana.pk, room: ROOM, k: 3, act: 'place', thing: 'window', to: null }), /window/);
+});
+
+test("the stamper's face is its fact too: whose signature it takes, set by an act, its last set act on the chain", () => {
+  const a = make(1, 'stamper', { name: 'bo' });
+  assert.ok(R.verifyRoomActSeal(a.act, a.seal));
+  assert.throws(() => make(2, 'stamper', { name: 'b' }), /a name/);
+  assert.throws(() => make(2, 'stamper', { name: 'bo', w: 3 }), /face/);
+  assert.equal(R.stamperFace([]), null, 'blank, as it was made');
+  const lines = [a, make(2, 'pen', PLAIN), make(3, 'stamper', { name: 'cy_9' })].map((m, n) => ({ n, ...m }));
+  assert.equal(R.stamperFace(lines), 'cy_9');
 });
