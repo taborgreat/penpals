@@ -1,6 +1,6 @@
 // What a hand reaches for outside (outside.md Phase 5): the nearest thing the pointer's ray meets, out
 // of the outside as it is drawn (scene/outside.js outsideNear), within an arm's reach of the head.
-//   reachOutside(spec, origin, dir, ground, { reach }) → { kind: 'stone' | 'stick' | 'made' | 'gall' | 'hive' | 'feather' | 'mailbox' |
+//   reachOutside(spec, origin, dir, ground, { reach }) → { kind: 'stone' | 'stick' | 'made' | 'gall' | 'hive' | 'feather' | 'mailbox' | 'door' |
 //     'limb' | 'ground', id, tree?, branch?, tip?, laid?, at (room m: where the ray meets it), t (m along the ray), limb? } | null
 import { MAILBOX } from './outside.js';
 
@@ -63,6 +63,14 @@ export function reachOutside(spec, o, d, ground, { reach = ARM } = {}) {
   for (const m of spec.mailboxes ?? []) {
     const t = ball(o, d, [m.at[0], m.at[1], m.at[2] + MAILBOX.post + MAILBOX.box[2] / 2], Math.max(...MAILBOX.box) / 2 + 0.05);
     if (t) take({ kind: 'mailbox', id: m.key, key: m.key, at: along(o, d, t), t });
+  }
+  // another's house's door (its near wall's opening): the hand on it opens it or shuts it
+  for (const h of spec.houses ?? []) {
+    const r = h.door;
+    if (!r || Math.abs(d[1]) < 1e-9) continue;
+    const t = (r.y - o[1]) / d[1];
+    const p = along(o, d, t);
+    if (t > 0 && p[0] >= r.x0 && p[0] <= r.x1 && p[2] >= r.z0 && p[2] <= r.z1) take({ kind: 'door', id: h.key, key: h.key, name: h.name, open: !!h.opens?.door, at: p, t });
   }
   for (const f of spec.feathers ?? []) {
     const t = ball(o, d, f.at, f.length / 2);

@@ -1,21 +1,22 @@
-// The room in the book (rooms.md §1, §2): every wall, the floor, the ceiling
-// and the table top is a page of the book with its own matter; ink placed on
-// one is written on that matter's paper family, and a stroke on a wall is a
-// sheet like any other: sealed, regrown from its seed, verified in the .book.
+// A book is its chain (Tabor, 2026-10-25; books.md, rooms.md §1, §2): its owner's signature and everything they
+// made of matter, each paper and each surface of their house with its own chain (law/paper.js), all of it in
+// the .book and verified there alone. A house's head says whose it is and the paper their name was signed on.
+// One world, one clock; a private house only its owner sees into.
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, client } from './helpers.js';
-import { person, register, writeInk, bookInk, FAMILY, R, S } from './device.js';
+import { person, register, FAMILY, K, b64url } from './device.js';
+import { paper as P, room as R } from 'penpals-law';
 import { verifyBook, parseBook } from 'penpals-law/verify';
+import { record, samplePath } from 'penpals-law/tools/fixtures';
+import { lawOf } from 'penpals-law/laws';
 
 let app;
 const ana = person(41, 'ana');
 const bo = person(42, 'bo');
-let PLASTER, WOOD;
 
 before(async () => {
   app = await startApp(); // first: the config reads DATA_DIR when it is imported
-  ({ plaster: PLASTER, wood: WOOD } = (await import('../src/config.js')).config.book.families);
   app.ana = client(app.base);
   app.bo = client(app.base);
   for (const [c, p] of [
@@ -32,167 +33,86 @@ after(async () => {
 });
 beforeEach(() => app.resetLimits());
 
-test("a new book has the room's surfaces: each with its matter, family and size, empty", async () => {
-  const { data } = await app.ana.get('/api/books/me');
-  const s = data.skeleton.surfaces;
-  assert.deepEqual(Object.keys(s).sort(), ['ceiling', 'floor', 'pen', 'table', 'wall-far', 'wall-left', 'wall-near', 'wall-right']);
-  assert.equal(s['wall-far'].matter, 'plaster');
-  assert.deepEqual(s['wall-far'].family, PLASTER);
-  assert.deepEqual(s.floor.family, WOOD);
-  assert.ok(s['wall-left'].size[0] > s.table.size[0] && s.table.items.length === 0);
-  assert.notDeepEqual(PLASTER, FAMILY, 'not the paper');
+const strokeAt = (t0) =>
+  lawOf(3).encodeActs(
+    record(
+      [
+        {
+          path: samplePath(
+            (u) => [100 + 400 * u, 200],
+            () => 40,
+          ),
+          pen: { nib: 0, size: 60, flex: 0, flow: 10, rgb: [30, 40, 200], angle: 0 },
+          start: t0,
+        },
+      ],
+      [0, 0],
+    ),
+  );
+const k = new Map();
+const act = (p, paper, kind, extra = {}) => {
+  k.set(paper, (k.get(paper) ?? 0) + 1);
+  return P.makePaperAct({ sk: p.sk, pk: p.pk, paper, k: k.get(paper), act: kind, ...extra });
+};
+
+test("a house's head: whose it is, and the paper their name was signed on; no layout", async () => {
+  const { data } = await app.bo.get('/api/books/ana');
+  assert.equal(data.name, 'ana');
+  assert.equal(data.key, b64url(ana.pk));
+  assert.deepEqual(data.family, FAMILY, 'the paper their signature is on');
+  assert.match(data.signature, /^k_\d{6}$/);
+  assert.equal('skeleton' in data, false);
+  for (const gone of ['/api/books/me/edit', '/api/books/me/ink', '/api/books/me/open']) assert.equal((await app.ana.post(gone, {})).status, 404, gone);
 });
 
-test('surface = sheet: a stroke on a wall lands on it, regrows byte-identically, verifies like paper', async () => {
-  const acts = S.write(ana.writer, 'on the wall', 2);
-  const res = await writeInk(app.ana, ana, { family: PLASTER, acts, place: { surface: 'wall-far', x: 9000, y: 6000, scale: 64 } });
-  assert.equal(res.status, 201, JSON.stringify(res.data));
-  const { data } = await app.ana.get('/api/books/me');
-  const items = data.skeleton.surfaces['wall-far'].items;
-  assert.equal(items.length, 1);
-  assert.deepEqual([items[0].x, items[0].y], [9000, 6000]);
-  // regrown from its acts and its seed: the same facts
-  assert.equal(R.regrow(res.ink.line.ink, res.ink.seed).ok, true);
-  // in the .book, checked as a whole
+test('the .book is the chain: the signature, a paper and its acts, a wall written on; it verifies alone', async () => {
+  const paper = K.newSheetId();
+  assert.equal((await app.ana.post('/api/papers', P.makePaper({ sk: ana.sk, pk: ana.pk, paper, family: FAMILY, at: [1.5, 2.9, 0.74] }))).status, 201);
+  assert.equal((await app.ana.post(`/api/papers/${paper}/acts`, act(ana, paper, 'stroke', { stroke: strokeAt(0) }))).status, 201);
+  const wall = K.newSheetId();
+  assert.equal((await app.ana.post('/api/papers', P.makeSurface({ sk: ana.sk, pk: ana.pk, paper: wall, surface: 'wall-far' }))).status, 201);
+  assert.equal((await app.ana.post(`/api/papers/${wall}/acts`, act(ana, wall, 'stroke', { stroke: strokeAt(0) }))).status, 201);
   const dl = await app.ana.get('/api/books/ana/download');
   assert.equal(dl.status, 200);
   const text = Buffer.from(dl.data).toString('utf8');
-  const book = parseBook(text);
-  const v = verifyBook(text, { regrowOpen: false });
-  assert.equal(v.ok, true, JSON.stringify(v.problems));
-  assert.ok(book.head.surfaces['wall-far'].items.some((it) => it.ink === res.data.ink));
-  // a visitor sees it as they see the journal's ink
-  assert.equal((await app.bo.get(`/api/books/ana/look/${res.data.ink}?s=64`)).status, 200);
-});
-
-test("ink on a surface is written on that surface's matter; unknown surfaces are refused", async () => {
-  const onPaper = await writeInk(app.ana, ana, { family: FAMILY, place: { surface: 'floor', x: 100, y: 100, scale: 64 } });
-  assert.equal(onPaper.status, 400);
-  assert.equal(onPaper.data.code, 'wrong_paper');
-  const nowhere = await writeInk(app.ana, ana, { family: WOOD, place: { surface: 'roof', x: 0, y: 0, scale: 64 } });
-  assert.equal(nowhere.status, 400);
-  const onFloor = await writeInk(app.ana, ana, { family: WOOD, place: { surface: 'floor', x: 20000, y: 21000, scale: 64 } });
-  assert.equal(onFloor.status, 201, 'the floor is large: far corners are on it');
-  // the journal's page still takes the book's own paper only
-  assert.equal((await writeInk(app.ana, ana, { family: PLASTER })).status, 400);
-});
-
-test('law 4 (one-matter.md): ink on a wall grows on the plaster itself and says so; claiming another matter, refused', async () => {
-  const acts = S.write(ana.writer, 'on plaster', 2);
-  const res = await writeInk(app.ana, ana, { family: { ...PLASTER, matter: 'plaster' }, acts, law: 4, place: { surface: 'wall-left', x: 9000, y: 6000, scale: 64 } });
-  assert.equal(res.status, 201, JSON.stringify(res.data));
-  assert.equal(res.ink.line.ink.law, 4);
-  assert.equal(res.ink.line.ink.matter, 'plaster');
-  assert.equal(R.regrow(res.ink.line.ink, res.ink.seed).ok, true, 'regrown on plaster');
-  // the same writing grown as the plaster's old paper family settles otherwise
-  const asPaper = R.makeInk({ sk: ana.sk, pk: ana.pk, sheet: res.ink.line.ink.sheet, use: 'book', family: PLASTER, acts, law: 4 });
-  assert.notEqual(asPaper.line.ink.facts, res.ink.line.ink.facts);
-  const wrong = await writeInk(app.ana, ana, { family: { ...PLASTER, matter: 'wood' }, acts, law: 4, place: { surface: 'wall-left', x: 1000, y: 1000, scale: 64 } });
-  assert.equal(wrong.status, 400);
-  assert.equal(wrong.data.code, 'wrong_paper');
-  const v = verifyBook(Buffer.from((await app.ana.get('/api/books/ana/download')).data).toString('utf8'), { regrowOpen: false });
-  assert.equal(v.ok, true, JSON.stringify(v.problems));
-});
-
-test("writing on the pen's body leaves ink like any sheet (rooms.md §3c): wood, its own small page", async () => {
-  const acts = S.write(ana.writer, 'on the pen', 3);
-  const res = await writeInk(app.ana, ana, { family: WOOD, acts, place: { surface: 'pen', x: 40, y: 10, scale: 16 } });
-  assert.equal(res.status, 201, JSON.stringify(res.data));
-  const { data } = await app.ana.get('/api/books/me');
-  assert.equal(data.skeleton.surfaces.pen.matter, 'wood');
-  assert.ok(data.skeleton.surfaces.pen.items.some((it) => it.ink === res.data.ink));
-  assert.equal(R.regrow(res.ink.line.ink, res.ink.seed).ok, true);
-  assert.equal(verifyBook(Buffer.from((await app.ana.get('/api/books/ana/download')).data).toString('utf8'), { regrowOpen: false }).ok, true);
-});
-
-test('the edit ops move, resize, link and take away ink on a surface', async () => {
-  const res = await writeInk(app.ana, ana, { family: PLASTER, place: { surface: 'wall-left', x: 500, y: 500, scale: 64 } });
-  assert.equal(res.status, 201);
-  const item = res.data.item;
-  const edit = (op) => app.ana.post('/api/books/me/edit', op);
-  assert.equal((await edit({ op: 'move', surface: 'wall-left', item, x: 15000, y: 9000 })).status, 200);
-  assert.equal((await edit({ op: 'move', surface: 'wall-left', item, x: 99999, y: 0 })).status, 400, 'off the wall');
-  assert.equal((await edit({ op: 'resize', surface: 'wall-left', item, scale: 128 })).status, 200);
-  assert.equal((await edit({ op: 'link', surface: 'wall-left', item, target_page: 'home' })).status, 200);
-  let s = (await app.ana.get('/api/books/me')).data.skeleton;
-  const it = s.surfaces['wall-left'].items.find((x) => x.id === item);
-  assert.deepEqual([it.x, it.y, it.scale, it.link], [15000, 9000, 128, { page: 'home' }]);
-  assert.equal((await edit({ op: 'remove', surface: 'wall-left', item })).status, 200);
-  s = (await app.ana.get('/api/books/me')).data.skeleton;
-  assert.equal(
-    s.surfaces['wall-left'].items.some((x) => x.id === item),
-    false,
+  const { head, lines } = parseBook(text);
+  assert.deepEqual(Object.keys(head).sort(), ['book', 'fingerprint', 'key', 'law', 'name']);
+  assert.equal(head.book, 3);
+  assert.equal(lines.filter((l) => l.paper).length >= 2, true);
+  const book = verifyBook(text);
+  assert.equal(book.ok, true, JSON.stringify(book.problems.concat(book.results.filter((r) => r.error).map((r) => `${r.id}: ${r.error}`))));
+  assert.deepEqual(
+    book.results.filter((r) => r.kind === 'paper').map((r) => r.regrown),
+    [true, true],
   );
-  assert.equal((await edit({ op: 'move', surface: 'nowhere', item, x: 0, y: 0 })).status, 400);
+  assert.equal((await app.bo.get('/api/books/ana/download')).status, 403, 'only its owner downloads it');
 });
 
-test('the verifier catches a surface item that is not written on its matter', () => {
-  const ink = bookInk(ana, { family: FAMILY });
-  const head = {
-    book: 2,
-    name: 'ana',
-    key: ink.line.ink.key,
-    surfaces: { 'wall-far': { matter: 'plaster', family: PLASTER, size: [10, 10], items: [{ id: 'i1', ink: 'k_000001', x: 0, y: 0, scale: 64 }] } },
-    pages: {},
-  };
-  const line = { id: 'k_000001', made: '2026-01-01T00:00:00.000Z', ink: ink.line.ink, seal: ink.line.seal };
-  const v = verifyBook(
-    `${JSON.stringify(head)}
-${JSON.stringify(line)}
-`,
-    { regrowOpen: false },
-  );
-  assert.equal(v.ok, false);
-  assert.ok(v.problems.some((p) => p.includes("not written on that surface's matter")));
-});
-
-test('one world, one clock (rooms.md §1b): no room keeps a zone of its own', async () => {
+test('one world, one clock (rooms.md §1b): no house keeps a zone of its own', async () => {
   const u = (await app.bo.get('/api/users/ana')).data.user;
-  assert.equal('timeZone' in u, false, 'no zone shown with a room');
+  assert.equal('timeZone' in u, false, 'no zone shown with a house');
   assert.equal((await app.ana.post('/api/social/time', { timeZone: 'Asia/Tokyo' })).status, 404, 'none to change');
 });
 
-test("doors: writing leads to a page, a surface of the room, or into someone else's room", async () => {
-  const res = await writeInk(app.ana, ana, { family: PLASTER, place: { surface: 'wall-near', x: 3000, y: 3000, scale: 64 } });
-  assert.equal(res.status, 201);
-  const item = res.data.item;
-  const edit = (op) => app.ana.post('/api/books/me/edit', op);
-  const linkOf = async () => (await app.ana.get('/api/books/me')).data.skeleton.surfaces['wall-near'].items.find((x) => x.id === item).link;
-  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_surface: 'ceiling' })).status, 200);
-  assert.deepEqual(await linkOf(), { surface: 'ceiling' });
-  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_room: 'Bo' })).status, 200);
-  assert.deepEqual(await linkOf(), { room: 'bo' }, 'into their room, by name');
-  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_room: 'nobody_here' })).status, 400, 'no such room');
-  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_surface: 'roof' })).status, 400);
-  assert.equal((await edit({ op: 'link', surface: 'wall-near', item, target_page: 'home' })).status, 200);
-  assert.deepEqual(await linkOf(), { page: 'home' });
-});
-
-test("visiting: others read the walls (the scene of a closed sheet), as the profile's privacy allows", async () => {
-  const res = await writeInk(app.ana, ana, { family: PLASTER, place: { surface: 'wall-right', x: 8000, y: 7000, scale: 64 } });
-  assert.equal(res.status, 201);
-  const ink = res.data.ink;
-  assert.equal((await app.bo.get(`/api/books/ana/look/${ink}?mode=scene&s=64`)).status, 200, 'a visitor reads the wall');
-  assert.equal((await app.bo.get(`/api/books/ana/look/${ink}?s=64`)).status, 200);
-  // a private room: only its owner comes in (there are no friends: one-world.md)
-  assert.equal((await app.ana.post('/api/social/private', { private: true })).status, 200);
+test("visiting: others see what lies in a house and on its walls, as the profile's privacy allows", async () => {
   const stranger = client(app.base);
-  assert.notEqual((await stranger.get(`/api/books/ana/look/${ink}?s=64`)).status, 200, 'a stranger cannot read the walls of a private room');
-  assert.notEqual((await app.bo.get(`/api/books/ana/look/${ink}?s=64`)).status, 200, 'nor anyone else');
+  const inAna = `/api/papers/in/${b64url(ana.pk)}`;
+  assert.equal((await stranger.get(inAna)).status, 200);
+  assert.ok(
+    (await app.bo.get(inAna)).data.papers.some((v) => v.where.surface === 'wall-far'),
+    'her wall, written on',
+  );
+  // a private house: only its owner sees into it (there are no friends: one-world.md)
+  assert.equal((await app.ana.post('/api/social/private', { private: true })).status, 200);
+  assert.equal((await stranger.get(inAna)).status, 403);
+  assert.equal((await app.bo.get(inAna)).status, 403);
+  assert.equal((await app.bo.get('/api/books/ana')).status, 403);
+  assert.equal((await app.ana.get(inAna)).status, 200, 'its owner');
   assert.equal((await app.ana.post('/api/social/private', { private: false })).status, 200);
-  assert.equal((await stranger.get(`/api/books/ana/look/${ink}?s=64`)).status, 200);
+  assert.equal((await stranger.get(inAna)).status, 200);
 });
 
-test('paper: a page is ruled (its lines so far apart) or not, and coloured as its paper; the owner chooses, in the new-paper panel', async () => {
-  const edit = (op) => app.ana.post('/api/books/me/edit', op);
-  const home = async () => (await app.ana.get('/api/books/me')).data.skeleton.pages.home;
-  assert.equal((await edit({ op: 'rule', page: 'home', spacing: 52 })).status, 200);
-  assert.equal((await home()).rule, 52);
-  assert.equal((await edit({ op: 'rule', page: 'home', spacing: 5 })).status, 400, 'too close');
-  assert.equal((await edit({ op: 'rule', page: 'home', spacing: 52.5 })).status, 400, 'whole px');
-  assert.equal((await edit({ op: 'background', page: 'home', color: '#eddcb6' })).status, 200, 'parchment');
-  assert.equal((await home()).background, '#eddcb6');
-  assert.equal((await edit({ op: 'rule', page: 'home', spacing: 0 })).status, 200);
-  assert.equal((await home()).rule, undefined, 'plain again');
-  assert.equal((await app.bo.post('/api/books/me/edit', { op: 'rule', page: 'nope', spacing: 52 })).status, 400, "no such page in bo's book");
+test("a house's things are those every house has (law/room.js): a pendulum among them, a bare hand reaching", () => {
+  assert.ok(R.THINGS.includes('pendulum'));
+  assert.ok(R.ACTS.includes('reach'));
 });

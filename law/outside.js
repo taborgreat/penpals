@@ -19,6 +19,7 @@
 // World metres: x east, y north (law/world.js: a plot's centre at [i, j] · PLOT_M).
 import { createTree, standsFrom } from './tree.js';
 import { PLOT_M, centreOf } from './world.js';
+import { HOUSE } from './room.js';
 import { weatherAt } from './weather.js';
 
 export const SEED = 'penpals:the world'; // the world's public seed
@@ -70,6 +71,17 @@ export function groundAt(x, y) {
   const { size, height } = OUTSIDE.hills;
   const n = noise(x / size, y / size, 1) + 0.5 * noise((2 * x) / size, (2 * y) / size, 2);
   return height * (n / 1.5 - 0.5) * 2;
+}
+
+// A house's room in the world: the room's corner (its x, y 0) at the plot's middle less half its size, its
+// floor on the ground there. toWorld(room m) → world m; toRoom(world m) → room m. Every house the same.
+export function frameOf(plot) {
+  const [W, D] = HOUSE.size;
+  const [cx, cy] = centreOf(plot);
+  const floor = groundAt(cx, cy);
+  const x0 = cx - W / 2,
+    y0 = cy - D / 2;
+  return { floor, x0, y0, toWorld: ([x, y, z = 0]) => [x0 + x, y0 + y, z + floor], toRoom: ([X, Y, Z = floor]) => [X - x0, Y - y0, Z - floor] };
 }
 
 // --- what lies and stands on it ---

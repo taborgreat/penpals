@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { roomGeometry, hit, ROOM } from '../scene/light/room.js';
 import { CELL_M } from '../scene/light/surface.js';
 import { N } from '../scene/light/axis.js';
-import { SURFACE_IDS, THING_SURFACE_IDS, ROOM_SURFACE, PEN_FACE, setPenPlace, surfaceFrame, toRoom, fromRoom, onSurface, surfaceOfHit } from '../scene/surfaces.js';
+import { SURFACE_IDS, ROOM_SURFACE, PEN_FACE, setPenPlace, surfaceFrame, toRoom, fromRoom, onSurface, surfaceOfHit } from '../scene/surfaces.js';
 import { pieceCorners } from '../scene/marks.js';
 import { roomMeshes, spectrumAt } from '../scene/roomDraw.js';
 import { roomSeedsOf, lobbySeeds, SEED_NAMES } from './seeds.js';
@@ -15,17 +15,17 @@ import { worldClock, createLight } from '../scene/light.js';
 import { createCapture, strokesToActs } from '../ink/capture.js';
 import { lawOf } from 'penpals-law/laws';
 import { keys as K, b64url } from 'penpals-law';
-import { config } from '../../../backend/src/config.js';
+import { paper as P } from 'penpals-law';
 
 const geom = roomGeometry(ROOM);
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const near = (a, b, e = 1e-9) => a.every((v, i) => Math.abs(v - b[i]) < e);
 
-test("each surface is a page of the book in its own frame: on its room surface, read the right way round, its size the book's", () => {
-  assert.deepEqual([...SURFACE_IDS, ...THING_SURFACE_IDS].sort(), Object.keys(config.book.surfaces).sort(), 'the book has every surface the room has');
+test("each surface is matter of the house in its own frame (law/paper.js SURFACES): on its room surface, read the right way round, its size the law's", () => {
+  assert.deepEqual([...SURFACE_IDS].sort(), Object.keys(P.SURFACES).sort(), 'the law has every surface the room has');
   for (const id of SURFACE_IDS) {
     const f = surfaceFrame(geom, id);
-    assert.deepEqual(f.units, config.book.surfaces[id].size, `${id}: the book's size`);
+    assert.deepEqual(f.units, P.SURFACES[id].size, `${id}: the law's size`);
     // right × down faces the one looking at it: the page is not mirrored
     assert.ok(
       near(
@@ -56,13 +56,13 @@ test("each surface is a page of the book in its own frame: on its room surface, 
   }
 });
 
-test("the pen's top face is a page of the book, wherever the pen lies (rooms.md §3c)", () => {
+test("the pen's top face is a frame of its own, wherever the pen lies (rooms.md §3c)", () => {
   setPenPlace(null);
   assert.equal(surfaceFrame(geom, 'pen'), null, 'nowhere until it lies somewhere');
   const at = [1.2, 1.4, geom.table.top];
   setPenPlace(at);
   const f = surfaceFrame(geom, 'pen');
-  assert.deepEqual(f.units, config.book.surfaces.pen.size, "the book's size");
+  assert.deepEqual(f.units, [Math.round((0.12 * 1400) / 0.2159), Math.round((0.009 * 1400) / 0.2159)], 'the size of its face (scene/surfaces.js PEN_FACE)');
   assert.ok(
     near(
       cross(f.right, f.down),
@@ -153,7 +153,7 @@ test('cost: a stroke on a large wall costs the same per tick as on paper (only w
     });
     return ticks;
   };
-  const plaster = config.book.families.plaster;
+  const plaster = P.FAMILIES.plaster;
   const total = (t) => t.reduce((a, b) => a + b, 0);
   const peak = (t) => Math.max(...t);
   const within = (a, b, k) => Math.abs(a - b) <= k * Math.max(a, b);

@@ -8,7 +8,7 @@ const { step } = W;
 const srv = await W.serve(3127, 'penpals-hands-');
 const browser = await W.launch();
 let failed = null;
-const canvas = (p) => p.locator('.journal-scene canvas.scene-canvas');
+const canvas = (p) => p.locator('.house-scene canvas.scene-canvas');
 const facts = (p) => p.evaluate(() => globalThis.__hands?.facts?.());
 const held = (p) => p.evaluate(() => globalThis.__hands?.held?.());
 // the head turned to a point (room m), the pointer at the view's middle
@@ -36,7 +36,6 @@ try {
   await W.worldView(page);
   await page.waitForTimeout(3000);
   await canvas(page).focus();
-  await page.keyboard.press('h');
   await page.keyboard.down('s');
   await page.waitForFunction(() => globalThis.__sceneLook?.pose()?.mode === 'walk', null, { timeout: 10000 });
   await page.keyboard.up('s');

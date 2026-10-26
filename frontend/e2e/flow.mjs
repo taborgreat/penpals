@@ -1,17 +1,17 @@
 // The whole flow in a real browser, the way a person goes through it, in the
 // one world (one-world.md): register in the panel by signing the name three
 // times (the key is made from them), choose the name, keep the 24 words and the
-// private key; the eye opens in your house, on its plot; at the table, new
-// paper, the pen in hand, write on it and seal it into the book; stand up,
-// walk, jump, fly, look closer; pick the writing up (E), walk it back, film
-// it, set it down elsewhere; pull the book from the shelf and download it;
-// your account at the corner (the words, a password backup); a visitor at the
-// door; log out; log in with the words; unlock a new tab with the private key;
-// check the book with the law's verifier; log in with the password.
-// Not here until they exist in the world: letters (a sheet carried to a
-// mailbox, one-world.md), the pad's own checks (the write page is gone; the
-// pad is in /pad-check), the scene's dev tools (Moments, Cut: /scene-check). Letters are sheets carried to a
-// mailbox (e2e/mail.mjs).
+// private key; the eye opens in your house, on its plot, at your table, your
+// bare hands free and your first paper lying before you; new paper; the pen
+// taken up (H), write on the paper; stand up, walk, jump, fly, look closer;
+// your account at the corner (the words, a password backup); sit again; take
+// the paper up (E) and save it into your book; the book pulled from the shelf,
+// the paper taken out of it, the book downloaded and checked offline; the paper
+// let go on the floor, taken up again, let go on the table; a visitor at the
+// door sees it; log out; log in with the words; unlock a new tab with the
+// private key; check the book with the law's verifier; log in with the password.
+// Letters carried to a mailbox: e2e/mail.mjs. The pad's own checks: /pad-check;
+// the scene's dev tools (Moments, Cut): /scene-check.
 // No shortcuts: every request is the one the site makes.
 //   node frontend/e2e/flow.mjs         the built site, served by the backend (run `npm run build -w frontend` first)
 //   node frontend/e2e/flow.mjs --dev   through a Vite dev server proxying /api, as `npm run dev` runs it
@@ -255,9 +255,20 @@ try {
   if (!privateKey.startsWith('penpals-key-1:')) throw new Error(`not a private key: ${privateKey}`);
   await page.getByText('I have kept my words or my private key').click();
   await page.getByRole('button', { name: 'Make my account' }).click();
-  // the eye closes, and opens in your house: seated in the same place at your own table, the pen in your hand, before a fresh sheet
-  await panel(page, 'The pen in your hand').locator('.fresh-sheet').waitFor({ timeout: 90000 });
-  step('registered: the eye opens in your house, at your table, the pen in hand, a fresh sheet before you');
+  // the eye closes, and opens in your house: seated in the same place at your own table, your hands free,
+  // your first paper lying before you
+  await panel(page, 'At your table').waitFor({ timeout: 90000 });
+  const lying = () => page.evaluate(() => globalThis.__papers?.lying() ?? []);
+  const papersUntil = async (test, what, ms = 60000) => {
+    let ps = null;
+    for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(250)) {
+      ps = await lying();
+      if (test(ps)) return ps;
+    }
+    throw new Error(`${what}: ${JSON.stringify(ps)}`);
+  };
+  const [first] = await papersUntil((ps) => ps.length === 1 && ps[0].mayWrite, 'your first paper does not lie on your table');
+  step('registered: the eye opens in your house, at your table, your hands free, your first paper before you');
   if (slow) {
     await slow.send('Emulation.setCPUThrottlingRate', { rate: 1 });
     console.log('(registered on a CPU throttled 8×)');
@@ -270,9 +281,9 @@ try {
   if (!house || house.plot.join() !== '1,0' || house.n !== 1) throw new Error(`no house on the first plot: ${JSON.stringify(houses)}`);
   console.log(`   plot [${house.plot}], ${house.at.join(' m, ')} m from the start`);
 
-  const scene = page.locator('.journal-scene canvas.scene-canvas');
-  await page.locator('.journal-scene[data-gpu]').waitFor({ timeout: 60000 });
-  const drawnBy = await page.locator('.journal-scene').getAttribute('data-gpu');
+  const scene = page.locator('.house-scene canvas.scene-canvas');
+  await page.locator('.house-scene[data-gpu]').waitFor({ timeout: 60000 });
+  const drawnBy = await page.locator('.house-scene').getAttribute('data-gpu');
   if (drawnBy !== (webgpu ? 'webgpu' : 'webgl2')) throw new Error(`the world is drawn with ${drawnBy}`);
   const view = await scene.boundingBox();
   if (view.height < 900) throw new Error(`the world does not fill the window (${Math.round(view.height)} px tall)`);
@@ -282,72 +293,35 @@ try {
   const middle = { x: view.x + view.width * 0.38, y: view.y + view.height * 0.42, width: view.width * 0.24, height: view.height * 0.16 };
   const onInk = { x: middle.x + middle.width * 0.5, y: middle.y + middle.height * 0.12 }; // (where scribble(1, …) lays its line)
   const pose = () => page.evaluate(() => globalThis.__sceneLook?.pose() ?? null);
-  const inkLines = () =>
-    page.evaluate(async () =>
-      (await (await fetch('/api/books/tabor/ink')).text())
-        .trim()
-        .split('\n')
-        .map((l) => JSON.parse(l)),
-    );
-  const homeItems = () =>
-    page.evaluate(async () => {
-      const b = await (await fetch('/api/books/tabor')).json();
-      return b.skeleton.pages[b.skeleton.home].items;
-    });
+  const paperOf = (id) => page.evaluate(async (id) => (await fetch(`/api/papers/${id}`)).json(), id);
+  const TOP = Math.round(roomGeometry(ROOM).table.top * 1000);
 
-  step('the pen set down (H): at the table with nothing in hand, new paper, a whole page, cream and ruled');
-  await scene.focus();
-  await page.keyboard.press('h');
-  await panel(page, 'At your table').waitFor({ timeout: 10000 });
-  await panel(page, 'At your table').getByRole('button', { name: 'Cream' }).click();
-  await panel(page, 'At your table').getByLabel('Lines').selectOption({ label: 'ruled, 8 mm' });
-  await page.waitForFunction(async () => {
-    const b = await (await fetch('/api/books/tabor')).json();
-    const p = b.skeleton.pages[b.skeleton.home];
-    return p.background === '#f2e8d0' && p.rule > 0;
-  });
-  await panel(page, 'At your table').getByRole('button', { name: 'full' }).click();
+  step('at your table, nothing in hand: new paper (one more, somewhere on the table)');
   await panel(page, 'At your table').getByRole('button', { name: 'New paper' }).click();
-  await panel(page, 'At your table')
-    .getByText(/A fresh sheet on the table: 0 strokes/)
-    .waitFor({ timeout: 30000 });
+  await papersUntil((ps) => ps.length === 2 && ps.every((p) => p.owner === 'tabor'), 'no new paper on the table');
 
-  step('the pen in hand (H): oak gall; write on the sheet in the scene, seated');
+  step('the pen taken up (H): oak gall; write on the paper before you, seated');
   await scene.focus();
   await page.keyboard.press('h');
   await panel(page, 'The pen in your hand').waitFor({ timeout: 10000 });
   await panel(page, 'The pen in your hand').getByRole('button', { name: 'Oak gall' }).click();
   await draw(page, scene, scribble(1, 3), 9, middle);
-  await panel(page, 'The pen in your hand')
-    .getByText(/A fresh sheet on the table: 3 strokes/)
-    .waitFor({ timeout: 30000 })
-    .catch(async (err) => {
-      throw new Error(
-        `${err.message} (${await panel(page, 'The pen in your hand')
-          .locator('.fresh-sheet')
-          .textContent()
-          .catch(() => 'no sheet')})`,
-      );
-    });
-  step('the pen set down (H): seal the sheet into the book, where it lies');
-  await page.keyboard.press('h');
-  await panel(page, 'At your table').getByRole('button', { name: 'Seal it into the book' }).click();
-  await panel(page, 'At your table').locator('.fresh-sheet').waitFor({ state: 'detached', timeout: 60000 });
-  const placed = (await inkLines()).at(-1).ink;
-  if (placed.law !== 2) throw new Error(`new writing should be law 2, not ${placed.law}`);
-  const format = Buffer.from(placed.acts, 'base64url')[4];
-  if (format !== 2) throw new Error(`the flex nib's spatter should be in the acts (PNKA format 2), got format ${format}`);
-  const { decodeActs } = await import('penpals-law/v2/acts');
-  const strokesIn = decodeActs(new Uint8Array(Buffer.from(placed.acts, 'base64url'))).strokes.length;
-  if (strokesIn !== 3) throw new Error(`the sealed acts hold ${strokesIn} strokes`);
-  await untilOnScreen(page, '.journal-scene', (d) => {
+  await papersUntil((ps) => ps.find((p) => p.paper === first.paper)?.lines === 3, 'three strokes stamped on it');
+  await papersUntil((ps) => ps.find((p) => p.paper === first.paper)?.grown === 3, 'grown with them');
+  const written = await paperOf(first.paper);
+  if (!written.lines.every((l) => l.act.act === 'stroke' && l.act.by === written.ownerKey)) throw new Error(`not three strokes of yours: ${JSON.stringify(written.lines.map((l) => l.act.act))}`);
+  await untilOnScreen(page, '.house-scene', (d) => {
     let ink = 0;
     for (let i = 0; i < d.length; i += 4 * 7) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 45) ink++;
     return ink > 20;
   });
-  const [item] = await homeItems();
-  console.log(`   ${strokesIn} strokes, law ${placed.law}, PNKA format ${format}, on the page at ${item.x}, ${item.y}, shown in the scene`);
+  console.log(`   3 strokes on its own chain, each sealed by your key, grown (law 3), shown in the scene`);
   if (process.env.FLOW_SHOT) await page.screenshot({ path: process.env.FLOW_SHOT }); // (to look at the scene by eye)
+  step('the pen let go (H): your hands free again');
+  await page.mouse.move(view.x + view.width * 0.04, view.y + view.height * 0.92); // (over the bare table, off the paper)
+  await scene.focus();
+  await page.keyboard.press('h');
+  await panel(page, 'At your table').waitFor({ timeout: 10000 });
 
   // Until `test(pose)` holds: the scene steps at most 50 ms of time a frame, so a slow GPU walks slower in
   // wall-clock time, not shorter. → that pose
@@ -419,7 +393,7 @@ try {
   const bodyOf = (p) => JSON.stringify({ pos: p.pos, mode: p.mode, size: p.size }); // (where the body is: the checks turn the head)
   const body = bodyOf(await pose());
   await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
-  const shot = async () => onScreen(page, '.journal-scene', (d) => Array.from(d.subarray(0, d.length).filter((_, i) => i % 97 === 0)));
+  const shot = async () => onScreen(page, '.house-scene', (d) => Array.from(d.subarray(0, d.length).filter((_, i) => i % 97 === 0)));
   const far = await shot();
   for (let i = 0; i < 6; i++) {
     await page.mouse.wheel(0, -120);
@@ -457,13 +431,49 @@ try {
   await panel(page, 'Your account').locator('strong', { hasText: 'on' }).waitFor({ timeout: 60000 });
   console.log('   the words shown are yours; the password backup is on');
 
-  step('the book from the shelf: in your hands; download it and check it offline');
+  step('back to the chair: E sits you down');
+  const sit = async () => {
+    await page.evaluate(() => {
+      globalThis.__sceneLook.at([1.524, 2.383, 1.6]);
+      globalThis.__sceneLook.aim([1.524, 1.5, 2.4]); // (looking up: nothing under the pointer)
+    });
+    await page.mouse.move(view.x + view.width / 2, view.y + view.height / 3);
+    await scene.focus();
+    await page.keyboard.press('e');
+    await panel(page, 'At your table').waitFor({ timeout: 10000 });
+    await page.waitForTimeout(800); // (the glide to the seat)
+  };
+  await sit();
+
+  step('E, your hand on the paper you wrote: taken up; saved into your book');
+  await page.mouse.move(onInk.x, onInk.y);
+  await scene.focus();
+  await page.keyboard.press('e');
+  await panel(page, 'A paper in your hand').waitFor({ timeout: 10000 });
+  if ((await page.evaluate(() => globalThis.__papers.held())) !== first.paper) throw new Error('another paper in the hand');
+  await panel(page, 'A paper in your hand').getByLabel('Where in your book').fill('letters / first');
+  await panel(page, 'A paper in your hand').getByRole('button', { name: 'Save it into your book' }).click();
+  await panel(page, 'A paper in your hand').waitFor({ state: 'detached', timeout: 20000 });
+  for (const end = Date.now() + 20000; Date.now() < end; await page.waitForTimeout(250)) if ((await page.evaluate(() => globalThis.__papers.book())).some((b) => b.paper === first.paper)) break;
+  const shelved = (await page.evaluate(() => globalThis.__papers.book())).find((b) => b.paper === first.paper);
+  if (shelved?.path.join('/') !== 'letters/first') throw new Error(`not in the book at letters/first: ${JSON.stringify(shelved)}`);
+  await papersUntil((ps) => ps.length === 1, 'it still lies on the table');
+
+  step('the book from the shelf: the paper in it, taken out into your hand; the book downloaded and checked offline');
+  await scene.focus();
+  await page.keyboard.down('s'); // (up from the chair)
+  await until((q) => q.mode === 'walk', 'S did not stand you up');
+  await page.keyboard.up('s');
   await page.evaluate(() => globalThis.__sceneLook.at([1.2, 2.0, 1.6]));
   await page.evaluate(() => globalThis.__sceneLook.aim([0.0875, 2.31, 1.5175])); // the book on the shelf (scene/shelf.js)
   await page.waitForTimeout(400);
   await page.mouse.click(view.x + view.width / 2, view.y + view.height / 2);
-  await panel(page, 'The book, open in your hands').waitFor({ timeout: 10000 });
-  const [dl] = await Promise.all([page.waitForEvent('download'), panel(page, 'The book, open in your hands').getByText('Download this book').click()]);
+  const bookPanel = panel(page, 'Your book, open in your hands');
+  await bookPanel.waitFor({ timeout: 10000 });
+  await bookPanel.locator(`.book-paper[data-paper="${first.paper}"]`).getByRole('button', { name: 'Take it out' }).click();
+  for (const end = Date.now() + 20000; Date.now() < end; await page.waitForTimeout(250)) if ((await page.evaluate(() => globalThis.__papers.held())) === first.paper) break;
+  if ((await page.evaluate(() => globalThis.__papers.held())) !== first.paper) throw new Error('it did not come out into your hand');
+  const [dl] = await Promise.all([page.waitForEvent('download'), bookPanel.getByText('Download your book').click()]);
   const file = path.join(dataDir, 'tabor.book');
   await dl.saveAs(file);
   const verified = spawnSync(process.execPath, [path.join(root, 'law', 'bin', 'verify.js'), file], { encoding: 'utf8' });
@@ -476,69 +486,35 @@ try {
   );
   if (verified.status !== 0) throw new Error('the downloaded book does not check');
   if (/zoom/i.test(fs.readFileSync(file, 'utf8'))) throw new Error('the zoom is in the .book'); // (never recorded: outside.md §3.6)
-  await panel(page, 'The book, open in your hands').getByRole('button', { name: 'Put it back' }).click();
+  await bookPanel.getByRole('button', { name: 'Put it back' }).click();
+  await panel(page, 'A paper in your hand').waitFor({ timeout: 10000 });
 
-  step('back to the chair: E sits you down');
-  await page.evaluate(() => {
-    globalThis.__sceneLook.at([1.524, 2.383, 1.6]);
-    globalThis.__sceneLook.aim([1.524, 1.5, 2.4]); // (looking up: nothing on the page under the pointer)
-  });
-  await page.mouse.move(view.x + view.width / 2, view.y + view.height / 3);
-  await scene.focus();
-  await page.keyboard.press('e');
-  await panel(page, 'At your table').waitFor({ timeout: 10000 });
-  await page.waitForTimeout(800); // (the glide to the seat)
-
-  step('E picks up your writing: its panel; walk it back; film it');
-  await page.mouse.move(onInk.x, onInk.y);
-  await scene.focus();
-  await page.keyboard.press('e');
-  await panel(page, 'Your writing, in your hand').waitFor({ timeout: 10000 });
-  await panel(page, 'Your writing, in your hand').getByRole('button', { name: 'Walk back' }).click();
-  const art = page.locator('.walk-back-art');
-  const ab = await art.boundingBox();
-  await page.mouse.click(ab.x + ab.width * 0.3, ab.y + ab.height * 0.5);
-  await page.locator('.trace dt', { hasText: 'settled' }).waitFor({ timeout: 60000 });
-  console.log('  ', (await page.locator('.trace').innerText()).replace(/\s+/g, ' ').slice(0, 220), '…');
-  await page.getByRole('button', { name: /^Side view/ }).click();
-  await page.waitForFunction(
-    () => {
-      const i = document.querySelector('.depth-view img');
-      return i && i.complete && i.naturalWidth > 0;
-    },
-    null,
-    { timeout: 60000 },
-  );
-  const sideW = await page.locator('.depth-view img').evaluate((i) => `${i.naturalWidth}×${i.naturalHeight}`);
-  await page.getByRole('button', { name: 'Scene', exact: true }).click();
-  await page.locator('.walk-back-scene canvas.scene-canvas').waitFor({ timeout: 60000 });
-  console.log(`   side view ${sideW}; the sheet in its own scene`);
-  await page.getByRole('button', { name: 'Close' }).click();
-  const saved = async (p, name) => {
-    const [d] = await Promise.all([p.waitForEvent('download', { timeout: 120000 }), panel(p, 'Your writing, in your hand').getByRole('button', { name, exact: true }).first().click()]);
-    const f = path.join(dataDir, d.suggestedFilename());
-    await d.saveAs(f);
-    return fs.readFileSync(f);
+  step('E lets it go where the pointer is: on the floor; E takes it up again; E lets it go on the table');
+  const letGo = async (at) => {
+    await page.evaluate((a) => globalThis.__sceneLook.aim(a), at);
+    await page.waitForTimeout(300);
+    await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+    await scene.focus();
+    await page.keyboard.press('e');
   };
-  const webm = await saved(page, 'Video');
-  if (!(webm[0] === 0x1a && webm[1] === 0x45 && webm[2] === 0xdf && webm[3] === 0xa3)) throw new Error('the video is not a WebM file');
-  const gif = await saved(page, 'GIF');
-  if (gif.subarray(0, 6).toString('ascii') !== 'GIF89a') throw new Error('the GIF is not a GIF');
-  console.log(`   video ${webm.length} bytes, GIF ${gif.length} bytes`);
-
-  step('E sets it down lower on the page: one move');
-  await page.mouse.move(onInk.x, onInk.y + view.height * 0.12, { steps: 8 }); // (the writing in the hand follows it)
-  if (process.env.FLOW_SHOT_HELD) await page.waitForTimeout(300).then(() => page.screenshot({ path: process.env.FLOW_SHOT_HELD }));
-  await scene.focus();
-  await page.keyboard.press('e');
-  await panel(page, 'Your writing, in your hand').waitFor({ state: 'detached', timeout: 10000 });
-  let after = null;
-  for (const end = Date.now() + 20000; Date.now() < end; await page.waitForTimeout(300)) {
-    [after] = await homeItems();
-    if (after.y > item.y + 20) break;
-  }
-  if (!(after.y > item.y + 20)) throw new Error(`it did not move down the page: ${item.y} → ${after.y}`);
-  console.log(`   from ${item.x}, ${item.y} to ${after.x}, ${after.y}`);
+  await letGo([0.9, 2.2, 0]);
+  await papersUntil((ps) => ps.some((p) => p.paper === first.paper), 'it does not lie anywhere');
+  const floorAt = (await paperOf(first.paper)).where;
+  if (floorAt.at?.[2] !== 0) throw new Error(`not on the floor: ${JSON.stringify(floorAt)}`);
+  await letGo([0.9, 2.2, 0]); // (the pointer still on it: taken up)
+  await panel(page, 'A paper in your hand').waitFor({ timeout: 10000 });
+  const T = roomGeometry(ROOM).table;
+  const tableMid = [(T.x0 + T.x1) / 2, (T.y0 + T.y1) / 2, T.top];
+  await page.evaluate(([m, y0]) => globalThis.__sceneLook.at([m[0] + 0.3, y0 - 0.45, 1.6]), [tableMid, T.y0]);
+  await page.waitForTimeout(500);
+  await letGo(tableMid);
+  for (const end = Date.now() + 20000; Date.now() < end; await page.waitForTimeout(250)) if ((await paperOf(first.paper)).where.at?.[2] === TOP) break;
+  const onTableAt = (await paperOf(first.paper)).where;
+  if (onTableAt.at?.[2] !== TOP) throw new Error(`not on the table: ${JSON.stringify(onTableAt)}`);
+  console.log(`   on the floor at ${floorAt.at.map((v) => (v / 1000).toFixed(2)).join(', ')} m; then on the table at ${onTableAt.at.map((v) => (v / 1000).toFixed(2)).join(', ')} m`);
+  const moves = (await paperOf(first.paper)).lines.map((l) => l.act.act).filter((a) => a !== 'stroke');
+  if (moves.join() !== 'take,shelve,take,put,take,put') throw new Error(`its moves: ${moves.join()}`);
+  console.log(`   its chain: 3 strokes, then ${moves.join(', ')}`);
 
   step('a visitor at the door: the house, its writing, and the panel offering to come in');
   const visitor = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
@@ -548,19 +524,18 @@ try {
     await v.goto(`${base}/u/tabor`);
     await panel(v, 'Come in').waitFor({ timeout: 30000 });
     await v
-      .locator('.journal-scene[data-gpu]')
+      .locator('.house-scene[data-gpu]')
       .waitFor({ timeout: 60000 })
       .catch(async (err) => {
         const shot = path.join(os.tmpdir(), 'penpals-e2e-visitor.png');
         await v.screenshot({ path: shot }).catch(() => {});
         const seen = await v.evaluate(() => ({
-          scene: document.querySelectorAll('.journal-scene').length,
-          page: document.querySelectorAll('.journal-page').length,
+          scene: document.querySelectorAll('.house-scene').length,
           text: document.querySelector('main')?.innerText.slice(0, 200),
         }));
         throw new Error(`${err.message.split('\n')[0]}: the visitor's house shows ${JSON.stringify(seen)} (${shot})`);
       });
-    await untilOnScreen(v, '.journal-scene', (d) => {
+    await untilOnScreen(v, '.house-scene', (d) => {
       let ink = 0;
       for (let i = 0; i < d.length; i += 4 * 7) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 45) ink++;
       return ink > 20;
@@ -573,8 +548,8 @@ try {
   // signing out on this device: at the key corner of your own house, its panel's "Sign out here" (one-world.md)
   const signOutHere = async () => {
     await page.goto(`${base}/u/tabor`);
-    await page.locator('.journal-scene[data-gpu]').waitFor({ timeout: 60000 });
-    await page.locator('.journal-scene canvas.scene-canvas').focus();
+    await page.locator('.house-scene[data-gpu]').waitFor({ timeout: 60000 });
+    await page.locator('.house-scene canvas.scene-canvas').focus();
     await page.waitForTimeout(1500);
     if (await panel(page, 'The pen in your hand').count()) await page.keyboard.press('h'); // (the pen set down: the hand free)
     await page.keyboard.down('s');
@@ -590,26 +565,26 @@ try {
   await signOutHere();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
-  await openWith(page, { unlock: false, way: 'words', secret: words, done: () => panel(page, 'The pen in your hand').waitFor({ timeout: 60000 }) }); // (the eye opens as it did when you registered)
+  await openWith(page, { unlock: false, way: 'words', secret: words, done: () => panel(page, 'At your table').waitFor({ timeout: 60000 }) }); // (the eye opens as it did when you registered)
 
   step('a new tab is signed in but must unlock to write: the private key, in the table’s panel');
   const tab = await context.newPage();
   await tab.goto(`${base}/u/tabor`);
   await tab.getByText('Unlock to write').waitFor({ timeout: 20000 });
-  await openWith(tab, { unlock: true, way: 'key', secret: privateKey, done: () => panel(tab, 'The pen in your hand').waitFor({ timeout: 60000 }) }); // (unlocked, the pen is in your hand)
+  await openWith(tab, { unlock: true, way: 'key', secret: privateKey, done: () => panel(tab, 'At your table').getByRole('button', { name: 'New paper' }).waitFor({ timeout: 60000 }) }); // (unlocked: new paper)
   await tab.close();
 
   step('open the .book in the viewer: it checks here too');
   await page.goto(`${base}/book`);
   await page.setInputFiles('.dropzone input[type=file]', file);
   await page.getByText('The book checks.').waitFor({ timeout: 60000 });
-  await page.getByText(/And with your key: 1 closed sheet grown again here/).waitFor({ timeout: 60000 });
+  await page.locator(`.book-paper[data-paper="${first.paper}"]`).waitFor({ timeout: 60000 }); // (every paper you made, grown again from its chain)
 
   step('sign out here again, then log in with the password backup');
   await signOutHere();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
-  await openWith(page, { unlock: false, way: 'password', secret: 'correct horse battery', done: () => panel(page, 'The pen in your hand').waitFor({ timeout: 60000 }) });
+  await openWith(page, { unlock: false, way: 'password', secret: 'correct horse battery', done: () => panel(page, 'At your table').waitFor({ timeout: 60000 }) });
   console.log('\nthe whole flow works');
 } catch (err) {
   if (err.ok) {

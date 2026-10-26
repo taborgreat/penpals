@@ -21,18 +21,18 @@ const ana = keyOf(81),
   bo = keyOf(82);
 const ROOM = ana.id;
 const T0 = Date.parse('2026-10-24T20:00:00Z');
-// the helpers' contract (frontend room/drops.js): what is under a point: a sheet lying in
-// slot 0 covers x 1..1.4, y 0.5..0.8 (room m; its units 1000 a metre), else the table
+// the helpers' contract (frontend room/drops.js): what is under a point: the paper lying with its middle
+// at (1.2, 0.65) covers x 1..1.4, y 0.5..0.8 (room m; its units 1000 a metre here), else the table
 function landing([x, y], lying) {
-  const s = lying.find((o) => o.slot === 0);
-  if (s && x >= 1 && x <= 1.4 && y >= 0.5 && y <= 0.8) return { on: 'sheet', sheet: s.sheet, q: { x: (x - 1) * 1000, y: (0.8 - y) * 1000 } };
+  const s = lying.find((o) => o.paper === 'sA');
+  if (s && x >= 1 && x <= 1.4 && y >= 0.5 && y <= 0.8) return { on: 'paper', paper: s.paper, q: { x: (x - 1) * 1000, y: (0.8 - y) * 1000 } };
   return { on: 'table', at: [x, y] };
 }
-// A room's chain: signed acts stamped at their moments (ms from T0), and a sheet on the table.
-function chain(acts, { sheet = true } = {}) {
+// A room's chain: signed acts stamped at their moments (ms from T0), and a paper come to rest on the table.
+function chain(acts, { paper = true } = {}) {
   const k = new Map();
   const lines = [];
-  if (sheet) lines.push({ n: 1, at: new Date(T0).toISOString(), kind: 'lay', sheet: 'sA', slot: 0 });
+  if (paper) lines.push({ n: 1, at: new Date(T0).toISOString(), kind: 'lay', paper: 'sA', rest: [1200, 650, 740], size: [400, 300] });
   for (const [ms, who, act, more] of acts) {
     k.set(who, (k.get(who) ?? 0) + 1);
     const made = R.makeRoomAct({ sk: who.sk, pk: who.pk, room: ROOM, k: k.get(who), act, thing: 'candle-0', ...more });
@@ -65,8 +65,8 @@ test('a long-lit candle drips when tilted, more the further, as hot as its pool;
   assert.ok(a.length > 0 && sum(b) > sum(a), `tilted further, more: ${sum(a)} µg at 30°, ${sum(b)} µg at 60°`);
   for (const d of [...a, ...b]) assert.ok(d.heat >= WAX_MELT, `liquid wax, past its melting heat: ${d.heat}`);
   assert.ok(
-    a.some((d) => d.on.on === 'sheet'),
-    'onto the sheet under its rim',
+    a.some((d) => d.on.on === 'paper'),
+    'onto the paper under its rim',
   );
   // burnt + dripped + what is left = the wax it was made with
   const room = W.createRoomWax({ landing });
@@ -98,7 +98,7 @@ test('replaying the signed acts alone gives the same drips everywhere and whenev
   );
 });
 
-test('a drip that landed on a sheet is wax on its paper; upright, what runs over goes down the side into the dish', () => {
+test('a drip that landed on a paper is wax on it; upright, what runs over goes down the side into the dish', () => {
   const lit = 5 * 60000;
   const drips = regrow(chain([[0, ana, 'light'], held(lit), tilt(lit + 1000, 60)]), lit + 4000);
   const marks = W.dripsOn(drips, 'sA', T0).map((d) => ({ kind: 'drip', ...d }));
@@ -152,7 +152,7 @@ test('a candle put out cools even after everyone leaves: re-entered the next day
       [0, ana, 'light'],
       [30 * 60000, ana, 'out'],
     ],
-    { sheet: false },
+    { paper: false },
   );
   room.advance(lines, T0 + 30 * 60000 + 1000);
   assert.ok(C.liquidOf(room.candle(0).cd) > 0, 'just put out, its pool is liquid');

@@ -1,48 +1,48 @@
-// Together (rooms.md Phase 3): shared sheets lie on the table beside the page,
-// your own ink shows over the stamped sheet at once, an act unstamped in time is
-// withdrawn, and the others glide between their coarse motion acts.
+// Together in a house (rooms.md Phase 3; law/paper.js): papers lie where they rest, drawn there; your own ink
+// shows over the stamped paper at once, an act unstamped in time is withdrawn, who may mark a paper is read
+// from its chain, and the others glide between their coarse motion acts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { roomGeometry, ROOM, PX_PER_M } from '../scene/light/room.js';
+import { roomGeometry, ROOM, PX_PER_M, PAPER_PX } from '../scene/light/room.js';
 import { originOf } from '../scene/light.js';
-import { slotOf, guessOver, withinStamp, sceneSheetOf, SHARED_PAGE, STAMP_MS } from './shared.js';
+import { guessOver, withinStamp, sceneSheetOf, sealsOf, mayMark, STAMP_MS } from './papers.js';
+import { newPaperAt } from './together.js';
 import { poseNow, GLIDE_MS, seatAt, seatOf, seatedHead } from './presence.js';
+import { paper as P } from 'penpals-law';
 import { TILE } from 'penpals-law/v1/constants';
 import { CELLS } from '../ink/live.js';
 
 const geom = roomGeometry(ROOM);
 const PAGE = [1000, 1400];
+const view = (size = P.SIZES.half) => ({ paper: 'p1', birth: { size }, lines: [] });
 
-test('shared sheets lie on the table beyond the page: never on it, under a candle, on each other, or off the table', () => {
+test('a paper is drawn where it rests: on the table, on the page’s plane; on the floor, below it; its face its whole size', () => {
   const o = originOf(...PAGE, geom);
   const t = geom.table;
-  const rects = [...Array(8).keys()].map((i) => {
-    const [x, y] = slotOf(i, PAGE[0]);
-    return [x, y, x + SHARED_PAGE.width, y + SHARED_PAGE.height];
-  });
-  const overlap = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
-  for (const [i, r] of rects.entries()) {
-    assert.ok(!overlap(r, [0, 0, ...PAGE]), `sheet ${i} is off the page`);
-    for (const c of geom.candles) {
-      // the candle's holder, its dish and all (a generous 5 cm about it)
-      const [cx, cy] = [(c[0] - o[0]) * PX_PER_M, (o[1] - c[1]) * PX_PER_M];
-      const d = 0.05 * PX_PER_M;
-      assert.ok(!overlap(r, [cx - d, cy - d, cx + d, cy + d]), `sheet ${i} clear of the candle`);
-    }
-    for (const [j, q] of rects.entries()) if (j > i) assert.ok(!overlap(r, q), `sheets ${i} and ${j} apart`);
-    // its corners on the table top (room m)
-    for (const [px, py] of [
-      [r[0], r[1]],
-      [r[2], r[3]],
-    ]) {
-      const x = o[0] + px / PX_PER_M,
-        y = o[1] - py / PX_PER_M;
-      assert.ok(x > t.x0 && x < t.x1 && y > t.y0 && y < t.y1, `sheet ${i} lies on the table`);
-    }
+  const mid = [(t.x0 + t.x1) / 2, (t.y0 + t.y1) / 2];
+  const on = sceneSheetOf(view(), [...mid, t.top], o);
+  assert.deepEqual(on.box, [0, 0, 1000 * CELLS, 700 * CELLS]);
+  assert.equal(on.cellPx, 1 / CELLS);
+  assert.ok(Math.abs(on.lift) < 1e-9, 'on the table: as a sheet on the page lies');
+  // its middle where it rests
+  const cx = o[0] + (on.origin[0] + 500) / PX_PER_M,
+    cy = o[1] - (on.origin[1] + 350) / PX_PER_M;
+  assert.ok(Math.abs(cx - mid[0]) < 1e-3 && Math.abs(cy - mid[1]) < 1e-3);
+  const floor = sceneSheetOf(view(), [0.5, 0.5, 0], o);
+  assert.ok(Math.abs(floor.lift - -t.top * PX_PER_M) < 1, 'on the floor: the table’s height below');
+  assert.equal(PAPER_PX > 0, true);
+});
+
+test('a new paper lies wholly on its owner’s table: the first in front of the chair, any more somewhere on it', () => {
+  const t = geom.table;
+  const [w, h] = P.SIZES.half.map((v) => v / PX_PER_M);
+  for (const r of [0, 0.5, 0.999]) {
+    const [x, y, z] = newPaperAt(geom, P.SIZES.half, false, () => r);
+    assert.ok(x - w / 2 >= t.x0 - 1e-9 && x + w / 2 <= t.x1 + 1e-9 && y - h / 2 >= t.y0 - 1e-9 && y + h / 2 <= t.y1 + 1e-9, `on it (${r})`);
+    assert.equal(z, t.top);
   }
-  const s = sceneSheetOf('abc', slotOf(0));
-  assert.deepEqual(s.box, [0, 0, SHARED_PAGE.width * CELLS, SHARED_PAGE.height * CELLS]);
-  assert.equal(s.cellPx, 1 / CELLS);
+  const first = newPaperAt(geom, P.SIZES.half, true);
+  assert.ok(Math.abs(first[0] - (geom.pageRect.x0 + geom.pageRect.x1) / 2) < 1e-9);
 });
 
 test('your guess: your live ink over the stamped sheet where it has ink, the stamped sheet everywhere else', () => {
@@ -122,36 +122,63 @@ test('writing happens from the seat: the owner in the middle, visitors beside, e
   assert.ok(seatedHead(1, [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, geom.pageOrigin[2]], geom).yaw > 20);
 });
 
-test('seals read from a sheet: whom each is for, whether it took (the grown sheet says), broken; and who may write', async () => {
-  const { sealsOf, mayWriteOn } = await import('./together.js');
+test('seals read from a paper: whom each is for, whether it took (as grown), broken; and who may mark it (law/paper.js)', () => {
   const owner = 'O'.repeat(43),
     bo = 'B'.repeat(43),
     cy = 'C'.repeat(43);
   const line = (n, act) => ({ n, at: n * 100, act: { by: owner, ...act } });
-  const view = {
+  const top = Math.round(P.CTX.table.top * 1000);
+  const v = {
+    paper: 'p1',
+    ownerKey: owner,
     birth: { key: owner },
-    table: owner,
+    where: { space: owner, at: [1000, 1000, top] },
     names: { [bo]: 'bo', [cy]: 'cy' },
-    lines: [
-      line(1, { act: 'drip' }),
-      line(2, { act: 'press', press: { for: bo, x: 20000, y: 1500 } }),
-      line(3, { act: 'press', press: { for: cy, x: 100, y: 100 } }),
-      line(4, { act: 'break', break: { seal: 3 } }),
-    ],
+    lines: [line(1, { act: 'press', press: { for: bo, x: 20000, y: 1500 } }), line(2, { act: 'press', press: { for: cy, x: 100, y: 100 } }), line(3, { act: 'break', break: { seal: 2 } })],
   };
-  const seals = sealsOf(view, [true, true]);
+  const seals = sealsOf(v, [false, true]);
   assert.deepEqual(
     seals.map((x) => [x.n, x.name, x.took, x.broken]),
     [
-      [2, 'bo', true, false],
-      [3, 'cy', true, true],
+      [1, 'bo', false, false],
+      [2, 'cy', true, true],
     ],
   );
   assert.deepEqual(seals[0].at, { x: 2000, y: 150 });
-  assert.equal(mayWriteOn(view, seals, bo), true, 'his seal took and is whole');
-  assert.equal(mayWriteOn(view, seals, cy), false, 'hers is broken');
-  assert.equal(mayWriteOn({ ...view, table: cy }, seals, bo), false, "a seal counts only on the owner's table");
-  assert.equal(mayWriteOn({ ...view, table: cy }, seals, cy), true, 'on her table, she writes');
-  assert.equal(mayWriteOn(view, sealsOf(view, []), bo), false, 'not grown yet: not yet');
-  assert.equal(mayWriteOn(view, seals, owner), true);
+  assert.equal(mayMark(v, bo), true, 'his name pressed into it: however the impression came out');
+  assert.equal(mayMark(v, cy), false, 'hers is broken');
+  assert.equal(mayMark(v, owner), true);
+  assert.equal(mayMark({ ...v, lines: [] }, cy), false);
+  assert.equal(mayMark({ ...v, lines: [], where: { space: cy, at: [1000, 1000, top] } }, cy), true, 'on her table, she marks it');
+  assert.equal(mayMark({ ...v, lines: [], where: { space: cy, at: [1000, 1000, 0] } }, cy), false, 'on her floor, not');
+  assert.equal(mayMark({ ...v, where: { hand: owner } }, owner), false, 'in a hand: no one');
+});
+
+test('papers let go onto each other: the last on top, a paper’s thickness higher for each under it; apart, each on the table', async () => {
+  const { stacked, restedAt } = await import('./papers.js');
+  const sheet = (x) => ({ origin: [x, 0], size: [1000, 700], lift: 0 });
+  const out = stacked([
+    { id: 'c', rested: 3, sheet: sheet(500) },
+    { id: 'a', rested: 1, sheet: sheet(0) },
+    { id: 'b', rested: 2, sheet: sheet(0) },
+    { id: 'far', rested: 4, sheet: sheet(5000) },
+  ]);
+  assert.deepEqual(
+    out.map((p) => [p.id, p.sheet.lift / PAPER_PX]),
+    [
+      ['a', 0],
+      ['b', 1],
+      ['c', 2],
+      ['far', 0],
+    ],
+  );
+  const view = {
+    born: 1000,
+    lines: [
+      { at: 5, act: { act: 'take' } },
+      { at: 9, act: { act: 'put' } },
+    ],
+  };
+  assert.equal(restedAt(view), 1009, 'where the last hand let it go');
+  assert.equal(restedAt({ born: 1000, lines: [] }), 1000, 'where it was born');
 });

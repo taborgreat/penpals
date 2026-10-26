@@ -11,7 +11,7 @@ const srv = await W.serve(3126, 'penpals-outside-');
 const browser = await W.launch();
 let failed = null;
 const shot = (p, name) => p.screenshot({ path: path.join(process.env.OUTSIDE_SHOTS ?? os.tmpdir(), `penpals-outside-${name}.png`) });
-const canvas = (p) => p.locator('.journal-scene canvas.scene-canvas');
+const canvas = (p) => p.locator('.house-scene canvas.scene-canvas');
 const now = (p) => p.evaluate(() => globalThis.__outsideNow ?? null);
 const until = async (p, fn, what, ms = 30000) => {
   const t0 = Date.now();
@@ -25,7 +25,7 @@ const until = async (p, fn, what, ms = 30000) => {
 // the head turned to a point of the room, then E (what is in front of you)
 const eAt = async (p, at, kind) => {
   await p.evaluate((q) => globalThis.__sceneLook.aim(q), at);
-  const v = await p.locator('.journal-scene canvas.scene-canvas').boundingBox();
+  const v = await p.locator('.house-scene canvas.scene-canvas').boundingBox();
   await p.mouse.move(v.x + v.width / 2 + 1, v.y + v.height / 2);
   await p.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
   await p.waitForFunction((k) => globalThis.__opens?.()?.under === k, kind, { timeout: 10000 }); // (the view turned there)
@@ -44,7 +44,6 @@ try {
   await W.worldView(page);
   await page.waitForTimeout(3000);
   await canvas(page).focus();
-  await page.keyboard.press('h');
   await page.keyboard.down('s');
   await page.waitForFunction(() => globalThis.__sceneLook?.pose()?.mode === 'walk', null, { timeout: 10000 });
   await page.keyboard.up('s');
@@ -90,7 +89,6 @@ try {
   await page.reload();
   await W.worldView(page);
   await canvas(page).focus();
-  await page.keyboard.press('h');
   await page.keyboard.down('s');
   await page.waitForFunction(() => globalThis.__sceneLook?.pose()?.mode === 'walk', null, { timeout: 10000 });
   await page.keyboard.up('s');

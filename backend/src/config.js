@@ -45,7 +45,7 @@ export const config = {
   render: {
     workers: env.RENDER_WORKERS !== undefined ? Number(env.RENDER_WORKERS) : Math.max(1, Math.min(4, (os.availableParallelism?.() ?? 2) - 1)),
     queue: { upload: 16, view: 64, warm: 256 },
-    timeoutMs: { book: 10000, film: 60000 },
+    timeoutMs: { book: 10000 },
     heapMb: 512,
     maxCells: 4_000_000, // a look at any scale: cells of its box
     cacheMaxBytes: 1 << 30,
@@ -61,11 +61,9 @@ export const config = {
     unlockAccount: [5, 60 * 60 * 1000],
     unlockIp: [5, 60 * 60 * 1000],
     inkUser: [120, 60 * 60 * 1000],
-    openUser: [60, 60 * 60 * 1000],
     lookMissViewer: [120, 60 * 1000],
     signaturesIp: [120, 60 * 1000],
     proofsUser: [10, 24 * 60 * 60 * 1000],
-    filmViewer: [30, 60 * 60 * 1000],
     nameIp: [60, 60 * 1000],
   },
 
@@ -74,33 +72,9 @@ export const config = {
   // Books (books.md). A journal page is a fixed logical canvas; items sit on it
   // in these units and the page is scaled to fit the screen.
   book: {
-    pageWidth: 1000,
-    pageHeight: 1400,
-    maxPages: 40,
-    maxItemsPerPage: 400,
-    maxActsBytes: 768 * 1024, // one sheet's acts (about 40 minutes of writing)
+    maxActsBytes: 768 * 1024, // one record's acts (about 40 minutes of writing)
     maxSignatureActsBytes: 32 * 1024,
     maxChainBytes: 50 * 1024 * 1024,
     visitorsCanDownload: false, // ruling: only the owner downloads their .book
-    depthForVisitors: true, // the scene and the side view of a closed sheet for anyone who may see its look (Tabor's to rule; false: writer and open sheets only)
-    defaultBackground: '#f6f1e7',
-    // The room's surfaces (rooms.md §1, §2): each a page of the book that ink can
-    // be placed on, with its matter (a paper family: plaster is heavy and
-    // fiberless, wood's fibers all run along its grain) and its size in page
-    // units (the room's metres × 1400 / 0.2159, frontend light/room.js ROOM).
-    surfaces: Object.fromEntries(
-      [
-        ['table', 'wood', 1.4, 0.75],
-        ['wall-far', 'plaster', 3.048, 2.438],
-        ['wall-near', 'plaster', 3.048, 2.438],
-        ['wall-left', 'plaster', 3.353, 2.438],
-        ['wall-right', 'plaster', 3.353, 2.438],
-        ['floor', 'wood', 3.048, 3.353],
-        ['ceiling', 'plaster', 3.048, 3.353],
-        ['pen', 'wood', 0.12, 0.009], // the pen's top face (rooms.md §3c), wherever it lies
-      ].map(([id, matter, w, h]) => [id, { matter, size: [Math.round((w * 1400) / 0.2159), Math.round((h * 1400) / 0.2159)] }]),
-    ),
-    families: { plaster: { grain: 0, weight: 15, tooth: 0 }, wood: { grain: 15, weight: 4, tooth: 0 } },
   },
-
 };

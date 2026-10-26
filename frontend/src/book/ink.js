@@ -1,22 +1,14 @@
-// Book ink (keys.md): every piece of writing is a sealed record in the book's
-// chain, { id, made, ink: { acts, box, paper, sheet, … }, seal, open? }. What
-// shows on a page is its look: the settled ink the law grows on the sheet's
-// paper, a PNG one pixel per cell, from the server (or grown here for open
-// sheets). These helpers size it and read its strokes for the reveal.
+// Book ink (keys.md): a signature is a sealed record in the book's chain,
+// { id, made, ink: { acts, box, paper, sheet, … }, seal, open }. What shows is
+// its look: the settled ink the law grows on its paper, a PNG one pixel per
+// cell, from the server (or grown here: it is open). These helpers read its
+// strokes for the reveal, and a chain's lines.
 import { decodeActs } from 'penpals-law/v2/acts'; // reads every law's acts (law 2's adds the pen's spatter)
 import { fromB64url } from 'penpals-law';
 import { CELLS_PER_UNIT } from 'penpals-law/v1/constants';
 
 export const CELLS = CELLS_PER_UNIT; // law cells per page unit (the law's own)
 export const SCALE_ONE = 64; // item scales are integers, 64 = as written
-export const SCALE_MIN = 4;
-export const SCALE_MAX = 640;
-
-// An item's size on its page, in page units, at `scale` (64 = as written).
-export function itemSize(body, scale = SCALE_ONE) {
-  const [, , w, h] = body.box;
-  return [(w * scale) / SCALE_ONE / CELLS, (h * scale) / SCALE_ONE / CELLS];
-}
 
 const paths = new WeakMap();
 
@@ -58,24 +50,4 @@ export function parseLines(text) {
     }
   }
   return out;
-}
-
-// A chain as { inks: Map(id → line), opened: Set(sheet), seeds: Map(sheet → published seed) }.
-export function readChain(lines) {
-  const inks = new Map();
-  const opened = new Set();
-  const seeds = new Map();
-  for (const l of lines) {
-    if (l.ink) {
-      inks.set(l.id, l);
-      if (l.open) {
-        opened.add(l.ink.sheet);
-        seeds.set(l.ink.sheet, l.open.seed);
-      }
-    } else if (typeof l.open === 'string') {
-      opened.add(l.open);
-      seeds.set(l.open, l.seed);
-    }
-  }
-  return { inks, opened, seeds };
 }

@@ -891,56 +891,13 @@ a:focus-visible .username.signed {
   box-shadow: 0 0 0 2px var(--text);
 }
 
-/* ---------- Journal (books.md, Part B) ---------- */
+/* ---------- A house (one-world.md): its room, seen ---------- */
 
-.journal {
+.house {
   display: flex;
   flex-direction: column;
-  gap: 10px;
   width: 100%;
-  margin-top: 10px;
   text-align: left;
-}
-.journal-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 14px;
-  flex-wrap: wrap;
-}
-.journal-pages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.journal-pages [role='tab'] {
-  padding: 5px 12px;
-  font-size: 13px;
-  font-family: var(--font-mono);
-  background: var(--surface-2);
-  border-color: var(--rule);
-  color: var(--muted);
-}
-.journal-pages [role='tab'][aria-selected='true'] {
-  background: var(--surface);
-  color: var(--text);
-  border-color: var(--text);
-}
-.journal-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  padding: 8px 12px;
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-}
-.journal-tools.selected-tools {
-  border-color: var(--focus);
-}
-.journal-tools .field > span:first-child {
-  font-size: 10px;
 }
 .swatches.small {
   gap: 5px;
@@ -976,34 +933,17 @@ button.danger:hover:not(:disabled) {
   color: var(--wax);
 }
 
-/* A page: a fixed canvas scaled to fit, its writing placed on it. */
-.journal-page {
+/* the house's scene fills it */
+.house-view {
   position: relative;
   width: 100%;
-  border-radius: 3px;
-  box-shadow: var(--shadow-paper);
   overflow: hidden;
   touch-action: pan-y;
 }
-.ink-item {
-  position: absolute;
-  display: block;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  box-shadow: none;
-  border-radius: 0;
-}
-/* the journal's scene: behind its items in 2D (the items stay for links, unseen), over everything in 3D */
-.journal-scene {
+.house-scene {
   position: absolute;
   inset: 0;
   z-index: 0;
-}
-.journal-page.scene-shown .ink-item {
-  opacity: 0;
-  z-index: 1;
 }
 
 .monk-scene {
@@ -1627,17 +1567,41 @@ main.world {
   padding: 0;
   gap: 0;
 }
-main.world > .journal {
+main.world > .house {
   flex: 1;
   min-height: 100vh;
   margin: 0;
 }
-main.world .journal-page.scene-shown {
+main.world .house-view {
   flex: 1 1 0;
   min-height: 0;
-  border-radius: 0;
 }
 .world-note {
   margin: auto;
   padding: 20vh 20px;
+}
+
+/* papers (law/paper.js) shown small: in your book, open in your hands; in a .book opened here */
+.book-tree details > summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.book-papers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+}
+.book-paper {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.paper-look {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  box-shadow: var(--shadow-paper);
 }

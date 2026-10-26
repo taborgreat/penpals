@@ -48,7 +48,7 @@ test('the being: motion acts only past the step or the angle, at most five a sec
   // what crosses the wire: exact, the neck law applied, in the room
   const q = quantize({ pos: [1.23456, 2.0001, 1.2], yaw: 120.04, pitch: 10, body: 0 });
   assert.deepEqual(q, { pos: [1.235, 2, 1.2], yaw: 120, pitch: 10, body: 50, size: 1 });
-  assert.ok(checkPose(q) && !checkPose({ ...q, pos: [99, 0, 0] }) && !checkPose({ ...q, yaw: NaN }));
+  assert.ok(checkPose(q) && !checkPose({ ...q, pos: [1e9, 0, 0] }) && checkPose({ ...q, pos: [99, -40, 3] }) && !checkPose({ ...q, yaw: NaN }));
   // others see it glide between acts
   const mid = glide(at(0, 0), at(1, 90), 0.5);
   assert.ok(Math.abs(mid.pos[0] - 0.5) < 1e-9 && Math.abs(mid.yaw - 45) < 1e-9);

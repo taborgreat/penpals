@@ -11,6 +11,9 @@
 //            act 'tilt'            thing: the candle in by's hand, pos: [x, y, z] (mm: its foot), deg (0..90, toward +x)
 //            act 'carry'           thing: in by's hand, pos: [x, y, z] (mm: its foot): where the hand has it as it
 //                                  goes, coarse as a tilt is (isTiltAct): what it meets on the way it pushes (law/bodies.js)
+//            act 'reach'           thing: 'hand' (by's own, bare), pos: [x, y, z] (mm: where it is, as it goes, coarse
+//                                  as a carry) | null (drawn back): what it meets on the way it pushes, as a thing
+//                                  carried does (Tabor, 2026-10-25: with nothing in it, the hand is your own matter)
 //            act 'open' | 'shut'   thing: the window (its sash: world.md Phase 3, what comes in through it),
 //                                  its shutters, or the door (outside.md Phase 4: shut, each is a wall)
 //            act 'set'             thing: a pen, set: its settings (its facts: one-world.md, the panel for the pen
@@ -28,6 +31,17 @@ import { sunAt } from './sun.js';
 
 // The pens on the table (rooms.md §3c; one-world.md: which pen you pick up is the nib you write
 // with): a plain pen, a flex nib and a broad nib, each its own matter with its own settings.
+// A house as it is built (Tabor's to set): about 10 × 11 ft, an 8 ft ceiling (across, from the seat's wall
+// to the window's, floor to ceiling, m), the table against the far wall (its top's width, depth and height,
+// its thickness, and its gap from that wall). Every house is the same shape (frontend scene/light/room.js
+// draws it); where a paper rests on its table is the law's (law/paper.js).
+export const HOUSE = Object.freeze({ size: Object.freeze([3.048, 3.353, 2.438]), table: Object.freeze({ width: 1.4, depth: 0.75, top: 0.74, thick: 0.04, gap: 0.02 }) });
+// The table's top in a house (m): { x0, x1, y0, y1, top }
+export function tableOf(house = HOUSE) {
+  const [W, D] = house.size,
+    t = house.table;
+  return { x0: W / 2 - t.width / 2, x1: W / 2 + t.width / 2, y0: D - t.gap - t.depth, y1: D - t.gap, top: t.top };
+}
 export const PENS = ['pen', 'pen-flex', 'pen-broad'];
 export const NIB_OF = Object.freeze({ pen: 'pen', 'pen-flex': 'flex', 'pen-broad': 'broad' });
 export const CANDLES = ['candle-0', 'candle-1'];
@@ -36,8 +50,8 @@ export const OPENINGS = ['window', 'shutters', 'door'];
 // door shut. openNow(things, thing): as the room's acts have it now (things: the backend's fold).
 export const OPEN_AT_FIRST = Object.freeze({ window: false, shutters: true, door: false });
 export const openNow = (things, thing) => things?.[thing]?.open ?? OPEN_AT_FIRST[thing];
-export const THINGS = [...CANDLES, ...PENS, 'jar', 'stamper', ...OPENINGS];
-export const ACTS = ['light', 'out', 'place', 'tilt', 'carry', 'set', 'open', 'shut'];
+export const THINGS = [...CANDLES, ...PENS, 'jar', 'stamper', 'pendulum', ...OPENINGS];
+export const ACTS = ['light', 'out', 'place', 'tilt', 'carry', 'reach', 'set', 'open', 'shut'];
 export const TILT_MAX = 90;
 export const TILT_STEP = 5; // degrees: a tilt act only past this turn or a step moved (being.js: as the head's)
 // One world, one sun, one clock (rooms.md §1b): Pacific. Night is the sun down by it (law/sun.js:
@@ -60,6 +74,7 @@ export function makeRoomAct({ sk, pk, room, k, act, thing, to, pos, deg, set }) 
   if (act === 'place') body.to = to === null ? null : to.map(mm);
   if (act === 'set') body.set = set;
   if (act === 'carry') body.pos = pos.map(mm);
+  if (act === 'reach') body.pos = pos === null ? null : pos.map(mm);
   if (act === 'tilt') {
     body.pos = pos.map(mm);
     body.deg = Math.max(0, Math.min(TILT_MAX, Math.round(deg)));
@@ -77,13 +92,15 @@ export function checkRoomAct(body) {
     place: 'act,by,k,kind,room,thing,to,v',
     tilt: 'act,by,deg,k,kind,pos,room,thing,v',
     carry: 'act,by,k,kind,pos,room,thing,v',
+    reach: 'act,by,k,kind,pos,room,thing,v',
     set: 'act,by,k,kind,room,set,thing,v',
     open: 'act,by,k,kind,room,thing,v',
     shut: 'act,by,k,kind,room,thing,v',
   }[body.act];
   if (!want || Object.keys(body).sort().join() !== want) throw bad('not a room act');
   if (body.v !== 2 || body.kind !== 'room' || !isKey(body.room) || !isKey(body.by) || !Number.isInteger(body.k) || body.k < 1) throw bad('a malformed room act');
-  if (!THINGS.includes(body.thing)) throw bad('not a thing in a room');
+  if (body.act === 'reach' ? body.thing !== 'hand' : !THINGS.includes(body.thing)) throw bad('not a thing in a room');
+  if (body.act === 'reach' && body.pos !== null && !inRoom(body.pos)) throw bad('a malformed reach');
   if ((body.act === 'light' || body.act === 'out' || body.act === 'tilt') && !CANDLES.includes(body.thing)) throw bad('only a candle is lit, put out or tilted');
   if ((body.act === 'open' || body.act === 'shut') !== OPENINGS.includes(body.thing)) throw bad('only a window, its shutters or a door is opened or shut, and they are only opened or shut');
   if (body.act === 'place' && body.to !== null && !inRoom(body.to)) throw bad('not a place in the room');

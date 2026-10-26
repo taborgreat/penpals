@@ -17,10 +17,11 @@ import { socialRouter } from './routes/social.js';
 import { signaturesRouter } from './routes/signatures.js';
 import { booksRouter } from './routes/books.js';
 import { lawRouter } from './routes/law.js';
-import { roomsRouter, sharedRouter } from './routes/rooms.js';
+import { roomsRouter } from './routes/rooms.js';
+import { papersRouter } from './routes/papers.js';
 import { worldRouter } from './routes/world.js';
 import { outsideRouter } from './routes/outside.js';
-import { loadShared } from './store/shared.js';
+import { loadPapers } from './store/papers.js';
 import { loadWorld, worldFile } from './store/world.js';
 import { loadOutside } from './store/outside.js';
 
@@ -54,9 +55,7 @@ async function recover() {
       unfinished++;
       continue;
     }
-    for (const f of [path.join(userDir(id), 'book', 'ink.chain'), path.join(userDir(id), 'seeds.chain')]) {
-      if (await truncateTornTail(f)) torn++;
-    }
+    if (await truncateTornTail(path.join(userDir(id), 'book', 'ink.chain'))) torn++;
   }
   if (await truncateTornTail(worldFile())) torn++;
   if (temps || unfinished || torn) console.warn(`[recover] ${temps} temp file(s), ${unfinished} unfinished registration(s), ${torn} torn chain tail(s)`);
@@ -91,7 +90,7 @@ export async function createApp() {
   const accounts = await loadAccounts();
   const proofs = await loadProofs();
   await loadCache();
-  await loadShared(); // which table every shared sheet lies on (rooms.md §5)
+  await loadPapers(); // where every paper is (law/paper.js)
   await loadWorld(); // where every house stands (one-world.md)
   await loadOutside(); // what hands have done outside (outside.md Phase 5)
   const pool = createPool({ ...config.render, workers: config.render.workers });
@@ -111,7 +110,7 @@ export async function createApp() {
   app.use('/api/proofs', proofsRouter);
   app.use('/api/social', express.json({ limit: '64kb' }), socialRouter);
   app.use('/api/rooms', roomsRouter);
-  app.use('/api/shared', sharedRouter);
+  app.use('/api/papers', papersRouter);
   app.use('/api/world', worldRouter);
   app.use('/api/outside', outsideRouter);
   app.use('/api', (req, res, next) => next(httpError(404, 'not_found', 'Not found.')));

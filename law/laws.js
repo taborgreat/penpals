@@ -10,8 +10,8 @@
 // which law 1 refuses; law 3's adds the nib's well and the wax marks (format 3:
 // rooms.md §3b, §3c), which law 2 refuses. Law 3 grows with law 2's rules and
 // those two more (v2/sim.js 9, 10); its facts and look carry the wax.
-// New writing is still made under law 2 (CURRENT): law 3 is what shared sheets
-// (law/shared.js) and the dip pen are made under (Tabor's to rule when all of it is).
+// New writing is still made under law 2 (CURRENT): law 3 is what papers
+// (law/paper.js) and the dip pen are made under (Tabor's to rule when all of it is).
 
 import * as v1acts from './v1/acts.js';
 import * as v2acts from './v2/acts.js';

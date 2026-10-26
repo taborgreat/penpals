@@ -11,7 +11,7 @@ const srv = await W.serve(3125, 'penpals-weather-');
 const browser = await W.launch();
 let failed = null;
 const shot = (p, name) => p.screenshot({ path: path.join(process.env.WEATHER_SHOTS ?? os.tmpdir(), `penpals-weather-${name}.png`) });
-const canvas = (p) => p.locator('.journal-scene canvas.scene-canvas');
+const canvas = (p) => p.locator('.house-scene canvas.scene-canvas');
 try {
   const { page } = await W.personIn(browser);
   W.watch(page);
@@ -23,7 +23,6 @@ try {
 
   step('stand up and look out of the window');
   await canvas(page).focus();
-  await page.keyboard.press('h');
   await page.keyboard.down('s');
   await page.waitForFunction(() => globalThis.__sceneLook?.pose()?.mode === 'walk', null, { timeout: 10000 });
   await page.keyboard.up('s');
@@ -43,7 +42,9 @@ try {
   for (let i = 0; i < before.d.length; i += 4) if (Math.abs(before.d[i] - after.d[i]) + Math.abs(before.d[i + 1] - after.d[i + 1]) + Math.abs(before.d[i + 2] - after.d[i + 2]) > 30) changed++;
   const share = changed / (before.d.length / 4);
   console.log(`   ${(100 * share).toFixed(1)}% of the window's pixels changed`);
-  if (share < 0.05) throw new Error('the window looks the same in the rain');
+  const sun = await W.sunNow();
+  if (sun < 8) console.log(`   (the sun ${sun.toFixed(0)}° up: the window at night is too dark to judge it by)`);
+  else if (share < 0.05) throw new Error('the window looks the same in the rain');
 } catch (err) {
   failed = err;
 } finally {

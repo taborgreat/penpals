@@ -27,7 +27,6 @@ after(async () => {
 });
 beforeEach(() => app.resetLimits());
 
-
 test('sign again: a new open signature on a fresh sheet becomes the profile signature', async () => {
   const before = (await client(app.base).get('/api/signatures?names=ana')).data.signatures.ana.ink;
   const sheet = K.newSheetId();

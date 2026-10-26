@@ -1,8 +1,7 @@
 // The drips a room's candles let fall (matter-fixes.md §2). No one writes a drip:
 // everyone regrows them from the room's chain alone: the signed acts that light the
 // candles, put them out, carry and tilt them (law/room.js), and the lines that say
-// where the shared sheets lie on its table ({ kind: 'lay', sheet, slot }, slot null:
-// it left). Each candle is matter (law/candle.js): it burns while lit, its pool is
+// where papers lie in it ({ kind: 'lay', paper, rest, size }, rest null: it left). Each candle is matter (law/candle.js): it burns while lit, its pool is
 // what of it is past wax's melting heat, and what runs over its rim is a drip, as much
 // as crossed: tilted, it falls from the rim's lowest point straight down onto whatever
 // is under it (the caller's landing: frontend room/drops.js, room/table.js); upright,
@@ -14,11 +13,11 @@
 // ({ room, shapes, start }); else where its last place or tilt act put it.
 //   createRoomWax({ landing, bodies }) → { advance(lines, until) → drips so far, candle(which), at() }
 //     (at: the ms the candles have been run to; advance again with a later until, or more lines)
-//     landing([x, y], lying) → { on: 'sheet', sheet, q } | { on: 'table' | 'floor', at }
-//     (lying: the sheets on the table then, [{ sheet, slot }]); until: ms (the clock now)
+//     landing([x, y], lying) → { on: 'paper', paper, q } | { on: 'table' | 'floor', at }
+//     (lying: the papers in the room then, [{ paper, at, size }]); until: ms (the clock now)
 //   dripsOf(lines, { landing, until })   the same, at once
 //   a drip: { t (ms), which, from ([x, y, z] room m, or null in its dish), m (µg), amt, heat, on }
-//   dripsOn(drips, sheet, born) → the marks they make on a sheet's record
+//   dripsOn(drips, paper, born) → the marks they make on a paper's record
 
 import { CANDLES } from './room.js';
 import { startBodies, stepBodies } from './bodies.js';
@@ -61,8 +60,8 @@ const cold = (c) => !c.lit && c.cd.rings.every((ring) => ring.cells.every((x) =>
 
 function apply(s, l, bodies) {
   if (l.kind === 'lay') {
-    s.lying = s.lying.filter((x) => x.sheet !== l.sheet);
-    if (l.slot !== null) s.lying = [...s.lying, { sheet: l.sheet, slot: l.slot }].sort((a, b) => a.slot - b.slot);
+    s.lying = s.lying.filter((x) => x.paper !== l.paper);
+    if (l.rest) s.lying = [...s.lying, { paper: l.paper, at: l.rest, size: l.size }];
     return;
   }
   const a = l.act;
@@ -151,14 +150,14 @@ export function createRoomWax({ landing, bodies = null }) {
 
 export const dripsOf = (lines, { landing, bodies = null, until = Date.now() }) => createRoomWax({ landing, bodies }).advance(lines, until);
 
-// The drips that landed on a sheet, as its record's marks take them: on the sheet's clock
+// The drips that landed on a paper, as its record's marks take them: on the paper's clock
 // (ms from its birth, `born`), in tenths of its units; a pour more than a mark holds, as
 // several at that spot. → [{ t, x, y, amt, heat }]
-export function dripsOn(drips, sheet, born) {
+export function dripsOn(drips, paper, born) {
   const c = (v) => Math.max(0, Math.min(MAX_COORD, Math.round(v * 10)));
   const out = [];
   for (const d of drips) {
-    if (d.on?.on !== 'sheet' || d.on.sheet !== sheet) continue;
+    if (d.on?.on !== 'paper' || d.on.paper !== paper) continue;
     for (let left = d.amt; left > 0; left -= WAX_DRIP_MAX) out.push({ t: d.t - born, x: c(d.on.q.x), y: c(d.on.q.y), amt: Math.min(left, WAX_DRIP_MAX), heat: d.heat });
   }
   return out;

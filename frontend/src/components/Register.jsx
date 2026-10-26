@@ -6,7 +6,7 @@ import { register, makeKey, settleOn } from '../keys/account.js';
 import { placeHouse } from '../room/world.js';
 import { useLiveInk } from '../ink/useLiveInk.js';
 import { CELLS } from '../ink/live.js';
-import { sheetPen } from '../book/fresh.js';
+import { padPen } from '../ink/padPen.js';
 import PenPanel, { usePen } from './PenPanel.jsx';
 import Hand from './Hand.jsx';
 
@@ -59,7 +59,7 @@ export default function Register({ onDone, onSheet }) {
   }, [ink, pen]);
   const live = useRef(null);
   live.current = { ink, paper: { size: SIGN_PAD, origin: [0, 0] } };
-  const writer = useMemo(() => sheetPen(() => live.current, pen), [pen]);
+  const writer = useMemo(() => padPen(() => live.current, pen), [pen]);
   const onSheetRef = useRef(onSheet);
   onSheetRef.current = onSheet;
   useEffect(() => {

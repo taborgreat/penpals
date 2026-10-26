@@ -4,17 +4,17 @@
 // is an act on that matter's facts: the panel is only a render of them.
 //   signedIn  someone is in (no: sign in or register, wherever you are)
 //   mine      the house is yours
-//   seated    at the table; atCorner: by the account corner (scene/keys.js cornerOf)
-//   holding   what the hand holds: 'book' (pulled down from the shelf) | 'candle' | 'sheet' | 'stamper' | 'letter' (a
-//             shared sheet taken up to post, or taken out of your mailbox: one-world.md) | null
+//   seated    at the table; atTable: standing by it; atCorner: by the account corner (scene/keys.js cornerOf)
+//   holding   what the hand holds: 'book' (pulled down from the shelf) | 'candle' | 'stamper' | 'paper' (taken up
+//             from where it lay, out of your book or out of your mailbox: law/paper.js) | null
 //   pen       the pen is in the hand
-// → 'sign-in' | 'book' | 'candle' | 'sheet' | 'stamper' | 'letter' | 'pen' | 'account' | 'paper' | null
-export function panelFor({ signedIn, mine = false, seated = false, atCorner = false, holding = null, pen = false }) {
-  if (holding === 'book') return 'book'; // (anyone may read a book they can see)
+// → 'sign-in' | 'book' | 'candle' | 'stamper' | 'paper' | 'pen' | 'account' | 'table' | null
+export function panelFor({ signedIn, mine = false, seated = false, atTable = false, atCorner = false, holding = null, pen = false }) {
+  if (holding === 'book') return 'book'; // (anyone may hold a book they can see)
   if (!signedIn) return 'sign-in';
   if (holding) return holding;
   if (pen) return 'pen';
   if (mine && atCorner) return 'account';
-  if (seated) return 'paper'; // at a table with nothing in hand: new paper at yours, the shared sheets at anyone's
+  if (mine && (seated || atTable)) return 'table'; // at your own table with nothing in hand: new paper
   return null;
 }

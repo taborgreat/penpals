@@ -120,7 +120,7 @@ authRouter.post('/register/finish', json, async (req, res) => {
     if (nameTaken(username)) throw httpError(409, 'name_taken', 'That name is taken.');
     if (keyTaken(publicKey)) throw httpError(409, 'key_taken', 'That key already has an account.');
     const id = newId();
-    const record = await createBook(id, { line: { ink: body, seal: line.seal, open: line.open }, paperFamily: body.paper });
+    const record = await createBook(id, { line: { ink: body, seal: line.seal, open: line.open } });
     const now = new Date().toISOString();
     if (ring) await writeUnlock(id, { oprfKey: b64url(held.oprfKey), keyring: ring });
     crashpoint('register:before-account');

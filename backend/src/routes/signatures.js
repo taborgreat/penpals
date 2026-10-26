@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { httpError } from '../files.js';
 import { findByName } from '../store/accounts.js';
-import { getSkeleton, inkLine } from '../store/books.js';
+import { signatureOf } from '../store/books.js';
 import { take, ipKey } from '../limits.js';
 import { sendLook } from './books.js';
-import { sealFaceOf } from '../store/shared.js';
+import { sealFaceOf } from '../store/seals.js';
 
 // Signatures: each scripter's name in their own hand, open from birth (anyone
 // can check it offline), standing in for @name around the site. Shown to
@@ -29,8 +29,7 @@ signaturesRouter.get('/', async (req, res) => {
       out[name] = null;
       continue;
     }
-    const skeleton = await getSkeleton(account.id);
-    const line = skeleton?.signature ? await inkLine(account.id, skeleton.signature) : null;
+    const line = await signatureOf(account.id);
     out[name] = line ? { ink: line.id, line, box: line.ink.box, look: `/api/signatures/${encodeURIComponent(account.username)}/look?v=${line.id}` } : null;
   }
   res.set('Cache-Control', 'private, max-age=60');
@@ -50,8 +49,7 @@ signaturesRouter.get('/:name/seal', async (req, res) => {
 signaturesRouter.get('/:name/look', async (req, res) => {
   const account = findByName(req.params.name);
   if (!account || !visibleTo(req.user?.id ?? null, account)) throw httpError(404, 'no_such_name', 'No such signature.');
-  const skeleton = await getSkeleton(account.id);
-  const line = skeleton?.signature ? await inkLine(account.id, skeleton.signature) : null;
+  const line = await signatureOf(account.id);
   if (!line) throw httpError(404, 'no_signature', 'They have not signed.');
   await sendLook(req, res, account, line, 64, { cacheControl: 'private, max-age=3600' });
 });

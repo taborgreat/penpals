@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { client } from './helpers.js';
-import { person, register, bookInk } from './device.js';
+import { person, register, FAMILY, K, R, S } from './device.js';
 
 const SERVE = fileURLToPath(new URL('./serve.js', import.meta.url));
 const FSCK = fileURLToPath(new URL('../scripts/fsck.js', import.meta.url));
@@ -77,35 +77,35 @@ test('registration: a crash before account.json leaves nothing behind, and the n
   }
 });
 
-test('ink: a crash after the seed or after the line, then the same upload again lands once', async () => {
-  for (const crash of ['ink:after-seed', 'ink:after-line']) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penpals-crash-'));
-    dirs.push(dir);
-    const ana = person(32, 'ana');
-    let s = await serve(dir);
-    let c = client(s.base);
-    assert.equal((await register(c, ana)).status, 201);
-    const cookie = c.cookieHeader();
+// A signature of p's on a fresh sheet, open from birth (signing again: routes/books.js).
+const signatureOf = (p, sheet = K.newSheetId()) => {
+  const made = R.makeInk({ sk: p.sk, pk: p.pk, sheet, use: 'signature', family: FAMILY, acts: S.write(p.writer, p.username, 3), name: p.username });
+  return { ...made.line, open: R.makeOpen(p.sk, made.D, sheet, made.seed) };
+};
+
+test('signing again: a crash after the line, then the same signature again lands once', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penpals-crash-'));
+  dirs.push(dir);
+  const ana = person(32, 'ana');
+  let s = await serve(dir);
+  let c = client(s.base);
+  assert.equal((await register(c, ana)).status, 201);
+  const cookie = c.cookieHeader();
+  await s.stop();
+  const line = signatureOf(ana);
+  s = await crashThenRecover(dir, 'ink:after-line', (base) => client(base, { cookie }).put('/api/books/me/signature', { line }));
+  try {
+    c = client(s.base, { cookie });
+    const again = await c.put('/api/books/me/signature', { line });
+    assert.ok([200, 201].includes(again.status), JSON.stringify(again.data));
+    const chain = (await c.get('/api/books/ana/ink')).data.toString('utf8').trim().split('\n');
+    assert.equal(chain.filter((l) => l.includes(line.ink.sheet)).length, 1, 'one line for the sheet');
+    assert.equal((await c.get('/api/books/ana')).data.signature, again.data.ink, 'it is their signature');
+  } finally {
     await s.stop();
-    const ink = bookInk(ana);
-    const place = { page: 'home', x: 10, y: 10, scale: 64 };
-    s = await crashThenRecover(dir, crash, (base) => client(base, { cookie }).post('/api/books/me/ink', { line: ink.line, seed: ink.seedText, place }));
-    try {
-      c = client(s.base, { cookie });
-      const again = await c.post('/api/books/me/ink', { line: ink.line, seed: ink.seedText, place });
-      assert.ok([200, 201].includes(again.status), JSON.stringify(again.data));
-      const book = (await c.get('/api/books/ana')).data.skeleton;
-      const placed = book.pages.home.items.filter((it) => it.ink === again.data.ink);
-      assert.equal(placed.length, 1, 'placed exactly once');
-      const chain = (await c.get('/api/books/ana/ink')).data.toString('utf8').trim().split('\n');
-      assert.equal(chain.filter((l) => l.includes(ink.line.ink.sheet)).length, 1, 'one line for the sheet');
-      assert.equal((await c.get(`/api/books/ana/look/${again.data.ink}`)).status, 200);
-    } finally {
-      await s.stop();
-    }
-    const report = fsck(dir);
-    assert.equal(report.status, 0, report.stdout + report.stderr);
   }
+  const report = fsck(dir);
+  assert.equal(report.status, 0, report.stdout + report.stderr);
 });
 
 test('a torn last line in a chain is cut off at start, and the next line lands whole', async () => {
@@ -124,11 +124,8 @@ test('a torn last line in a chain is cut off at start, and the next line lands w
   s = await serve(dir);
   try {
     assert.deepEqual(fs.readFileSync(chain), whole, 'the torn tail is gone');
-    const w = await client(s.base, { cookie }).post('/api/books/me/ink', { line: bookInk(ana).line, seed: undefined });
-    assert.equal(w.status, 400);
-    const ink = bookInk(ana);
-    const ok = await client(s.base, { cookie }).post('/api/books/me/ink', { line: ink.line, seed: ink.seedText });
-    assert.equal(ok.status, 201);
+    const ok = await client(s.base, { cookie }).put('/api/books/me/signature', { line: signatureOf(ana) });
+    assert.equal(ok.status, 201, JSON.stringify(ok.data));
     assert.equal(ok.data.ink, 'k_000002');
   } finally {
     await s.stop();
@@ -136,7 +133,7 @@ test('a torn last line in a chain is cut off at start, and the next line lands w
   assert.equal(fsck(dir).status, 0);
 });
 
-test('fsck finds damage: a wrong seed, a changed record, a damaged password backup', async () => {
+test('fsck finds damage: a changed record, a damaged password backup', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penpals-crash-'));
   dirs.push(dir);
   const ana = person(35, 'ana');
@@ -144,8 +141,7 @@ test('fsck finds damage: a wrong seed, a changed record, a damaged password back
   try {
     const c = client(s.base);
     assert.equal((await register(c, ana)).status, 201);
-    const ink = bookInk(ana);
-    assert.equal((await c.post('/api/books/me/ink', { line: ink.line, seed: ink.seedText })).status, 201);
+    assert.equal((await c.put('/api/books/me/signature', { line: signatureOf(ana) })).status, 201);
   } finally {
     await s.stop();
   }
@@ -165,12 +161,6 @@ test('fsck finds damage: a wrong seed, a changed record, a damaged password back
     assert.equal(r.status, 1, `fsck missed damage to ${file}`);
     return JSON.parse(r.stdout).problems.join('\n');
   };
-  // the seed of another sheet in place of this sheet's
-  const other = bookInk(ana);
-  assert.match(
-    damage('seeds.chain', (t) => t.replace(/"seed":"[^"]+"/, `"seed":"${other.seedText}"`)),
-    /seed/,
-  );
   // one number in a sealed record changed
   assert.match(
     damage(path.join('book', 'ink.chain'), (t) => t.replace(/"box":\[(\d+)/, (m, n) => `"box":[${Number(n) + 1}`)),

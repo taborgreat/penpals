@@ -1,43 +1,26 @@
-// The room's table as the law's drips land on it (matter-fixes.md §2): where each
-// shared sheet lies, and what is under a falling drip. Pure (no DOM): the backend
-// lands drips with this same code (store/shared.js: whether a seal took), so a
-// drip falls on the same sheet, the same spot, for everyone.
+// The room as the law's drips land in it (matter-fixes.md §2): where each paper lies (law/paper.js:
+// where it came to rest, its middle, read from the room's lay lines), and what is under a falling drip.
+// Pure (no DOM): every machine lands drips with this same code, so a drip falls on the same paper, the
+// same spot, for everyone.
 
-import { landing } from './drops.js';
+import { landing, cornerOf } from './drops.js';
 import { PX_PER_M } from '../scene/light/index.js';
-import { HOLDER, STAMPER, PEN, JAR, stamperRestOf, penRestOf, jarRestOf } from '../scene/light/room.js';
+import { HOLDER, STAMPER, PEN, JAR, PENDULUM, HAND, stamperRestOf, penRestOf, jarRestOf, pendulumRestOf } from '../scene/light/room.js';
 import { CANDLE } from 'penpals-law/candle';
 import { PENS } from 'penpals-law/room';
 
-export const SHARED_PAGE = { width: 800, height: 600 }; // page units: a shared sheet
-const GAP = 60; // page units between the table's sheets and the page
-
-// Where the shared sheet in slot i lies on the table, in the frame of a page `pageW`
-// wide (page px): across the table beyond the page (the candles stand beside it),
-// the first straight ahead, then left and right of it, row behind row.
-export function slotOf(i, pageW = 1000) {
-  const col = [0, -1, 1][i % 3];
-  const row = Math.floor(i / 3) + 1;
-  return [(pageW - SHARED_PAGE.width) / 2 + col * (SHARED_PAGE.width + GAP), -row * (SHARED_PAGE.height + GAP)];
-}
-
-// Which sheets lie on the table, and in which slot, from the room's chain (its lay
-// lines: { kind: 'lay', sheet, slot }, slot null when it left). → [{ sheet, slot }]
+// Which papers lie in the room, and where, from the room's chain (its lay lines: { kind: 'lay', paper,
+// rest: [x, y, z] mm, size }, rest null when it left). → [{ paper, at, size }]
 export function lyingOn(lines) {
   const at = new Map();
   for (const l of lines) {
     if (l.kind !== 'lay') continue;
-    if (l.slot === null) at.delete(l.sheet);
-    else at.set(l.sheet, l.slot);
+    if (!l.rest) at.delete(l.paper);
+    else at.set(l.paper, { paper: l.paper, at: l.rest, size: l.size });
   }
-  return [...at].map(([sheet, slot]) => ({ sheet, slot })).sort((a, b) => a.slot - b.slot);
+  return [...at.values()];
 }
-// The first slot no sheet lies in.
-export const freeSlot = (lying) => {
-  let i = 0;
-  while (lying.some((s) => s.slot === i)) i++;
-  return i;
-};
+export { cornerOf };
 
 // A page `page` ([w, h] page px) on the room's table: where its page px (0, 0, 0) is
 // (room m), centred on the room's page (light.js originOf).
@@ -48,7 +31,8 @@ export const originIn = (geom, [pageW, pageH]) => {
 
 // The room's things as bodies (law/bodies.js): the table's top and the floor (wood), each thing's shape (an
 // upright cylinder as wide and as tall as it is drawn: a candle in its holder, the stamper by its handle, the
-// jar, each pen lying flat) and its matter, and where the room was made with each.
+// jar, each pen lying flat, the pendulum's stand and its bob on its thread, a being's bare hand) and its matter,
+// and where the room was made with each.
 export function bodiesContext(geom) {
   const t = geom.table;
   const candle = { r: HOLDER.radius, h: HOLDER.height + CANDLE.length, matter: 'metal' };
@@ -61,17 +45,31 @@ export function bodiesContext(geom) {
       stamper: { r: STAMPER.grip, h: STAMPER.handle, matter: 'wood' },
       jar: { r: JAR.radius, h: JAR.height, matter: 'glass' },
       ...Object.fromEntries(PENS.map((p) => [p, pen])),
+      // the pendulum: its stand a body, its bob hung from the arm's end (law/bodies.js bobAt)
+      pendulum: {
+        r: PENDULUM.foot,
+        h: PENDULUM.height,
+        matter: 'wood',
+        bob: { arm: [PENDULUM.arm, 0, PENDULUM.height], len: PENDULUM.string, r: PENDULUM.bob, matter: 'metal', string: 'fiber' },
+      },
+      hand: { r: HAND.r, h: HAND.h, matter: 'skin' },
     },
-    start: { 'candle-0': geom.candles[0], 'candle-1': geom.candles[1], stamper: stamperRestOf(geom), jar: jarRestOf(geom), ...Object.fromEntries(PENS.map((p, k) => [p, penRestOf(geom, k)])) },
+    start: {
+      'candle-0': geom.candles[0],
+      'candle-1': geom.candles[1],
+      stamper: stamperRestOf(geom),
+      jar: jarRestOf(geom),
+      pendulum: pendulumRestOf(geom),
+      ...Object.fromEntries(PENS.map((p, k) => [p, penRestOf(geom, k)])),
+    },
   };
 }
 
-// What the law needs to regrow a room's drips (law/wax.js): what is under a point, given the
-// sheets lying on the table then; and where its candles are, as its bodies (bodiesContext).
-export function waxContext({ geom, page }) {
-  const origin = originIn(geom, page);
+// What the law needs to regrow a room's drips (law/wax.js): what is under a point, given the papers lying
+// in it then; and where its candles are, as its bodies (bodiesContext).
+export function waxContext({ geom }) {
   return {
     bodies: bodiesContext(geom),
-    landing: (p, lying) => landing(geom, p, { origin, sheets: lying.map((s) => ({ sheet: s.sheet, origin: slotOf(s.slot, page[0]), size: [SHARED_PAGE.width, SHARED_PAGE.height] })) }),
+    landing: (p, lying) => landing(geom, p, { papers: lying }),
   };
 }

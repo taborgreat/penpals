@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import Lobby from './Lobby.jsx';
-import Journal from '../book/Journal.jsx';
+import House from '../room/House.jsx';
 import Panel from '../components/Panel.jsx';
 import AuthPanel from '../components/AuthPanel.jsx';
 import AccountPanel from '../components/AccountPanel.jsx';
@@ -31,16 +31,15 @@ export default function World() {
   if (loading) return null;
   if (!username && !user) return <Lobby />;
   const name = username ?? user.username;
-  return <House key={name.toLowerCase()} name={name} />;
+  return <Home key={name.toLowerCase()} name={name} />;
 }
 
-function House({ name }) {
+function Home({ name }) {
   const { user } = useAuth();
   const [owner, setOwner] = useState(null);
   const [error, setError] = useState(null);
-  const [pageId, setPageId] = useState(null); // the journal's page open on the table
   const [place, setPlace] = useState(null); // where the being is and what it holds (SceneView, the world's)
-  const [inHands, setInHands] = useState(null); // the book pulled down from the shelf (Journal)
+  const [inHands, setInHands] = useState(null); // the book pulled down from the shelf (room/House.jsx)
   useEffect(() => {
     let alive = true;
     api
@@ -57,7 +56,7 @@ function House({ name }) {
   if (!owner) return null;
   const mine = !!user && user.username.toLowerCase() === owner.username.toLowerCase();
   const kind = panelFor({ signedIn: !!user, mine, ...place, holding: inHands ?? place?.holding ?? null });
-  const panel = <WorldPanel kind={kind} />; // (what the house's own things need, the house shows: Journal's panel)
+  const panel = <WorldPanel kind={kind} />; // (what the house's own things need, the house shows: room/House.jsx)
   if (!room)
     return (
       <>
@@ -67,7 +66,7 @@ function House({ name }) {
     );
   return (
     <RoomContext.Provider value={room}>
-      <Journal name={owner.username} pageId={pageId} editable={mine} onPage={setPageId} world panel={kind} onHold={setInHands} />
+      <House name={owner.username} editable={mine} panel={kind} onHold={setInHands} />
       {panel}
     </RoomContext.Provider>
   );

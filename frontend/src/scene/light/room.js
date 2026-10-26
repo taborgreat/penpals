@@ -26,6 +26,8 @@ export const PX_PER_M = 1400 / 0.2159; // page px a metre (nibs.js: 1400 px acro
 const PAGE_PX_W = 1400;
 export const PAPER_PX = 3; // the paper's thickness in page px (engine.js SLAB_PX)
 
+import { HOUSE } from 'penpals-law/room';
+
 const freeze = (o) => {
   for (const v of Object.values(o)) if (v && typeof v === 'object') freeze(v);
   return Object.freeze(o);
@@ -35,10 +37,10 @@ const freeze = (o) => {
 // ceiling, one window in the far wall centred on the table, the table against
 // that wall, the page on it in front of the seat.
 export const ROOM = freeze({
-  size: [3.048, 3.353, 2.438], // across, from the seat's wall to the window's, floor to ceiling
+  size: [...HOUSE.size], // across, from the seat's wall to the window's, floor to ceiling (the law's: law/room.js HOUSE)
   window: { width: 1.0, sill: 0.9, head: 2.1, split: [3, 3] }, // a thin wall: no reveal
   door: { x: 0.35, width: 0.9, height: 2.03, split: [1, 2] }, // in the wall behind the seat, on its left (outside.md Phase 4)
-  table: { width: 1.4, depth: 0.75, top: 0.74, thick: 0.04, gap: 0.02 }, // gap: from the far wall
+  table: { ...HOUSE.table }, // gap: from the far wall (the law's: where a paper rests on it is law/paper.js's)
   page: { size: [0.2159, 0.2794], fromNear: 0.1 }, // letter; its near edge from the table's near edge
   candles: [[-0.35, 0.45], [1.35, 0.45]], // light.js candlesAt: fractions of the page's width and height
   patch: 0.5, // patch edge to aim for
@@ -163,6 +165,14 @@ export const stamperRestOf = (geom) => [geom.pageRect.x0 - 0.05, geom.pageRect.y
 export const PEN = { length: 0.12, thick: 0.009, tine: 0.012, tineW: 0.0012, apart: 0.03 };
 export const penRestOf = (geom, k) => [geom.pageRect.x1 + 0.08, geom.pageRect.y0 + 0.02 + k * PEN.apart, geom.table.top];
 export const JAR = { radius: 0.025, height: 0.06, wall: 0.003 }; // (its glass a wall this thick)
+// The pendulum on the desk (Tabor, 2026-10-25: to push and watch swing): a wooden stand (a round foot, a post,
+// an arm out from its top) and a brass bob on a thread tied at the arm's end; it stands at the table's far left
+// corner, its arm toward the middle. Its swing is the string law's (law/string.js; law/bodies.js).
+export const PENDULUM = { foot: 0.05, post: 0.012, height: 0.32, arm: 0.1, string: 0.2, bob: 0.02 };
+export const pendulumRestOf = (geom) => [geom.table.x0 + PENDULUM.foot + 0.05, geom.table.y1 - PENDULUM.foot - 0.05, geom.table.top];
+// The bare hand (Tabor, 2026-10-25: with nothing in it, the hand is your own matter): a palm's half width and
+// its thickness (m).
+export const HAND = { r: 0.045, h: 0.03 };
 export const jarRestOf = (geom) => [geom.pageRect.x1 + 0.08 + PEN.length / 2 + JAR.radius + 0.02, geom.pageRect.y0 + 0.04, geom.table.top];
 // The key corner (one-world.md): behind the chair on the right, clear of the shelf, a wooden
 // stand (how far in from the corner, a side, its height) and on it a small brass box (your keys).

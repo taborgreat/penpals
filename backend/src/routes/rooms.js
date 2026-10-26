@@ -1,28 +1,23 @@
 import express, { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { httpError } from '../files.js';
-import { findByName, findByKey, getAccount } from '../store/accounts.js';
+import { findByName } from '../store/accounts.js';
 import { canSeeProfile } from '../social.js';
 import { join, part, move, beingsIn, act } from '../store/rooms.js';
-import { createShared, stamp, sheetOf, onTable, viewOf, onShared, ownedBy, mailboxOf, isKey } from '../store/shared.js';
+import { lyingIn, viewOf, onPapers, paperOf } from '../store/papers.js';
 import { being as B } from 'penpals-law';
 
-// Rooms and writing together (rooms.md §4, §5, §6).
-//   GET  /api/rooms/:name/stream       the room, live (server-sent events): who is here and
-//                                       how they move ('here', 'being'), the shared sheets on
-//                                       its owner's table and their acts as stamped ('table', 'shared'),
-//                                       and the lines its drips are regrown from ('here', 'room')
+// Rooms (rooms.md §4): a house, and who is in it.
+//   GET  /api/rooms/:name/stream       the house, live (server-sent events): who is here and how they move
+//                                       ('here', 'being'), the papers lying in it and every act on them or
+//                                       move of them in or out, as stamped ('papers', 'paper'), and the lines
+//                                       its drips are regrown from ('here', 'room')
 //   POST /api/rooms/:name/motion       { pose }: a coarse motion act (light/roomCamera, law/being.js)
 //   POST /api/rooms/:name/act          { act, seal }: what you do to its things, sealed by your key
-//                                       (law/room.js: light, out, place, tilt)
-//   GET  /api/rooms/:name/table        the shared sheets lying on its owner's table
-//   POST /api/shared                   { birth, seal, open }: a new shared sheet, on your table
-//   GET  /api/shared/mine              your shared sheets, wherever they lie
-//   GET  /api/shared/:sheet            a shared sheet: its birth and its stamped acts
-//   POST /api/shared/:sheet/acts       { act, seal }: an act, stamped (201 { line }) or refused
+//                                       (law/room.js: light, out, place, tilt, carry)
+//   GET  /api/rooms/:name/here         who is in it, and the papers lying in it
 // Who can come in follows the profile's privacy (there are no blocks: one-world.md).
 export const roomsRouter = Router();
-export const sharedRouter = Router();
 const json = express.json({ limit: '1mb' });
 
 // The room's owner, if this viewer may come in.
@@ -33,36 +28,17 @@ function roomOf(req) {
   if (!canSeeProfile(me, owner)) throw httpError(403, 'private', 'This room is private.');
   return owner;
 }
-// May this viewer see this shared sheet: its owner's room or the room it lies in.
-function maySee(req, s) {
-  const me = req.user?.id ?? null;
-  const owner = getAccount(s.ownerId);
-  if (owner && canSeeProfile(me, owner)) return true;
-  const holder = findByKey(s.state.table);
-  return !!holder && canSeeProfile(me, holder);
-}
 
 roomsRouter.get('/:name/stream', (req, res) => {
   const owner = roomOf(req);
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.write(': the room\n\n');
   const client = { res, userId: req.user?.id ?? null, name: req.user?.username ?? null };
-  // the shared sheets on this room's table: as they are, then each act as it is stamped
-  const lying = new Set(onTable(owner.publicKey).map((s) => s.sheet));
-  res.write(
-    `event: table\ndata: ${JSON.stringify({
-      sheets: onTable(owner.publicKey)
-        .filter((s) => maySee(req, s))
-        .map(viewOf),
-    })}\n\n`,
-  );
-  const off = onShared((e) => {
-    if (e.kind === 'table' && e.key === owner.publicKey) {
-      const s = sheetOf(e.sheet);
-      if (e.on) lying.add(e.sheet);
-      else lying.delete(e.sheet);
-      res.write(`event: table\ndata: ${JSON.stringify({ arrived: e.on ? viewOf(s) : null, left: e.on ? null : e.sheet })}\n\n`);
-    } else if (e.kind === 'shared' && lying.has(e.sheet)) res.write(`event: shared\ndata: ${JSON.stringify({ sheet: e.sheet, line: e.line, names: viewOf(sheetOf(e.sheet)).names })}\n\n`);
+  // the papers lying in this house: as they are, then each as an act lands on it or it comes or goes
+  res.write(`event: papers\ndata: ${JSON.stringify({ papers: lyingIn(owner.publicKey).map(viewOf) })}\n\n`);
+  const off = onPapers((e) => {
+    if (e.from !== owner.publicKey && e.to !== owner.publicKey) return;
+    res.write(`event: paper\ndata: ${JSON.stringify({ paper: viewOf(paperOf(e.paper)), line: e.line })}\n\n`);
   });
   const beat = setInterval(() => res.write(': still here\n\n'), 25000);
   join(owner.id, client).catch(() => {});
@@ -88,46 +64,7 @@ roomsRouter.post('/:name/act', requireAuth, json, async (req, res) => {
   res.json({ n: out.line.n });
 });
 
-roomsRouter.get('/:name/table', (req, res) => {
+roomsRouter.get('/:name/here', (req, res) => {
   const owner = roomOf(req);
-  res.json({
-    sheets: onTable(owner.publicKey)
-      .filter((s) => maySee(req, s))
-      .map(viewOf),
-    beings: beingsIn(owner.id),
-  });
+  res.json({ papers: lyingIn(owner.publicKey).map(viewOf), beings: beingsIn(owner.id) });
 });
-
-sharedRouter.post('/', requireAuth, json, async (req, res) => {
-  const s = await createShared(req.user.id, req.body ?? {});
-  res.status(201).json(s);
-});
-
-sharedRouter.get('/mine', requireAuth, (req, res) => {
-  res.json({ sheets: ownedBy(req.user.id).map(viewOf) });
-});
-
-// Your mailbox (one-world.md): the letters in it, the oldest first (the one your next take brings out).
-sharedRouter.get('/mailbox', requireAuth, (req, res) => {
-  res.json({ sheets: mailboxOf(req.user.publicKey).map(viewOf) });
-});
-// Anyone's mailbox, as it is seen at their door: how many letters wait in it (its flag up, or down).
-sharedRouter.get('/mailbox/:key', (req, res) => {
-  if (!isKey(req.params.key)) throw httpError(400, 'bad_key', 'A mailbox is named by its key.');
-  res.json({ letters: mailboxOf(req.params.key).length });
-});
-
-sharedRouter.get('/:sheet', (req, res) => {
-  const s = sheetOf(req.params.sheet);
-  if (!s || !maySee(req, s)) throw httpError(404, 'not_found', 'No such sheet.');
-  res.json(viewOf(s));
-});
-
-sharedRouter.post('/:sheet/acts', requireAuth, json, async (req, res) => {
-  const { act, seal } = req.body ?? {};
-  if (act?.sheet !== req.params.sheet) throw httpError(400, 'bad_shared', 'That act is for another sheet.');
-  const line = await stamp(req.user.id, { act, seal });
-  res.status(201).json({ line });
-});
-
-// (a stamped act reaches the rooms watching its table through onShared; rooms with no one in them hear nothing)

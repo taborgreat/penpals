@@ -16,10 +16,7 @@ const SIDE_PX = 3; // pixels per cell along a side-view cut
 //        mode?: 'side' | 'scene', cut?: [x0, y0, x1, y1] (sheet cells, for 'side'),
 //        lod?: the png at a level of detail, each pixel 2^lod cells a side (sight.js) }
 //   'scene' answers { scene: deflated PNKS } (law/v2/scene.js): heights and colours, never the paper
-//   or { film: true, law, acts, paperKey, family, box }: the sheet being written, frame by
-//   frame (law/v1/film.js format), deflated
 export function runJob(job) {
-  if (job.film) return runFilm(job);
   const { acts, paperKey, family, scale, png, maxCells, view = {}, mode = null, cut = null, lod = 0 } = job;
   const L = lawOf(job.law ?? 1);
   const rec = L.decodeCanonical(acts);
@@ -84,13 +81,4 @@ function shrink(rgba, w, h, lod) {
     }
   }
   return { rgba: out, w: W, h: H };
-}
-
-function runFilm({ law, acts, paperKey, family, box, maxCells }) {
-  if (box[2] * box[3] > maxCells) throw new LawError('cost', 'this film is too big to make');
-  const L = lawOf(law ?? 1);
-  const rec = L.decodeCanonical(acts);
-  L.precheck(rec, 64);
-  const film = zlib.deflateRawSync(L.makeFilm({ actsBytes: acts, rec, paperKey, family, box }), { level: 6 });
-  return { film: new Uint8Array(film.buffer, film.byteOffset, film.byteLength) };
 }

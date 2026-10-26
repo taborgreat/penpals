@@ -66,6 +66,13 @@ export function standUp(geom, facing, size = 1) {
 export const SIT_M = 0.8;
 const near = (pose, [x, y], r) => Math.hypot(pose.pos[0] - x, pose.pos[1] - y) < r;
 export const atChair = (geom, pose) => near(pose, roomCamera.seat(geom).pos, SIT_M);
+// Standing by the table, within that reach of its edge (room m, across the floor), inside the house.
+export const atTable = (geom, pose) => {
+  const t = geom.table;
+  const [x, y] = pose.pos;
+  const inside = x >= 0 && y >= 0 && x <= geom.size[0] && y <= geom.size[1];
+  return inside && Math.hypot(Math.max(t.x0 - x, 0, x - t.x1), Math.max(t.y0 - y, 0, y - t.y1)) < SIT_M;
+};
 // The owner's account things stand in a corner of the house: behind the chair, on the right, clear of
 // the shelf (one-world.md, the panel). Walk to it and the panel offers them.
 export const CORNER_M = 0.7;

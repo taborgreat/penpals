@@ -28,7 +28,7 @@ import { toHalf } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
 import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { DROP_PX, DETAIL_PX } from './light/surface.js';
-import { STAMPER, PEN, JAR } from './light/room.js';
+import { STAMPER, PEN, JAR, PENDULUM, HAND } from './light/room.js';
 import { room as RL } from 'penpals-law';
 import * as shine from './light/shine.js';
 import { geomOf, worldOf, cloudOf } from './light.js';
@@ -460,8 +460,91 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     chitin: outMat('chitin'),
     feather: outMat('feather'),
   };
+  // A house as it stands in the world (one-world.md: every house the same house): its walls and its roof
+  // from outside (the room's walls and ceiling turned out), and inside it what a room has: its surfaces, its
+  // table, its window's frame and glass, its door and shutters, open or shut as its acts left them. This
+  // house's own outside is its walls turned out (inside, the room itself is drawn); another's, the whole of it.
+  const turnedOut = (g) => {
+    const h = new THREE.BufferGeometry();
+    h.setAttribute('position', g.getAttribute('position'));
+    const idx = Array.from(g.index.array);
+    for (let i = 0; i < idx.length; i += 3) [idx[i + 1], idx[i + 2]] = [idx[i + 2], idx[i + 1]];
+    h.setIndex(idx);
+    h.computeVertexNormals();
+    return h;
+  };
+  const withNormals = (g) => {
+    const h = new THREE.BufferGeometry();
+    h.setAttribute('position', g.getAttribute('position'));
+    h.setIndex(Array.from(g.index.array));
+    h.computeVertexNormals();
+    return h;
+  };
+  const SHELL = new Set(['wall-near', 'wall-far', 'wall-left', 'wall-right', 'ceiling']);
+  const shellGeos = R.meshes.flatMap((m, i) => (SHELL.has(m.id) ? [turnedOut(R.geos[i])] : []));
+  const insideGeos = R.meshes.map((m, i) => ({ geo: withNormals(R.geos[i]), wood: m.kind === 'table' || m.kind === 'floor' }));
+  const ownShell = new THREE.Group(); // (this house's walls, from outside)
+  for (const g of shellGeos) ownShell.add(new THREE.Mesh(g, outMats.house));
+  roomGroup.add(ownShell);
+  const placeBox = (mesh, [x0, y0, z0, x1, y1, z1]) => {
+    mesh.scale.set(x1 - x0, y1 - y0, z1 - z0);
+    mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    return mesh;
+  };
+  function houseAt(h) {
+    const g = new THREE.Group();
+    g.userData.house = true; // (its parts' geometry is shared: kept when it goes)
+    g.position.set(...h.at);
+    for (const sg of shellGeos) g.add(new THREE.Mesh(sg, outMats.house));
+    for (const { geo, wood } of insideGeos) g.add(new THREE.Mesh(geo, wood ? outMats.stick : outMats.house));
+    for (const pg of R.panes) g.add(new THREE.Mesh(pg, paneMat));
+    for (const o of GEOM.objects) if (o.box && (o.kind === 'leg' || o.kind === 'frame')) g.add(placeBox(new THREE.Mesh(box, outMats.stick), o.box));
+    const d = GEOM.door;
+    if (d && !h.opens?.door) g.add(placeBox(new THREE.Mesh(box, outMats.stick), [d.x0, -0.02, d.z0, d.x1, 0.02, d.z1]));
+    const w = GEOM.window;
+    if (h.opens && !h.opens.shutters) g.add(placeBox(new THREE.Mesh(box, outMats.stick), [w.x0, GEOM.size[1] - 0.03, w.z0, w.x1, GEOM.size[1], w.z1]));
+    g.traverse((o) => {
+      o.frustumCulled = false;
+    });
+    return g;
+  }
   const outsideGroup = new THREE.Group();
   roomGroup.add(outsideGroup);
+  // the rain falling near the eye (scene/rain.js): each drop a streak along its way, as long as it fell while
+  // the frame was being seen (since the last), as thick as it is
+  let rainMesh = null;
+  const rainQ = new THREE.Quaternion();
+  const rainM = new THREE.Matrix4();
+  function placeRain(r, dt) {
+    if (!r || !r.n) {
+      if (rainMesh) rainMesh.count = 0;
+      return;
+    }
+    if (!rainMesh || rainMesh.instanceMatrix.count < r.n) {
+      if (rainMesh) {
+        roomGroup.remove(rainMesh);
+        rainMesh.dispose();
+      }
+      rainMesh = new THREE.InstancedMesh(box, outMats.water, r.n);
+      rainMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      rainMesh.frustumCulled = false;
+      roomGroup.add(rainMesh);
+    }
+    const v = new THREE.Vector3(...r.velocity);
+    const len = v.length() * dt;
+    rainQ.setFromUnitVectors(new THREE.Vector3(0, 0, 1), v.clone().normalize());
+    rainM.compose(new THREE.Vector3(), rainQ, new THREE.Vector3(r.D, r.D, Math.max(len, r.D)));
+    const e = rainM.elements;
+    const arr = rainMesh.instanceMatrix.array;
+    for (let i = 0; i < r.n; i++) {
+      arr.set(e, 16 * i);
+      arr[16 * i + 12] = r.at[3 * i];
+      arr[16 * i + 13] = r.at[3 * i + 1];
+      arr[16 * i + 14] = r.at[3 * i + 2];
+    }
+    rainMesh.count = r.n;
+    rainMesh.instanceMatrix.needsUpdate = true;
+  }
   const pebble = new THREE.IcosahedronGeometry(1, 1);
   const rod = new THREE.CylinderGeometry(1, 1, 1, 6).rotateX(Math.PI / 2); // (along z)
   // The beings near (law/life.js beingsAt), moved each frame: each body a ball of what it is seen to be made
@@ -510,6 +593,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   function placeOutside(o) {
     for (const c of [...outsideGroup.children]) {
       outsideGroup.remove(c);
+      if (c.userData.house) continue; // (a house: its parts' geometry is shared)
       if (c.geometry !== pebble && c.geometry !== rod && c.geometry !== box) c.geometry.dispose();
       c.dispose?.();
     }
@@ -650,9 +734,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       const r = Math.sqrt(l.area / Math.PI);
       m4.compose(new THREE.Vector3(...l.at), q.identity(), new THREE.Vector3(r, r, r * 0.7));
     });
-    instanced(box, outMats.house, o.houses, (h) =>
-      m4.compose(new THREE.Vector3(h.at[0] + h.size[0] / 2, h.at[1] + h.size[1] / 2, h.at[2] + h.size[2] / 2), q.identity(), new THREE.Vector3(...h.size)),
-    );
+    for (const h of o.houses) outsideGroup.add(houseAt(h));
   }
   // the room's things (matter-fixes §3): each its matter grown on its own surface from
   // its own seed (the room's, and its name), so it looks the same to everyone
@@ -733,6 +815,35 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   for (const m of [stamperHandle, stamperFace]) shadows.add(m);
   stamper.visible = false;
   roomGroup.add(stamper);
+  // the pendulum (scene/light/room.js PENDULUM): its wooden stand (a round foot, a post, an arm), its thread and
+  // its brass bob, where the bodies law has them (law/bodies.js bobAt)
+  const pendulumMats = { stand: thingMat('table', 'pendulum'), bob: thingMat('brass', 'pendulum-bob', 'round'), thread: thingMat('cloth', 'pendulum-thread') };
+  const pendulumStand = new THREE.Group();
+  const pendulumFoot = new THREE.Mesh(disc, pendulumMats.stand);
+  const pendulumPost = new THREE.Mesh(box, pendulumMats.stand);
+  const pendulumArm = new THREE.Mesh(box, pendulumMats.stand);
+  pendulumStand.add(pendulumFoot, pendulumPost, pendulumArm);
+  const pendulumThread = new THREE.Mesh(box, pendulumMats.thread);
+  const pendulumBob = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), pendulumMats.bob);
+  for (const m of [pendulumFoot, pendulumPost, pendulumArm, pendulumBob]) shadows.add(m);
+  roomGroup.add(pendulumStand, pendulumThread, pendulumBob);
+  // the bare hands reaching in the room (law/bodies.js): each a palm of skin, where it is
+  const handMat = thingMat('skin', 'hand', 'round');
+  const handMeshes = [];
+  function placeHands(list) {
+    while (handMeshes.length < list.length) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), handMat);
+      m.frustumCulled = false;
+      roomGroup.add(m);
+      handMeshes.push(m);
+    }
+    handMeshes.forEach((m, i) => {
+      m.visible = i < list.length;
+      if (!m.visible) return;
+      m.scale.set(HAND.r, HAND.r, HAND.h / 2);
+      m.position.set(list[i][0], list[i][1], list[i][2] + HAND.h / 2);
+    });
+  }
   // one pen drawn, in the hand or lying (setPens)
   function drawPen({ group, body, tines }, p) {
     group.visible = !!p;
@@ -1279,6 +1390,14 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setLife(list) {
       placeLife(list);
     },
+    // the bare hands reaching in the room now: [[x, y, z] (each one's foot, room m)]
+    setHands(list) {
+      placeHands(list ?? []);
+    },
+    // the rain near the eye now (scene/rain.js rainNear), and how long since it was last drawn (s)
+    setRain(r, dt) {
+      placeRain(r, dt);
+    },
     setOpens({ door = false, shutters = true } = {}) {
       doorMesh.visible = !door;
       shutterMesh.visible = !shutters;
@@ -1310,7 +1429,20 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lightRoom(l, performance.now(), R);
       marks.light(l.ambient);
       // (what a thing not yet placed takes)
-      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...allBeingMats, ...penBodyMats, penMats.tine, jarMat, stamperMats.handle, stamperMats.face, doorMat, shutterMat]) {
+      for (const m of [
+        ...objectMats,
+        ...candleMats,
+        ...shelf.mats,
+        ...allBeingMats,
+        ...penBodyMats,
+        penMats.tine,
+        jarMat,
+        stamperMats.handle,
+        stamperMats.face,
+        ...Object.values(pendulumMats),
+        doorMat,
+        shutterMat,
+      ]) {
         const { A, B } = meanLight(l.ambient, GEOM.patches.length, l.W, m.matter);
         m.ambient.A.set(...A);
         m.ambient.B.set(...B);
@@ -1403,7 +1535,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setSeeds(next) {
       roomSeeds = next;
       for (const m of roomMats) m.seed.value = seedOf(m.seedName);
-      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...penBodyMats, penMats.tine, jarMat, stamperMats.handle, stamperMats.face]) if (m.thing) m.seedBase = thingSeedOf(m.thing);
+      for (const m of [...objectMats, ...candleMats, ...shelf.mats, ...penBodyMats, penMats.tine, jarMat, stamperMats.handle, stamperMats.face, ...Object.values(pendulumMats)])
+        if (m.thing) m.seedBase = thingSeedOf(m.thing);
       marks.reseed();
     },
     // The others in the room (rooms.md §4): [{ name, pose: { pos (the head, room m), yaw,
@@ -1477,6 +1610,32 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       stamperHandle.scale.set(STAMPER.grip, STAMPER.grip, STAMPER.handle - faceH);
       standOrLie(stamperHandle, at, faceH + (STAMPER.handle - faceH) / 2, lying, STAMPER.grip);
       lightHere([stamperHandle, stamperFace], [x, y, z + STAMPER.handle / 2]);
+    },
+    // The pendulum (room m): its stand's foot, the way it lies (null: standing), its bob's middle; null: not drawn.
+    setPendulum(at, lying = null, bob = null) {
+      for (const m of [pendulumStand, pendulumThread, pendulumBob]) m.visible = !!at;
+      if (!at) return;
+      const P = PENDULUM;
+      pendulumStand.position.set(...at);
+      pendulumStand.quaternion.copy(lying ? leanOf(lying, Math.PI / 2) : new THREE.Quaternion());
+      pendulumFoot.scale.set(P.foot, P.foot, 0.012);
+      pendulumFoot.position.set(0, 0, 0.006);
+      pendulumPost.scale.set(P.post * 2, P.post * 2, P.height);
+      pendulumPost.position.set(0, 0, P.height / 2);
+      pendulumArm.scale.set(P.arm + P.post, P.post * 2, P.post * 2);
+      pendulumArm.position.set((P.arm - P.post) / 2, 0, P.height - P.post);
+      const tied = lying ? null : [at[0] + P.arm, at[1], at[2] + P.height - P.post * 2];
+      pendulumBob.visible = pendulumThread.visible = !!bob && !!tied;
+      if (bob && tied) {
+        pendulumBob.scale.setScalar(P.bob);
+        pendulumBob.position.set(...bob);
+        const d = new THREE.Vector3(bob[0] - tied[0], bob[1] - tied[1], bob[2] - tied[2]);
+        const len = d.length();
+        pendulumThread.scale.set(0.001, 0.001, len);
+        pendulumThread.position.set((bob[0] + tied[0]) / 2, (bob[1] + tied[1]) / 2, (bob[2] + tied[2]) / 2);
+        pendulumThread.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), d.normalize());
+      }
+      lightHere([pendulumFoot, pendulumPost, pendulumArm, pendulumBob, pendulumThread], [at[0], at[1], at[2] + P.height / 2]);
     },
     // The shelf's books (rooms.md §3): [{ id, color: [r, g, b] }], their cloth's colour.
     setShelf(books) {
@@ -1696,6 +1855,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       penMats.tine.dispose();
       stamperMats.handle.dispose();
       stamperMats.face.dispose();
+      for (const m of Object.values(pendulumMats)) m.dispose();
       shadows.dispose();
       for (const m of allBeingMats) m.dispose();
       ball.dispose();

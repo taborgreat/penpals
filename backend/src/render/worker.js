@@ -5,7 +5,7 @@ import { runJob } from './job.js';
 parentPort.on('message', ({ id, job }) => {
   try {
     const out = runJob(job);
-    parentPort.postMessage({ id, ok: true, out }, out.png ? [out.png.buffer] : out.film ? [out.film.buffer] : []);
+    parentPort.postMessage({ id, ok: true, out }, out.png ? [out.png.buffer] : []);
   } catch (err) {
     parentPort.postMessage({ id, ok: false, error: { message: err.message, code: err.code ?? null, law: !!err.law } });
   }

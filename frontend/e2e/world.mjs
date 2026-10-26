@@ -146,14 +146,14 @@ export const darkened = (a, b, share = 0.3, by = 10) => {
 // The world's one panel, by its title.
 export const panel = (page, title) => page.locator(`aside.panel[aria-label="${title}"]`);
 // The world's view (the scene filling the window) and the part of it the panel does not cover.
-export async function worldView(page, selector = '.journal-scene') {
+export async function worldView(page, selector = '.house-scene') {
   await page.locator(`${selector}[data-gpu]`).waitFor({ timeout: 60000 });
   const v = await page.locator(`${selector} canvas.scene-canvas`).boundingBox();
   return { view: v, clear: { x: v.x, y: v.y, width: v.width * 0.55, height: v.height } };
 }
 
 // Register at the lobby's table: sign the name three times on its slip, the pen in hand; the name;
-// keep the key (no password). → { words, privateKey }; the eye opens in your house.
+// keep the key (no password). → { words, privateKey }; the eye opens in your house, your first paper on its table.
 export async function register(page, name) {
   await panel(page, 'Come in').waitFor({ timeout: 30000 });
   await page
@@ -177,7 +177,9 @@ export async function register(page, name) {
   const privateKey = await page.locator('#reg-private').inputValue();
   await page.getByText('I have kept my words or my private key').click();
   await page.getByRole('button', { name: 'Make my account' }).click();
-  await panel(page, 'The pen in your hand').locator('.fresh-sheet').waitFor({ timeout: 90000 });
+  // the eye opens in your house, at your table, your hands free, your first paper lying before you
+  await panel(page, 'At your table').waitFor({ timeout: 90000 });
+  await page.waitForFunction(() => globalThis.__papers?.lying().some((p) => p.mayWrite), null, { timeout: 90000, polling: 500 });
   return { words, privateKey };
 }
 

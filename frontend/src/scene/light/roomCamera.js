@@ -140,9 +140,10 @@ export function supportAt(geom, x, y, limit, ground = null, outside = null) {
 }
 // Whether something rises in the way of a being standing at (x, y) with its
 // feet at `feet`: a box, the page's heights or the room's walls. outside ({ door
-// (open or not), ground(x, y) }): the house's door, and the world beyond it
-// (outside.md Phase 4): through the open door's way, out onto the dirt, where
-// only the house's walls stand in the way.
+// (open or not), ground(x, y), houses: [{ at (its corner, room m), door (open or
+// not) }] }): the house's door, and the world beyond it (outside.md Phase 4):
+// through the open door's way, out onto the dirt, where only the houses' walls
+// stand in the way (each the same house: through its open door, into it).
 function blocked(geom, x, y, feet, eyeH, ground, outside = null) {
   const [W, D] = geom.size;
   const r = 0.15 * eyeH;
@@ -150,6 +151,12 @@ function blocked(geom, x, y, feet, eyeH, ground, outside = null) {
     const d = geom.door;
     const doorway = !!d && outside.door && x >= d.x0 + r && x <= d.x1 - r && y > -r && y < r;
     if (doorway) return false;
+    for (const h of outside.houses ?? []) {
+      const [hx, hy] = [x - h.at[0], y - h.at[1]];
+      if (hx < -r || hy < -r || hx > W + r || hy > D + r) continue; // (not at it)
+      if (d && h.door && hx >= d.x0 + r && hx <= d.x1 - r && hy > -r && hy < D - r) return false; // its doorway, and in
+      return true; // its walls
+    }
     const out = x < -r || y < -r || x > W + r || y > D + r;
     if (out) return outside.ground(x, y) > feet + STEP * eyeH; // (the dirt rises too steeply)
     if (x < r || y < r || x > W - r || y > D - r) return true; // the walls, from either side

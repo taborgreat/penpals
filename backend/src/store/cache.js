@@ -13,12 +13,9 @@ export const cacheDir = path.join(config.dataDir, 'cache', 'looks');
 const entries = new Map(); // path → { size, used }
 let total = 0;
 
-// Films (law/v1/film.js) of closed sheets: disposable too, outside the looks' budget.
-export const filmPath = (owner, id, law) => path.join(config.dataDir, 'cache', 'films', owner, `${id}.L${law}-r${config.render.rev}.pnkf`);
 export const lookName = (inkId, scale, law, view = { ageH: 0, views: 0 }) => `${inkId}@${scale}.L${law}${law >= 2 ? `-a${view.ageH}-e${view.views}` : ''}-r${config.render.rev}`;
 export const lookPath = (userId, inkId, scale, law, view, lod = 0) => path.join(cacheDir, userId, `${lookName(inkId, scale, law, view)}${lod ? `-l${lod}` : ''}.png`);
 // A sheet's whole scene field (deflated PNKS), that every window is cut from (sight.js).
-export const scenePath = (userId, name) => path.join(cacheDir, userId, `${name}.pnks`);
 
 export async function loadCache() {
   entries.clear();

@@ -1,24 +1,20 @@
-// Writing together (rooms.md §4, §5, §6): beings in a room, possession by move
-// acts, the stamper for shared sheets, and a room asleep when no one is in it.
+// Together in a house (rooms.md §4; law/paper.js): beings in a room, papers lying in it, carried between
+// houses, written on by whoever may mark them, posted and saved into books; and a room asleep when no one
+// is in it.
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, client } from './helpers.js';
 import { person, register, FAMILY, K, b64url } from './device.js';
-import { shared as SH, room as R, candle as C, wax as WX } from 'penpals-law';
+import { paper as P, room as R, world as WORLD, outside as O } from 'penpals-law';
 import { lawOf } from 'penpals-law/laws';
 import { record, samplePath } from 'penpals-law/tools/fixtures';
 import { verifyBook } from 'penpals-law/verify';
-import { roomGeometry, ROOM } from '../../frontend/src/scene/light/room.js';
-import { originIn, slotOf } from '../../frontend/src/room/table.js';
-import { PX_PER_M } from '../../frontend/src/scene/light/index.js';
-import path from 'node:path';
 
 let app;
 const ana = person(71, 'ana');
 const bo = person(72, 'bo');
 const cy = person(73, 'cy');
-const dee = person(74, 'dee'); // (registered in the seal test: a room with nothing in it yet)
-let rooms, files, accounts, config; // (the backend's own modules: after startApp has set its data dir)
+let rooms, accounts; // (the backend's own modules: after startApp has set its data dir)
 
 before(async () => {
   app = await startApp();
@@ -28,9 +24,7 @@ before(async () => {
     assert.equal((await register(p.c, p)).status, 201);
   }
   rooms = await import('../src/store/rooms.js');
-  files = await import('../src/files.js');
   accounts = await import('../src/store/accounts.js');
-  ({ config } = await import('../src/config.js'));
 });
 after(async () => {
   await app.close();
@@ -43,13 +37,31 @@ const strokeAt = (y, rgb) => {
   const r = record([{ path: samplePath(line(20, y, 60, y), () => 40), pen: { nib: 0, size: 50, flex: 0, flow: 9, rgb, angle: 0 }, start: 0 }], [0, 0]);
   return L.encodeActs(r);
 };
+// A being's act on a paper, sealed by its key, counted on per paper.
 const counter = new Map();
-const act = (p, sheet, kind, extra) => {
-  const k = (counter.get(p) ?? 0) + 1;
-  counter.set(p, k);
-  return SH.makeSharedAct({ sk: p.sk, pk: p.pk, sheet, k, act: kind, ...extra });
+const act = (p, paper, kind, extra = {}) => {
+  const id = `${p.username}>${paper}`;
+  counter.set(id, (counter.get(id) ?? 0) + 1);
+  return P.makePaperAct({ sk: p.sk, pk: p.pk, paper, k: counter.get(id), act: kind, ...extra });
 };
-const post = (p, sheet, made) => p.c.post(`/api/shared/${sheet}/acts`, made);
+const post = (p, paper, made) => p.c.post(`/api/papers/${paper}/acts`, made);
+// where on a house's table (room m), and where on its floor
+const TABLE = R.tableOf();
+const onTable = (dx = 0) => [(TABLE.x0 + TABLE.x1) / 2 + dx, (TABLE.y0 + TABLE.y1) / 2, TABLE.top + 0.1];
+const onFloor = [0.5, 0.5, 1];
+// A new paper of p's, on their own table: → its id
+async function newPaper(p, at = onTable()) {
+  const paper = K.newSheetId();
+  const r = await p.c.post('/api/papers', P.makePaper({ sk: p.sk, pk: p.pk, paper, family: FAMILY, at }));
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  return paper;
+}
+// carried by p from where it lies and let go in a space, at a place
+async function carry(p, paper, space, at) {
+  assert.equal((await post(p, paper, act(p, paper, 'take'))).status, 201);
+  const put = await post(p, paper, act(p, paper, 'put', { space, at }));
+  assert.equal(put.status, 201, JSON.stringify(put.data));
+}
 // A being's act on a room's things, sealed by its key (law/room.js), counted on per room.
 const roomK = new Map();
 const roomAct = (p, owner, a) => {
@@ -60,9 +72,9 @@ const roomAct = (p, owner, a) => {
 const doIn = (p, owner, made) => p.c.post(`/api/rooms/${owner.username}/act`, made);
 
 // A room's stream, read as it comes: events gathered; `until(kind, test)` waits for one.
-async function stream(p, room) {
+async function stream(p, room, url = `/api/rooms/${room}/stream`) {
   const ctrl = new AbortController();
-  const res = await fetch(`${app.base}/api/rooms/${room}/stream`, { headers: p ? { cookie: p.c.cookieHeader() } : {}, signal: ctrl.signal });
+  const res = await fetch(`${app.base}${url}`, { headers: p ? { cookie: p.c.cookieHeader() } : {}, signal: ctrl.signal });
   assert.equal(res.status, 200);
   const events = [];
   const waiting = [];
@@ -106,84 +118,148 @@ async function stream(p, room) {
 }
 const settle = (ms) => new Promise((r) => setTimeout(r, ms));
 
-test('possession: an act on a sheet not on your table is rejected; laid on it, you write; picked up, you are rejected again', async () => {
-  const sheet = K.newSheetId();
-  const made = SH.makeSharedSheet({ sk: ana.sk, pk: ana.pk, sheet, family: FAMILY });
-  assert.equal((await bo.c.post('/api/shared', made)).status, 400, "a shared sheet is its owner's");
-  assert.equal((await ana.c.post('/api/shared', made)).status, 201);
+test("a paper: born on its maker's table; anyone takes it up; carried to bo's table he writes on it, off it he does not; its houses' chains say where it lies", async () => {
+  const paper = await newPaper(ana);
+  const keyOf = (p) => b64url(p.pk);
   assert.ok(
-    (await ana.c.get('/api/shared/mine')).data.sheets.some((s) => s.sheet === sheet && s.on === 'ana'),
-    "on its owner's table",
+    (await bo.c.get(`/api/papers/in/${keyOf(ana)}`)).data.papers.some((v) => v.paper === paper && v.owner === 'ana'),
+    'lying in her house',
   );
-  assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 403, "not on bo's table");
-  assert.equal((await post(bo, sheet, act(ana, sheet, 'move', { to: b64url(bo.pk) }))).status, 400, 'an act is sealed by its writer');
-  const moved = await post(ana, sheet, act(ana, sheet, 'move', { to: b64url(bo.pk) }));
-  assert.equal(moved.status, 201);
-  assert.equal((await ana.c.get('/api/shared/mine')).data.sheets.find((s) => s.sheet === sheet).on, 'bo', 'its owner sees where it lies');
-  const wrote = await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }));
+  assert.equal((await post(bo, paper, act(bo, paper, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 403, 'not his');
+  await carry(ana, paper, keyOf(bo), onTable());
+  const v = (await cy.c.get(`/api/papers/${paper}`)).data;
+  assert.deepEqual([v.where.space, v.where.at[2]], [keyOf(bo), Math.round(TABLE.top * 1000)], "on bo's table");
+  const wrote = await post(bo, paper, act(bo, paper, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }));
   assert.equal(wrote.status, 201, JSON.stringify(wrote.data));
-  assert.equal(wrote.data.line.n, 2);
-  assert.equal((await post(cy, sheet, act(cy, sheet, 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 403, "not cy's table");
-  assert.equal((await post(ana, sheet, act(ana, sheet, 'stroke', { stroke: strokeAt(30, [200, 30, 30]) }))).status, 201, 'the owner still writes on it');
-  assert.equal((await post(ana, sheet, act(ana, sheet, 'move', { to: b64url(ana.pk) }))).status, 201, 'picked up');
-  assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(40, [30, 40, 200]) }))).status, 403, "the visitor's next act is rejected");
-  // a forged seal
-  const forged = act(bo, sheet, 'stroke', { stroke: strokeAt(50, [30, 40, 200]) });
-  assert.equal((await post(bo, sheet, { ...forged, seal: b64url(new Uint8Array(64)) })).status, 401);
-  // the whole of it, as anyone may check it: the chain replays clean and the sheet grows
-  const view = (await ana.c.get(`/api/shared/${sheet}`)).data;
-  const born = SH.checkBirth(view.birth, view);
-  assert.deepEqual(SH.replay(view.birth.key, view.lines).problems, []);
-  assert.ok(SH.growShared(view.lines, { seed: born.seed, family: born.family }).facts.length === 32);
-  // and in the owner's .book, offline
-  const dl = await ana.c.get('/api/books/ana/download');
-  const v = verifyBook(Buffer.from(dl.data).toString('utf8'));
-  assert.equal(v.ok, true, JSON.stringify(v.problems));
-  assert.ok(v.results.some((r) => r.kind === 'shared-sheet' && r.regrown === true));
-});
-
-test("the mail (one-world.md): a sheet posted into someone's mailbox raises its flag; only they take letters out, the oldest first, onto their table", async () => {
-  const sheets = [K.newSheetId(), K.newSheetId()];
-  for (const sheet of sheets) assert.equal((await ana.c.post('/api/shared', SH.makeSharedSheet({ sk: ana.sk, pk: ana.pk, sheet, family: FAMILY }))).status, 201);
-  const flag = async () => (await cy.c.get(`/api/shared/mailbox/${b64url(bo.pk)}`)).data.letters;
-  assert.equal(await flag(), 0, 'an empty mailbox');
-  assert.equal((await post(bo, sheets[0], act(bo, sheets[0], 'post', { to: b64url(cy.pk) }))).status, 403, 'only its owner sends a sheet');
-  for (const sheet of sheets) assert.equal((await post(ana, sheet, act(ana, sheet, 'post', { to: b64url(bo.pk) }))).status, 201);
-  assert.equal(await flag(), 2, 'two letters wait: anyone passing sees its flag up');
-  assert.equal((await post(ana, sheets[0], act(ana, sheets[0], 'stroke', { stroke: strokeAt(20, [200, 30, 30]) }))).status, 403, 'in the mailbox: no one writes on it');
+  assert.equal((await post(cy, paper, act(cy, paper, 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 403, "not cy's table");
+  assert.equal((await post(ana, paper, act(ana, paper, 'stroke', { stroke: strokeAt(40, [200, 30, 30]) }))).status, 201, 'its owner, wherever it lies');
+  // the room chains: it left hers, came to rest in his
+  const lays = async (p) => (await rooms.roomLines(accounts.findByName(p.username).id)).filter((l) => l.kind === 'lay' && l.paper === paper);
   assert.deepEqual(
-    (await bo.c.get('/api/shared/mailbox')).data.sheets.map((v) => v.sheet),
-    sheets,
-    'in the order they came',
+    (await lays(ana)).map((l) => l.rest === null),
+    [false, true],
+    'born in hers, then gone from it',
   );
-  assert.equal((await post(cy, sheets[0], act(cy, sheets[0], 'take', {}))).status, 403, "not cy's mailbox");
-  assert.equal((await post(bo, sheets[1], act(bo, sheets[1], 'take', {}))).status, 409, 'the oldest comes out first');
-  assert.equal((await post(bo, sheets[0], act(bo, sheets[0], 'take', {}))).status, 201, 'bo takes the oldest out');
-  assert.equal(await flag(), 1);
-  assert.equal((await ana.c.get(`/api/shared/${sheets[0]}`)).data.on, 'bo', 'it lies on his table now');
-  assert.equal((await post(bo, sheets[0], act(bo, sheets[0], 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 201, 'and he writes on it');
-  assert.equal((await bo.c.get('/api/shared/mailbox')).data.sheets[0].sheet, sheets[1], 'the next one waits');
+  assert.equal((await lays(bo)).at(-1).rest[2], Math.round(TABLE.top * 1000), 'resting in his');
+  await carry(bo, paper, keyOf(bo), onFloor);
+  assert.equal((await post(bo, paper, act(bo, paper, 'stroke', { stroke: strokeAt(50, [30, 40, 200]) }))).status, 403, 'on his floor: no longer');
+  // and in its maker's .book, offline: it replays, it grows
+  const dl = await ana.c.get('/api/books/ana/download');
+  const book = verifyBook(Buffer.from(dl.data).toString('utf8'));
+  assert.equal(book.ok, true, JSON.stringify(book.problems));
+  assert.ok(book.results.some((r) => r.kind === 'paper' && r.regrown === true));
 });
 
-test('writing together: a sheet laid on your table arrives in your room; each act reaches everyone there as stamped', async () => {
-  const sheet = K.newSheetId();
-  assert.equal((await ana.c.post('/api/shared', SH.makeSharedSheet({ sk: ana.sk, pk: ana.pk, sheet, family: FAMILY }))).status, 201);
-  const inBos = await stream(bo, 'bo');
-  const anaThere = await stream(ana, 'bo'); // ana visits bo's room to write with them
-  await inBos.until('here');
-  assert.equal((await post(ana, sheet, act(ana, sheet, 'move', { to: b64url(bo.pk) }))).status, 201);
-  const arrived = await inBos.until('table', (d) => d.arrived?.sheet === sheet);
-  assert.equal(arrived.data.arrived.owner, 'ana');
-  // two writers, one stamper: both screens hear both acts, in one order
-  await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }));
-  await post(ana, sheet, act(ana, sheet, 'stroke', { stroke: strokeAt(22, [200, 30, 30]) }));
-  for (const s of [inBos, anaThere]) {
-    const seen = [];
-    for (const n of [2, 3]) seen.push((await s.until('shared', (d) => d.sheet === sheet && d.line.n === n)).data.line.n);
-    assert.deepEqual(seen, [2, 3]);
+test('writing together: every act on a paper lying in a house reaches everyone there as stamped', async () => {
+  const paper = await newPaper(ana);
+  await carry(ana, paper, b64url(bo.pk), onTable());
+  const s = await stream(cy, 'bo');
+  await s.until('papers', (d) => d.papers.some((v) => v.paper === paper));
+  const made = act(bo, paper, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) });
+  assert.equal((await post(bo, paper, made)).status, 201);
+  const told = await s.until('paper', (d) => d.paper.paper === paper && d.line?.act.act === 'stroke');
+  assert.deepEqual(told.data.line.act, made.act, 'as stamped');
+  s.close();
+});
+
+test("the mail: posted from the hand into bo's mailbox, it is his; its flag is up; only he takes letters out, the oldest first, into his hand", async () => {
+  const first = await newPaper(ana, onTable(-0.2));
+  const second = await newPaper(ana, onTable(0.2));
+  const flag = async () => (await cy.c.get(`/api/papers/mailbox/${b64url(bo.pk)}`)).data.letters;
+  const was = await flag();
+  assert.equal((await post(ana, first, act(ana, first, 'post', { to: b64url(bo.pk) }))).status, 403, 'posted from the hand');
+  for (const paper of [first, second]) {
+    assert.equal((await post(ana, paper, act(ana, paper, 'take'))).status, 201);
+    assert.equal((await post(ana, paper, act(ana, paper, 'post', { to: b64url(bo.pk) }))).status, 201);
   }
-  inBos.close();
-  anaThere.close();
+  assert.equal(await flag(), was + 2, 'two more letters wait: its flag up');
+  const box = (await bo.c.get('/api/papers/mailbox')).data.papers;
+  assert.deepEqual(
+    box.slice(-2).map((v) => [v.paper, v.owner]),
+    [
+      [first, 'bo'],
+      [second, 'bo'],
+    ],
+    'his now, in the order they came',
+  );
+  assert.equal((await post(cy, first, act(cy, first, 'take'))).status, 403, "not cy's mailbox");
+  for (const v of box.slice(0, -2)) await post(bo, v.paper, act(bo, v.paper, 'take')); // (older letters out first)
+  assert.equal((await post(bo, second, act(bo, second, 'take'))).status, 409, 'the oldest comes out first');
+  assert.equal((await post(bo, first, act(bo, first, 'take'))).status, 201);
+  assert.ok(
+    (await bo.c.get('/api/papers/held')).data.papers.some((v) => v.paper === first),
+    'in his hand',
+  );
+  assert.equal((await post(bo, first, act(bo, first, 'put', { space: b64url(bo.pk), at: onTable() }))).status, 201);
+  assert.equal((await post(bo, first, act(bo, first, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 201, 'his to write on');
+});
+
+test("a seal: ana presses bo's name into it (no wax needed: the press is enough), and he may write on it wherever it lies; broken, he may not", async () => {
+  const paper = await newPaper(ana);
+  const face = new Uint8Array(4 * 4).fill(255);
+  const press = { x: 2000, y: 2000, depth: 200, angle: 0, tiltX: 0, tiltY: 0, cell: 2, w: 4, h: 4, face, for: b64url(bo.pk) };
+  assert.equal((await post(bo, paper, act(bo, paper, 'press', { press }))).status, 403, 'only its owner presses');
+  assert.equal((await post(ana, paper, act(ana, paper, 'press', { press }))).status, 201);
+  const n = (await ana.c.get(`/api/papers/${paper}`)).data.lines.at(-1).n;
+  assert.equal((await post(bo, paper, act(bo, paper, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 201, 'by his seal, on her table');
+  await carry(ana, paper, 'outside', [3, 4, 2]);
+  assert.equal((await post(bo, paper, act(bo, paper, 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 201, 'outside too');
+  assert.equal((await post(ana, paper, act(ana, paper, 'break', { broke: { seal: n, from: [1900, 1900], to: [2100, 2100] } }))).status, 201);
+  assert.equal((await post(bo, paper, act(bo, paper, 'stroke', { stroke: strokeAt(40, [30, 40, 200]) }))).status, 403, 'broken: no longer');
+  assert.ok(
+    (await cy.c.get('/api/papers/in/outside')).data.papers.some((v) => v.paper === paper),
+    'lying outside, for anyone to see',
+  );
+});
+
+test('a book: ana saves a paper from her hand into her book, at a path; it is there and nowhere else; only she takes it out', async () => {
+  const paper = await newPaper(ana);
+  assert.equal((await post(ana, paper, act(ana, paper, 'take'))).status, 201);
+  assert.equal((await post(bo, paper, act(bo, paper, 'shelve', { book: ['letters'] }))).status, 403);
+  assert.equal((await post(ana, paper, act(ana, paper, 'shelve', { book: ['journal', 'october'] }))).status, 201);
+  const mine = (await ana.c.get('/api/papers/book')).data.papers.find((v) => v.paper === paper);
+  assert.deepEqual(mine.where, { book: ['journal', 'october'] });
+  assert.ok(!(await bo.c.get(`/api/papers/in/${b64url(ana.pk)}`)).data.papers.some((v) => v.paper === paper), 'not lying in her house');
+  assert.equal((await post(bo, paper, act(bo, paper, 'take'))).status, 403, 'in her book');
+  assert.equal((await post(ana, paper, act(ana, paper, 'take'))).status, 201);
+});
+
+test('one world: each being where it is, in world m, whichever house it came by; out of doors too; a door opened from outside', async () => {
+  // their houses in the world (as registering places them: law/world.js)
+  const plotOf = async (p) => {
+    const key = b64url(p.pk);
+    let h = (await ana.c.get('/api/world')).data.houses.find((x) => x.key === key);
+    if (!h) {
+      const r = await p.c.post('/api/world/acts', WORLD.sealWorldAct(p.sk, WORLD.houseAct(key)));
+      assert.equal(r.status, 201, JSON.stringify(r.data));
+      h = (await ana.c.get('/api/world')).data.houses.find((x) => x.key === key);
+    }
+    return h.plot;
+  };
+  const [anaPlot, boPlot] = [await plotOf(ana), await plotOf(bo)];
+  const w = await stream(null, null, '/api/world/beings');
+  await w.until('beings');
+  const inAna = await stream(ana, 'ana');
+  const inBo = await stream(bo, 'bo');
+  await w.until('being', (d) => d.kind === 'enter' && d.name === 'bo');
+  const near = (a, b) => a.every((v, k) => Math.abs(v - b[k]) < 2e-3);
+  // ana at her table; bo out of his door, three metres out
+  assert.equal((await ana.c.post('/api/rooms/ana/motion', { pose: { pos: [1.5, 1.0, 1.6], yaw: 0, pitch: 0 } })).status, 200);
+  assert.equal((await bo.c.post('/api/rooms/bo/motion', { pose: { pos: [1.5, -3, 1.6], yaw: 180, pitch: 0 } })).status, 200, 'out of doors: still a place in the world');
+  const seenAna = await w.until('being', (d) => d.kind === 'move' && d.name === 'ana');
+  const seenBo = await w.until('being', (d) => d.kind === 'move' && d.name === 'bo');
+  assert.ok(near(seenAna.data.pose.pos, O.frameOf(anaPlot).toWorld([1.5, 1.0, 1.6])), 'ana, where her house stands');
+  assert.ok(near(seenBo.data.pose.pos, O.frameOf(boPlot).toWorld([1.5, -3, 1.6])), 'bo, out in front of his');
+  assert.equal(seenBo.data.house, b64url(bo.pk));
+  // bo, out in the world, opens ana's door: it is reached from outside; everyone watching the world sees it open
+  const open = R.makeRoomAct({ sk: bo.sk, pk: bo.pk, room: b64url(ana.pk), k: 900, act: 'open', thing: 'door' });
+  assert.equal((await bo.c.post('/api/rooms/ana/act', open)).status, 200);
+  assert.equal((await w.until('opens', (d) => d.house === b64url(ana.pk))).data.opens.door, true);
+  const shut = R.makeRoomAct({ sk: bo.sk, pk: bo.pk, room: b64url(ana.pk), k: 901, act: 'shut', thing: 'door' }); // (and shut behind him)
+  assert.equal((await bo.c.post('/api/rooms/ana/act', shut)).status, 200);
+  inAna.close();
+  inBo.close();
+  w.close();
 });
 
 test('beings: entering, moving coarsely (the neck law applied), leaving; an empty room sleeps; the eye is never recorded', async () => {
@@ -209,7 +285,7 @@ test('beings: entering, moving coarsely (the neck law applied), leaving; an empt
     'not faster than five a second',
   );
   const moves = 1 + quick.filter((r) => r.data.stamped).length;
-  assert.equal((await bo.c.post('/api/rooms/cy/motion', { pose: { pos: [99, 2, 1], yaw: 0, pitch: 0 } })).status, 400);
+  assert.equal((await bo.c.post('/api/rooms/cy/motion', { pose: { pos: [1e9, 2, 1], yaw: 0, pitch: 0 } })).status, 400);
   guest.close();
   assert.equal((await host.until('being', (d) => d.kind === 'leave', rooms.LINGER_MS + 5000)).data.name, 'bo');
   host.close();
@@ -226,72 +302,6 @@ test('beings: entering, moving coarsely (the neck law applied), leaving; an empt
     [['cy', 'enter'], ['bo', 'enter'], ...Array(moves).fill(['bo', 'move']), ['bo', 'leave'], ['cy', 'leave']],
   );
   assert.ok(!JSON.stringify(lines).includes('pupil') && !JSON.stringify(lines).includes('adaptation'));
-});
-
-test("seals: the owner presses bo's seal (his signature's face) into warm wax and bo writes while it lies on her table; another face is refused; broken, he is refused", async () => {
-  // dee lit a candle seven minutes ago (her signed act, stamped then: written here, a test
-  // cannot wait; its pool well melted by now), the first thing in her room
-  dee.c = client(app.base);
-  assert.equal((await register(dee.c, dee)).status, 201);
-  const deeId = accounts.findByName('dee').id;
-  await files.appendLine(
-    path.join(accounts.userDir(deeId), 'room.chain'),
-    JSON.stringify({ n: 1, at: new Date(Date.now() - 435000).toISOString(), ...roomAct(dee, dee, { act: 'light', thing: 'candle-0' }) }),
-  );
-  const sheet = K.newSheetId();
-  assert.equal((await dee.c.post('/api/shared', SH.makeSharedSheet({ sk: dee.sk, pk: dee.pk, sheet, family: FAMILY }))).status, 201);
-  const sealed = await dee.c.get('/api/signatures/bo/seal');
-  assert.equal(sealed.status, 200, JSON.stringify(sealed.data));
-  assert.equal(sealed.data.key, b64url(bo.pk));
-  assert.ok(sealed.data.w <= 32 && sealed.data.h <= 32);
-  assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 403);
-  // no one writes a drip
-  assert.equal((await post(dee, sheet, { act: { v: 2, kind: 'shared', sheet, by: b64url(dee.pk), k: 99, act: 'drip', drip: { x: 2000, y: 2000, amt: 400000, heat: 220 } }, seal: 'x' })).status, 400);
-  // she picks the candle up and tips it with its rim over the sheet; the law regrows what
-  // falls from her acts alone
-  const host = await stream(dee, 'dee');
-  await host.until('here');
-  assert.equal((await doIn(dee, dee, roomAct(dee, dee, { act: 'place', thing: 'candle-0', to: null }))).status, 200);
-  const slot = (await rooms.roomLines(deeId)).find((l) => l.kind === 'lay' && l.sheet === sheet).slot;
-  const o = originIn(roomGeometry(ROOM), [config.book.pageWidth, config.book.pageHeight]);
-  const [sx, sy] = slotOf(slot, config.book.pageWidth);
-  const under = [o[0] + (sx + 200) / PX_PER_M, o[1] - (sy + 200) / PX_PER_M]; // (200, 200) on the sheet
-  // where its rim is, tipped 60°, from its foot: the candle as the law has it now
-  const lit = WX.createRoomWax({ landing: () => ({ on: 'table' }) });
-  lit.advance(await rooms.roomLines(deeId), Date.now());
-  const rim = C.rimPoint(lit.candle(0).cd, [0, 0, 0.92], 60);
-  const tilted = await doIn(dee, dee, roomAct(dee, dee, { act: 'tilt', thing: 'candle-0', pos: [under[0] - rim[0], under[1] - rim[1], 0.92], deg: 60 }));
-  assert.equal(tilted.status, 200, JSON.stringify(tilted.data));
-  await host.until('room', (l) => l.act?.act === 'tilt');
-  await new Promise((r) => setTimeout(r, 400)); // (it pours at its next step)
-  // the stamper set to bo, pressed into it while it is warm (each face pixel a cell: within the pour)
-  const press = { x: 2000, y: 2000, depth: 220, angle: 0, tiltX: 0, tiltY: 0, cell: 1, w: sealed.data.w, h: sealed.data.h, face: sealed.data.face, for: b64url(bo.pk) };
-  const wrong = await post(dee, sheet, act(dee, sheet, 'press', { press: { ...press, face: b64url(new Uint8Array(sealed.data.w * sealed.data.h).fill(255)) } }));
-  assert.equal(wrong.status, 400, 'a face that is not his');
-  assert.match(JSON.stringify(wrong.data), /not their seal/);
-  const pressed = await post(dee, sheet, act(dee, sheet, 'press', { press }));
-  assert.equal(pressed.status, 201, JSON.stringify(pressed.data));
-  const wrote = await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }));
-  assert.equal(wrote.status, 201, 'his seal took: he writes on her sheet on her table');
-  assert.equal((await post(cy, sheet, act(cy, sheet, 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 403, 'no seal of hers');
-  const broke = await post(dee, sheet, act(dee, sheet, 'break', { broke: { seal: pressed.data.line.n, from: [1850, 1900], to: [2150, 2100] } }));
-  assert.equal(broke.status, 201);
-  assert.equal((await post(bo, sheet, act(bo, sheet, 'stroke', { stroke: strokeAt(40, [30, 40, 200]) }))).status, 403, 'broken: refused');
-  // her .book holds no wax (the server's word is not a fact): it verifies offline, what his
-  // seal allowed listed as needing the room's acts to regrow the wax it was pressed into
-  const text = Buffer.from((await dee.c.get('/api/books/dee/download')).data).toString('utf8');
-  assert.equal(JSON.parse(text.slice(0, text.indexOf('\n'))).wax, undefined, 'no wax in her book');
-  const v = verifyBook(text);
-  assert.equal(v.ok, true, JSON.stringify(v.problems));
-  assert.ok(
-    v.unverified.some((u) => u.includes(sheet)),
-    JSON.stringify(v.unverified),
-  );
-  // no one else tilts it; it is not lit twice; she puts it out (her act)
-  assert.equal((await doIn(bo, dee, roomAct(bo, dee, { act: 'tilt', thing: 'candle-0', pos: [1000, 1000, 900].map((v) => v / 1000), deg: 30 }))).status, 409, 'not in her room');
-  assert.equal((await doIn(dee, dee, roomAct(dee, dee, { act: 'light', thing: 'candle-0' }))).status, 409, 'lit already');
-  assert.equal((await doIn(dee, dee, roomAct(dee, dee, { act: 'out', thing: 'candle-0' }))).status, 200);
-  host.close();
 });
 
 test('things: acts sealed by their being; a candle picked up is held (no one else takes it or tilts it), set down it rests where it was put, and the room remembers it after it sleeps', async () => {
@@ -377,4 +387,18 @@ test('the shutters stand open and the door shut until someone does otherwise; ea
   assert.equal((await act('open', 'door')).status, 200);
   assert.equal((await host.until('thing', (d) => d.thing === 'door')).data.open, true);
   host.close();
+});
+
+test("a house's wall: its owner writes on it as on paper (each stroke an act, stamped); it is that house's, told with what lies there; one of each, and no one takes it up", async () => {
+  const paper = K.newSheetId();
+  const born = P.makeSurface({ sk: ana.sk, pk: ana.pk, paper, surface: 'wall-left' });
+  assert.equal((await ana.c.post('/api/papers', born)).status, 201);
+  const again = P.makeSurface({ sk: ana.sk, pk: ana.pk, paper: K.newSheetId(), surface: 'wall-left' });
+  assert.equal((await ana.c.post('/api/papers', again)).status, 409, 'one left wall to a house');
+  assert.equal((await post(ana, paper, act(ana, paper, 'stroke', { stroke: strokeAt(20, [30, 40, 200]) }))).status, 201);
+  assert.equal((await post(bo, paper, act(bo, paper, 'stroke', { stroke: strokeAt(30, [30, 40, 200]) }))).status, 403, 'not his wall');
+  assert.equal((await post(bo, paper, act(bo, paper, 'take'))).status, 403, 'part of her house');
+  const there = (await cy.c.get(`/api/papers/in/${b64url(ana.pk)}`)).data.papers.find((v) => v.paper === paper);
+  assert.deepEqual(there.where, { space: b64url(ana.pk), surface: 'wall-left' });
+  assert.equal(there.lines.length, 1);
 });

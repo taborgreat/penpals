@@ -2,7 +2,7 @@
 // carried into another, it pushes it (low: it slides; high: it falls over); nothing is glued to a place.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bodiesOf as asState, bodyAt } from '../bodies.js';
+import { bodiesOf as asState, bodyAt, bobAt } from '../bodies.js';
 
 const bodiesOf = (lines, ctx) => new Map(Object.entries(asState(lines, ctx)));
 
@@ -67,4 +67,34 @@ test('pushed past the edge of what holds it, it falls; the same acts, the same p
   const B = bodiesOf(lines, { room, shapes, start });
   assert.equal(B.get('candle').at[2], 0, 'off the table onto the floor');
   assert.deepEqual(JSON.stringify([...bodiesOf(lines, { room, shapes, start })]), JSON.stringify([...B]));
+});
+
+test("a bare hand is the being's own matter: moved through the room it pushes what it meets, as a thing carried does; drawn back, it is gone", () => {
+  const ctx = { room, shapes: { ...shapes, hand: { r: 0.045, h: 0.03, matter: 'skin' } }, start };
+  const reach = (p) => act({ act: 'reach', thing: 'hand', pos: p === null ? null : mm(p) });
+  const B = bodiesOf([reach([1.6, 2.4, 0.75]), reach([1.66, 2.4, 0.75])], ctx);
+  assert.ok(B.get('stamper').at[0] > 1.7 + 1e-3, `the stamper pushed along: ${B.get('stamper').at}`);
+  assert.ok(B.has('hand:ana'), 'the hand, in the room');
+  const G = bodiesOf([reach([1.6, 2.4, 0.75]), reach(null)], ctx);
+  assert.ok(!G.has('hand:ana'), 'drawn back');
+});
+
+test('a pendulum: its bob hangs still from its arm; pushed aside by a hand, it swings back through where it hung and comes to rest there', () => {
+  const bob = { arm: [0.1, 0, 0.3], len: 0.2, r: 0.02, matter: 'metal', string: 'fiber' };
+  const ctx = { room, shapes: { ...shapes, hand: { r: 0.045, h: 0.03, matter: 'skin' }, pendulum: { r: 0.05, h: 0.32, matter: 'wood', bob } }, start: { ...start, pendulum: [1.2, 2.2, 0.74] } };
+  const tied = [1.3, 2.2, 1.04];
+  const still = bodiesOf([], ctx).get('pendulum');
+  assert.ok(near(bobAt(still, ctx.shapes.pendulum, t), [tied[0], tied[1], tied[2] - bob.len]), 'hanging under its arm');
+  // the hand comes from in front at the bob's height (clear of the stand) and pushes it 5 cm aside, then is drawn back
+  const z = tied[2] - bob.len;
+  const reach = (p) => act({ act: 'reach', thing: 'hand', pos: p === null ? null : mm(p) });
+  const lines = [reach([1.3, 2.1, z - 0.01]), reach([1.3, 2.2 + 0.05 - 0.065, z - 0.01]), reach(null)];
+  const B = bodiesOf(lines, ctx).get('pendulum');
+  const from = B.bob.swing.from;
+  assert.ok(from[1] > 0.04 && from[1] <= 0.051 && Math.abs(Math.hypot(...from) - bob.len) < 1e-9, `pushed aside on its string: ${from}`);
+  const at = (ms) => bobAt(B, ctx.shapes.pendulum, B.bob.swing.ms + ms);
+  const ys = Array.from({ length: 60 }, (_, i) => at(i * 25)[1] - tied[1]);
+  assert.ok(Math.min(...ys) < -0.02, `it swings through to the other side: ${Math.min(...ys).toFixed(3)}`);
+  assert.ok(Math.abs(at(600000)[1] - tied[1]) < 1e-3, 'and comes to rest under its arm');
+  assert.ok(near(bodiesOf(lines, ctx).get('pendulum').at, [1.2, 2.2, 0.74]), 'its stand where it stood');
 });

@@ -4,12 +4,13 @@
 //   open      its sheet's seed is published, signed open by the key, and is the
 //             seed the record committed to
 //   regrown   the ink grown again from that seed settles exactly as the record says
-// The layout (pages, positions) is not signed: it is reported as layout.
+// A book (Tabor, 2026-10-25) is its chain: its key's signatures, and every paper and house surface it made,
+// each replayed from its own acts (law/paper.js). There is no layout.
 
 import { checkInkBody, checkPhotoBody, verifySealed, verifyOpenFor, regrow } from './record.js';
 import { proofOf, isGoodPublicKey, fingerprint } from './keys.js';
 import { fromB64url, b64url } from './tags.js';
-import { checkBirth, replay, growShared } from './shared.js';
+import { checkBirth, replay, growPaper } from './paper.js';
 
 const ID_RE = /^k_\d{6}$/;
 
@@ -35,7 +36,7 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
   const { head, lines, damaged } = parseBook(text);
   const problems = damaged.map((n) => `line ${n} is damaged`);
   const unverified = []; // (what a book alone cannot check: listed, not a problem)
-  if (head.book !== 2) problems.push('not a version 2 book');
+  if (head.book !== 3) problems.push('not a version 3 book');
   let key = null;
   try {
     key = fromB64url(head.key, 32);
@@ -46,7 +47,7 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
   const results = [];
   const bySheet = new Map();
   const byId = new Map();
-  const shares = new Map(); // a shared sheet (rooms.md §6): its owner, its stamped acts
+  const papers = new Map(); // a paper (law/paper.js) its key made: its birth, its stamped acts
 
   lines.forEach((line, i) => {
     const expect = `k_${String(i + 1).padStart(6, '0')}`;
@@ -72,77 +73,50 @@ export function verifyBook(text, { regrowOpen = true } = {}) {
           r.open = true;
           if (regrowOpen) r.regrown = regrow(line.ink, seed).ok;
         }
-      } else if (line.share) {
-        // a shared sheet: the owner's own, open from birth
-        r.kind = 'shared-sheet';
-        r.sheet = line.share.birth?.sheet ?? null;
-        const born = checkBirth(line.share.birth, line.share);
-        if (born.owner !== head.key) throw new Error('a shared sheet in a book is its owner’s own');
-        if (bySheet.has(r.sheet) || shares.has(r.sheet)) throw new Error(`sheet ${r.sheet} is used twice`);
-        shares.set(r.sheet, { ...born, lines: [], r });
+      } else if (line.paper) {
+        // a paper this key made: open from birth
+        r.kind = 'paper';
+        r.sheet = line.paper.birth?.paper ?? null;
+        const born = checkBirth(line.paper.birth, line.paper);
+        if (born.owner !== head.key) throw new Error('a paper in a book is born its maker’s own');
+        if (bySheet.has(r.sheet) || papers.has(r.sheet)) throw new Error(`paper ${r.sheet} is used twice`);
+        papers.set(r.sheet, { ...born, birth: line.paper.birth, lines: [], r });
         r.sealed = true;
         r.open = true;
-      } else if (typeof line.shared === 'string') {
+      } else if (typeof line.on === 'string') {
         // an act on it, as the stamper placed it
-        r.kind = 'shared';
-        r.sheet = line.shared;
-        const sh = shares.get(line.shared);
-        if (!sh) throw new Error('an act on a sheet that is not in this book');
-        sh.lines.push({ n: line.n, at: line.at, act: line.act, seal: line.seal });
+        r.kind = 'paper-act';
+        r.sheet = line.on;
+        const p = papers.get(line.on);
+        if (!p) throw new Error('an act on a paper that is not in this book');
+        p.lines.push({ n: line.n, at: line.at, act: line.act, seal: line.seal });
         r.sealed = true;
-      } else if (typeof line.open === 'string') {
-        r.kind = 'open';
-        r.sheet = line.open;
-        const target = bySheet.get(line.open);
-        if (!target || target.line.id !== line.ref) throw new Error('opens a sheet that is not in this book');
-        const seed = verifyOpenFor(target.line.ink, target.D, { seed: line.seed, by: line.by });
-        target.r.open = true;
-        r.open = true;
-        if (regrowOpen && target.line.ink.kind === 'ink') target.r.regrown = regrow(target.line.ink, seed).ok;
       } else throw new Error('unknown line');
     } catch (err) {
       r.error = err.message;
     }
   });
-  // Each shared sheet replayed: every place in order, every seal its writer's, every
-  // act allowed by the chain before it (possession, lifts); then it grows.
-  for (const [sheet, sh] of shares) {
-    // (a press took or not: the sheet grown to it says, with the wax that landed on it; that wax
-    // is regrown from the signed acts of the rooms it lay in, which a book does not hold: a write
-    // allowed only by such a seal is not verified here, and said so)
-    const { problems: wrong, unverified: open } = replay(sh.owner, sh.lines, { ctx: { seed: sh.seed, family: sh.family, drips: null } });
-    for (const u of open) unverified.push(`shared sheet ${sheet}, ${u}`);
-    for (const w of wrong) problems.push(`shared sheet ${sheet}, ${w}`);
+  // Each paper replayed: every place in order, every seal its being's, every act allowed by its chain
+  // before it (who may mark it, who may move it); then it grows (the wax that dripped onto it is regrown
+  // from the rooms it lay in, which a book does not hold: its ink and its seals' impressions are checked here)
+  for (const [paper, p] of papers) {
+    const { problems: wrong } = replay(p.birth, p.lines);
+    for (const w of wrong) problems.push(`paper ${paper}, ${w}`);
     if (regrowOpen && !wrong.length) {
       try {
-        growShared(sh.lines, { seed: sh.seed, family: sh.family });
-        sh.r.regrown = true;
+        growPaper(p.lines, { seed: p.seed, family: p.family });
+        p.r.regrown = true;
       } catch (err) {
-        sh.r.regrown = false;
-        sh.r.error = err.message;
+        p.r.regrown = false;
+        p.r.error = err.message;
       }
     }
   }
-  // The layout points only at ink that is there.
-  for (const [pid, page] of Object.entries(head.pages ?? {})) {
-    for (const it of page.items ?? []) {
-      const l = byId.get(it.ink);
-      if (!l?.ink || l.ink.use !== 'book') problems.push(`page ${pid} item ${it.id} points at ${it.ink}, which is not book ink here`);
-    }
-  }
-  // and so does the room's: each surface (a wall, the floor, the table) holds book
-  // ink written on that surface's own matter (rooms.md §2)
-  for (const [sid, surface] of Object.entries(head.surfaces ?? {})) {
-    for (const it of surface.items ?? []) {
-      const l = byId.get(it.ink);
-      if (!l?.ink || l.ink.use !== 'book') problems.push(`surface ${sid} item ${it.id} points at ${it.ink}, which is not book ink here`);
-      else if (l.ink.law >= 4 ? l.ink.matter !== surface.matter : JSON.stringify(l.ink.paper) !== JSON.stringify(surface.family))
-        problems.push(`surface ${sid} item ${it.id} is not written on that surface's matter`);
-    }
-  }
-  if (head.signature) {
-    const l = byId.get(head.signature);
-    if (!l?.ink || l.ink.use !== 'signature' || (l.ink.name !== String(head.name).toLowerCase() && l.ink.name !== head.name)) problems.push('the signature is not a signature record for this name');
+  // a signature: its key's name, signed (open from birth)
+  for (const r of results) {
+    if (r.use !== 'signature') continue;
+    const l = byId.get(r.id);
+    if (!l.open || (l.ink.name !== String(head.name).toLowerCase() && l.ink.name !== head.name)) problems.push(`${r.id} is not an open signature of this name`);
   }
   const bad = results.filter((r) => r.error || r.regrown === false);
   return {

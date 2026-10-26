@@ -1,7 +1,8 @@
 // Free matter (Tabor, 2026-10-25; law/bodies.js), in a real browser on this machine's GPU: nothing is glued to
-// a place. A candle taken up (a click) and carried along the table into the stamper pushes it out of its
-// way; the stamper taken up and carried past the table's edge, let go (a click) in the air there, falls,
-// and lies on the floor. Gone and come back, each is where it came to rest.
+// a place. A candle taken up (E) and carried along the table into the stamper pushes it out of its way; the
+// stamper taken up and carried past the table's edge, let go (a click) in the air there, falls, and lies on
+// the floor. The bare hand (nothing in it: your own matter) pressed on the pendulum's bob pushes it aside,
+// and drawn back the bob swings. Gone and come back, each is where it came to rest.
 //   node frontend/e2e/matter.mjs      the built site (npm run build -w frontend first)
 import * as W from './world.mjs';
 import { roomGeometry, ROOM, stamperRestOf } from '../src/scene/light/room.js';
@@ -10,7 +11,14 @@ const { step, panel } = W;
 const srv = await W.serve(3131, 'penpals-matter-');
 const browser = await W.launch();
 let failed = null;
-const canvas = (p) => p.locator('.journal-scene canvas.scene-canvas');
+const canvas = (p) => p.locator('.house-scene canvas.scene-canvas');
+// E with the pointer on it: the hand takes it up (a press is the bare hand pushing)
+const takeUp = async (p, at) => {
+  await p.mouse.move(at[0] + 1, at[1]);
+  await p.mouse.move(...at);
+  await canvas(p).focus();
+  await p.keyboard.press('e');
+};
 const geom = roomGeometry(ROOM);
 const at = (p, thing) => p.evaluate((t) => globalThis.__things.at(t), thing);
 const until = async (p, fn, what, ms = 15000) => {
@@ -31,7 +39,6 @@ try {
   await page.waitForTimeout(3000);
   const mid = [view.x + view.width / 2, view.y + view.height / 2];
   await canvas(page).focus();
-  await page.keyboard.press('h'); // (the pen she came in with, set down: the hand free)
   await page.keyboard.down('s');
   await page.waitForFunction(() => globalThis.__sceneLook?.pose()?.mode === 'walk', null, { timeout: 10000 });
   await page.keyboard.up('s');
@@ -51,7 +58,7 @@ try {
   const stand = [near[0], near[1] - 0.9, 1.6];
   for (let tries = 0; ; tries++) {
     await aim([near[0], near[1], near[2] + 0.1], stand);
-    await page.mouse.click(...mid);
+    await takeUp(page, mid); // (E: the hand takes it up)
     if (
       await panel(page, 'A candle in your hand')
         .waitFor({ timeout: 4000 })
@@ -83,7 +90,7 @@ try {
   const s = await at(page, 'stamper');
   for (let tries = 0; ; tries++) {
     await aim([s[0], s[1], s[2] + 0.03], [s[0], s[1] - 0.6, 1.5]);
-    await page.mouse.click(...mid);
+    await takeUp(page, mid); // (E: the hand takes it up)
     if (
       await panel(page, 'The stamper in your hand')
         .waitFor({ timeout: 4000 })
@@ -110,6 +117,31 @@ try {
   await until(page, async () => (await at(page, 'stamper'))[2] === 0, 'the stamper on the floor', 10000);
   console.log(`   falling: ${heights.map((z) => z.toFixed(2)).join(' → ')} → 0 (on the floor)`);
   if (!heights.some((z) => z > 0.05 && z < geom.table.top + 0.02)) console.log('   (its fall was over between looks)');
+
+  step("the bare hand: pressed on the pendulum's bob and moved, it pushes it aside; drawn back, the bob swings");
+  const rest = await page.evaluate(() => globalThis.__things.bob());
+  await aim(rest, [rest[0] - 0.05, rest[1] - 0.55, rest[2] + 0.35]);
+  console.log(`   under the hand: ${JSON.stringify(await page.evaluate(() => globalThis.__under?.()))} (the bob at ${rest.map((v) => v.toFixed(3)).join(', ')})`);
+  const reaches = [];
+  page.on('response', (r) => r.url().endsWith('/act') && r.request().postData()?.includes('"reach"') && reaches.push(r.status()));
+  await page.mouse.down();
+  await page.mouse.move(mid[0], mid[1] - 60, { steps: 12 }); // (the hand on into it: away from the eye)
+  await page.waitForTimeout(400);
+  await page.mouse.up();
+  await page.waitForTimeout(1500);
+  console.log(`   reach acts: ${reaches.join(', ') || 'none'}`);
+  await until(page, async () => !!(await page.evaluate(() => globalThis.__things.bodies().pendulum?.bob?.swing)), 'the bob pushed', 10000);
+  // along the way it was pushed: out that way, back through where it hung, out the other way
+  const from = await page.evaluate(() => globalThis.__things.bodies().pendulum.bob.swing.from);
+  const aside = Math.hypot(from[0], from[1]);
+  const xs = [];
+  for (let k = 0; k < 30; k++) {
+    const b = await page.evaluate(() => globalThis.__things.bob());
+    xs.push(((b[0] - rest[0]) * from[0] + (b[1] - rest[1]) * from[1]) / aside);
+    await page.waitForTimeout(50);
+  }
+  console.log(`   pushed ${(aside * 100).toFixed(1)} cm aside; across its swing: ${Math.min(...xs).toFixed(3)} .. ${Math.max(...xs).toFixed(3)} m from where it hung`);
+  if (!(Math.max(...xs) > 0.005 && Math.min(...xs) < -0.005)) throw new Error('the bob did not swing');
 
   step('gone and come back: each where it came to rest');
   const before = await page.evaluate(() => JSON.stringify(Object.fromEntries(Object.entries(globalThis.__things.bodies()).map(([k, b]) => [k, [b.at.map((v) => +v.toFixed(3)), b.lying]]))));

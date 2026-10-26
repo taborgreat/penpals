@@ -1,17 +1,13 @@
-// Law v2 on the server: looks age (oak gall darkens, by the light its house has
-// had: rooms.md §1b, lit only while a being is in it) and fade (exposure) at
-// view time only, a view counts once per viewer per day, nothing runs or is
-// written for a sheet nobody looks at, side and relief views are the writer's
-// (or anyone's once the sheet is open), and law 1 ink still lands and looks
-// exactly as before.
+// Law v2 on the server: a signature's look ages (oak gall darkens, by the light its house has had: rooms.md
+// §1b, lit only while a being is in it) and fades (exposure) at view time only, a view counts once per viewer
+// per day, and nothing runs or is written for a signature nobody looks at.
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { startApp, client } from './helpers.js';
-import { person, register, writeInk } from './device.js';
+import { person, register, FAMILY, K, R, S } from './device.js';
 import { fixtureV2Bytes } from 'penpals-law/tools/fixtures-v2';
-import zlib from 'node:zlib';
 
 const DAY = 24 * 60 * 60 * 1000;
 let app;
@@ -54,14 +50,21 @@ const userDirOf = (name) => {
 // Someone came into a house (or left it) at `ms`: a line of its room's chain, as the stamper writes it.
 let roomN = 0;
 const goes = (name, by, kind, ms) => fs.appendFileSync(path.join(userDirOf(name), 'room.chain'), `${JSON.stringify({ n: ++roomN, at: new Date(ms).toISOString(), by, kind })}\n`);
+// p signs their name again (routes/books.js), in these acts: → the response, its ink the signature's id
+async function sign(c, p, acts = S.write(p.writer, p.username, 3)) {
+  const sheet = K.newSheetId();
+  const made = R.makeInk({ sk: p.sk, pk: p.pk, sheet, use: 'signature', family: FAMILY, acts, name: p.username });
+  const res = await c.put('/api/books/me/signature', { line: { ...made.line, open: R.makeOpen(p.sk, made.D, sheet, made.seed) } });
+  return { ...res, line: made.line };
+}
+const lookOf = (c, name) => c.get(`/api/signatures/${name}/look`);
 
 test('oak gall darkens with the light its house has had, at view time; the record and its facts never change', async () => {
   app.setClockOffset(0);
   goes('ana', 'ana', 'enter', Date.now() - 60000); // ana is home (and stays): her house is lit all along
-  const res = await writeInk(app.ana, ana, { acts: fixtureV2Bytes('gallLine').bytes });
+  const res = await sign(app.ana, ana, fixtureV2Bytes('gallLine').bytes);
   assert.equal(res.status, 201, JSON.stringify(res.data));
-  assert.equal(res.ink.line.ink.law, 2, 'new writing is law 2');
-  const id = res.data.ink;
+  assert.equal(res.line.ink.law, 2, 'new writing is law 2');
   const chainBefore = (await app.ana.get('/api/books/ana/ink')).data.toString('utf8');
 
   // nobody looks for a month: nothing is written, nothing runs
@@ -73,7 +76,7 @@ test('oak gall darkens with the light its house has had, at view time; the recor
 
   const at = async (days) => {
     app.setClockOffset(days * DAY);
-    const r = await app.ana.get(`/api/books/ana/look/${id}`);
+    const r = await lookOf(app.ana, 'ana');
     assert.equal(r.status, 200);
     return { etag: r.headers.get('etag'), png: Buffer.from(r.data).toString('base64') };
   };
@@ -95,14 +98,13 @@ test('oak gall darkens with the light its house has had, at view time; the recor
 
 test('light is the clock: in a house nobody is in, oak gall rests; it darkens only while someone is there', async () => {
   app.setClockOffset(0);
-  const res = await writeInk(app.bo, bo, { acts: fixtureV2Bytes('gallLine').bytes });
-  const id = res.data.ink;
+  assert.equal((await sign(app.bo, bo, fixtureV2Bytes('gallLine').bytes)).status, 201);
   // bo comes home on day 31, for a day, and leaves again
   goes('bo', 'bo', 'enter', Date.now() + 31 * DAY);
   goes('bo', 'bo', 'leave', Date.now() + 32 * DAY);
   const look = async (days) => {
     app.setClockOffset(days * DAY);
-    return (await app.bo.get(`/api/books/bo/look/${id}`)).headers.get('etag');
+    return (await lookOf(app.bo, 'bo')).headers.get('etag');
   };
   assert.match(await look(30), /.L2-a0-/, 'a month in an empty house: a tomb, unchanged');
   assert.match(await look(40), /.L2-a24-/, 'one day lit: one day of darkening');
@@ -110,9 +112,8 @@ test('light is the clock: in a house nobody is in, oak gall rests; it darkens on
 
 test('ink without gall does not age; views count once per viewer per day and fade it in steps', async () => {
   app.setClockOffset(0);
-  const res = await writeInk(app.ana, ana);
-  const id = res.data.ink;
-  const look = async (c) => (await c.get(`/api/books/ana/look/${id}`)).headers.get('etag');
+  const id = (await sign(app.ana, ana)).data.ink;
+  const look = async (c) => (await lookOf(c, 'ana')).headers.get('etag');
   const views = () => JSON.parse(fs.readFileSync(path.join(userDirOf('ana'), 'exposure.json'), 'utf8'))[id];
   const first = await look(app.ana);
   for (let i = 0; i < 10; i++) await look(app.ana);
@@ -131,104 +132,4 @@ test('ink without gall does not age; views count once per viewer per day and fad
   const faded = await look(app.bo);
   assert.equal(views(), 10, 'six more days of ana, and bo on the last');
   assert.match(faded, /-e8-/, 'views are drawn in steps of 8');
-});
-
-test('the scene and the side view: heights and colours, never the seed or the paper; not for law 1 ink', async () => {
-  app.setClockOffset(0);
-  const res = await writeInk(app.ana, ana, { acts: fixtureV2Bytes('gallHairPool').bytes });
-  const id = res.data.ink;
-  const [x0, y0, w, h] = res.ink.line.ink.box;
-  const cut = `${x0},${y0 + (h >> 1)},${x0 + w - 1},${y0 + (h >> 1)}`;
-  const side = await app.ana.get(`/api/books/ana/look/${id}?mode=side&cut=${cut}`);
-  assert.equal(side.status, 200);
-  assert.equal(side.headers.get('content-type'), 'image/png');
-  assert.equal((await app.ana.get(`/api/books/ana/look/${id}?mode=side&cut=1,2,3`)).status, 400);
-  assert.equal((await app.ana.get(`/api/books/ana/look/${id}?mode=side&cut=0,0,5000,0`)).status, 400);
-  assert.equal((await app.ana.get(`/api/books/ana/look/${id}?mode=wobble`)).status, 400);
-  // a visitor's scene of a closed sheet: the field the facts make, nothing of the paper, no seed
-  const scene = await app.anon.get(`/api/books/ana/look/${id}?mode=scene`);
-  assert.equal(scene.status, 200);
-  const raw = Buffer.from(scene.data);
-  const field = zlib.inflateRawSync(raw);
-  const n = res.ink.line.ink.box[2] * res.ink.line.ink.box[3];
-  assert.equal(field[4], 2, 'PNKS 2');
-  assert.ok(field.length < 21 + n * 10, 'only the cells that hold anything (it decodes to exactly the field of the facts, below)');
-  assert.equal(field.subarray(0, 4).toString('latin1'), 'PNKS');
-  const seed = Buffer.from(res.ink.seedText, 'base64url');
-  for (const b of [raw, field]) {
-    assert.equal(b.indexOf(seed.subarray(0, 16)), -1, 'no seed in the scene');
-    assert.ok(!b.toString('latin1').includes(res.ink.seedText), 'nor its text');
-  }
-  // the writer's own device grows the same field from the facts (and only it adds the paper's fibers)
-  const { decodeScene, sceneField } = await import('penpals-law/v2/scene');
-  const { settle } = await import('penpals-law/record');
-  const grownHere = settle(fixtureV2Bytes('gallHairPool').bytes, Buffer.from(res.ink.seedText, 'base64url'), res.ink.line.ink.paper, 64, 2);
-  const mine = sceneField(grownHere.cells, grownHere.box, { ageH: 0, views: 0 });
-  const served = decodeScene(new Uint8Array(field));
-  for (const k of ['surface', 'above', 'depth', 'flags']) assert.deepEqual(served[k], mine[k], k);
-
-  // a pen that throws ink: its acts carry the spatter (PNKA format 2); the server grows the same drops
-  const splashy = await writeInk(app.ana, ana, { acts: fixtureV2Bytes('flicks').bytes });
-  assert.equal(splashy.status, 201, JSON.stringify(splashy.data));
-  assert.equal((await app.ana.get(`/api/books/ana/look/${splashy.data.ink}`)).status, 200);
-  await assert.rejects(writeInk(app.ana, ana, { acts: fixtureV2Bytes('flicks').bytes, law: 1 }), /PNKA format/, 'law 1 has no spatter: the device cannot even grow it');
-
-  // law 1 ink still lands, looks as it always did, and has no depth
-  const old = await writeInk(app.ana, ana, { law: 1 });
-  assert.equal(old.status, 201, JSON.stringify(old.data));
-  assert.equal(old.ink.line.ink.law, 1);
-  const oldLook = await app.ana.get(`/api/books/ana/look/${old.data.ink}`);
-  assert.equal(oldLook.status, 200);
-  assert.match(oldLook.headers.get('etag'), /\.L1-r/);
-  app.setClockOffset(300 * DAY);
-  assert.equal((await app.ana.get(`/api/books/ana/look/${old.data.ink}`)).headers.get('etag'), oldLook.headers.get('etag'), 'law 1 never ages');
-  assert.equal((await app.ana.get(`/api/books/ana/look/${old.data.ink}?mode=scene`)).status, 400);
-});
-
-test('load by the senses: the scene by window and level of detail, the look by level; who may see is the same', async () => {
-  app.setClockOffset(0);
-  const res = await writeInk(app.ana, ana, { acts: fixtureV2Bytes('gallHairPool').bytes, place: { page: 'home', x: 40, y: 40, scale: 96 } });
-  assert.equal(res.status, 201);
-  const id = res.data.ink;
-  const [x0, y0, w, h] = res.ink.line.ink.box;
-  const { decodeScene, sceneWindow } = await import('penpals-law/v2/scene');
-  const sceneOf = async (c, q = '') => {
-    const r = await c.get(`/api/books/ana/look/${id}?mode=scene${q}`);
-    return { status: r.status, etag: r.headers.get('etag'), field: r.status === 200 ? decodeScene(new Uint8Array(zlib.inflateRawSync(Buffer.from(r.data)))) : null };
-  };
-  // shown at 96, its scene (grown at the record's own scale, laid over the item) is anyone's who sees the page
-  const whole = await sceneOf(app.anon);
-  assert.equal(whole.status, 200, 'the scene of writing shown at another size');
-  assert.equal((await app.anon.get(`/api/books/ana/look/${id}?s=64`)).status, 404, 'its look only at the size it is shown');
-  // a window: those cells, and only those
-  const at = [x0 + 5, y0 + 2, 40, 20];
-  const part = await sceneOf(app.anon, `&at=${at.join(',')}`);
-  assert.equal(part.status, 200);
-  const want = sceneWindow(whole.field, at);
-  assert.deepEqual(part.field.box, want.box);
-  for (const k of ['surface', 'above', 'depth', 'rgba', 'flags']) assert.deepEqual(part.field[k], want[k], k);
-  assert.notEqual(part.etag, whole.etag);
-  // a level of detail, and both
-  const far = await sceneOf(app.anon, '&lod=2');
-  assert.equal(far.field.lod, 2);
-  assert.deepEqual(far.field.box.slice(2), [Math.ceil((x0 + w) / 4) - Math.floor(x0 / 4), Math.ceil((y0 + h) / 4) - Math.floor(y0 / 4)]);
-  const both = await sceneOf(app.anon, `&at=${at.join(',')}&lod=1`);
-  for (const k of ['surface', 'above', 'depth', 'rgba', 'flags']) assert.deepEqual(both.field[k], sceneWindow(whole.field, at, 1)[k], k);
-  for (const q of ['&at=1,2,3', '&at=0,0,0,5', '&at=a,b,c,d', '&lod=4', '&lod=-1', '&lod=x']) assert.equal((await sceneOf(app.anon, q)).status, 400, q);
-  // the flat look at a level of detail: a quarter of the pixels; no windows
-  const size = (png) => [png.readUInt32BE(16), png.readUInt32BE(20)];
-  const flat = await app.anon.get(`/api/books/ana/look/${id}?s=96`);
-  const half = await app.anon.get(`/api/books/ana/look/${id}?s=96&lod=1`);
-  assert.equal(half.status, 200);
-  const [fw, fh] = size(Buffer.from(flat.data));
-  assert.deepEqual(size(Buffer.from(half.data)), [Math.ceil(fw / 2), Math.ceil(fh / 2)]);
-  assert.notEqual(half.headers.get('etag'), flat.headers.get('etag'));
-  assert.equal((await app.anon.get(`/api/books/ana/look/${id}?s=96&at=0,0,9,9`)).status, 400);
-  assert.equal((await app.anon.get(`/api/books/ana/look/${id}?s=96&lod=9`)).status, 400);
-  // the same rules: a private book's windows are as closed as the whole
-  assert.equal((await app.ana.post('/api/social/private', { private: true })).status, 200);
-  assert.equal((await sceneOf(app.anon, `&at=${at.join(',')}`)).status, 403);
-  assert.equal((await app.anon.get(`/api/books/ana/look/${id}?s=96&lod=1`)).status, 403);
-  assert.equal((await sceneOf(app.ana, `&at=${at.join(',')}`)).status, 200, 'the writer still sees it');
-  await app.ana.post('/api/social/private', { private: false });
 });

@@ -1,43 +1,33 @@
-// Together in a room (rooms.md §4, §5, §6): who else is here, the shared sheets
-// on its owner's table (each grown from its stamped acts, your own strokes laid
-// over it as your guess until they are grown), your pen on the ones you may
-// write on (yours, one lying on your table, or one on its owner's table with your
-// seal pressed into it), and the acts that lay a sheet on someone's table, take it
-// back, or lift your stroke. On the table the hand holds the pen or the stamper (set
-// to someone's seal: the next press, then the pen again). The candles are lit and put out
-// by acts (below: by the world's clock), carried and tilted (room/carry.js); each burns
-// down and drips as the law has it, regrown here from the room's chain alone (law/wax.js),
-// and each sheet grows with what landed on it. Where each sheet lies is read from the
-// chain too (its lay lines: room/table.js).
+// Together in a house (rooms.md §4, §5, §6; law/paper.js): who else is here, the papers lying in it (each
+// grown from its stamped acts and what dripped onto it, your own strokes laid over it as your guess until
+// they are grown), your pen on the ones you may mark (yours; one lying on your table; one with your name
+// pressed into it), and your hand: a paper taken up from wherever it lies, carried, and let go anywhere (in
+// a house, on a table, outside), posted into a mailbox (it is theirs then), saved into your book (yours),
+// taken out of your book or out of your mailbox (the oldest letter first). All of it acts on the paper's
+// own chain, sealed by your key: nothing here but what its chain says. On the table the hand holds the pen
+// or the stamper (set to someone's seal: pressed into a paper of yours). The candles are lit and put out
+// by acts (below: by the world's clock), carried and tilted (room/carry.js); each burns down and drips as
+// the law has it, regrown here from the room's chain alone (law/wax.js), and each paper grows with what
+// landed on it. Papers lying outside are drawn where they lie too.
 //
-// → { others, report, body, sheets: [{ view, slot, field, mayWrite, seals }], scene: { sheets,
-//     tableWriter, beings, onPose, focus, heard: { on(fn) }: others' strokes as they come, fn({ origin
-//     (its sheet's slot), rec (decoded), seed }) }, candles (law/wax.js createRoomWax: candle(which) →
-//     { cd, lit, holder, pos, deg }, as far as at()), mine (your shared sheets, wherever they lie), tool,
-//     notice, clearNotice, share(family), layOn(view, name), takeBack(view), lift(view), lookAt(view),
-//     useTool('pen'), stamperFor(name), breakSeal(view, n), and the mail (one-world.md): letter (the sheet
-//     in your hand, to post: your own, off the table while you hold it), hold(sheet), letGo(), post(key)
-//     (into the mailbox of that key), take() (the oldest out of yours: on your table, in your hand),
-//     letters(keys) → Map(key → how many wait in each mailbox) }
+// → { others, report, body, candles (law/wax.js createRoomWax), candleLit(which), lightCandle(which, on),
+//     papers (lying here: [{ view, at (room m), field, grown, facts, seals, mayWrite }]), held (the paper in
+//     your hand: its view, or null), book (the papers in your book), notice, clearNotice, tool, useTool(t),
+//     stamperFor(name), newPaper() (one more on your table, somewhere on it), lift() (your last stroke on the
+//     paper you last wrote on), shelve(path), takeOut(view), scene: { sheets, tableWriter, beings, onPose,
+//     heard, papers (the hand on them: SceneView's) } }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRoom, useRoomLines, useThings, seatOf, roomAct } from './presence.js';
-import { useSharedFields, createSharedWriter, guessOver, sceneSheetOf, slotOf, shareSheet, moveSheet, postSheet, takeSheet, keyOfName, SHARED_PAGE } from './shared.js';
-import { lyingOn, waxContext } from './table.js';
-import { wax as WX, room as R, candle as C, shared as SH, fromB64url } from 'penpals-law';
-import { lawOf } from 'penpals-law/laws';
-import { GEOM, theLight } from '../scene/light.js';
-
-// The seals pressed into a sheet, in its order: [{ n, for (key), name, took, broken, at: { x, y } }]
-// (took: the sheet grown to that press, its i-th seal; until then, not yet).
-export function sealsOf(view, took = []) {
-  const broken = new Set(view.lines.filter((l) => l.act.act === 'break').map((l) => l.act.break.seal));
-  return view.lines
-    .filter((l) => l.act.act === 'press')
-    .map((l, i) => ({ n: l.n, for: l.act.press.for, name: view.names?.[l.act.press.for] ?? null, took: !!took[i], broken: broken.has(l.n), at: { x: l.act.press.x / 10, y: l.act.press.y / 10 } }));
-}
-// May `me` write here (law/shared.js mayWrite, read from the view and its seals)?
-export const mayWriteOn = (view, seals, me) => !!me && (view.birth.key === me || view.table === me || (view.table === view.birth.key && seals.some((x) => x.for === me && x.took && !x.broken)));
+import { useRoom, useRoomLines, useThings, useWorld, seatOf, roomAct } from './presence.js';
+import { usePaperFields, createPaperWriter, guessOver, sceneSheetOf, mayMark, sealsOf, strokeOf, paperAct, newPaper as bornPaper, newSurface, stacked, restedAt, SEAL_R } from './papers.js';
+import { CELLS } from '../ink/live.js';
+import { waxContext } from './table.js';
+import { wax as WX, room as R, candle as C, paper as P } from 'penpals-law';
+import { GEOM, theLight, originOf } from '../scene/light.js';
+import { PX_PER_M } from '../scene/light/index.js';
+import { HAND } from '../scene/light/room.js';
+import { frameOf, inBox } from '../scene/outside.js';
 import { api } from '../api.js';
+
 const byHand = { on: false }; // (the e2e lights them itself: globalThis.__candles)
 
 // Which candles burn and which are in someone's hand, by the room's signed acts. → { lit, held } ('01' strings)
@@ -52,18 +42,26 @@ function candlesOf(lines) {
   return { lit: R.CANDLES.map((c) => (lit[c] ? 1 : 0)).join(''), held: R.CANDLES.map((c) => (held[c] ? 1 : 0)).join('') };
 }
 const CATCH_UP_MS = 120000; // the candles are regrown this much of the room's time at a go, between frames
+// A new paper's place on the table (room m: its middle): the first in front of the chair, where you sit
+// before it; any more somewhere on the table, wholly on it.
+export function newPaperAt(geom, size = P.SIZES.half, first = false, rand = Math.random) {
+  const t = geom.table;
+  if (first) return [(geom.pageRect.x0 + geom.pageRect.x1) / 2, (geom.pageRect.y0 + geom.pageRect.y1) / 2, t.top];
+  const [w, h] = size.map((v) => v / PX_PER_M);
+  return [t.x0 + w / 2 + rand() * (t.x1 - t.x0 - w), t.y0 + h / 2 + rand() * (t.y1 - t.y0 - h), t.top];
+}
 
-export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom = false, pageW, pageH, color }) {
-  const { beings, sheets, report, body } = useRoom(name, { seat: myRoom ? 0 : seatOf(me) });
+export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom = false, pageW, pageH, pen, family = null, plot = null }) {
+  const { beings, papers: here, report, body } = useRoom(name, { seat: myRoom ? 0 : seatOf(me), space: roomKey });
   const lines = useRoomLines(name);
-  const { lit, held } = useMemo(() => candlesOf(lines), [lines]);
+  const { lit, held: candleHeld } = useMemo(() => candlesOf(lines), [lines]);
   const burning = lit.includes('1'),
-    inHand = held.includes('1');
+    inHand = candleHeld.includes('1');
   // The candles and what they let fall (law/wax.js), regrown from the room's chain as its lines
   // arrive and as time passes: caught up a slice at a time (a candle lit for hours is many
   // steps), then kept up, often while one is in someone's hand, now and then while one burns.
   // The light draws them as they are (scene/light.js setCandles): lit or out, how far down, how fed.
-  const candles = useMemo(() => WX.createRoomWax(waxContext({ geom: GEOM, page: [pageW, pageH] })), [name, pageW, pageH]);
+  const candles = useMemo(() => WX.createRoomWax(waxContext({ geom: GEOM })), [name]);
   const [wax, setWax] = useState({ drips: [], n: 0 });
   useEffect(() => () => theLight().setCandles(null), [candles]);
   useEffect(() => {
@@ -86,44 +84,84 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     go();
     return () => clearTimeout(timer);
   }, [candles, lines, inHand, burning]);
-  const dripsOf = useCallback((view) => WX.dripsOn(wax.drips, view.sheet, view.born ?? 0), [wax]);
-  const fields = useSharedFields(sheets, dripsOf);
-  const lying = useMemo(() => lyingOn(lines), [lines]);
+  const dripsOf = useCallback((view) => WX.dripsOn(wax.drips, view.paper, view.born ?? 0), [wax]);
+
   const myKey = key?.publicKey ?? null;
-  const [writers, setWriters] = useState(() => new Map()); // sheet → room/shared.js writer
+  const [notice, setNotice] = useState(null);
+  const fail = (err) => setNotice(err?.message ?? String(err));
+  // your hand and your book (store/papers.js: read again after each of your moves), and the papers lying
+  // outside (drawn where they lie, when this house has a plot to stand on)
+  const [held, setHeld] = useState(null);
+  const [book, setBook] = useState([]);
+  const [outside, setOutside] = useState([]);
+  const refresh = useCallback(() => {
+    if (myKey) {
+      api.get('/api/papers/held').then((r) => setHeld(r.papers.at(-1) ?? null), fail);
+      api.get('/api/papers/book').then((r) => setBook(r.papers), fail);
+    }
+    if (plot) api.get('/api/papers/in/outside').then((r) => setOutside(r.papers), fail);
+  }, [myKey, plot?.join()]);
+  useEffect(refresh, [refresh]);
+  // in your own house, the first time: a paper of yours on your table
+  useEffect(() => {
+    if (!myRoom || !key || !family) return;
+    api
+      .get('/api/papers/made')
+      .then((r) => (r.made ? null : bornPaper(key, family, newPaperAt(GEOM, P.SIZES.half, true))))
+      .catch(fail);
+  }, [myRoom, key, family?.grain, family?.weight]);
+
+  const views = useMemo(() => [...here, ...outside.filter((v) => !here.some((x) => x.paper === v.paper)), ...(held ? [held] : [])], [here, outside, held]);
+  const fields = usePaperFields(views, dripsOf);
+  const origin = useMemo(() => originOf(pageW, pageH, GEOM), [pageW, pageH]);
+  const frame = useMemo(() => (plot ? frameOf(GEOM, plot) : null), [plot?.join()]);
+  // where each paper lies (room m: its middle), here or outside
+  const restingAt = useCallback(
+    (v) => {
+      const at = v.where.at.map((x) => x / 1000);
+      return v.where.space === 'outside' ? (frame ? frame.toRoom(at) : null) : at;
+    },
+    [frame],
+  );
+  // each where it lies, in the order they came to rest (the last let go lies on top of any it was let go
+  // onto: a paper's thickness higher for each under it: room/papers.js stacked)
+  const placed = useMemo(
+    () =>
+      stacked(
+        views
+          .filter((v) => v.where.space && !v.where.surface)
+          .flatMap((view) => {
+            const at = restingAt(view);
+            if (!at) return [];
+            const f = fields.get(view.paper);
+            const seals = sealsOf(view, f?.seals);
+            return [
+              { view, at, rested: restedAt(view), field: f?.field ?? null, grown: f?.n ?? 0, facts: f?.facts ?? null, seals, mayWrite: mayMark(view, myKey), sheet: sceneSheetOf(view, at, origin) },
+            ];
+          }),
+      ),
+    [views, fields, myKey, origin, restingAt],
+  );
+  const placedRef = useRef(placed);
+  placedRef.current = placed;
+
+  // the writers: one for each paper you write on, let go when it is no longer yours to mark here
+  const [writers, setWriters] = useState(() => new Map()); // paper → room/papers.js writer
   const writersRef = useRef(writers);
   writersRef.current = writers;
   const active = useRef(null); // the writer the pen is on
-  const [notice, setNotice] = useState(null);
-  const [mine, setMine] = useState([]);
-  const [letter, setLetter] = useState(null); // the sheet in your hand to post (one-world.md: the mail)
-  const [focus, setFocus] = useState(null);
-  const [tool, setTool] = useState('pen'); // 'pen' | { seal: { name, key, w, h, face } }
-  const toolRef = useRef(tool);
-  toolRef.current = tool;
-  const placed = useMemo(
-    () =>
-      sheets.map((view, i) => {
-        const seals = sealsOf(view, fields.get(view.sheet)?.seals);
-        const lies = lying.find((s) => s.sheet === view.sheet);
-        return {
-          view,
-          slot: slotOf(lies ? lies.slot : lying.length + i, pageW), // (its lay line on its way: after the others)
-          field: fields.get(view.sheet)?.field ?? null,
-          grown: fields.get(view.sheet)?.n ?? 0,
-          facts: fields.get(view.sheet)?.facts ?? null,
-          seals,
-          mayWrite: mayWriteOn(view, seals, myKey),
-        };
-      }),
-    [sheets, fields, pageW, myKey, lying],
-  );
-  const viewsRef = useRef(placed);
-  viewsRef.current = placed;
-
-  // writers for sheets no longer here (or no longer yours to write on) are let go
+  const lastWritten = useRef(null); // the writer last written with (lift)
+  // the house's surfaces written on (law/paper.js: its walls, floor, ceiling and table top, each matter with its
+  // chain), and those you begin writing on now (theirs once their birth is stamped)
+  const [begun, setBegun] = useState(() => new Map()); // surface → { view, ready }
+  const surfaces = useMemo(() => {
+    const stamped = here.filter((v) => v.where.surface);
+    return [...stamped, ...[...begun.values()].map((b) => b.view).filter((v) => !stamped.some((x) => x.where.surface === v.where.surface))];
+  }, [here, begun]);
+  const surfacesRef = useRef(surfaces);
+  surfacesRef.current = surfaces;
   useEffect(() => {
-    const keep = new Set(placed.filter((p) => p.mayWrite).map((p) => p.view.sheet));
+    const keep = new Set([...placed.filter((p) => p.mayWrite).map((p) => p.view.paper), ...surfaces.filter((v) => mayMark(v, myKey)).map((v) => v.paper)]);
     const gone = [...writers.keys()].filter((s) => !keep.has(s));
     if (!gone.length) return;
     const next = new Map(writers);
@@ -132,28 +170,44 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       next.delete(s);
     }
     setWriters(next);
-  }, [placed, writers]);
+  }, [placed, surfaces, writers, myKey]);
   useEffect(() => () => writersRef.current.forEach((w) => w.destroy()), []);
+  // the pen in the hand, as the law takes it on a paper: what the writers write with
+  const penNow = useMemo(() => pen.lawPen(P.PAPER_LAW), [pen]);
   useEffect(() => {
-    for (const w of writers.values()) w.setColor(color);
-  }, [color, writers]);
-  // the stamped sheet grown anew: your guess goes once everything you sent is in it
+    for (const w of writers.values()) w.setPen(penNow);
+  }, [penNow, writers]);
+  // the stamped paper grown anew: your guess goes once everything you sent is in it
   useEffect(() => {
-    for (const p of placed) writers.get(p.view.sheet)?.settled(p.view.lines, p.grown);
-  }, [placed, writers]);
-  // others' strokes as they come (world.md Phase 2: each writer's pen heard from where it wrote, as
-  // it was written); what lay there when you came is not heard
+    for (const p of placed) writers.get(p.view.paper)?.settled(p.view, p.grown);
+    for (const v of surfaces) writers.get(v.paper)?.settled(v, fields.get(v.paper)?.n ?? 0);
+  }, [placed, surfaces, fields, writers]);
+  const writerFor = useCallback(
+    (paper) => {
+      let w = writersRef.current.get(paper);
+      if (w) return w;
+      const p = placedRef.current.find((x) => x.view.paper === paper);
+      if (!p?.mayWrite || !key) return null;
+      w = createPaperWriter({ key, view: p.view, pen: penNow, onNotice: setNotice });
+      writersRef.current = new Map(writersRef.current).set(paper, w);
+      setWriters(writersRef.current);
+      return w;
+    },
+    [key, penNow],
+  );
+
+  // others' strokes as they come (world.md Phase 2: each writer's pen heard from where it wrote, as it was
+  // written); what lay there when you came is not heard
   const listeners = useRef(new Set());
-  const heardTo = useRef(new Map()); // sheet → its lines heard so far
+  const heardTo = useRef(new Map()); // paper → its lines heard so far
   useEffect(() => {
     for (const p of placed) {
-      const was = heardTo.current.get(p.view.sheet);
-      heardTo.current.set(p.view.sheet, p.view.lines.length);
+      const was = heardTo.current.get(p.view.paper);
+      heardTo.current.set(p.view.paper, p.view.lines.length);
       if (was === undefined || !listeners.current.size) continue;
       for (const l of p.view.lines.slice(was)) {
         if (l.act.act !== 'stroke' || l.act.by === myKey) continue;
-        const rec = lawOf(SH.SHARED_LAW).decodeCanonical(fromB64url(l.act.stroke));
-        for (const fn of listeners.current) fn({ origin: p.slot, rec, seed: l.n });
+        for (const fn of listeners.current) fn({ origin: p.sheet.origin, rec: strokeOf(l), seed: l.n });
       }
     }
   }, [placed, myKey]);
@@ -167,156 +221,199 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     [],
   );
 
-  const writerFor = useCallback(
-    (sheet) => {
-      let w = writersRef.current.get(sheet);
-      if (w) return w;
-      const p = viewsRef.current.find((x) => x.view.sheet === sheet);
-      if (!p?.mayWrite || !key) return null;
-      w = createSharedWriter({ key, view: p.view, color, onNotice: setNotice });
-      writersRef.current = new Map(writersRef.current).set(sheet, w);
-      setWriters(writersRef.current);
-      return w;
-    },
-    [key, color],
-  );
-
-  // the scene: each sheet at its slot, grown, your guess over it
-  const guesses = useRef(new Map()); // sheet → { writer, field, live }
-  const sceneSheets = useMemo(
+  // the ink on the house's surfaces, as the scene draws it (scene/marks.js): each surface's grown field, and your
+  // guess over it while you write there
+  const surfaceGuesses = useRef(new Map()); // paper → { writer, field, live }
+  const marks = useMemo(
     () =>
-      placed
-        .filter((p) => p.view.sheet !== letter) // (the letter in your hand is not on the table)
-        .map((p) => {
-          const w = writers.get(p.view.sheet);
-          let live;
-          if (w) {
-            const g = guesses.current.get(p.view.sheet);
-            if (g?.writer === w && g.field === p.field) live = g.live;
-            else {
-              live = guessOver(w.live, p.field);
-              guesses.current.set(p.view.sheet, { writer: w, field: p.field, live });
-            }
-          }
-          return { ...sceneSheetOf(p.view.sheet, p.slot), field: p.field ?? undefined, live };
-        }),
-    [placed, writers, letter],
+      surfaces.flatMap((v) => {
+        const field = fields.get(v.paper)?.field ?? null;
+        const w = writers.get(v.paper);
+        // (a mark's origin: where its box's corner lies on the surface, its units: scene/marks.js)
+        if (!w)
+          return field ? [{ id: `surface:${v.paper}`, surface: v.where.surface, origin: [field.box[0] / CELLS, field.box[1] / CELLS], cellUnits: 1 / CELLS, box: field.box, rgba: field.rgba }] : [];
+        const g = surfaceGuesses.current.get(v.paper);
+        const live = g?.writer === w && g.field === field ? g.live : guessOver(w.live, field);
+        surfaceGuesses.current.set(v.paper, { writer: w, field, live });
+        return [{ id: `surface:${v.paper}`, surface: v.where.surface, origin: [0, 0], cellUnits: 1 / CELLS, box: [0, 0, v.birth.size[0] * CELLS, v.birth.size[1] * CELLS], live }];
+      }),
+    [surfaces, fields, writers],
   );
-  const writable = placed.filter((p) => p.mayWrite);
-  const rects = writable.map((p) => `${p.view.sheet}@${p.slot.join()}`).join('|');
-  const tableWriter = useMemo(
+  // the pen on a surface of your own house (from Look: rooms.md §2), in that surface's units: the first stroke
+  // on one makes it matter with its own chain
+  const surfaceWriter = useRef(null);
+  const wallWriter = useMemo(
     () =>
-      writable.length
+      myRoom && key
         ? {
-            sheets: writable.map((p) => ({ sheet: p.view.sheet, origin: p.slot, size: [SHARED_PAGE.width, SHARED_PAGE.height] })),
-            down(sheet, q, ev, type) {
-              const w = writerFor(sheet);
-              if (!w) return false;
-              active.current = w;
-              return w.pen.down(q, ev, type);
+            down(surface, p, ev, type) {
+              let v = surfacesRef.current.find((x) => x.where.surface === surface);
+              let ready = null;
+              if (!v) {
+                const b = newSurface(key, surface);
+                b.ready.catch(fail);
+                setBegun((m) => new Map(m).set(surface, b));
+                [v, ready] = [b.view, b.ready];
+              } else ready = begun.get(surface)?.view.paper === v.paper ? begun.get(surface).ready : null;
+              let w = writersRef.current.get(v.paper);
+              if (!w) {
+                w = createPaperWriter({ key, view: v, pen: penNow, ready, onNotice: setNotice });
+                writersRef.current = new Map(writersRef.current).set(v.paper, w);
+                setWriters(writersRef.current);
+              }
+              surfaceWriter.current = w;
+              lastWritten.current = w;
+              return w.pen.down(p, ev, type);
             },
-            // the stamper in the hand pressed here, its face set to someone's seal (harder with a pen pressed
-            // harder); without a face, nothing
-            press(sheet, q, ev) {
-              const w = writerFor(sheet);
-              const t = toolRef.current;
-              if (!w || !t?.seal) return false;
-              const depth = ev?.pressure > 0 && ev.pressure !== 0.5 ? Math.max(40, Math.round(255 * ev.pressure)) : 220;
-              const tiltX = Math.max(-127, Math.min(127, Math.round((ev?.tiltX ?? 0) * 2)));
-              const tiltY = Math.max(-127, Math.min(127, Math.round((ev?.tiltY ?? 0) * 2)));
-              w.press(q, t.seal, { depth, tiltX, tiltY });
-              return true;
-            },
-            move(q, ev) {
-              active.current?.pen?.move(q, ev);
-            },
-            up(q, ev) {
-              active.current?.pen?.up(q, ev);
-              active.current = null;
-            },
-            cancel() {
-              active.current?.pen?.cancel();
-              active.current = null;
-            },
-            nib: () => active.current?.nib() ?? null,
+            move: (p, ev) => surfaceWriter.current?.pen.move(p, ev),
+            up: (p, ev) => surfaceWriter.current?.pen.up(p, ev),
+            cancel: () => surfaceWriter.current?.pen.cancel(),
+            nib: () => surfaceWriter.current?.nib() ?? null,
           }
         : null,
-    [rects, writerFor], // (the sheets you may write on, by place: not every act on them)
+    [myRoom, key, penNow, begun],
   );
 
-  // your shared sheets, wherever they lie (to take one back)
-  const refreshMine = useCallback(() => {
-    if (!myKey) return setMine([]);
-    api
-      .get('/api/shared/mine')
-      .then((r) => setMine(r.sheets ?? []))
-      .catch(() => {});
-    return undefined;
-  }, [myKey]);
-  const tableKey = sheets.map((s) => `${s.sheet}:${s.table}`).join('|');
-  useEffect(refreshMine, [refreshMine, tableKey]);
+  const [tool, setTool] = useState('pen'); // 'pen' | { seal: { name, key, w, h, face } }
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  // the scene: each paper where it lies, grown, your guess over it; the one in your hand, in it
+  const guesses = useRef(new Map()); // paper → { writer, field, live }
+  const sceneSheets = useMemo(() => {
+    const lying = placed.map((p) => {
+      const w = writers.get(p.view.paper);
+      let live;
+      if (w) {
+        const g = guesses.current.get(p.view.paper);
+        if (g?.writer === w && g.field === p.field) live = g.live;
+        else {
+          live = guessOver(w.live, p.field);
+          guesses.current.set(p.view.paper, { writer: w, field: p.field, live });
+        }
+      }
+      return { ...p.sheet, field: p.field ?? undefined, live };
+    });
+    if (!held) return lying;
+    const inHand = sceneSheetOf(held, [0, 0, GEOM.table.top], origin);
+    return [...lying, { ...inHand, origin: [0, 0], lift: 0, held: true, field: fields.get(held.paper)?.field ?? undefined }];
+  }, [placed, writers, held, fields, origin]);
+  // the pen on the papers lying on this table that you may mark (in each one's own units)
+  const writable = placed.filter((p) => p.mayWrite && p.view.where.space === roomKey && P.onTable(p.view.where));
+  const rects = writable.map((p) => `${p.view.paper}@${p.sheet.origin.join()}`).join('|');
+  const tableWriter = useMemo(
+    () => ({
+      sheets: [...writable].reverse().map((p) => ({ sheet: p.view.paper, origin: p.sheet.origin, size: p.sheet.size })), // (the topmost first)
+      down(paper, q, ev, type) {
+        const w = writerFor(paper);
+        if (!w) return false;
+        active.current = w;
+        lastWritten.current = w;
+        return w.pen.down(q, ev, type);
+      },
+      // the stamper in the hand pressed here, its face set to someone's seal (harder with a pen pressed
+      // harder); without a face, nothing
+      press(paper, q, ev) {
+        const w = writerFor(paper);
+        const t = toolRef.current;
+        if (!w || !t?.seal) return false;
+        const depth = ev?.pressure > 0 && ev.pressure !== 0.5 ? Math.max(40, Math.round(255 * ev.pressure)) : 220;
+        const tiltX = Math.max(-127, Math.min(127, Math.round((ev?.tiltX ?? 0) * 2)));
+        const tiltY = Math.max(-127, Math.min(127, Math.round((ev?.tiltY ?? 0) * 2)));
+        w.press(q, t.seal, { depth, tiltX, tiltY });
+        return true;
+      },
+      move(q, ev) {
+        active.current?.pen?.move(q, ev);
+      },
+      up(q, ev) {
+        active.current?.pen?.up(q, ev);
+        active.current = null;
+      },
+      cancel() {
+        active.current?.pen?.cancel();
+        active.current = null;
+      },
+      nib: () => active.current?.nib() ?? null,
+    }),
+    [rects, writerFor],
+  );
 
-  const fail = (err) => setNotice(err?.message ?? String(err));
-  const kFor = (view) => writersRef.current.get(view.sheet)?.nextK();
+  // the hand on the papers (SceneView's `papers`): take one up where it lies, let the one in your hand go
+  // at a place (room m: in this house, or outside it), post it into a mailbox, take the oldest letter out of
+  // yours; a bare hand pressed on a seal of yours (under its palm) cracks its wax
+  const moved = (p) => p.then(refresh, (err) => (fail(err), refresh()));
+  const hand = useMemo(
+    () => ({
+      lying: placed.map((p) => ({ paper: p.view.paper, sheet: p.sheet.id, origin: p.sheet.origin, size: p.sheet.size, lift: p.sheet.lift })),
+      held: held ? { paper: held.paper, sheet: `paper:${held.paper}`, size: held.birth.size } : null,
+      take(paper) {
+        const p = placedRef.current.find((x) => x.view.paper === paper);
+        if (p && key) moved(paperAct(key, p.view, 'take'));
+      },
+      put(at) {
+        if (!held || !key) return;
+        const out = !inBox(GEOM, at) && frame;
+        moved(paperAct(key, held, 'put', out ? { space: 'outside', at: frame.toWorld(at) } : { space: roomKey, at }));
+        setHeld(null);
+      },
+      post(toKey) {
+        if (!held || !key) return Promise.resolve();
+        setHeld(null);
+        return moved(paperAct(key, held, 'post', { to: toKey }));
+      },
+      async takeLetter() {
+        const [view] = (await api.get('/api/papers/mailbox').catch(fail))?.papers ?? [];
+        if (!view) return fail(new Error('Your mailbox is empty.'));
+        return moved(paperAct(key, view, 'take'));
+      },
+      letters: async (keys) =>
+        new Map(
+          await Promise.all(
+            keys.map((k) =>
+              api.get(`/api/papers/mailbox/${k}`).then(
+                (r) => [k, r.letters],
+                () => [k, 0],
+              ),
+            ),
+          ),
+        ),
+      touch(paper, q) {
+        const p = placedRef.current.find((x) => x.view.paper === paper);
+        if (!p || p.view.ownerKey !== myKey) return false;
+        const palm = HAND.r * PX_PER_M + SEAL_R; // (a seal under the palm: its wax cracked)
+        const seal = p.seals.find((x) => !x.broken && Math.hypot(x.at.x - q.x, x.at.y - q.y) <= palm);
+        const w = seal && writerFor(paper);
+        if (!w) return false;
+        w.breakSeal(seal.n, seal.at);
+        return true;
+      },
+    }),
+    [placed, held, key, roomKey, frame, myKey, writerFor],
+  );
+
+  const others = useMemo(() => beings.filter((b) => b.name !== me), [beings, me]);
+  // everyone else in the world, where they are (the world's stream: world m), drawn in this house's frame:
+  // out of doors, in their own houses, in this one (one-world.md: one space)
+  const world = useWorld();
+  const seen = useMemo(() => {
+    if (!frame) return others;
+    const local = (pose) => pose && { ...pose, pos: frame.toRoom(pose.pos) };
+    return world.beings.filter((b) => b.name !== me && b.to).map((b) => ({ ...b, from: local(b.from), to: local(b.to) }));
+  }, [world.beings, frame, me, others]);
   const actions = {
-    share: (family) => shareSheet(key, family).then(refreshMine, fail),
-    async layOn(view, who) {
-      const to = await keyOfName(who).catch(() => null);
-      if (!to) return fail(new Error(`There is no one called @${who}.`));
-      return moveSheet(key, view, to, kFor(view)).then(refreshMine, fail);
-    },
-    takeBack: (view) => moveSheet(key, view, myKey, kFor(view)).then(refreshMine, fail),
-    lift(view) {
-      const w = writerFor(view.sheet);
-      if (!w) return fail(new Error('That sheet is not on your table.'));
-      return w.lift(view.lines);
-    },
+    // one more paper on your own table, somewhere on it
+    newPaper: () => (key && family ? bornPaper(key, family, newPaperAt(GEOM)).catch(fail) : null),
+    lift: () => lastWritten.current?.lift(),
     useTool: (t) => setTool(t),
     // the stamper set to someone: their seal's face, from their signature (backend routes/signatures.js)
     async stamperFor(who) {
       const r = await api.get(`/api/signatures/${encodeURIComponent(who)}/seal`).catch((err) => fail(err));
       if (r?.face) setTool({ seal: r });
     },
-    breakSeal(view, n) {
-      const w = writerFor(view.sheet);
-      const at = sealsOf(view).find((x) => x.n === n)?.at;
-      if (!w || !at) return fail(new Error('Only its owner breaks a seal.'));
-      return w.breakSeal(n, at);
-    },
-    // the mail: a sheet of yours taken up off the table, carried to a mailbox and posted; the oldest letter
-    // taken out of your own (it lies on your table, and is in your hand until you set it down)
-    hold: (sheet) => setLetter(sheet),
-    letGo: () => setLetter(null),
-    async post(toKey) {
-      const view = mine.find((v) => v.sheet === letter);
-      if (!view) return fail(new Error('That letter is not yours to send.'));
-      return postSheet(key, view, toKey, kFor(view)).then(() => {
-        setLetter(null);
-        refreshMine();
-      }, fail);
-    },
-    async take() {
-      const [view] = (await api.get('/api/shared/mailbox').catch(fail))?.sheets ?? [];
-      if (!view) return fail(new Error('Your mailbox is empty.'));
-      return takeSheet(key, view).then(() => setLetter(view.sheet), fail);
-    },
-    letters: async (keys) =>
-      new Map(
-        await Promise.all(
-          keys.map((k) =>
-            api.get(`/api/shared/mailbox/${k}`).then(
-              (r) => [k, r.letters],
-              () => [k, 0],
-            ),
-          ),
-        ),
-      ),
-    lookAt(view) {
-      const p = placed.find((x) => x.view.sheet === view.sheet);
-      if (p) setFocus((f) => ({ at: [p.slot[0] + SHARED_PAGE.width / 2, p.slot[1] + SHARED_PAGE.height / 2], size: SHARED_PAGE.width, n: (f?.n ?? 0) + 1 }));
-    },
+    // the paper in your hand into your book, at a path (names, from the book's top); one out of it, into your hand
+    shelve: (path) => (held && key ? (setHeld(null), moved(paperAct(key, held, 'shelve', { book: path }))) : null),
+    takeOut: (view) => (key ? moved(paperAct(key, view, 'take')) : null),
   };
-  const others = useMemo(() => beings.filter((b) => b.name !== me), [beings, me]);
 
   // Lighting the candles and putting them out are acts (matter-fixes §2). As the sun goes down by
   // the world's clock (law/room.js isNight), or as one comes in at night, the first of those here
@@ -370,13 +467,20 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       bye();
     };
   }, [name, body, key, roomKey]);
+  // (for the checks, e2e/oneworld.mjs: everyone else in the world as this screen sees them, in its frame)
+  globalThis.__world = { seen: () => seen.map((b) => ({ name: b.name, house: b.house, at: b.to?.pos ?? null })), opens: () => world.opens };
+  // (for the checks, e2e: the papers here and where each lies (room m), the one in your hand, your book)
+  globalThis.__papers = {
+    lying: () =>
+      placedRef.current.map((p) => ({ paper: p.view.paper, owner: p.view.owner, at: p.at, lines: p.view.lines.length, grown: p.grown, facts: p.facts, mayWrite: p.mayWrite, seals: p.seals })),
+    held: () => held?.paper ?? null,
+    book: () => book.map((v) => ({ paper: v.paper, path: v.where.book })),
+  };
 
-  // the mail, for the scene: the letter in your hand, and what E does at a mailbox (scene/SceneView.jsx)
-  const mail = useMemo(
-    () => ({ letter, mine: mine.map((v) => v.sheet), hold: actions.hold, letGo: actions.letGo, post: actions.post, take: actions.take, letters: actions.letters }),
-    [letter, mine, key],
+  const scene = useMemo(
+    () => ({ sheets: sceneSheets, marks, wallWriter, tableWriter: key ? tableWriter : null, beings: seen, opens: world.opens, onPose: report, heard, papers: key ? hand : null }),
+    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key],
   );
-  const scene = useMemo(() => ({ sheets: sceneSheets, tableWriter, beings: others, onPose: report, focus, heard, mail }), [sceneSheets, tableWriter, others, report, focus, heard, mail]);
   return {
     others,
     report,
@@ -389,9 +493,9 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       roomAct(name, key, roomKey, { act: on ? 'light' : 'out', thing: R.CANDLES[which] });
     },
     candles,
-    sheets: placed,
-    mine,
-    letter,
+    papers: placed,
+    held,
+    book,
     notice,
     clearNotice: () => setNotice(null),
     tool,

@@ -104,16 +104,4 @@ export async function setPassword(c, p, password) {
   return res;
 }
 
-// A piece of book ink: sealed on a fresh sheet, sent with its seed.
-export function bookInk(p, { family = FAMILY, acts = S.write(p.writer, 'hello there', 2), use = 'book', sheet = K.newSheetId(), law } = {}) {
-  const made = R.makeInk({ sk: p.sk, pk: p.pk, sheet, use, family, acts, law });
-  return { ...made, seedText: b64url(made.seed) };
-}
-
-export async function writeInk(c, p, opts = {}) {
-  const ink = bookInk(p, opts);
-  const res = await c.post('/api/books/me/ink', { line: ink.line, seed: ink.seedText, place: opts.place ?? { page: 'home', x: 100, y: 100, scale: 64 } });
-  return { ...res, ink };
-}
-
 export { K, R, U, S, b64url, fromB64url };

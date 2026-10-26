@@ -10,9 +10,9 @@ test('not signed in, the panel offers signing in, wherever you are, unless a boo
   assert.equal(panelFor({ signedIn: false, holding: 'book' }), 'book');
 });
 
-test('the book pulled down from the shelf, a piece of writing picked up: each its panel', () => {
+test('the book pulled down from the shelf, a paper taken up: each its panel', () => {
   assert.equal(panelFor({ signedIn: true, mine: true, seated: true, holding: 'book', pen: true }), 'book');
-  assert.equal(panelFor({ signedIn: true, mine: true, holding: 'sheet' }), 'sheet');
+  assert.equal(panelFor({ signedIn: true, mine: false, holding: 'paper' }), 'paper');
 });
 
 test('it follows the hand: pick something up, its panel; set it down, it closes; pick up another, its panel', () => {
@@ -20,13 +20,14 @@ test('it follows the hand: pick something up, its panel; set it down, it closes;
   assert.equal(panelFor({ ...at, holding: 'candle' }), 'candle');
   assert.equal(panelFor({ ...at }), null);
   assert.equal(panelFor({ ...at, pen: true }), 'pen');
-  assert.equal(panelFor({ ...at, holding: 'sheet', pen: true }), 'sheet'); // the thing picked up last is in front
+  assert.equal(panelFor({ ...at, holding: 'paper', pen: true }), 'paper'); // the thing picked up last is in front
 });
 
-test('at a table with nothing in hand: the table’s panel (new paper at yours); by your corner: your account, not by another’s', () => {
-  assert.equal(panelFor({ signedIn: true, mine: true, seated: true }), 'paper');
+test('at your own table with nothing in hand, sitting or standing by it: new paper; at another’s, nothing; by your corner: your account, not by another’s', () => {
+  assert.equal(panelFor({ signedIn: true, mine: true, seated: true }), 'table');
+  assert.equal(panelFor({ signedIn: true, mine: true, atTable: true }), 'table');
   assert.equal(panelFor({ signedIn: true, mine: true, atCorner: true }), 'account');
-  assert.equal(panelFor({ signedIn: true, mine: false, seated: true }), 'paper');
+  assert.equal(panelFor({ signedIn: true, mine: false, seated: true }), null);
   assert.equal(panelFor({ signedIn: true, mine: false, atCorner: true }), null);
 });
 

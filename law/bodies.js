@@ -15,14 +15,24 @@
 //            height times that friction past its half width), it leans over its far edge as far as it is
 //            pushed in, and once its middle is past that edge, it topples over the way it was pushed.
 //            Pushed past the edge of what holds it, it falls.
+//   A hand   bare (a reach act: law/room.js), a being's hand is its own matter: it goes where the being moves it
+//            and pushes what it meets as a carried thing does; drawn back, it is gone from the room.
+//   Hung     a weight on a string (the pendulum's bob: law/string.js) hangs from where its string is tied (its
+//            stand's arm); pushed, it goes aside as far as they touch, never farther from where it hangs than its
+//            string, and let go there it swings as the string law has it, until it hangs still again.
 //   startBodies(start) → state;  stepBodies(state, line, ctx) (a stamped room line: { at, act });  bodiesOf(lines, ctx)
 //   state: { [thing]: { at: [x, y, z] (its foot, m), lying: null | [ux, uy] (the way its length lies from its foot),
 //     held: the key holding it | null, moved: ms (the act it came to rest by), fell: { from: [x, y, z], ms } | null
 //     (let go above where it rests: falling from there then) } } (plain data: copied as any state is)
-//   ctx: { room: { table: { x0, x1, y0, y1, top, matter }, floor: matter }, shapes: thing → { r, h, matter } }
+//   ctx: { room: { table: { x0, x1, y0, y1, top, matter }, floor: matter }, shapes: thing → { r, h, matter, bob? },
+//     and shapes.hand (every being's) }; a bob: { arm: [dx, dy, dz] (from its stand's foot to where its string is
+//     tied, m), len (its string, m), r (m), matter, string (the string's matter) }
+//   a hung thing's state has bob: { swing: { from: [dx, dy, dz] (m, from where it is tied), ms } | null }
+//   bobAt(body, shape, ms) → where its bob is then (its middle, m)
 //   start: thing → [x, y, z] (where the room was made with it)
 // Lengths in metres from whole-millimetre acts; + − × ÷ and √ only, so every machine regrows the same places.
 import { MATTER } from './matter.js';
+import { hang, STEP_MS as SWING_MS } from './string.js';
 
 const mm = (p) => p.map((v) => v / 1000);
 const msOf = (l) => Date.parse(l.at);
@@ -36,7 +46,8 @@ export const startBodies = (start) => Object.fromEntries(Object.entries(start).m
 
 export function stepBodies(S, l, { room, shapes }) {
   const a = l.act;
-  if (a?.kind !== 'room' || !S[a.thing] || !shapes[a.thing]) return S;
+  const isHand = a?.kind === 'room' && a.act === 'reach' && !!shapes.hand;
+  if (a?.kind !== 'room' || (!isHand && (!S[a.thing] || !shapes[a.thing]))) return S;
   const T = room.table;
   const onTable = (x, y) => x >= T.x0 && x <= T.x1 && y >= T.y0 && y <= T.y1;
   // how far (x, y) is from the table's top, in the plane (0: over it), and the way out from it
@@ -93,6 +104,25 @@ export function stepBodies(S, l, { room, shapes }) {
   // a resting body pushed out of a carried one's way (A's foot at a, its shape sa, going the way m: a unit
   // vector in the plane, or null going straight up or down)
   function shove(thing, a, sa, ms, depth = 0, m = null) {
+    // a hung weight met: pushed aside as far as they touch, on its string's reach from where it hangs
+    for (const [id, o] of Object.entries(S)) {
+      const bob = shapes[id]?.bob;
+      if (!bob || id === thing || o.held || o.lying) continue;
+      const tied = tiedOf(o, bob);
+      const c = bobAt(o, shapes[id], ms);
+      if (c[2] + bob.r <= a[2] || c[2] - bob.r >= a[2] + sa.h) continue; // (passes over or under it)
+      const dx = c[0] - a[0],
+        dy = c[1] - a[1];
+      const d = hyp(dx, dy),
+        reach = sa.r + bob.r;
+      if (d >= reach) continue;
+      const n = d > 0 ? [dx / d, dy / d] : (m ?? [1, 0]);
+      let ox = a[0] + n[0] * reach - tied[0],
+        oy = a[1] + n[1] * reach - tied[1];
+      const out = hyp(ox, oy);
+      if (out > bob.len) [ox, oy] = [(ox * bob.len) / out, (oy * bob.len) / out];
+      o.bob = { swing: { from: [ox, oy, -Math.sqrt(Math.max(0, bob.len * bob.len - ox * ox - oy * oy))], ms } };
+    }
     for (const [id, o] of Object.entries(S)) {
       if (id === thing || !shapes[id] || o.held || depth > 8) continue;
       const so = shapes[id];
@@ -129,16 +159,31 @@ export function stepBodies(S, l, { room, shapes }) {
       shove(id, o.lying ? [...middle(id, o), o.at[2]] : o.at, o.lying ? { r: so.r, h: 2 * so.r } : so, ms, depth + 1, n);
     }
   }
-  // a carried body moved from where it was to p: it pushes what it meets on the way, a step at a time
-  function carry(thing, p, ms) {
-    const b = S[thing],
-      s = shapes[thing];
-    const from = b.at;
-    b.at = p.slice();
+  // a body of shape s moved from where it was to p: it pushes what it meets on the way, a step at a time
+  function sweep(thing, s, from, p, ms) {
     const flat = hyp(p[0] - from[0], p[1] - from[1]);
     const way = flat > 0 ? [(p[0] - from[0]) / flat, (p[1] - from[1]) / flat] : null;
     const n = Math.max(1, Math.ceil(Math.max(flat, Math.abs(p[2] - from[2])) / (s.r * STEP_OF)));
     for (let k = 1; k <= n; k++) shove(thing, [from[0] + ((p[0] - from[0]) * k) / n, from[1] + ((p[1] - from[1]) * k) / n, from[2] + ((p[2] - from[2]) * k) / n], s, ms, 0, way);
+  }
+  // a carried body moved from where it was to p
+  function carry(thing, p, ms) {
+    const from = S[thing].at;
+    S[thing].at = p.slice();
+    sweep(thing, shapes[thing], from, p, ms);
+  }
+  // a being's bare hand: where it goes it pushes, as a carried thing does; drawn back, gone
+  if (isHand) {
+    const id = `hand:${a.by}`;
+    if (a.pos === null) delete S[id];
+    else {
+      const p = mm(a.pos);
+      S[id] ??= { at: p.slice(), lying: null, held: a.by, moved: msOf(l), fell: null };
+      const from = S[id].at;
+      S[id].at = p.slice();
+      sweep(id, shapes.hand, from, p, msOf(l));
+    }
+    return S;
   }
   const b = S[a.thing];
   if (a.act === 'place') {
@@ -158,6 +203,35 @@ export function bodiesOf(lines, { start, ...ctx }) {
   const S = startBodies(start);
   for (const l of lines) stepBodies(S, l, ctx);
   return S;
+}
+
+// Where a hung weight's string is tied (m): its stand's foot and its arm.
+const tiedOf = (b, bob) => [b.at[0] + bob.arm[0], b.at[1] + bob.arm[1], b.at[2] + bob.arm[2]];
+// A weight let go on its string, from `from` (m, from where it is tied): its swing as the string law has it, a
+// place every EVERY steps (µm from where it is tied), and where it comes to rest; each swing grown once.
+const EVERY = 5;
+const swings = new Map();
+function swingOf(from, bob) {
+  const key = `${from.map((v) => Math.round(v * 1e6)).join()}|${bob.len}|${bob.r}|${bob.matter}|${bob.string}`;
+  let sw = swings.get(key);
+  if (!sw) {
+    const grams = (MATTER[bob.matter].density * 4 * Math.PI * bob.r ** 3) / 3 / 1e-3; // (kg/m³ · m³ → g)
+    sw = hang({ anchor: [0, 0, 0], start: from.map((v) => Math.round(v * 1e6)), matter: bob.string, weight: Math.round(grams), every: EVERY });
+    if (swings.size > 64) swings.delete(swings.keys().next().value);
+    swings.set(key, sw);
+  }
+  return sw;
+}
+// Where its bob is at an instant (ms): hanging still under where it is tied, or on its swing. → its middle (m)
+export function bobAt(b, shape, ms) {
+  const bob = shape.bob;
+  const t = tiedOf(b, bob);
+  const sw = !b.held && !b.lying ? b.bob?.swing : null;
+  if (!sw || ms <= sw.ms) return sw ? [t[0] + sw.from[0], t[1] + sw.from[1], t[2] + sw.from[2]] : [t[0], t[1], t[2] - bob.len];
+  const g = swingOf(sw.from, bob);
+  const i = Math.floor((ms - sw.ms) / (SWING_MS * EVERY));
+  const p = i < g.path.length ? g.path[i] : g.rest;
+  return [t[0] + p[0] / 1e6, t[1] + p[1] / 1e6, t[2] + p[2] / 1e6];
 }
 
 // Where a body is drawn at an instant (ms): falling from where it was let go (its weight alone: z drops

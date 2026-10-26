@@ -18,7 +18,7 @@
 //     branches broken off (gone from their trees, with all that grew from them), sticks lying where
 //     they were put (laid down flat, thinned where they were carved), marks cut into trees
 //     ground: { x0, y0, step, nx, ny, z: Float32Array } (room m); stones: [{ at, r }]; trees: [{ id, limbs,
-//     leaves }] (room m: law/tree.js limbsOf); houses: [{ at, size }] (the others' houses, room m)
+//     leaves }] (room m: law/tree.js limbsOf); houses: [{ key, name, at (its corner), size, opens }] (the others' houses, room m)
 //   groundOf(geom, plot) → (x, y) → z (room m: the ground under a being outside, from the floor)
 import { outside as O, world as WORLD, hands as H, life as LIFE } from 'penpals-law';
 import { MATTER, BEINGS } from 'penpals-law/matter';
@@ -30,14 +30,8 @@ export const GROUND_STEP = 1; // m between the ground's drawn heights (a drawing
 // from the wall the door is in), how big its box is and how high on its post. Tabor's to set.
 export const MAILBOX = Object.freeze({ at: [2, -1.2], box: [0.25, 0.4, 0.25], post: 1.0 });
 
-export function frameOf(geom, plot) {
-  const [W, D] = geom.size;
-  const [cx, cy] = WORLD.centreOf(plot);
-  const floor = O.groundAt(cx, cy);
-  const x0 = cx - W / 2,
-    y0 = cy - D / 2;
-  return { floor, toWorld: ([x, y, z = 0]) => [x0 + x, y0 + y, z + floor], toRoom: ([X, Y, Z = floor]) => [X - x0, Y - y0, Z - floor] };
-}
+// (law/outside.js frameOf: every house the same size, so the room's geometry is the law's)
+export const frameOf = (geom, plot) => O.frameOf(plot);
 
 // Which ways the outside is seen: through the open door (beyond the wall it is in), through the window
 // while its shutters are open (beyond its wall), all around once the being is out.
@@ -47,7 +41,7 @@ export function loadedFrom(opens, inside = true) {
   return ways.door || ways.window ? ways : null;
 }
 
-export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms = (day - 719528) * 86400000, facts = null, letters = null }) {
+export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms = (day - 719528) * 86400000, facts = null, letters = null, houseOpens = {} }) {
   const ways = loadedFrom(opens, !at || inBox(geom, at));
   if (!ways) return null;
   const F = frameOf(geom, plot);
@@ -195,7 +189,16 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms
     feathers: feathers.filter((f) => seen(f.at)),
     dead: dead.filter((x) => seen(x.at)),
     life,
-    houses: others.map((h) => ({ key: h.key, at: F.toRoom([...WORLD.centreOf(h.plot), O.groundAt(...WORLD.centreOf(h.plot))]), size: geom.size })).filter((h) => seen(h.at)),
+    // the others' houses, each the same house as this one, where its room stands (its corner, room m: law/outside.js
+    // frameOf), its door and windows open or shut as its acts left them
+    houses: others
+      .map((h) => {
+        const at = F.toRoom(O.frameOf(h.plot).toWorld([0, 0, 0]));
+        const d = geom.door;
+        const door = d && { x0: at[0] + d.x0, x1: at[0] + d.x1, y: at[1], z0: at[2] + d.z0, z1: at[2] + d.z1 };
+        return { key: h.key, name: h.name ?? null, at, size: geom.size, opens: houseOpens[h.key] ?? null, door };
+      })
+      .filter((h) => seen([h.at[0] + geom.size[0] / 2, h.at[1] + geom.size[1] / 2])),
     // a mailbox by each house's door (its own, and the others': each house's corner the same way from its middle)
     mailboxes: [...houses]
       .map((h) => {

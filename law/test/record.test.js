@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeInk, makeOpen, checkInkBody, verifySealed, verifySeedFor, regrow } from '../record.js';
 import { verifyBook, verifyProof } from '../verify.js';
+import { makePaper, makePaperAct } from '../paper.js';
 import { skFromK, publicKeyOf, newSheetId, sheetSeed, proofOf, SHEET_ZERO } from '../keys.js';
-import { b64url, fromB64url, jcs } from '../tags.js';
+import { b64url, jcs } from '../tags.js';
 import { fixtureBytes } from '../tools/fixtures.js';
 
 const sk = skFromK(new Uint8Array(32).fill(1));
@@ -54,44 +55,36 @@ test('shape rules: uses, sheets, names, unknown fields', () => {
   assert.doesNotThrow(() => jcs(book.line.ink));
 });
 
-test('a .book verifies offline: sealed lines, an open sheet regrown, and tampering caught', () => {
+test('a .book verifies offline: its chain alone (the signature, a paper and its acts), sealed, regrown, and tampering caught', () => {
   const name = 'ana';
   const sig = makeInk({ sk, pk, sheet: SHEET_ZERO, use: 'signature', family, acts, name });
   const sigLine = { id: 'k_000001', made: '2026-10-23T00:00:00.000Z', ...sig.line, open: makeOpen(sk, sig.D, SHEET_ZERO, sig.seed) };
-  const page = makeInk({ sk, pk, sheet: newSheetId(), use: 'book', family, acts });
-  const pageLine = { id: 'k_000002', made: '2026-10-23T00:00:01.000Z', ...page.line };
-  const later = { id: 'k_000003', made: '2026-10-23T00:00:02.000Z', open: page.line.ink.sheet, ref: 'k_000002', ...makeOpen(sk, page.D, page.line.ink.sheet, page.seed) };
-  const head = {
-    book: 2,
-    name,
-    key: b64url(pk),
-    law: 2,
-    version: 3,
-    signature: 'k_000001',
-    paperFamily: family,
-    home: 'home',
-    nextItem: 2,
-    pages: { home: { background: '#ffffff', items: [{ id: 'i1', ink: 'k_000002', x: 10, y: 10, scale: 64 }] } },
-  };
-  const text = [head, sigLine, pageLine, later].map((l) => JSON.stringify(l)).join('\n') + '\n';
-  const report = verifyBook(text);
+  const paper = newSheetId();
+  const born = makePaper({ sk, pk, paper, family, at: [1.5, 2.4, 0.74] });
+  const paperLine = { id: 'k_000002', made: '2026-10-23T00:00:01.000Z', paper: born };
+  const take = makePaperAct({ sk, pk, paper, k: 1, act: 'take' });
+  const put = makePaperAct({ sk, pk, paper, k: 2, act: 'put', space: b64url(pk), at: [0.5, 0.5, 1] });
+  const acts1 = { id: 'k_000003', made: '2026-10-23T00:00:02.000Z', on: paper, n: 1, at: 1000, ...take };
+  const acts2 = { id: 'k_000004', made: '2026-10-23T00:00:03.000Z', on: paper, n: 2, at: 2000, ...put };
+  const head = { book: 3, name, key: b64url(pk), law: 2 };
+  const book = (...lines) => `${[head, ...lines].map((l) => JSON.stringify(l)).join('\n')}\n`;
+  const report = verifyBook(book(sigLine, paperLine, acts1, acts2));
   assert.equal(report.ok, true, JSON.stringify(report.problems.concat(report.results.filter((r) => r.error).map((r) => r.error))));
   assert.deepEqual(
-    report.results.map((r) => [r.sealed, r.open, r.regrown]),
+    report.results.map((r) => [r.kind, r.sealed, r.open, r.regrown]),
     [
-      [true, true, true],
-      [true, true, true],
-      [false, true, null],
+      ['ink', true, true, true],
+      ['paper', true, true, true],
+      ['paper-act', true, false, null],
+      ['paper-act', true, false, null],
     ],
   );
-  // one changed point in the page's acts: that line fails, the book does not check
-  const acts2 = fromB64url(page.line.ink.acts);
-  acts2[acts2.length - 1] ^= 1;
-  const tampered = text.replace(page.line.ink.acts, b64url(acts2));
-  const bad = verifyBook(tampered);
-  assert.equal(bad.ok, false);
+  // an act changed after it was sealed: the paper does not replay, the book does not check
+  assert.equal(verifyBook(book(sigLine, paperLine, acts1, { ...acts2, act: { ...acts2.act, at: [900, 500, 1000] } })).ok, false);
   // a removed line is noticed
-  assert.equal(verifyBook([head, sigLine, later].map((l) => JSON.stringify(l)).join('\n') + '\n').ok, false);
+  assert.equal(verifyBook(book(sigLine, acts1, acts2)).ok, false);
+  // a book of before (a layout of pages) is not this kind
+  assert.equal(verifyBook(book(sigLine).replace('"book":3', '"book":2')).ok, false);
 });
 
 test('a proof bundle verifies from the challenge and the key alone', () => {

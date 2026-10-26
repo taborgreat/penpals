@@ -1,7 +1,7 @@
 // One matter (one-matter.md Phases 1-3): one table of what each substance is; every
 // surface and thing grown as cells of its matter, a sheet lying on a body paper over its
 // cells; ink on anything, settling by each matter's own row. Paper's goldens are untouched
-// (goldens.test.js, goldens-v2.test.js, law3.test.js, shared.test.js).
+// (goldens.test.js, goldens-v2.test.js, law3.test.js, paper.test.js).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { lawOf } from '../laws.js';

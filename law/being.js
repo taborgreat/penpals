@@ -13,6 +13,8 @@
 // it, dragged by exactly the excess, so the head never passes the limit. (While
 // flying the body follows the head's heading: the caller gives body = yaw.)
 
+import { MAX_RING, PLOT_M } from './world.js';
+
 export const NECK_YAW = 70;
 export const NECK_PITCH = 80;
 export const STEP_M = 0.05; // a motion act only past this far (Tabor's to set: 5 cm)
@@ -47,11 +49,13 @@ export function quantize(pose) {
   return { pos: pose.pos.map((v) => q(v, 1000)), yaw: q(n.yaw, 10), pitch: q(n.pitch, 10), body: q(n.body, 10), size: q(pose.size ?? 1, 1e4) };
 }
 
-// A pose as anyone may send it: numbers in range, inside the room's reach.
-export function checkPose(pose, size = [3.048, 3.353, 2.438]) {
+// A pose as anyone may send it: numbers in range, anywhere in the world (a house's room is a place in the
+// one outside: a being walks out of its door and on, as far as the farthest plot: law/world.js).
+export const REACH_M = (MAX_RING + 1) * PLOT_M;
+export function checkPose(pose) {
   const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
   if (!pose || !Array.isArray(pose.pos) || pose.pos.length !== 3) return false;
-  if (!pose.pos.every((v, k) => num(v, -1, size[k] + 1))) return false;
+  if (!pose.pos.every((v) => num(v, -REACH_M, REACH_M))) return false;
   return num(pose.yaw, -180, 180) && num(pose.pitch, -90, 90) && num(pose.body ?? pose.yaw, -180, 180) && num(pose.size ?? 1, 1e-5, 2);
 }
 

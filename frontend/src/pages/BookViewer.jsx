@@ -1,58 +1,34 @@
-import { useCallback, useEffect, useState } from 'react';
-import { keys as K, b64url } from 'penpals-law';
-import { useAuth } from '../auth.jsx';
-import { useKey } from '../keys/session.js';
-import Journal from '../book/Journal.jsx';
-import { parseLines, readChain } from '../book/ink.js';
+import { useMemo, useState } from 'react';
+import { parseLines } from '../book/ink.js';
 import InkItem from '../book/InkItem.jsx';
-import { verifyBookHere, growLook, regrowHere, viewAt } from '../ink/grown.js';
-import { sceneOf } from '../scene/sources.js';
+import PaperLook from '../components/PaperLook.jsx';
+import { usePaperFields } from '../room/papers.js';
+import { verifyBookHere, growLook, viewAt } from '../ink/grown.js';
 
-// Open a downloaded .book (books.md A7, keys.md) and check it here, with no
-// server: line 1 is the head (name, key, layout), the rest the chain of sealed
-// records. Every seal is checked against the book's key; every open sheet is
-// grown again from its published seed and must settle exactly as sealed.
-// Closed sheets show their strokes (public) but not their look: their paper is
-// the writer's secret, unless it is your own book and your key is in this tab:
-// then every closed sheet is grown again here too. Nothing is uploaded.
+// Open a downloaded .book (books.md A7, keys.md) and check it here, with no server: line 1 is the head (name,
+// key), the rest the chain of sealed records: their signature, and everything they made of paper (law/paper.js:
+// a paper or a house's surface born, then each act on it). Every seal is checked; every paper is replayed and
+// grown again from its own chain, and shown as it grew. Nothing is uploaded.
 export function readBook(text) {
   const nl = text.indexOf('\n');
   const head = JSON.parse(nl < 0 ? text : text.slice(0, nl));
-  if (head.book !== 2 || !head.pages) throw new Error(head.book === 1 ? 'That is an old .book, from before Living Ink: it cannot be checked.' : 'That is not a .book file.');
-  const { book: _format, name, key, fingerprint, law, ...skeleton } = head;
+  if (head.book !== 3) throw new Error(head.book === 1 || head.book === 2 ? 'That .book was made before paper was matter: it cannot be read here.' : 'That is not a .book file.');
   const lines = parseLines(nl < 0 ? '' : text.slice(nl + 1));
-  const { inks, opened } = readChain(lines);
-  const seeds = new Map(); // sheet → published seed
+  // their signature: the latest they signed (open: its seed beside it)
+  const sig = lines.findLast((l) => l.ink?.use === 'signature') ?? null;
+  // its papers, each as anyone sees it: its birth, then its stamped acts in its order
+  const papers = new Map();
   for (const l of lines) {
-    if (l.ink && l.open) seeds.set(l.ink.sheet, l.open.seed);
-    else if (typeof l.open === 'string') seeds.set(l.open, l.seed);
+    if (l.paper) papers.set(l.paper.birth.paper, { paper: l.paper.birth.paper, birth: l.paper.birth, open: l.paper.open, born: Date.parse(l.made), lines: [] });
+    else if (typeof l.on === 'string') papers.get(l.on)?.lines.push({ n: l.n, at: l.at, act: l.act, seal: l.seal });
   }
-  return { name: name ?? 'someone', key, fingerprint, law, skeleton, inks, opened, seeds, page: { width: 1000, height: 1400 } };
+  return { name: head.name ?? 'someone', key: head.key, fingerprint: head.fingerprint, law: head.law, sig, papers: [...papers.values()] };
 }
 
 export default function BookViewer() {
   const [book, setBook] = useState(null);
   const [report, setReport] = useState(null);
-  const [page, setPage] = useState(null);
   const [error, setError] = useState(null);
-  const [closed, setClosed] = useState(null); // { ok, bad: [id] } for your own book's closed sheets
-  const { user } = useAuth();
-  const key = useKey(user);
-  const mine = !!(book && key && key.publicKey === book.key);
-  const seedOf = useCallback((sheet) => book?.seeds.get(sheet) ?? (mine ? b64url(K.sheetSeed(key.sk, sheet)) : null), [book, mine, key]);
-
-  useEffect(() => {
-    setClosed(null);
-    if (!mine) return undefined;
-    let alive = true;
-    const lines = [...book.inks.values()].filter((l) => l.ink.kind === 'ink' && !book.seeds.has(l.ink.sheet));
-    Promise.all(lines.map((l) => regrowHere(l.ink, seedOf(l.ink.sheet)).then((ok) => [l.id, ok]))).then((rs) => {
-      if (alive) setClosed({ ok: rs.filter(([, ok]) => ok).length, bad: rs.filter(([, ok]) => !ok).map(([id]) => id) });
-    });
-    return () => {
-      alive = false;
-    };
-  }, [book, mine, seedOf]);
 
   async function open(file) {
     if (!file) return;
@@ -61,7 +37,6 @@ export default function BookViewer() {
     try {
       const text = await file.text();
       setBook(readBook(text));
-      setPage(null);
       setReport('checking');
       setReport(await verifyBookHere(text));
     } catch (err) {
@@ -69,23 +44,9 @@ export default function BookViewer() {
     }
   }
 
-  const sceneSrc = useCallback(
-    (item, line, want) => {
-      const seed = seedOf(line.ink.sheet);
-      return seed ? sceneOf({ line, seed, want }) : Promise.resolve(null);
-    },
-    [seedOf],
-  );
-  const lookSrc = useCallback(
-    (item, line) => {
-      const seed = seedOf(line.ink.sheet);
-      return seed ? growLook(line.ink, seed, item.scale, viewAt(line)) : null;
-    },
-    [seedOf],
-  );
-
-  const sig = book?.skeleton.signature && book.inks.get(book.skeleton.signature);
-  const sigSeed = sig && book.seeds.get(sig.ink.sheet);
+  const views = useMemo(() => book?.papers ?? [], [book]);
+  const fields = usePaperFields(views);
+  const sig = book?.sig;
   const done = report && report !== 'checking';
   const sealed = done ? report.results.filter((r) => r.sealed).length : 0;
   const regrown = done ? report.results.filter((r) => r.regrown === true).length : 0;
@@ -93,9 +54,9 @@ export default function BookViewer() {
   return (
     <div className="book-viewer">
       <h1>
-        {book && sig ? (
+        {sig ? (
           <span className="username signed book-signature">
-            <InkItem src={sigSeed ? growLook(sig.ink, sigSeed, 64, viewAt(sig)) : null} body={sig.ink} />
+            <InkItem src={sig.open ? growLook(sig.ink, sig.open.seed, 64, viewAt(sig)) : null} body={sig.ink} />
           </span>
         ) : null}
         {book ? ` @${book.name}` : 'Open a book'}
@@ -117,11 +78,11 @@ export default function BookViewer() {
           <p className="meta">
             key {book.fingerprint ?? '?'} · law {book.law ?? '?'}
           </p>
-          {report === 'checking' && <p className="muted">Checking every seal and regrowing the open sheets…</p>}
+          {report === 'checking' && <p className="muted">Checking every seal, replaying every paper and growing it again…</p>}
           {done &&
             (report.ok ? (
               <p>
-                <strong>The book checks.</strong> {sealed} sealed record{sealed === 1 ? '' : 's'}, all by this key; {regrown} open sheet{regrown === 1 ? '' : 's'} grown again here, exactly as sealed.
+                <strong>The book checks.</strong> {sealed} sealed record{sealed === 1 ? '' : 's'}, all by this key; {regrown} grown again here, exactly as sealed.
               </p>
             ) : (
               <>
@@ -142,18 +103,21 @@ export default function BookViewer() {
                 </ul>
               </>
             ))}
-          {mine && !closed && <p className="muted">Your key is in this tab: growing your closed sheets again too…</p>}
-          {closed &&
-            (closed.bad.length ? (
-              <p className="error">Closed sheets that do not grow as sealed: {closed.bad.join(', ')}</p>
-            ) : (
-              <p>
-                And with your key: {closed.ok} closed sheet{closed.ok === 1 ? '' : 's'} grown again here, exactly as sealed.
-              </p>
-            ))}
         </div>
       )}
-      {book && <Journal key={book.name + book.skeleton.version} name={book.name} fromFile={book} pageId={page} onPage={setPage} lookSrc={lookSrc} sceneSrc={sceneSrc} />}
+      {book && views.length > 0 && (
+        <div className="book-papers">
+          {views.map((v) => (
+            <figure key={v.paper} className="book-paper" data-paper={v.paper}>
+              <PaperLook field={fields.get(v.paper)?.field ?? null} size={v.birth.size} width={260} />
+              <figcaption className="meta">
+                {v.birth.kind === 'surface' ? `the ${v.birth.surface.replace('-', ' ')}, ` : ''}
+                {new Date(v.born).toLocaleDateString()}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

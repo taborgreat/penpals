@@ -10,17 +10,23 @@
 //   { n, at, act, seal }
 // Where each thing is, and which candles burn, are read from them; the law regrows the
 // candles and every drip from them alone (law/wax.js). Where shared sheets lie on the
-// table is written here as they come and go (store/shared.js): { kind: 'lay', sheet,
-// slot } (slot null: it left), so what is under a falling drip is read from the chain too.
+// house is written here as they come to rest and leave (store/papers.js): { kind: 'lay', paper,
+// rest: [x, y, z] mm (where it rests: its middle), size: [w, h] (its units) | rest null (it left) }, so
+// what is under a falling drip is read from the chain too.
 // The eye's own state is never sent, so never kept. What the room's people see of each
 // other comes to them on the room's stream (routes/rooms.js).
+// The world is one space (one-world.md): a house's room is a place in it (law/outside.js frameOf), so each
+// being's last pose is also kept in world m, with the house whose room it came by, and told to everyone
+// watching the world (routes/world.js /beings): beings in different houses, and out of doors, see each
+// other where they are. And each house's door and windows, open or shut, as its room's acts left them:
+// every house is drawn the same from outside, open as it is.
 
 import path from 'node:path';
 import { appendLine, readLines, serial } from '../files.js';
 import { userDir, findByKey, getAccount } from './accounts.js';
-import { being as B, room as R } from 'penpals-law';
+import { houseOf, allHouses } from './world.js';
+import { being as B, room as R, outside as O } from 'penpals-law';
 import { now as clock } from '../clock.js';
-import { lyingOn, freeSlot } from '../../../frontend/src/room/table.js';
 
 export const MAX_BEINGS = 8; // how many may be in a room at once (Tabor's to set)
 // A being stays this long after its last stream closes, so the acts it sent as it went (the
@@ -61,6 +67,47 @@ async function roomOf(ownerId) {
 }
 
 const send = (client, event, data) => client.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+// --- the world's beings, and its houses' openings ---
+const world = new Map(); // name → { name, house (the key of the room it came by), pose (world m) | null }
+const watchers = new Set();
+const tellWorld = (e) => {
+  for (const fn of watchers) fn(e);
+};
+export const watchWorld = (fn) => {
+  watchers.add(fn);
+  return () => watchers.delete(fn);
+};
+export const worldBeings = () => [...world.values()];
+// a pose in a house's room, in the world (m): through its house's frame
+function worldPose(ownerId, pose) {
+  const plot = houseOf(getAccount(ownerId)?.publicKey)?.plot;
+  if (!plot || !pose) return null;
+  return {
+    ...pose,
+    pos: O.frameOf(plot)
+      .toWorld(pose.pos)
+      .map((v) => Math.round(v * 1000) / 1000),
+  };
+}
+const opens = new Map(); // a house's key → { door, window, shutters } (open or shut, by its room's acts)
+async function opensOf(ownerId) {
+  const key = getAccount(ownerId)?.publicKey;
+  if (!opens.has(key)) {
+    const { things } = rooms.get(ownerId) ?? stateOf((await readLines(roomFile(ownerId))).map((l) => JSON.parse(l)));
+    opens.set(key, Object.fromEntries(R.OPENINGS.map((t) => [t, R.openNow(things, t)])));
+  }
+  return opens.get(key);
+}
+// every house's openings (for a new watcher of the world)
+export async function houseOpenings() {
+  const out = {};
+  for (const h of allHouses()) {
+    const owner = findByKey(h.key);
+    if (owner) out[h.key] = await opensOf(owner.id);
+  }
+  return out;
+}
 const tellAll = (r, event, data, except = null) => {
   for (const c of r.clients) if (c !== except) send(c, event, data);
 };
@@ -95,6 +142,9 @@ export async function join(ownerId, client) {
       body = true;
       await record(ownerId, r, { by: client.name, kind: 'enter' });
       tellAll(r, 'being', { kind: 'enter', name: client.name }, client);
+      const house = getAccount(ownerId)?.publicKey;
+      world.set(client.name, { name: client.name, house, pose: world.get(client.name)?.pose ?? null });
+      tellWorld({ kind: 'enter', name: client.name, house });
     }
   }
   client.body = body;
@@ -116,6 +166,10 @@ export async function part(ownerId, client) {
       r.beings.delete(client.userId);
       await record(ownerId, r, { by: client.name, kind: 'leave' });
       tellAll(r, 'being', { kind: 'leave', name: client.name });
+      if (world.get(client.name)?.house === getAccount(ownerId)?.publicKey) {
+        world.delete(client.name);
+        tellWorld({ kind: 'leave', name: client.name });
+      }
     }
   }
   if (!r.clients.size && !r.beings.size && rooms.get(ownerId) === r) rooms.delete(ownerId); // asleep: nothing kept
@@ -132,6 +186,9 @@ export async function move(ownerId, userId, pose) {
   b.pose = B.quantize(pose);
   const line = await record(ownerId, r, { by: b.name, kind: 'move', pose: b.pose });
   tellAll(r, 'being', { kind: 'move', name: b.name, pose: b.pose });
+  const at = { name: b.name, house: getAccount(ownerId)?.publicKey, pose: worldPose(ownerId, b.pose) };
+  world.set(b.name, at);
+  tellWorld({ kind: 'move', ...at });
   return line;
 }
 
@@ -141,8 +198,11 @@ export async function move(ownerId, userId, pose) {
 // checked against it.)
 // → { line } | { why, status }
 export async function act(ownerId, userId, owner, { act: a, seal } = {}) {
-  const r = rooms.get(ownerId);
-  const b = r?.beings.get(userId);
+  // a house's door is reached from outside too: anyone out in the world may open it or shut it (how near
+  // they must stand: Tabor's to rule)
+  const atDoor = a?.thing === 'door' && (a.act === 'open' || a.act === 'shut') && !!world.get(getAccount(userId)?.username)?.pose;
+  const r = rooms.get(ownerId) ?? (atDoor ? await roomOf(ownerId) : null);
+  const b = r?.beings.get(userId) ?? (atDoor ? { name: getAccount(userId).username } : null);
   if (!b) return { why: 'You are not in the room.', status: 409 };
   try {
     R.checkRoomAct(a);
@@ -173,26 +233,29 @@ export async function act(ownerId, userId, owner, { act: a, seal } = {}) {
   if (a.act === 'light' || a.act === 'out') r.lit[a.thing] = a.act === 'light';
   const line = await record(ownerId, r, { act: a, seal });
   if (a.act === 'place' || a.act === 'set' || a.act === 'open' || a.act === 'shut') tellAll(r, 'thing', { thing: a.thing, ...r.things[a.thing] });
+  if (a.act === 'open' || a.act === 'shut') {
+    const now = { ...(await opensOf(ownerId)), [a.thing]: a.act === 'open' };
+    opens.set(owner.publicKey, now);
+    tellWorld({ kind: 'opens', house: owner.publicKey, opens: now });
+  }
   return { line };
 }
 
-// A shared sheet came to lie on this room's table (in the first free slot), or left it.
-export function lay(ownerId, sheet, on) {
+// A paper came to rest in this house, at `rest` (mm: its middle), or left it (null).
+export function lay(ownerId, paper, rest, size = null) {
   return serial(`room:${ownerId}`, async () => {
     const lines = (await readLines(roomFile(ownerId))).map((l) => JSON.parse(l));
-    const lying = lyingOn(lines);
-    if (on === lying.some((s) => s.sheet === sheet)) return null; // (already so)
     const r = rooms.get(ownerId);
     const n = (lines.at(-1)?.n ?? 0) + 1;
     if (r) r.n = n;
-    const out = { n, at: new Date().toISOString(), kind: 'lay', sheet, slot: on ? freeSlot(lying) : null };
+    const out = { n, at: new Date().toISOString(), kind: 'lay', paper, ...(rest ? { rest, size } : { rest: null }) };
     await appendLine(roomFile(ownerId), JSON.stringify(out));
     if (r) tellAll(r, 'room', out);
     return out;
   });
 }
 
-// Anything for everyone watching a room (a shared sheet's act, a sheet laid on its table).
+// Anything for everyone watching a room (a paper's act, a paper come to rest in it).
 export function tellRoom(ownerId, event, data) {
   const r = rooms.get(ownerId);
   if (r) tellAll(r, event, data);

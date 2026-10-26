@@ -1,7 +1,7 @@
 // Being in a room together (rooms.md §4, §6): the room's stream (backend
 // routes/rooms.js) while you look at it. Who else is here and how they move
-// (each glides between their coarse acts), the shared sheets lying on its
-// owner's table and each act as the stamper places it; and your own coarse
+// (each glides between their coarse acts), the papers lying in it and each act
+// on them as the stamper places it; and your own coarse
 // motion acts, sent as your head moves (law/being.js: past a step or an angle,
 // at most five a second; the eye's own state never). Writing happens from the seat:
 // seated, your being sits at a seat at the table (the room's owner in the middle,
@@ -40,7 +40,7 @@ export function useThings(name) {
   return now;
 }
 // The room's lines its drips are regrown from (law/wax.js: the signed acts on its things,
-// who came and went, sheets laid on its table), by room, as its stream tells them.
+// who came and went, where papers came to rest in it), by room, as its stream tells them.
 // useRoomLines(name) follows them.
 const roomLines = new Map(); // room name → { now, listeners }
 const linesIn = (name) => {
@@ -70,11 +70,11 @@ export function useRoomLines(name) {
 // (law/room.js), counted on from your last in the room's lines, sent one after another.
 // key: yours (keys/session.js); room: its owner's key. keepalive: as the page goes (not queued).
 const sending = new Map(); // room name → { k: the last count sent, queue }
-export function roomAct(name, key, room, act, { keepalive = false } = {}) {
+export function roomAct(name, key, room, act, { keepalive = false, k = null } = {}) {
   const s = sending.get(name) ?? { k: 0, queue: Promise.resolve() };
   sending.set(name, s);
   for (const l of linesIn(name).now) if (l.act?.by === key.publicKey) s.k = Math.max(s.k, l.act.k);
-  s.k += 1;
+  s.k = Math.max(s.k + 1, k ?? 0);
   const made = R.makeRoomAct({ sk: key.sk, pk: key.pk, room, k: s.k, ...act });
   const url = `/api/rooms/${encodeURIComponent(name)}/act`;
   if (keepalive) return fetch(url, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(made) }).catch(() => {});
@@ -99,6 +99,58 @@ export function seatedHead(i, at, geom = GEOM) {
   return { pos, yaw: (Math.atan2(d[0], d[1]) * 180) / Math.PI, pitch: (Math.asin(d[2] / len) * 180) / Math.PI, size: 1, flying: false };
 }
 
+// The one world (one-world.md; backend routes/world.js /beings): every being where it is (world m) and the
+// house it came by, gliding between its coarse acts as in a room, and every house's door and windows, open
+// or shut. → { beings: [{ name, house, from, to, t0 }] (world m), opens: { [house key]: { door, window,
+// shutters } } }. One stream, however many houses ask.
+const theWorld = { beings: new Map(), opens: {}, listeners: new Set(), es: null };
+function tellTheWorld() {
+  const now = { beings: [...theWorld.beings.values()], opens: theWorld.opens };
+  for (const fn of theWorld.listeners) fn(now);
+}
+function openWorld() {
+  if (theWorld.es || typeof EventSource === 'undefined') return;
+  const es = new EventSource('/api/world/beings');
+  theWorld.es = es;
+  const on = (ev, fn) => es.addEventListener(ev, (m) => fn(JSON.parse(m.data)));
+  on('beings', (d) => {
+    theWorld.beings = new Map(d.beings.map((b) => [b.name, { name: b.name, house: b.house, from: b.pose, to: b.pose, t0: performance.now() }]));
+    theWorld.opens = d.opens ?? {};
+    tellTheWorld();
+  });
+  on('being', (d) => {
+    if (d.kind === 'leave') theWorld.beings.delete(d.name);
+    else {
+      const was = theWorld.beings.get(d.name);
+      const now = performance.now();
+      const pose = d.pose ?? was?.to ?? null;
+      const at = was?.to && pose ? B.glide(was.from ?? was.to, was.to, (now - was.t0) / GLIDE_MS) : pose;
+      theWorld.beings.set(d.name, { name: d.name, house: d.house, from: at ?? pose, to: pose, t0: now });
+    }
+    tellTheWorld();
+  });
+  on('opens', (d) => {
+    theWorld.opens = { ...theWorld.opens, [d.house]: d.opens };
+    tellTheWorld();
+  });
+}
+export function useWorld() {
+  const [now, setNow] = useState(() => ({ beings: [...theWorld.beings.values()], opens: theWorld.opens }));
+  useEffect(() => {
+    theWorld.listeners.add(setNow);
+    if (document.readyState === 'complete') openWorld();
+    else window.addEventListener('load', openWorld, { once: true });
+    return () => {
+      theWorld.listeners.delete(setNow);
+      if (!theWorld.listeners.size) {
+        theWorld.es?.close();
+        theWorld.es = null;
+      }
+    };
+  }, []);
+  return now;
+}
+
 // Where a being is now, between its last two acts (and whether it is still on its way).
 export function poseNow(b, now) {
   if (!b.to) return { pose: null, moving: false };
@@ -106,13 +158,16 @@ export function poseNow(b, now) {
   return { pose: k >= 1 || !b.from ? b.to : B.glide(b.from, b.to, k), moving: k < 1 };
 }
 
-export function useRoom(name, { seat = 0 } = {}) {
+// space: the house's key (its owner's): the papers lying in it.
+export function useRoom(name, { seat = 0, space = null } = {}) {
   const [beings, setBeings] = useState(() => new Map()); // name → { name, from, to, t0 }
-  const [sheets, setSheets] = useState(() => new Map()); // sheet → view (routes/rooms.js viewOf), lines as stamped
+  const [papers, setPapers] = useState(() => new Map()); // paper → view (store/papers.js viewOf), lines as stamped
   const [body, setBody] = useState(false);
   const sent = useRef({ pose: null, at: 0 });
   const bodyAt = useRef(null); // your body's heading: dragged by the head past the neck's reach
   const trailing = useRef(0); // the last pose, held back by the rate: sent when it allows
+  const spaceRef = useRef(space);
+  spaceRef.current = space;
   useEffect(() => () => clearTimeout(trailing.current), [name]);
   useEffect(() => {
     if (!name || typeof EventSource === 'undefined') return undefined;
@@ -152,20 +207,16 @@ export function useRoom(name, { seat = 0 } = {}) {
           });
         else put(d.name, d.pose ?? null);
       });
-      on('table', (d) =>
-        setSheets((m) => {
-          const next = d.sheets ? new Map() : new Map(m);
-          for (const s of d.sheets ?? []) next.set(s.sheet, s);
-          if (d.arrived) next.set(d.arrived.sheet, d.arrived);
-          if (d.left) next.delete(d.left);
+      // the papers lying here: as they are, then each as an act lands on it or it comes or goes
+      on('papers', (d) => setPapers(new Map(d.papers.map((v) => [v.paper, v]))));
+      on('paper', ({ paper: v }) =>
+        setPapers((m) => {
+          const was = m.get(v.paper);
+          if (was && was.lines.length > v.lines.length) return m; // (an older word of it, arriving late)
+          const next = new Map(m);
+          if (v.where.space && v.where.space === spaceRef.current) next.set(v.paper, v);
+          else next.delete(v.paper);
           return next;
-        }),
-      );
-      on('shared', (d) =>
-        setSheets((m) => {
-          const s = m.get(d.sheet);
-          if (!s || s.lines.some((l) => l.n === d.line.n)) return m;
-          return new Map(m).set(d.sheet, { ...s, names: { ...s.names, ...d.names }, lines: [...s.lines, d.line].sort((a, b) => a.n - b.n) });
         }),
       );
     };
@@ -202,6 +253,6 @@ export function useRoom(name, { seat = 0 } = {}) {
     [name, body, seat],
   );
   const beingList = useMemo(() => [...beings.values()], [beings]);
-  const sheetList = useMemo(() => [...sheets.values()], [sheets]);
-  return { beings: beingList, sheets: sheetList, report, body };
+  const paperList = useMemo(() => [...papers.values()], [papers]);
+  return { beings: beingList, papers: paperList, report, body };
 }

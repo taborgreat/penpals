@@ -11,14 +11,13 @@ import { poseNow } from '../room/presence.js';
 import { lawPen, lineWidthPx } from '../ink/pens.js';
 import { PEN_SIZES } from '../ink/nibs.js';
 import { shelfLayout, rayBox } from './shelf.js';
-import { penRestOf, JAR } from './light/room.js';
+import { penRestOf, JAR, HAND } from './light/room.js';
 import { hear, earAt, roomIs, spaceIs, weatherIs, startSound, now as soundNow } from '../sound/index.js';
 import { weatherAt } from 'penpals-law/weather';
 import { thunder } from '../sound/weather.js';
 import { createPane } from './glass.js';
 import { ask, asWeather } from './askWeather.js';
 import { outsideNear, groundOf as outsideGround, inBox, frameOf, seenFrom } from './outside.js';
-import { SHARED_PAGE } from '../room/table.js';
 import { reachOutside } from './reach.js';
 import { AIR, BEINGS, MATTER } from 'penpals-law/matter';
 import { dayOf, sunAt as sunToward } from 'penpals-law/sun';
@@ -31,6 +30,7 @@ import { crackles } from '../sound/candle.js';
 import { RULED, RULE_ABS } from '../book/ruled.js';
 import { isPhone } from './support.js';
 import { sightOf } from './sight.js';
+import { rainNear } from './rain.js';
 import * as WK from './keys.js';
 
 // The scene (the scene spec): the page as a lit 3D scene, seen straight down
@@ -39,8 +39,9 @@ import * as WK from './keys.js';
 //
 //   page        [w, h] page px (the camera's home, the candles' places)
 //   mode        '3d': the scene is always seen in 3D (no toggle; '2d', straight down, is kept for the lab only)
-//   sheets      [{ id, box: [x0, y0, w, h] (cells), origin: [px, py], cellPx,
-//                  field?, look?: { rgba, box }, live?, detail?: { data, box }, bands?: { data, box } }]
+//   sheets      [{ id, box: [x0, y0, w, h] (cells), origin: [px, py], cellPx, lift? (page px above the
+//                  page's plane: a paper on the floor lies below it), held? (in your hand: it follows the
+//                  pointer), field?, look?: { rgba, box }, live?, detail?: { data, box }, bands?: { data, box } }]
 //   frame2d     () => [x0, y0, x1, y1]: the part of the page the 2D view shows (default: all of it)
 //   writer      { down(p, ev, type), move(p, ev), up(p, ev), cancel(), penDown?(cam) }: writing in 3D
 //   follow      { base: [x, y], offset: [dx, dy] }: the chase, in 3D
@@ -61,16 +62,18 @@ import * as WK from './keys.js';
 //   fixed       the eye cannot look around (the lobby, rooms.md §1a)
 //   shelf       { books: [{ id, color: [r, g, b] }], onOpen(id) }: the owner's books on the shelf (rooms.md §3);
 //               a click on one pulls it down
-//   doors       [{ id, surface (null: the page), rect: [x0, y0, x1, y1] (that page's units), link }]:
-//               writing that leads somewhere (rooms.md §3); a click on one is onDoor(link)
-//   gazeAt      { surface, n }: turn the head to that surface (a door to it was followed)
 //   beings      [{ name, from, to, t0 }]: the others in the room (rooms.md §4, room/presence.js),
 //               each drawn gliding between its last two motion acts
 //   onPose      ({ pos, yaw, pitch, size, flying }) => …: where your head is (room m, degrees), as it
 //               moves; seated (the writing view), ({ at }): the point on the table you look at
 //   tableWriter { sheets: [{ sheet, origin: [x, y], size: [w, h] }] (page px), down(sheet, p, ev, type),
-//               move(p, ev), up(p, ev), cancel() }: writing on shared sheets on the table (rooms.md §6),
-//               p in that sheet's own units
+//               move(p, ev), up(p, ev), cancel() }: writing on the papers on the table (rooms.md §6),
+//               p in that paper's own units
+//   papers      the hand on papers (room/together.js; law/paper.js): { lying: [{ paper, sheet, origin, size,
+//               lift }] (page px), held: { paper, sheet, size } | null, take(paper), put(at) (room m),
+//               post(key), takeLetter(), letters(keys), touch(paper, q) }: E takes up the paper under the
+//               pointer and lets the one in the hand go where it points; at a mailbox E posts it (or, empty
+//               handed at your own, takes the oldest letter out); a bare hand on a seal of yours cracks it
 //   space       whose space this is (its owner's key): the music of its matter is in its key (world.md 3c)
 //   outside     { plot, houses } (law/world.js): where this house stands among the others, so the outside
 //               (outside.md Phase 4) is grown around it when its door or shutters let it in
@@ -90,8 +93,6 @@ import * as WK from './keys.js';
 //               lowers, a drag turns the head, the scroll is the eye's zoom, E picks up, sets down,
 //               opens and shuts the window and sits at the chair (held, it tilts what is in the
 //               hand); no tools over the view
-//   sheetHand   the world: { items: [{ id, sheet (its scene sheet), rect: [x0, y0, x1, y1] (page px) }], held, pick(id, p), down(p) }:
-//               writing on the page that E picks up (the topmost under the pointer) and sets down
 // ref: { camera(), setCamera(cam), invalidate(), look(on) }
 const BAND_MS = 40;
 const LIVE_MS = 16; // a sheet being written is drawn again at most this often (about every frame)
@@ -130,6 +131,9 @@ const HAND_PX = 0.005 * PX_PER_M; // a sheet in the hand, just above the page it
 // Where the plain pen lies when set down and nothing says where: its place on the table (light/room.js).
 const penRest = () => penRestOf(GEOM, 0);
 const FLICKER_MS = 80; // candlelight alone is drawn again this often: enough to shiver, and cheap
+// The wind as the rain is carried by it: the weather says how hard (law/weather.js), and it blows onto the
+// window, as the glass takes it (scene/glass.js): from beyond the far wall, toward the room.
+const windOf = (w) => [0, -(w?.wind ?? 0)];
 
 const SceneView = forwardRef(function SceneView(
   {
@@ -157,20 +161,20 @@ const SceneView = forwardRef(function SceneView(
     eye: eyeProp = null,
     fixed: fixedProp = false,
     shelf = null,
-    doors = null,
-    onDoor = null,
-    gazeAt = null,
     beings = null,
     onPose = null,
     tableWriter = null,
     heard = null,
-    mail = null, // the mail (one-world.md; room/together.js): the letter in your hand, and the mailboxes
+    papers = null,
+    opens: houseOpens = null, // the others' houses' doors and windows, open or shut ({ [key]: { door, window, shutters } })
+    onEnter = null, // (house { key, name }, pose (in its room, m)): walked in through another's door
+    onHouseDoor = null, // (house { key, name, open }): the hand on another's door, out in the world
+    arrive = null, // a pose to stand at as the view opens (come in through this house's door: walking)
     space = null,
     outside = null,
     hands = null,
     focus = null,
     hand: carrying = null, // (the thing in the hand; not the hand/pen switch below)
-    sheetHand = null,
     world = false,
   },
   ref,
@@ -185,10 +189,11 @@ const SceneView = forwardRef(function SceneView(
   const st = useRef(null);
   const [tool, setTool] = useState(null); // 'light' | 'cut' | null
   // the hand (drag turns, right-drag or shift slides) or the pen (drag writes, right-drag turns):
-  // the pen where there is writing to do, the hand in viewers
-  const [handChoice, setHand] = useState(null); // null: as the view is (a writer: the pen)
-  const canPen = !!(writer || wallWriter || tableWriter); // the page, the room's surfaces (from Look), shared sheets on the table
-  const hand = handChoice ?? !canPen;
+  // the pen where there is writing to do (a pad), the hand in viewers; in the world, your bare hands
+  // until you take a pen up (H, or a click on one)
+  const [handChoice, setHand] = useState(null); // null: as the view is
+  const canPen = !!(writer || wallWriter || tableWriter); // a pad, the room's surfaces (from Look), the papers on the table
+  const hand = handChoice ?? (world || !canPen);
   const penMode = canPen && !hand;
   // the pen picked up while it writes, set down when the hand takes over (place acts: room/carry.js)
   const penWas = useRef(null);
@@ -200,7 +205,7 @@ const SceneView = forwardRef(function SceneView(
     if (penWas.current === penMode) return;
     penWas.current = penMode;
     if (penMode) carrying?.penUp?.();
-    else carrying?.penDown?.(null); // (set down beside the paper, at its own place)
+    else carrying?.penDown?.(S.lastPointer ? roomPointOf(S.lastPointer) : null); // (let go where the pointer is: it falls onto what is under it)
     if (!penMode && st.current) st.current.pen = null;
     schedule(); // (drawn again: the pen in the hand, or set down)
   }, [penMode]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -257,12 +262,19 @@ const SceneView = forwardRef(function SceneView(
   const headNow = () => (S.pose ? WK.headOf(S.pose, crouched()) : null);
   const eyeNow = () => WK.eyeOf(headNow(), world ? S.zoom : null);
   // The world: where the being is and what it holds, told to the room when it changes (the panel follows it: room/panel.js).
-  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.kind ?? (sheetHand?.held ? 'sheet' : mail?.letter ? 'letter' : null), pen: penMode };
-  S.mailNow = mail;
+  S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.kind ?? (papers?.held ? 'paper' : null), pen: penMode };
+  S.papersNow = papers;
   function tellPlace() {
     const b = S.beingIn;
     if (!b.world || !b.onBeing) return;
-    const place = { seated: !S.pose, atChair: !!S.pose && WK.atChair(GEOM, S.pose), atCorner: !!S.pose && WK.atCorner(GEOM, S.pose), holding: b.holding, pen: b.pen };
+    const place = {
+      seated: !S.pose,
+      atChair: !!S.pose && WK.atChair(GEOM, S.pose),
+      atTable: !!S.pose && WK.atTable(GEOM, S.pose),
+      atCorner: !!S.pose && WK.atCorner(GEOM, S.pose),
+      holding: b.holding,
+      pen: b.pen,
+    };
     const key = JSON.stringify(place);
     if (key === S.placeKey) return;
     S.placeKey = key;
@@ -358,6 +370,13 @@ const SceneView = forwardRef(function SceneView(
       const [x0, y0, x1, y1] = frame2d();
       cam = { ...cam, target: [(x0 + x1) / 2, (y0 + y1) / 2], view: Math.max(1, x1 - x0) };
     }
+    // Q lowers what is in the hand, Z raises it: as fast as the flying eye nears a surface (its clearance)
+    const lift = (S.keys.has('z') ? 1 : 0) - (S.keys.has('q') ? 1 : 0);
+    if (world && lift && carrying?.holding) {
+      const dt = Math.max(0, Math.min(0.05, (now - (S.liftT ?? now)) / 1000));
+      carrying.raise(lift * roomCamera.speedAt(Math.max(carrying.clearance() ?? 0, roomCamera.GAP)) * dt);
+      S.liftT = now;
+    } else S.liftT = now;
     if (S.pose) {
       // Look: fly by the keys held, at a speed that follows the nearest surface; or walk,
       // gravity holding the being to what is under it (falling, it falls until it rests)
@@ -370,6 +389,14 @@ const SceneView = forwardRef(function SceneView(
           : { forward: (has('forward') ? 1 : 0) - (has('back') ? 1 : 0), right: (has('right') ? 1 : 0) - (has('left') ? 1 : 0), up: (has('up') ? 1 : 0) - (has('down') ? 1 : 0) };
         if (walking) S.pose = roomCamera.walk(GEOM, S.pose, input, dt, { ground: groundNow(), outside: S.outsideWalk ?? null });
         else if (dt > 0) S.pose = roomCamera.fly(GEOM, S.pose, input, dt, { ground: groundNow() });
+        // in through another's door: into its house (its owner's space), standing where you came in
+        const into =
+          !S.entered &&
+          (S.outsideWalk?.houses ?? []).find((h) => S.pose.pos[0] > h.at[0] && S.pose.pos[1] > h.at[1] && S.pose.pos[0] < h.at[0] + GEOM.size[0] && S.pose.pos[1] < h.at[1] + GEOM.size[1]);
+        if (into && S.onEnter) {
+          S.entered = true;
+          S.onEnter(into, { pos: [S.pose.pos[0] - into.at[0], S.pose.pos[1] - into.at[1], S.pose.pos[2] - into.at[2]], yaw: S.pose.yaw, pitch: S.pose.pitch, size: S.pose.size ?? 1 });
+        }
         S.keyT = now;
         if (S.keys.size) S.moveUntil = now + STILL_MS;
       }
@@ -488,6 +515,18 @@ const SceneView = forwardRef(function SceneView(
       S.view.setLife(null);
       S.lifeShown = false;
     }
+    // the rain out there (scene/rain.js), drawn while the outside is seen: none under a roof
+    const raining = !!S.outsideSpec && (S.weather?.rain ?? 0) > 0;
+    if (raining || S.rainShown) {
+      const eye = head?.pos ?? roomCamera.seat(GEOM).pos;
+      const [W, D, H] = GEOM.size;
+      const roofs = [[0, 0, W, D, H], ...(S.outsideWalk?.houses ?? []).map((h) => [h.at[0], h.at[1], h.at[0] + W, h.at[1] + D, h.at[2] + H])];
+      const r = raining ? rainNear({ rate: S.weather.rain, wind: windOf(S.weather), eye, t: worldS, roofs, ground: S.outsideWalk ? S.outsideWalk.ground(eye[0], eye[1]) : 0 }) : null;
+      S.view.setRain(r, Math.min(0.1, Math.max(1 / 120, worldS - (S.rainAt ?? worldS))));
+      globalThis.__rainNow = { eye, roofs, n: r?.n ?? 0, D: r?.D ?? null, at: r ? Array.from(r.at.subarray(0, 12)) : [] }; // (for the checks: e2e/weather.mjs)
+      S.rainAt = worldS;
+      S.rainShown = raining;
+    }
     if (S.outsideNow?.plot && S.pose) loadOutside(); // (it follows the being out of the house, and about out there)
     // the resolution: capped; lower while moving and for the flicker alone (full again once still)
     const moving = !!S.anim || now < S.moveUntil || S.drag?.kind === 'orbit' || S.drag?.kind === 'pan' || S.drag?.kind === 'two';
@@ -506,6 +545,8 @@ const SceneView = forwardRef(function SceneView(
     S.view.setPens(drawn);
     S.view.setJar(carrying?.jarAt?.() ?? null, carrying?.jarLying?.() ?? null);
     S.view.setStamper(carrying?.stamperAt?.() ?? null, carrying?.stamperLying?.() ?? null); // (the stamper: in the hand, or where it lies)
+    S.view.setPendulum(carrying?.pendulumAt?.() ?? null, carrying?.pendulumLying?.() ?? null, carrying?.bobAt?.() ?? null); // (its bob hanging, or swinging)
+    S.view.setHands(carrying?.hands?.() ?? []); // (the bare hands reaching in the room: anyone's)
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     seen(cam, moving);
@@ -517,7 +558,17 @@ const SceneView = forwardRef(function SceneView(
     }
     const low = cam.mode === '3d' && !!(writer || tableWriter) && !canWrite(cam);
     setSteep((was) => (was === low ? was : low));
-    if (S.anim || S.override || S.back || S.glide || (S.pose && (S.keys.size || (S.pose.mode === 'walk' && S.pose.vz))) || gliding || carrying?.falling?.())
+    if (
+      S.anim ||
+      S.override ||
+      S.back ||
+      S.glide ||
+      (S.pose && (S.keys.size || (S.pose.mode === 'walk' && S.pose.vz))) ||
+      gliding ||
+      carrying?.falling?.() ||
+      carrying?.swinging?.() ||
+      (lift && carrying?.holding)
+    )
       schedule(); // moving (or falling; or something let go falling)
     else if (light.settling && !S.settle) {
       // the room's light settling, the eye adapting: a few frames a second
@@ -613,6 +664,12 @@ const SceneView = forwardRef(function SceneView(
         a?.unsub?.();
         const [x0, y0, w, h] = s.box;
         view.setSheet(s.id, { x0, y0, w, h, origin: s.origin, cellPx: s.cellPx });
+      }
+      if (!s.held && (!placed || s.lift !== a.spec.lift)) view.liftSheet(s.id, [0, 0], s.lift ?? 0); // (where it rests: on the floor, below the table)
+      if (s.held && !placed) {
+        // taken up: in the hand, held by its middle where the pointer is
+        const p = S.lastPointer ? pageOf(S.lastPointer) : null;
+        view.liftSheet(s.id, p ? [p.x - s.size[0] / 2, p.y - s.size[1] / 2] : [0, 0], HAND_PX);
       }
       const was = placed ? a.spec : {};
       if (s.field && s.field !== was.field) view.setField(s.id, s.field);
@@ -724,6 +781,16 @@ const SceneView = forwardRef(function SceneView(
     schedule();
   }
 
+  // come in through this house's door from outside: standing where you came in, walking
+  useEffect(() => {
+    if (!ready || !arrive || !world || S.arrived) return;
+    S.arrived = true;
+    look(true);
+    S.pose = { ...S.pose, mode: 'walk', pos: [...arrive.pos], yaw: arrive.yaw, pitch: arrive.pitch, size: arrive.size ?? 1, vz: 0 };
+    setWalking(true);
+    schedule();
+  }, [ready, arrive]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // the others moved: draw them where they are going
   useEffect(schedule, [beings]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -741,22 +808,6 @@ const SceneView = forwardRef(function SceneView(
     S.cam = to;
     schedule();
   }, [focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // a door to a surface was followed: the head turns to it (into Look)
-  useEffect(() => {
-    if (!gazeAt?.surface || fixed) return;
-    const f = surfaceFrame(GEOM, gazeAt.surface);
-    if (!f) return;
-    if (!S.pose) {
-      S.pose = poseOfCam(S.shown ?? S.cam);
-      setLooking(true);
-    }
-    const c = f.origin.map((v, k) => v + (f.right[k] * f.size[0] + f.down[k] * f.size[1]) / 2);
-    const d = c.map((v, k) => v - S.pose.pos[k]);
-    const to = { ...S.pose, mode: 'fly', yaw: (Math.atan2(d[0], d[1]) * 180) / Math.PI, pitch: (Math.asin(d[2] / Math.hypot(...d)) * 180) / Math.PI };
-    S.glide = { from: S.pose, to, t0: performance.now(), ms: 700 };
-    schedule();
-  }, [gazeAt?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the 2D/3D switch: the camera moves, the page under it does not
   useEffect(() => {
@@ -926,6 +977,9 @@ const SceneView = forwardRef(function SceneView(
   S.opensNow = opens; // (as they are now, for the frames: the loop's closures are older)
   S.outsideNow = outside;
   S.handsNow = hands;
+  S.houseOpensNow = houseOpens;
+  S.onEnter = onEnter;
+  useEffect(loadOutside, [JSON.stringify(houseOpens)]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     S.outsideKey = null; // (what hands have done changed: the outside again)
     loadOutside();
@@ -982,25 +1036,32 @@ const SceneView = forwardRef(function SceneView(
     const out = S.pose && !inBox(GEOM, S.pose.pos) ? S.pose.pos : null;
     const facts = S.handsNow?.facts ?? null;
     const day = Math.floor(worldClock(new Date()).getTime() / 86400000) + 719528;
-    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in', facts?.n ?? 0, day, S.mailN ?? 0].join('|') : 'none';
+    const key = outside?.plot ? [JSON.stringify(o), out ? out.map((v) => Math.round(v / 10)).join() : 'in', facts?.n ?? 0, day, S.mailN ?? 0, JSON.stringify(S.houseOpensNow ?? {})].join('|') : 'none';
     if (key === S.outsideKey) return;
     S.outsideKey = key;
     // how many letters wait in each house's mailbox (its flag), read before the outside is folded
-    const asked = outside?.plot && S.mailNow ? S.mailNow.letters((outside.houses ?? []).map((h) => h.key)).catch(() => null) : Promise.resolve(null);
+    const asked = outside?.plot && S.papersNow ? S.papersNow.letters((outside.houses ?? []).map((h) => h.key)).catch(() => null) : Promise.resolve(null);
     asked.then((letters) => {
       if (S.outsideKey !== key) return;
-      const spec = outside?.plot ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day, ms: worldClock(new Date()).getTime(), facts, letters }) : null;
+      const spec = outside?.plot
+        ? outsideNear(GEOM, outside.plot, { opens: o, at: out, houses: outside.houses ?? [], day, ms: worldClock(new Date()).getTime(), facts, letters, houseOpens: S.houseOpensNow ?? {} })
+        : null;
       S.outsideSpec = spec;
+      if (S.outsideWalk) S.outsideWalk.houses = (spec?.houses ?? []).map((h) => ({ key: h.key, name: h.name, at: h.at, door: !!h.opens?.door }));
       S.view?.setOutside(spec);
       globalThis.__outsideNow = spec && {
         ways: spec.ways,
         stones: spec.stones.map((x) => ({ id: x.id, at: x.at })),
         trees: spec.trees.map((t) => ({ id: t.id, at: t.at })),
         houses: spec.houses.length,
-      }; // (for the checks: e2e/outside.mjs)
+        others: spec.houses.map((h) => ({ key: h.key, name: h.name, at: h.at, door: h.door, opens: h.opens })),
+      }; // (for the checks: e2e/outside.mjs, e2e/oneworld.mjs)
       schedule();
     });
   }
+  // (for the checks, e2e/room.mjs: what the hand meets under the pointer: a thing, a paper and the point on it)
+  globalThis.__under = () =>
+    S.lastPointer ? { thing: pickableAt(S.lastPointer), paper: paperAt(S.lastPointer), met: touchAt(S.lastPointer), pen: penMode, holding: !!carrying?.holding, reach: !!carrying?.reach } : null;
   // (for the checks, e2e/outside.mjs: what is open now, and the opening under the pointer)
   globalThis.__opens = () => ({ opens: carrying?.opens ?? null, under: openingAt(S.lastPointer) });
   globalThis.__eyeNow = () => ({ gaze: gazeOf(), eye: theLight().state.eye });
@@ -1037,14 +1098,19 @@ const SceneView = forwardRef(function SceneView(
     const all = heldAll();
     const mine = all.length >= 2 || (down && all.length) ? all.at(-1) : null;
     const act = (a) => h.act(a).catch((err) => console.warn('[hands]', err.message));
-    if (hit?.kind === 'mailbox' && S.mailNow) {
-      const m = S.mailNow;
+    if (hit?.kind === 'door') {
+      onHouseDoor?.(hit); // (opened or shut: its house's act, told to the world)
+      return true;
+    }
+    if (hit?.kind === 'mailbox' && S.papersNow) {
+      const m = S.papersNow;
       const done = () => {
         S.mailN = (S.mailN ?? 0) + 1; // (its flag read again)
         loadOutside();
       };
-      if (m.letter) m.post(hit.key).then(done);
-      else if (hit.key === h.me) m.take().then(done);
+      if (m.held)
+        m.post(hit.key).then(done); // the paper in the hand, posted: theirs now
+      else if (hit.key === h.me) m.takeLetter().then(done); // your own: the oldest letter out, into your hand
       return true;
     }
     if (!mine && hit?.kind === 'ground') {
@@ -1146,14 +1212,6 @@ const SceneView = forwardRef(function SceneView(
       trees: (S.outsideSpec?.trees ?? []).map((t) => ({ id: t.id, at: t.at, limbs: t.limbs.filter((l) => l.branch !== 0) })),
     }),
   };
-  // (for the checks, e2e/mail.mjs: the letter in the hand, and where the shared sheets lie on the table, room m)
-  globalThis.__mail = {
-    letter: () => S.mailNow?.letter ?? null,
-    sheets: () =>
-      (sheets ?? [])
-        .filter((x) => x.id?.startsWith('shared:'))
-        .map((x) => ({ sheet: x.id.slice('shared:'.length), at: pageToRoom([x.origin[0] + SHARED_PAGE.width / 2, x.origin[1] + SHARED_PAGE.height / 2, 0], origin()) })),
-  };
   // the opening under the pointer: 'door' | 'window' | null (E opens it, or shuts it)
   const openingAt = (e) => {
     if (!e || !carrying?.setOpen) return null;
@@ -1174,6 +1232,33 @@ const SceneView = forwardRef(function SceneView(
     const p = pageOf(e);
     return p ? pageToRoom([p.x, p.y, 0], origin()) : null;
   };
+  // The paper under the pointer (the nearest the ray meets, lying flat where it rests), and the point on it
+  // (its own units): { paper, q } | null.
+  const paperAt = (e) => {
+    if (!papers?.lying.length || !e) return null;
+    const { origin: o, dir } = roomRay(e);
+    let best = null;
+    for (const l of papers.lying) {
+      const z = pageToRoom([0, 0, l.lift], origin())[2];
+      const t = Math.abs(dir[2]) > 1e-9 ? (z - o[2]) / dir[2] : -1;
+      if (t <= 0 || (best && t >= best.t)) continue;
+      const [x, y] = roomToPage([o[0] + dir[0] * t, o[1] + dir[1] * t, z], origin());
+      const q = { x: x - l.origin[0], y: y - l.origin[1] };
+      if (q.x >= 0 && q.y >= 0 && q.x <= l.size[0] && q.y <= l.size[1]) best = { t, paper: l.paper, q };
+    }
+    return best && { paper: best.paper, q: best.q };
+  };
+  // Where the paper in the hand is let go: the point the pointer meets (room m), out of the house on the
+  // ground; in it, on what the ray meets first (the table, the floor; off a wall it falls to the floor).
+  const letGoAt = (e) => {
+    const out = S.pose && S.outsideWalk && !inBox(GEOM, S.pose.pos);
+    const hit = out ? outsideHit(e) : null;
+    if (hit) return hit.kind === 'ground' ? hit.at : [hit.at[0], hit.at[1], S.outsideWalk.ground(hit.at[0], hit.at[1])];
+    if (out) return null;
+    const { origin: o, dir } = roomRay(e);
+    const h = roomHit(GEOM, o, dir);
+    return h ? o.map((v, k) => v + dir[k] * h.t) : roomPointOf(e);
+  };
   // A thing to pick up under the pointer: the nearest whose upright (its foot up h, r round) the ray passes.
   const pickableAt = (e) => {
     if (!carrying?.pickables?.length) return null;
@@ -1187,6 +1272,39 @@ const SceneView = forwardRef(function SceneView(
     if (!best) return null;
     const wall = roomHit(GEOM, o, dir);
     return wall && wall.t < best.d ? null : best.id; // something stands in front of it
+  };
+  // What the bare hand meets under the pointer: a thing (its upright), or the pendulum's bob; and where (room m).
+  const touchAt = (e) => {
+    if (!carrying) return null;
+    const { origin: o, dir } = roomRay(e);
+    let best = null;
+    for (const t of carrying.pickables ?? []) {
+      const d = rayBox(o, dir, [t.at[0] - t.r, t.at[1] - t.r, t.at[2], t.at[0] + t.r, t.at[1] + t.r, t.at[2] + t.h]);
+      if (d !== null && (!best || d < best.d)) best = { d };
+    }
+    const c = carrying.bobAt?.();
+    if (c) {
+      const r = carrying.bob.r;
+      const oc = c.map((v, k) => o[k] - v);
+      const b = oc[0] * dir[0] + oc[1] * dir[1] + oc[2] * dir[2];
+      const disc = b * b - (oc[0] ** 2 + oc[1] ** 2 + oc[2] ** 2 - r * r);
+      const d = disc >= 0 ? -b - Math.sqrt(disc) : -1;
+      if (d > 0 && (!best || d < best.d)) best = { d };
+    }
+    if (!best) return null;
+    const wall = roomHit(GEOM, o, dir);
+    if (wall && wall.t < best.d) return null;
+    return o.map((v, k) => v + dir[k] * best.d);
+  };
+  // The bare hand where the pointer is, at the height it first met (its middle there): its front at the
+  // pointer, its middle a palm's half width before it, the way the eye looks (room m).
+  const handAt = (e, z) => {
+    const { origin: o, dir } = roomRay(e);
+    if (Math.abs(dir[2]) < 1e-9) return null;
+    const t = (z - o[2]) / dir[2];
+    if (t <= 0) return null;
+    const flat = Math.hypot(dir[0], dir[1]) || 1;
+    return [o[0] + dir[0] * t - (dir[0] / flat) * HAND.r, o[1] + dir[1] * t - (dir[1] / flat) * HAND.r, z - HAND.h / 2];
   };
   const onPointerDown = (e) => {
     startSound(); // (a gesture: the page may play sound from now on)
@@ -1216,8 +1334,18 @@ const SceneView = forwardRef(function SceneView(
           dipHeard();
           return;
         }
-        if (id !== null && !penMode) {
-          // (with a pen in the hand a click writes: things are taken up with the hand free, or with E)
+        const on = id === null && !penMode && !papers?.held ? paperAt(e) : null;
+        if (on && papers.touch(on.paper, on.q)) return; // (a bare hand on a seal of yours: its wax cracked)
+        // the bare hand (Tabor, 2026-10-25: your own matter): pressed on a thing, it pushes it as it goes (a
+        // drag); things are taken up with E
+        const met = !penMode && world && carrying.reach ? touchAt(e) : null;
+        if (met) {
+          S.drag = { kind: 'hand', z: met[2] };
+          const at = handAt(e, met[2]);
+          if (at) carrying.reach(at);
+          return;
+        }
+        if (id !== null && !penMode && !world) {
           if (carrying.pick(id) === 'pen') setHand(false); // a pen taken up: it is the pen in the hand
           return;
         }
@@ -1316,12 +1444,17 @@ const SceneView = forwardRef(function SceneView(
     const p0 = S.pointers.get(e.pointerId);
     if (p0) S.pointers.set(e.pointerId, { ...p0, x: e.clientX, y: e.clientY });
     S.lastPointer = { clientX: e.clientX, clientY: e.clientY }; // (what E reaches for)
-    const inHand = sheetHand?.held ? sheetHand.items.find((x) => x.id === sheetHand.held) : null;
-    if (inHand && sheetHand.grab && !S.drag) {
-      // the writing in the hand follows it over the page, a hand's height above it (one-world.md)
+    if (S.drag?.kind === 'hand') {
+      const at = handAt(e, S.drag.z);
+      if (at) carrying.reach(at);
+      schedule();
+      return;
+    }
+    if (papers?.held && !S.drag) {
+      // the paper in the hand follows it, held by its middle, a hand's height over the table's plane
       const p = pageOf(e);
       if (p) {
-        S.view?.liftSheet(inHand.sheet, [p.x - sheetHand.grab[0] - inHand.rect[0], p.y - sheetHand.grab[1] - inHand.rect[1]], HAND_PX);
+        S.view?.liftSheet(papers.held.sheet, [p.x - papers.held.size[0] / 2, p.y - papers.held.size[1] / 2], HAND_PX);
         schedule();
       }
     }
@@ -1459,25 +1592,6 @@ const SceneView = forwardRef(function SceneView(
   // A click (no drag) on a book on the shelf pulls it down.
   const pick = (e) => {
     if (!S.press || Math.hypot(e.clientX - S.press.x, e.clientY - S.press.y) > 4) return false;
-    if (doors?.length && onDoor) {
-      // a door: on the page (where the ray meets the paper), or on a surface of the room
-      const inside = (r, q) => q && q.x >= r[0] && q.y >= r[1] && q.x <= r[2] && q.y <= r[3];
-      const onPagePoint = pageOf(e);
-      const { origin: o0, dir: d0 } = roomRay(e);
-      const h = roomHit(GEOM, o0, d0);
-      const where = h ? surfaceOfHit(GEOM, h.surface) : null;
-      const onWall = where
-        ? fromRoom(
-            surfaceFrame(GEOM, where),
-            o0.map((v, k) => v + d0[k] * h.t),
-          )
-        : null;
-      const door = doors.find((dr) => (dr.surface ? dr.surface === where && inside(dr.rect, onWall) : inside(dr.rect, onPagePoint)));
-      if (door) {
-        onDoor(door.link);
-        return true;
-      }
-    }
     if (!shelf?.books?.length) return false;
     const { origin: o, dir } = roomRay(e);
     const { books } = shelfLayout(GEOM, shelf.books.length);
@@ -1506,6 +1620,7 @@ const SceneView = forwardRef(function SceneView(
       S.moveUntil = performance.now() + STILL_MS;
       schedule();
     }
+    if (d.kind === 'hand') carrying.reach(null); // (the hand drawn back)
     if (d.kind === 'light') {
       S.back = { from: S.override, t0: performance.now() }; // released: back to the clock
       S.override = null;
@@ -1623,21 +1738,12 @@ const SceneView = forwardRef(function SceneView(
         S.eDown = { t: now, tilted: false };
         return;
       }
-      if (handsE(S.lastPointer, e.shiftKey)) return; // (outside: the hands, outside.md Phase 5)
-      const p = S.lastPointer ? pageOf(S.lastPointer) : null; // the point on the page under the pointer
-      if (mail?.letter && inBox(GEOM, S.pose?.pos ?? [0, 0]) && !openingAt(S.lastPointer)) return mail.letGo(); // (the letter set down on its table again)
-      const letter =
-        p && mail && !sheetHand?.held
-          ? sheets.find((s) => s.id?.startsWith('shared:') && p.x >= s.origin[0] && p.y >= s.origin[1] && p.x <= s.origin[0] + SHARED_PAGE.width && p.y <= s.origin[1] + SHARED_PAGE.height)
-          : null;
-      if (letter && mail.mine?.includes(letter.id.slice('shared:'.length))) return mail.hold(letter.id.slice('shared:'.length)); // (yours: taken up, to post)
-      if (sheetHand?.held) {
-        if (onPage(p)) {
-          const it = sheetHand.items.find((x) => x.id === sheetHand.held);
-          sheetHand.down(p); // the writing in the hand, set down there
-          if (it) S.view?.liftSheet(it.sheet); // (where its move lays it anew)
-          schedule();
-        }
+      if (handsE(S.lastPointer, e.shiftKey)) return; // (outside: the hands, outside.md Phase 5; a mailbox)
+      if (papers?.held && !openingAt(S.lastPointer)) {
+        // the paper in the hand let go where the pointer is: it falls flat until it rests (law/paper.js);
+        // (a door or a window under the pointer: the other hand opens it, the paper still held)
+        const at = S.lastPointer ? letGoAt(S.lastPointer) : null;
+        if (at) papers.put(at);
         return;
       }
       const id = S.lastPointer ? pickableAt(S.lastPointer) : null; // the thing under the pointer, picked up
@@ -1649,12 +1755,9 @@ const SceneView = forwardRef(function SceneView(
         if (carrying.pick(id) === 'pen') setHand(false);
         return;
       }
-      const it = onPage(p) ? sheetHand?.items.findLast((x) => p.x >= x.rect[0] && p.y >= x.rect[1] && p.x <= x.rect[2] && p.y <= x.rect[3]) : null; // (the topmost)
-      if (it) {
-        sheetHand.pick(it.id, p);
-        S.view?.liftSheet(it.sheet, [0, 0], HAND_PX);
-        schedule();
-      } else if (openingAt(S.lastPointer) === 'door') carrying.setOpen('door', !carrying.opens.door);
+      const on = papers && !papers.held ? paperAt(S.lastPointer) : null; // a paper under the pointer, taken up (it is matter: anyone's hand may)
+      if (on) papers.take(on.paper);
+      else if (openingAt(S.lastPointer) === 'door') carrying.setOpen('door', !carrying.opens.door);
       else if (openingAt(S.lastPointer) === 'window') {
         // the window, round: its sash opened; shut, and its shutters shut; the shutters opened again
         const { window: sash, shutters } = carrying.opens;
@@ -1678,6 +1781,14 @@ const SceneView = forwardRef(function SceneView(
       return;
     }
     if (S.pose && (k === '[' || k === ']')) return resize(k);
+    if (k === 'q' || k === 'z') {
+      // the hand down or up (what it holds, rooms.md §3b): held, it goes on
+      if (!S.keys.size) S.keyT = now;
+      S.keys.add(k);
+      S.liftT = now;
+      schedule();
+      return;
+    }
     if (!(WK.isMoveKey(k) || k === ' ' || k === 'shift')) return;
     e.preventDefault();
     if (!S.pose) {
