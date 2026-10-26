@@ -219,7 +219,21 @@ const GOLDEN = { whole: 'AWfeGnVf4AtRh1JJoFN00aJeo0w-EaoqilZ6udwU4vU', lifted: '
 
 test("a hard dry scrape wears a paper through, its fibres shed as fluff; on the table's wood the same scrape cuts it, its shavings loose (law 4: matter worn away)", () => {
   // back and forth over one place, forty times, pressed hard, the nib dry (a dry pen: no ink)
-  const r = record([{ path: samplePath((u) => [20 + 30 * Math.abs(((u * 40) % 2) - 1), 20], () => 30, { pressure: () => 1 }), pen: { ...BLUE, flow: 0 }, start: 0, hasP: true }], [0, 0]);
+  const r = record(
+    [
+      {
+        path: samplePath(
+          (u) => [20 + 30 * Math.abs(((u * 40) % 2) - 1), 20],
+          () => 30,
+          { pressure: () => 1 },
+        ),
+        pen: { ...BLUE, flow: 0 },
+        start: 0,
+        hasP: true,
+      },
+    ],
+    [0, 0],
+  );
   r.orgX = 20;
   r.orgY = 20;
   r.strokes[0].x = r.strokes[0].x.map((v) => v - 50);

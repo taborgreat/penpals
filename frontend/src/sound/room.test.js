@@ -67,7 +67,10 @@ test('a source outside is muffled until the window opens', () => {
 test('the door, open, is a way out and in too: the room rings shorter, a sound beyond it heard through it, none back from it', () => {
   const shut = acoustics(geom);
   const open = acoustics(geom, { door: true });
-  assert.ok(open.rt60.every((t, b) => t < shut.rt60[b]), 'its sound leaves by the open door');
+  assert.ok(
+    open.rt60.every((t, b) => t < shut.rt60[b]),
+    'its sound leaves by the open door',
+  );
   const head = { pos: [geom.size[0] / 2, 1, 1.2], yaw: 0, pitch: 0 };
   const out = { t: 0, pos: [(geom.door.x0 + geom.door.x1) / 2, -4, 1.2], bands: BANDS.map(() => 1), dur: 0.02, attack: 0.001, seed: 1, kind: 'test' };
   const heard = through(out, head, open);
