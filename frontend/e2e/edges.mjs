@@ -1,6 +1,8 @@
 // No edge between matter (Tabor, 2026-10-25), in a real browser on this machine's GPU: seated at your
 // table, one stroke from the paper before you on off its edge goes on onto the table under it, the paper's
-// half on the paper's chain and the rest on the table's own (its wood), each grown by its own matter.
+// half on the paper's chain and the rest on the table's own (its wood), each grown by its own matter; a
+// hard scrape back and forth over one place wears the paper through (its fibres loose) and, through the
+// hole, cuts the table's wood (its shavings loose).
 //   node frontend/e2e/edges.mjs      the built site (npm run build -w frontend first)
 import { paper as P } from 'penpals-law';
 import * as W from './world.mjs';
@@ -52,6 +54,21 @@ try {
   console.log(`   the paper: ${onPaper.inked} cells inked, on ${onPaper.matter}; the table: ${onTable.inked} cells inked, on ${onTable.matter}`);
   if (!onPaper.inked || !onTable.inked) throw new Error('the stroke did not go on across the edge');
   if (onTable.matter !== 'wood') throw new Error(`the table's half is on ${onTable.matter}`);
+
+  step('a hard scrape back and forth over one place on the paper: it wears through, and goes on into the table');
+  const before = posted.length;
+  const zigzag = [[...Array(401).keys()].map((i) => [Math.abs(((i / 10) % 2) - 1), 0.5])]; // (forty passes)
+  await W.strokesIn(page, { x: v.x + v.width / 2 - 140, y: v.y + v.height / 2 + 30, width: 40, height: 4 }, zigzag, 12, { pressure: 1 });
+  await until(page, async () => posted.length >= before + 2, 'the scrape stamped on the paper and on the table', 30000);
+  await page.waitForTimeout(1500);
+  const paperNow = grown(await (await page.request.get(`${base}/api/papers/${paper.paper}`)).json());
+  const tableNow = grown(await (await page.request.get(`${base}/api/papers/${table.paper}`)).json());
+  const torn = paperNow.g.cells.filter((c) => c[11] & 1).length; // (law/v2/constants.js TORN)
+  const fluff = paperNow.g.cuts?.byMatter?.[0] ?? 0; // (law/matter.js: paper is matter 0, wood 1)
+  const shavings = (tableNow.g.cuts?.byMatter?.[1] ?? 0) - (onTable.g.cuts?.byMatter?.[1] ?? 0); // (the scrape's: the line before it shaved some too)
+  console.log(`   the paper: ${torn} cells worn through, ${(fluff / 1e6).toFixed(2)} mg of its fibres loose; the table, through the hole: ${(shavings / 1e6).toFixed(2)} mg more of its wood shaved off, loose`);
+  if (!torn) throw new Error('the scrape did not wear the paper through');
+  if (!(shavings > 0)) throw new Error('the scrape did not go on into the table');
 } catch (err) {
   failed = err;
 } finally {
@@ -62,4 +79,4 @@ if (failed) {
   console.error('FAILED:', failed.message);
   process.exit(1);
 }
-console.log('ok: one stroke from the paper onto the table, each half inked on its own matter');
+console.log('ok: one stroke from the paper onto the table, each half inked on its own matter; a scrape through the paper into the wood');

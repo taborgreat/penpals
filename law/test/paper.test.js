@@ -9,7 +9,8 @@ import { lawOf } from '../laws.js';
 import { record, samplePath } from '../tools/fixtures.js';
 import { makePaper, makePaperAct, makeSurface, checkBirth, replay, compose, growPaper, startState, refusal, apply, lawFor, LIFT_WINDOW, SURFACES } from '../paper.js';
 import { HOUSE } from '../room.js';
-import { WATER } from '../v2/constants.js';
+import { WATER, TORN } from '../v2/constants.js';
+import { idOf } from '../matter.js';
 
 const L = lawOf(2);
 const keyOf = (n) => {
@@ -214,7 +215,30 @@ test('goldens: the fixture paper, and the same with a lift, grow to the facts th
   assert.notEqual(whole, lifted);
   assert.deepEqual({ whole, lifted }, GOLDEN);
 });
-const GOLDEN = { whole: 'EY76BBFA43m9aQn1kqCZhKZ9COALGMjhfxE0R-7s3Us', lifted: 'w6RwPUpJA4gbpsURXuFaYE1vSGthehW66_RQr-xR-KA' }; // a change to them is a change of the law
+const GOLDEN = { whole: 'AWfeGnVf4AtRh1JJoFN00aJeo0w-EaoqilZ6udwU4vU', lifted: '5cNK_AmGcw9EfnYkgbn2X0i0lo1F4cQapkezrhPMbUM' }; // a change to them is a change of the law (law 4: 2026-10-25)
+
+test("a hard dry scrape wears a paper through, its fibres shed as fluff; on the table's wood the same scrape cuts it, its shavings loose (law 4: matter worn away)", () => {
+  // back and forth over one place, forty times, pressed hard, the nib dry (a dry pen: no ink)
+  const r = record([{ path: samplePath((u) => [20 + 30 * Math.abs(((u * 40) % 2) - 1), 20], () => 30, { pressure: () => 1 }), pen: { ...BLUE, flow: 0 }, start: 0, hasP: true }], [0, 0]);
+  r.orgX = 20;
+  r.orgY = 20;
+  r.strokes[0].x = r.strokes[0].x.map((v) => v - 50);
+  r.strokes[0].y = r.strokes[0].y.map((v) => v - 50);
+  const scrape = L.encodeActs(r);
+  const s = stamper();
+  assert.equal(s.act(ana, 'stroke', 1000, { stroke: scrape }), null);
+  const g = growPaper(s.lines, { seed, family: FAMILY });
+  assert.ok(g.cells.filter((c) => c[11] & TORN).length > 0, 'worn through');
+  assert.ok(g.cuts.byMatter[idOf('paper')] > 0, 'its fibres shed');
+  assert.equal(g.cuts.removed, g.cuts.loose, 'nothing deleted: all of it lies loose');
+  const table = makeSurface({ sk: ana.sk, pk: ana.pk, paper: PAPER, surface: 'table' });
+  const t = stamper(table.birth);
+  assert.equal(t.act(ana, 'stroke', 1000, { stroke: scrape }), null);
+  const tg = growPaper(t.lines, { seed: checkBirth(table.birth, table).seed, family: table.birth.family });
+  assert.ok(tg.cuts.byMatter[idOf('wood')] > 0, 'shavings of its wood');
+  assert.equal(tg.cuts.byMatter[idOf('paper')] ?? 0, 0, 'and no paper of it');
+  assert.equal(tg.cells.filter((c) => c[11] & TORN).length, 0, 'wood is cut into, not torn');
+});
 
 test("a house's wall is matter too: its owner's, where it is for good; its owner marks it, no one else; nothing takes it up; its ink grows on plaster (law 4)", () => {
   const wall = makeSurface({ sk: ana.sk, pk: ana.pk, paper: PAPER, surface: 'wall-left' });

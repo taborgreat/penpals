@@ -18,7 +18,7 @@
 //     heard, papers (the hand on them: SceneView's) } }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, useRoomLines, useThings, useWorld, seatOf, roomAct } from './presence.js';
-import { usePaperFields, createPaperWriter, guessOver, sceneSheetOf, mayMark, sealsOf, strokeOf, paperAct, newPaper as bornPaper, newSurface, stacked, restedAt, SEAL_R } from './papers.js';
+import { usePaperFields, createPaperWriter, guessOver, sceneSheetOf, mayMark, sealsOf, strokeOf, paperAct, newPaper as bornPaper, newSurface, stacked, restedAt, wornAt, SEAL_R } from './papers.js';
 import { CELLS } from '../ink/live.js';
 import { waxContext } from './table.js';
 import { wax as WX, room as R, candle as C, paper as P } from 'penpals-law';
@@ -334,8 +334,10 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
         active.current = null;
       },
       nib: () => active.current?.nib() ?? null,
+      // worn through at q (its units)? Then the nib there is on what the paper lies on (law 4)
+      wornAt: (paper, q) => wornAt(writersRef.current.get(paper)?.live, fields.get(paper)?.field, q),
     }),
-    [rects, writerFor],
+    [rects, writerFor, fields],
   );
 
   // the hand on the papers (SceneView's `papers`): take one up where it lies, let the one in your hand go

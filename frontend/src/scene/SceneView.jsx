@@ -858,6 +858,20 @@ const SceneView = forwardRef(function SceneView(
     if (other) return roomCamera.clearance(GEOM, [p[0] - other.at[0], p[1] - other.at[1], p[2] - other.at[2]]);
     return S.outsideWalk ? p[2] - S.outsideWalk.ground(p[0], p[1]) : Infinity;
   };
+  // The nib over a hole it wore through the paper (law 4): there it presses on what the paper lies on, the
+  // table's own wood (its own chain), for as long as it is over the hole; the paper's stroke goes on round
+  // it. q: where on the paper (its units), or null: off it or lifted.
+  const through = (d, ev, q) => {
+    const desk = q && wallWriter && tableWriter.wornAt?.(d.on.sheet, q) ? surfaceAt(ev, 'table') : null;
+    if (desk) {
+      if (d.below) wallWriter.move(desk.p, ev);
+      else wallWriter.down('table', desk.p, ev, d.type ?? 'mouse');
+      d.below = desk.p;
+    } else if (d.below) {
+      wallWriter.up(d.below, ev);
+      d.below = null;
+    }
+  };
   // The topmost paper lying on the table under the pointer: { on (tableWriter's), q (its units), at (page px) }
   const paperUnder = (e) => {
     const at = tableWriter ? pageOf(e) : null;
@@ -1521,6 +1535,7 @@ const SceneView = forwardRef(function SceneView(
         if (!inSheet(d.on, p)) {
           // off the paper's edge: no edge between it and what it lies on: the line goes on there, on
           // another paper, or on the table's own wood (its own chain: one-matter.md Phase 3)
+          through(d, ev, null);
           tableWriter.up(d.last, ev);
           penAt({ x: d.last.x + d.on.origin[0], y: d.last.y + d.on.origin[1] }, ev, false);
           const next = paperUnder(ev);
@@ -1539,6 +1554,7 @@ const SceneView = forwardRef(function SceneView(
         }
         d.last = { x: p.x - d.on.origin[0], y: p.y - d.on.origin[1] };
         tableWriter.move(d.last, ev);
+        through(d, ev, d.last);
         penAt(p, ev);
       }
     } else if (d.kind === 'pen-off') {
@@ -1638,6 +1654,7 @@ const SceneView = forwardRef(function SceneView(
           .catch((err) => console.warn('[cut]', err.message)); // (the scene stays whole)
       }
     } else if (d.kind === 'table') {
+      through(d, e.nativeEvent, null);
       penAt({ x: d.last.x + d.on.origin[0], y: d.last.y + d.on.origin[1] }, null, false); // lifted
       if (e.type === 'pointercancel') tableWriter.cancel();
       else {

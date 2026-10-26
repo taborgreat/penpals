@@ -74,11 +74,13 @@ export const across = (a, b, n = 28) => [[...Array(n).keys()].map((i) => [a[0] +
 // timing is part of the record). The world's first frames wait on its shaders: until they come,
 // nothing is drawn.
 const cdps = new WeakMap();
-export async function strokesIn(page, b, strokes, ms = 9) {
+// (pressure: a pen's, 0..1, the strokes pressed as hard as that; else the mouse's)
+export async function strokesIn(page, b, strokes, ms = 9, { pressure = null } = {}) {
   await page.waitForFunction(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok(true)))), null, { timeout: 120000, polling: 1000 });
   if (!cdps.has(page)) cdps.set(page, await page.context().newCDPSession(page));
   const cdp = cdps.get(page);
-  const send = (type, [x, y], t, buttons) => cdp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons, clickCount: 1, timestamp: t / 1000 });
+  const pen = pressure === null ? {} : { pointerType: 'pen', force: pressure };
+  const send = (type, [x, y], t, buttons) => cdp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons, clickCount: 1, timestamp: t / 1000, ...pen });
   for (const s of strokes) {
     const at = ([u, v]) => [b.x + u * b.width, b.y + v * b.height];
     let t = Date.now();

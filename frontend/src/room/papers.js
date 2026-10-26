@@ -12,6 +12,7 @@ import { lawOf, viewBuckets } from 'penpals-law/laws';
 import { createLiveInk, CELLS } from '../ink/live.js';
 import { toHalf } from '../scene/half.js';
 import { TILE } from 'penpals-law/v1/constants';
+import { TORN_BIT } from 'penpals-law/v2/scene';
 import { strokesToActs } from '../ink/capture.js';
 import { roomToPage, PAPER_PX } from '../scene/light/index.js';
 import { cornerOf } from './drops.js';
@@ -35,6 +36,23 @@ export function sceneSheetOf(view, at, origin) {
     origin,
   );
   return { id: `paper:${view.paper}`, paper: view.paper, box: [0, 0, w * CELLS, h * CELLS], origin: [px, py], lift: pz + PAPER_PX, cellPx: 1 / CELLS, size: [w, h] };
+}
+
+// Whether a paper is worn through at q (its units: law 4, its matter worn away), as far as this screen
+// knows: in the ink being written now (live: its tiles, their heights' flags) or as it grew from its chain
+// (field: law/v2/scene.js sceneField).
+const TORN_HALVES = new Set([toHalf(1), toHalf(3)]); // (a live tile's flags: 1 torn, 2 wet, as halves)
+export function wornAt(live, field, q) {
+  const cx = Math.floor(q.x * CELLS),
+    cy = Math.floor(q.y * CELLS);
+  const tx = Math.floor(cx / TILE),
+    ty = Math.floor(cy / TILE);
+  const t = live?.tiles?.().find((x) => x.tx === tx && x.ty === ty);
+  if (t?.hf && TORN_HALVES.has(t.hf[4 * ((cy - ty * TILE) * TILE + (cx - tx * TILE)) + 3])) return true;
+  if (!field) return false;
+  const [bx, by, bw, bh] = field.box;
+  if (cx < bx || cy < by || cx >= bx + bw || cy >= by + bh) return false;
+  return (field.flags[(cy - by) * bw + (cx - bx)] & TORN_BIT) !== 0;
 }
 
 // When it came to rest where it lies (ms): its birth, or the last time a hand let it go.

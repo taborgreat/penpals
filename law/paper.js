@@ -32,7 +32,8 @@
 // (x, y) → z (m: the outside's, law/outside.js) }: where a paper let go comes to rest, and whether it rests
 // on a table. CTX: this world's.
 //
-// The law of a paper: its strokes and its wax, in the stamper's order, are one record grown by law 3, so
+// The law of a paper: its strokes and its wax, in the stamper's order, are one record grown by law 4 (the
+// paper's matter worn by the nib, dry or wet, shed as fluff, worn through: one-matter.md Phase 4), so
 // inks mix across writers where both are wet. Each stroke begins at its stamp, or as the one before it
 // ends if they overlap (one paper, one order); a pause longer than MAX_GAP is a pause of MAX_GAP. A lift
 // is a forward act: the lifted stroke is grown as water instead of ink (WATER), so its pigment is gone and
@@ -51,7 +52,7 @@ import { lawOf } from './laws.js';
 import { tableOf, HOUSE } from './room.js';
 import { groundAt } from './outside.js';
 
-export const PAPER_LAW = 3; // the law a paper's record grows under (wax: rooms.md §3b)
+export const PAPER_LAW = 4; // the law a paper's record grows under (wax: rooms.md §3b; matter worn away: law 4)
 export const SURFACE_LAW = 4; // and a surface's: ink on the surface's own matter (law 4)
 // A house's surfaces, each its matter and its size (its units: the page's px, 1400 to 0.2159 m), and the
 // families their matter's cells are grown from (as the house was always made: the backend's config had them).
@@ -314,7 +315,7 @@ const shift = (s, dx, dy, dt) => ({
 const asWater = (s) => ({ ...s, pens: s.pens.map((p, i) => (i === 0 || p.rgb ? { ...p, rgb: [...WATER], mask: undefined } : p)) });
 
 // lines: stamped, allowed (replay first); drips: those that landed on it (wax.js dripsOn).
-// → the PNKA record (law 3) of all its strokes and its wax.
+// → the PNKA record (law 3's format) of all its strokes and its wax.
 const MARKED = new Set(['stroke', 'drip', 'press', 'break']);
 export function compose(lines, drips = []) {
   const L = lawOf(SURFACE_LAW); // (reads every stroke a paper's or a surface's law takes)
@@ -391,5 +392,5 @@ export function growPaper(lines, { seed, family, scale = 64, drips = [], law = f
   const res = L.grow(L.decodeCanonical(acts), { paperKey: paperKeyOf(seed), family, scale });
   const cells = L.settledCells(res.tiles);
   const box = L.boxOf(cells);
-  return { acts, cells, box, seals: res.seals, facts: L.factsDigest({ cells, box, actsBytes: acts, family, scale, law }) };
+  return { acts, cells, box, seals: res.seals, cuts: res.cuts ?? null, facts: L.factsDigest({ cells, box, actsBytes: acts, family, scale, law }) };
 }
