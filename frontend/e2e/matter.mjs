@@ -44,7 +44,10 @@ try {
   await page.keyboard.up('s');
   // the head over a point (room m) and the pointer at the view's middle: what the hand reaches
   const aim = async (p, from = null) => {
-    if (from) await page.evaluate((q) => globalThis.__sceneLook.at(q), from);
+    if (from) {
+      await page.evaluate((q) => globalThis.__sceneLook.at(q), from);
+      await page.waitForTimeout(500); // (the walking eye comes to its height)
+    }
     await page.evaluate((q) => globalThis.__sceneLook.aim(q), p);
     await page.mouse.move(mid[0] + 1, mid[1]);
     await page.mouse.move(...mid);
