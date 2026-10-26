@@ -18,8 +18,8 @@ import { useKey } from '../keys/session.js';
 // house, on its plot near the start (room/world.js). `/u/<name>` opens the
 // world at that person's house. A house is its owner's space (rooms.md §1):
 // every scene in it is grown from their key, under the one world clock. Who
-// can come in follows the profile's privacy and block rules (rooms.md §4): a
-// house closed to you shows only its closed door. The one panel (room/panel.js)
+// can come in follows the profile's privacy (rooms.md §4; there is no blocking:
+// one-world.md): a house closed to you shows only its closed door. The one panel (room/panel.js)
 // follows what is in your hand and in front of you.
 export default function World() {
   const { username } = useParams();

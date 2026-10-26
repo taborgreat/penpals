@@ -1,3 +1,9 @@
+> **Where this stands (2026-10-25).** Part A's shape holds: the files are the storage, chains are only
+> appended to, a book is one `.book` file anyone can check. What has gone since: the skeleton (A2, A3) and
+> the layout it held, and Part B's living journal. A book is now its chain alone: the signature and every
+> paper and surface its owner made, each with its own acts (paper is matter: `law/paper.js`,
+> `6-steps/one-world.md`); a `.book` is version 3.
+
 Books, Not a Database
 Pen-pal site: .book storage and the living journal profile. Build spec for coding agents.
 Part A. Books: the storage system

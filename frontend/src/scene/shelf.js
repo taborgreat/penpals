@@ -1,6 +1,6 @@
 // The shelf (rooms.md §3): a board on the left wall, the owner's books standing
-// on it, spine out. Pull one down and it opens in front of you to flip through
-// (the journal's pages on the table, the same sheet machinery). Which books
+// on it, spine out. Pull one down and it opens in front of you: the papers saved
+// in it (a book is its chain: books.md). Which books
 // stand there by default is Tabor's to rule; until then, the owner's own book.
 // Pure geometry (room m), shared by the engine (drawing) and the view (what a
 // click picks).

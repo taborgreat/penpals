@@ -5,8 +5,8 @@
 // candles' light comes from their flames. Everything else is bounce.js's.
 //
 // General over the room it is given (roomGeometry plus its baked form factors:
-// decodeRoom's { ...geom, F, W }), so layer 3 can gather each joined room's
-// own and pass the solver both. Spectra are N values on the axis (axis.js).
+// decodeRoom's { ...geom, F, W }): one house, its light through its own window
+// and door (one-world.md: no rooms are joined). Spectra are N values on the axis (axis.js).
 
 import { N } from './axis.js';
 import { SUN_RADIUS } from './air.js';

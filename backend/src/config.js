@@ -70,8 +70,7 @@ export const config = {
 
   proofs: { pendingTtlMs: 24 * 60 * 60 * 1000, answeredTtlMs: 7 * 24 * 60 * 60 * 1000, pendingPerTarget: 5 },
 
-  // Books (books.md). A journal page is a fixed logical canvas; items sit on it
-  // in these units and the page is scaled to fit the screen.
+  // Books (books.md): a book is its chain; how big its records and its chain may grow.
   book: {
     maxActsBytes: 768 * 1024, // one record's acts (about 40 minutes of writing)
     maxSignatureActsBytes: 32 * 1024,

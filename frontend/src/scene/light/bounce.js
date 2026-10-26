@@ -6,8 +6,8 @@
 // early in a pass moves on within it: Gauss–Seidel, a little over-relaxed),
 // until what is still moving falls below a threshold.
 //
-// General over the patches it is given: one room, or (layer 3) two joined
-// rooms with the form factors between them. Only the form factors are baked
+// General over the patches it is given: one house's room (one-world.md: no
+// rooms are joined), its form factors. Only the form factors are baked
 // (geometry); sources and absorption arrive each time the light or any
 // patch's matter changes, and the solve runs in a worker. The result is linear
 // in the sources: a flame's flicker scales its own solved light, so the light
