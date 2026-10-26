@@ -56,8 +56,8 @@ import * as WK from './keys.js';
 //   toolsHost   an element to put the tools in (a pad's own bar, off the page), else over the view
 //   seeds       whose room this is: { [surface name]: [s0, s1] } (rooms.md §1, room/seeds.js), else the shared room
 //   marks       ink on the room's surfaces (rooms.md §2): [{ id, surface, origin: [x, y], cellUnits,
-//                  box: [x0, y0, w, h] (cells), rgba?: the box's transmittance, live?: { tiles(), onTiles(fn) },
-//                  ink?: { origin, box, rgba } (a live one's ink as stamped: what the room's light takes) }]
+//                  box: [x0, y0, w, h] (cells), abs?: the box's ink by its absorbances, live?: { tiles(), onTiles(fn) },
+//                  ink?: { origin, box, abs } (a live one's ink as stamped: what the room's light takes) }]
 //   wallWriter  { down(surface, p, ev, type), move(p, ev), up(p, ev), cancel() }: writing on a surface
 //               from Look (the pen pointed at it: rooms.md §2), p in that surface's page units
 //   eye         where the eye's lids and colour are headed ({ lids, color }, light-waves §7)
@@ -1149,7 +1149,7 @@ const SceneView = forwardRef(function SceneView(
       return true;
     }
     if (!mine && hit?.kind === 'ground') {
-      act({ act: 'gather', at: worldMm(hit.at).slice(0, 2) });
+      act({ act: 'gather', at: worldMm(hit.at).slice(0, 2), day: dayNow() });
       return true;
     }
     if (!mine && hit?.kind === 'gall') {
@@ -1197,6 +1197,8 @@ const SceneView = forwardRef(function SceneView(
     if (all.length === 2 && ['fibre', 'string'].includes(kinds[0]) && ['fibre', 'string'].includes(kinds[1])) return act({ act: 'twist', a, b });
     if (has('lump') && !hit) return act({ act: 'form', thing: has('lump') });
     if (!hit) return false;
+    // a gall pressed into the ground: a seed (law/hands.js plant: dirt takes it, and it is an oak planted today)
+    if (has('gall') && hit.kind === 'ground') return act({ act: 'plant', thing: has('gall'), at: worldMm(hit.at).slice(0, 2), day: dayNow() });
     const there = hit.kind === 'made' ? hit.made : null;
     const stone = has('stone'),
       stick = has('stick'),
@@ -1831,6 +1833,11 @@ const SceneView = forwardRef(function SceneView(
         S.eDown = { t: now, tilted: false };
         return;
       }
+      const id = S.lastPointer ? pickableAt(S.lastPointer) : null; // the thing under the pointer, picked up
+      if (id === 'jar' && penMode && carrying.penDips) {
+        carrying.dip(); // (the pen in the hand into the jar: a carved stick brought in too)
+        return dipHeard();
+      }
       if (handsE(S.lastPointer, e.shiftKey)) return; // (outside: the hands, outside.md Phase 5; a mailbox)
       if (papers?.held && !openingAt(S.lastPointer)) {
         // the paper in the hand let go where the pointer is: it falls flat until it rests (law/paper.js);
@@ -1838,11 +1845,6 @@ const SceneView = forwardRef(function SceneView(
         const at = S.lastPointer ? letGoAt(S.lastPointer) : null;
         if (at) papers.put(at);
         return;
-      }
-      const id = S.lastPointer ? pickableAt(S.lastPointer) : null; // the thing under the pointer, picked up
-      if (id === 'jar' && penMode && carrying.penDips) {
-        carrying.dip();
-        return dipHeard();
       }
       if (id !== null) {
         if (carrying.pick(id) === 'pen') setHand(false);

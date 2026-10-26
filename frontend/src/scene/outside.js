@@ -22,6 +22,7 @@
 //   groundOf(geom, plot) → (x, y) → z (room m: the ground under a being outside, from the floor)
 import { outside as O, world as WORLD, hands as H, life as LIFE } from 'penpals-law';
 import { MATTER, BEINGS } from 'penpals-law/matter';
+import * as GRASS from 'penpals-law/grass';
 import { limbsOf } from 'penpals-law/tree';
 
 export const SIGHT = 40; // m the outside is grown out to around what sees it (Tabor's to set)
@@ -52,14 +53,24 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms
   const [X, Y] = F.toWorld(centre);
   const others = houses.filter((h) => WORLD.plotKey(h.plot) !== WORLD.plotKey(plot));
   const got = O.near(X, Y, SIGHT, { houses: [...houses, { plot }], day });
+  // and the oaks planted from galls (law/hands.js plant), grown by the same law as the seed's
+  for (const id of facts?.planted?.keys() ?? []) {
+    const t = H.treeOf(id);
+    if (t && Math.hypot(t.at[0] - X, t.at[1] - Y) <= SIGHT) got.trees.push(t);
+  }
   const n = Math.ceil((2 * SIGHT) / GROUND_STEP) + 1;
   const gx0 = Math.floor((centre[0] - SIGHT) / GROUND_STEP) * GROUND_STEP,
     gy0 = Math.floor((centre[1] - SIGHT) / GROUND_STEP) * GROUND_STEP;
-  const z = new Float32Array(n * n);
+  // the share of each m² the grass's blades cover (law/grass.js: as much as stands, gathered short or grown back);
+  // none on water or clay
+  const grassOf = (wx, wy) => (O.matterAt(wx, wy) === 'grass' ? GRASS.coverOf(GRASS.grassOn(facts?.grass?.get(GRASS.cellOf(wx, wy)), day)) : 0);
+  const z = new Float32Array(n * n),
+    cover = new Float32Array(n * n);
   for (let j = 0; j < n; j++)
     for (let i = 0; i < n; i++) {
       const [wx, wy] = F.toWorld([gx0 + i * GROUND_STEP, gy0 + j * GROUND_STEP]);
       z[j * n + i] = O.groundAt(wx, wy) - F.floor;
+      cover[j * n + i] = grassOf(wx, wy);
     }
   // the ground's matter in each of its cells (law/outside.js): water standing level, clay at its edge
   const water = [],
@@ -144,7 +155,8 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms
     ways,
     origin: [F.x0, F.y0], // (this room's corner in the world, m: what is grown is the world's, the same for everyone)
     groundAt: (x, y) => O.groundAt(...F.toWorld([x, y]).slice(0, 2)) - F.floor, // (its height anywhere, room m)
-    ground: { x0: gx0, y0: gy0, step: GROUND_STEP, nx: n, ny: n, z },
+    grassAt: (x, y) => grassOf(...F.toWorld([x, y]).slice(0, 2)), // (the share its grass covers, anywhere)
+    ground: { x0: gx0, y0: gy0, step: GROUND_STEP, nx: n, ny: n, z, cover },
     water: water.filter((w) => seen(w.at)),
     clay: clay.filter((c) => seen(c.at)),
     stones: stones.filter((s) => seen(s.at)),

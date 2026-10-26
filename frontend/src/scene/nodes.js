@@ -594,9 +594,16 @@ function cellsOn(shape, size = null) {
 // cells: 'own' (each mesh's, as above); 'world' (the ground: its cells the world's, from where this
 // room's corner lies in it, m.origin, m: the same cells for everyone who looks); 'instance' (many drawn
 // at once, each its own: the instance's attribute `thing` = [its seed, its size x, y, z (m)]).
-export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu, open = false, cells = 'own' }) {
+// cover: { pair } a matter lying over it on the share of its cells each vertex's `cover` attribute says (0..1: the
+// share of the ground its grass's blades cover: law/grass.js coverOf), each cell covered or bare by its own draw;
+// its ambient m.coverAmbient (its light curve's colour).
+export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu, open = false, cells = 'own', cover = null }) {
   const m = new MeshBasicNodeMaterial();
   const [light, dark] = pairUniforms(pair);
+  const over = cover ? pairUniforms(cover.pair)[0] : null;
+  m.coverAmbient = new THREE.Vector3();
+  const C = cover ? attribute('cover', 'float') : null,
+    A2 = cover ? uniform(m.coverAmbient) : null;
   m.ambient = { A: new THREE.Vector3(), B: new THREE.Vector3() };
   const A = uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => (object.userData.ambient ?? m.ambient).A),
     B = uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => (object.userData.ambient ?? m.ambient).B);
@@ -627,7 +634,23 @@ export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', 
       .mul(float(1).sub(even))
       .toVar();
     const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(toned(light, dark, t), n, float(0), vec3(1), float(K.m2), V, L, null, { ambient: A.add(B.mul(t)), slab: !open, f0: K.f0, metal: K.metal, open });
+    const own = toned(light, dark, t);
+    // (a cell is covered if its own draw, from its place and the ground's seed, falls under the share covered)
+    const cell = floor(pos);
+    const draw = over
+      ? float(
+          uint(cell.x)
+            .mul(uint(73856093))
+            .bitXor(uint(cell.y).mul(uint(19349663)))
+            .bitXor(mU)
+            .mul(uint(2654435761))
+            .shiftRight(uint(8)),
+        ).div(16777216)
+      : null;
+    const covered = over ? step(draw, C) : null;
+    const R = over ? own.map((r, g) => mix(r, over[g], covered)) : own;
+    const ambient = over ? mix(A.add(B.mul(t)), A2, covered) : A.add(B.mul(t));
+    return spectral(R, n, float(0), vec3(1), float(K.m2), V, L, null, { ambient, slab: !open, f0: K.f0, metal: K.metal, open });
   })();
   return m;
 }

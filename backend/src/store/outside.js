@@ -50,6 +50,8 @@ export const outsideNow = () => ({
   edges: [...state.edges],
   picked: [...state.picked].map(([gall, day]) => ({ gall, day })),
   combs: [...state.combs].map(([tree, list]) => ({ tree, list })),
+  planted: [...state.planted].map(([id, p]) => ({ id, ...p })),
+  grass: [...state.grass].map(([cell, list]) => ({ cell, list })),
   k: Object.fromEntries(state.k),
 });
 export const outsideLines = () => lines;

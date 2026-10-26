@@ -4,14 +4,14 @@ import { useAuth } from '../auth.jsx';
 import { useKey } from '../keys/session.js';
 import { useHouse } from './useHouse.js';
 import { RULE_MM } from '../book/ruled.js';
-import { paper as P } from 'penpals-law';
+import { paper as P, hands as H } from 'penpals-law';
 import SceneView from '../scene/SceneView.jsx';
 import { roomSeedsOf } from './seeds.js';
 import { useTogether } from './together.js';
 import { useCarry } from './carry.js';
 import { worldNow } from './world.js';
 import { useHands } from './hands.js';
-import { usePens } from './pens.js';
+import { usePens, stickPen } from './pens.js';
 import { useThings, roomAct } from './presence.js';
 import { usePaperFields } from './papers.js';
 import Panel from '../components/Panel.jsx';
@@ -79,6 +79,23 @@ export default function House({ name, editable = false, panel = null, onHold = n
   const outside = useMemo(() => (plot ? { plot, houses } : null), [plot?.join(), houses]); // eslint-disable-line react-hooks/exhaustive-deps
   // what hands have done outside, and yours (outside.md Phase 5)
   const handsNow = useHands({ key });
+  // a carved stick in your hand, brought in from outside (outside.md §2.5, §2.6): it is the pen you write with,
+  // as fine as it was carved; clicked on the jar, it is dipped (room/pens.js stickPen)
+  const stickHeld = useMemo(() => {
+    const f = handsNow.facts,
+      me = key?.publicKey;
+    if (!f || !me) return null;
+    const id = [...f.things]
+      .filter(([t, h]) => t.startsWith('stick:') && h.at === null && h.by === me)
+      .map(([t]) => t)
+      .at(-1);
+    const tip = id ? H.tipOf(f, id) : null;
+    return tip && { id, tip };
+  }, [handsNow.facts, key?.publicKey]);
+  const [stickDips, setStickDips] = useState({ id: null, n: 0 });
+  const dipsNow = stickHeld && stickDips.id === stickHeld.id ? stickDips.n : 0;
+  const writing = useMemo(() => (stickHeld ? stickPen(stickHeld.tip, dipsNow) : pen), [stickHeld, dipsNow, pen]);
+  const pensInHand = useMemo(() => (stickHeld ? { ...pens, pen: writing, stick: true, dip: () => setStickDips({ id: stickHeld.id, n: dipsNow + 1 }) } : pens), [stickHeld, pens, writing, dipsNow]);
   const hands = useMemo(() => ({ ...handsNow, me: key?.publicKey ?? null }), [handsNow.facts, handsNow.act, key?.publicKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // new papers are grown on the paper you choose at your table (law/paper.js: its family is its birth's)
   const [family, setFamily] = useState(null);
@@ -93,12 +110,12 @@ export default function House({ name, editable = false, panel = null, onHold = n
     mine: !!key && key.publicKey === book.key,
     pageW: PAGE[0],
     pageH: PAGE[1],
-    pen,
+    pen: writing,
     family,
     plot,
   });
   // the room's things in the hand (rooms.md §3b): a candle picked up, carried, tilted, set down
-  const carry = useCarry({ name, me: user?.username ?? null, key, room: book.key ?? null, pens });
+  const carry = useCarry({ name, me: user?.username ?? null, key, room: book.key ?? null, pens: pensInHand });
   // Ctrl+Z, the pen in the hand: your last stroke lifted from the paper you last wrote on
   useEffect(() => {
     if (panel !== 'pen') return undefined;
@@ -174,7 +191,15 @@ export default function House({ name, editable = false, panel = null, onHold = n
           <p className="meta">Tap E to let it go where the pointer is (on a table, the floor, outside). At someone's mailbox, by their door, E posts it to them.</p>
         </Panel>
       )}
-      {panel === 'pen' && (
+      {panel === 'pen' && stickHeld && (
+        <Panel title="A carved stick in your hand">
+          <p className="meta">
+            Its tip is {(stickHeld.tip.r * 2000).toFixed(1)} mm across: carve it finer with a stone outside.{' '}
+            {writing.dipped ? "It holds the jar's ink." : 'Dry, it only scratches: click the jar with it to dip it.'}
+          </p>
+        </Panel>
+      )}
+      {panel === 'pen' && !stickHeld && (
         <Panel title="The pen in your hand">
           <PenPanel pen={pen}>
             <button type="button" className="quiet" onClick={() => together.lift()} title="Ctrl+Z: its pigment goes, the water and the dents it left stay">

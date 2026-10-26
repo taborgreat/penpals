@@ -7,6 +7,9 @@ import * as MK from '../making.js';
 import { MATTER } from '../matter.js';
 import { near, treeNow, matterAt } from '../outside.js';
 import * as LIFE from '../life.js';
+import * as GRASS from '../grass.js';
+import { GRASSES } from '../matter.js';
+const MATTER_GRASS = GRASSES.meadow;
 
 const today = Math.floor(Date.UTC(2026, 9, 25) / 86400000) + 719528;
 const sk = K.skFromK(new Uint8Array(32).fill(11));
@@ -86,14 +89,14 @@ test('clay gathered, formed into a cup and fired is pottery; grass and dirt are 
   const { a, fire: rub } = fireBetween(act);
   const fire = rub();
   act({ act: 'put', thing: a, to: at });
-  const lump = act({ act: 'gather', at: clay });
+  const lump = act({ act: 'gather', at: clay, day: today });
   assert.equal(state.made.get(lump).kind, 'lump');
   const cup = act({ act: 'form', thing: lump });
   assert.equal(state.made.get(cup).kind, 'cup');
   act({ act: 'put', thing: cup, to: at });
   act({ act: 'fire', thing: cup, fire });
   assert.equal(state.made.get(cup).matter, 'pottery', "past its hardening heat (the fire is the wood's)");
-  const fibre = act({ act: 'gather', at: grass });
+  const fibre = act({ act: 'gather', at: grass, day: today });
   assert.throws(() => act({ act: 'form', thing: fibre }), /not lump/, 'grass is not formed');
   assert.equal(MK.formable('dirt'), false, 'dirt keeps no shape');
   assert.ok(MK.fireHeat() > 1000, `a wood fire: ${MK.fireHeat().toFixed(0)} °C`);
@@ -103,8 +106,8 @@ test('string twisted of grass; a stone chipped by a harder one (chalk cannot); a
   const grass = find((x, y) => matterAt(x, y) === 'grass');
   const { act, state } = world();
   for (let n = 0; n < 2; n++) {
-    const f1 = act({ act: 'gather', at: grass });
-    const f2 = act({ act: 'gather', at: grass });
+    const f1 = act({ act: 'gather', at: grass, day: today });
+    const f2 = act({ act: 'gather', at: grass, day: today });
     const s = act({ act: 'twist', a: f1, b: f2 });
     act({ act: 'put', thing: s, to: at });
   }
@@ -207,7 +210,7 @@ test('ink: galls and ore crushed into water; too much ore makes ink that eats it
   const { a, fire: rub } = fireBetween(act);
   const fire = rub();
   act({ act: 'put', thing: a, to: at });
-  const cup = act({ act: 'form', thing: act({ act: 'gather', at: clay }) });
+  const cup = act({ act: 'form', thing: act({ act: 'gather', at: clay, day: today }) });
   act({ act: 'put', thing: cup, to: at });
   act({ act: 'fire', thing: cup, fire });
   assert.throws(() => act({ act: 'pick', tree: gallOak.id, tip: gall.tip, laid: gall.laid + 1, day: today }), /no gall grows there/, 'none where none was laid');
@@ -221,7 +224,7 @@ test('ink: galls and ore crushed into water; too much ore makes ink that eats it
   assert.deepEqual([state.made.get(gp).of, state.made.get(op).of], ['gall', 'ore']);
   act({ act: 'put', thing: stone.id, to: at });
   act({ act: 'take', thing: cup });
-  act({ act: 'gather', at: water });
+  act({ act: 'gather', at: water, day: today });
   assert.ok(state.made.get(cup).holding.water > 0, 'water in the fired cup');
   act({ act: 'mix', cup, thing: gp });
   act({ act: 'mix', cup, thing: op });
@@ -238,7 +241,7 @@ test('metal: ore melted in a fired cup in a wood fire runs out of it; poured int
   const fire = rub();
   act({ act: 'put', thing: a, to: at });
   const cups = [0, 1].map(() => {
-    const c = act({ act: 'form', thing: act({ act: 'gather', at: clay }) });
+    const c = act({ act: 'form', thing: act({ act: 'gather', at: clay, day: today }) });
     act({ act: 'put', thing: c, to: at });
     act({ act: 'fire', thing: c, fire });
     return c;
@@ -268,7 +271,7 @@ test("a candle: a handful of a hive's comb melted in a cup over a wood fire, and
   const { a, fire: rub } = fireBetween(act);
   const fire = rub();
   act({ act: 'put', thing: a, to: at });
-  const cup = act({ act: 'form', thing: act({ act: 'gather', at: clay }) });
+  const cup = act({ act: 'form', thing: act({ act: 'gather', at: clay, day: today }) });
   const wax = act({ act: 'gather', tree: hiveOak.id, day: today });
   assert.deepEqual([state.made.get(wax).kind, state.made.get(wax).matter], ['wax', 'wax']);
   assert.ok(Math.abs(LIFE.lifeOf(hiveOak, today, state).hive.wax - (before - state.made.get(wax).grams)) < 1e-9, "the hive's comb less by as much");
@@ -276,7 +279,7 @@ test("a candle: a handful of a hive's comb melted in a cup over a wood fire, and
   act({ act: 'put', thing: cup, to: at });
   act({ act: 'melt', cup, fire });
   assert.ok(state.made.get(cup).holding.waxMolten, 'the wood fire past wax melting');
-  const s = act({ act: 'twist', a: act({ act: 'gather', at: grass }), b: act({ act: 'gather', at: grass }) });
+  const s = act({ act: 'twist', a: act({ act: 'gather', at: grass, day: today }), b: act({ act: 'gather', at: grass, day: today }) });
   const candle = act({ act: 'dip', string: s, cup });
   assert.deepEqual([state.made.get(candle).kind, state.made.get(candle).wick.matter], ['candle', 'grass']);
   assert.equal(state.made.get(cup).holding.wax, 0, 'the wax all on the wick');
@@ -294,4 +297,61 @@ test("a feather fallen under a bird's tree is taken up; one that never fell is n
   act({ act: 'take', thing: stone.id });
   act({ act: 'carve', thing: f.id, tool: stone.id, from: 0, to: 20, strokes: 3 });
   assert.ok(H.thinnedAt(state, f.id, 10) > 0, 'its quill cut to a nib');
+});
+
+test('a gall pressed into dirt is a seed: an oak planted that day, grown by the tree law; none where none was planted', () => {
+  const { act, state } = world();
+  const gallOak = around.trees.find((t) => LIFE.gallsOf(t, today).length > 0);
+  const gall = LIFE.gallsOf(gallOak, today)[0];
+  const g = act({ act: 'pick', tree: gallOak.id, tip: gall.tip, laid: gall.laid, day: today });
+  const water = find((x, y) => matterAt(x, y) === 'water');
+  assert.throws(() => act({ act: 'plant', thing: g, at: water, day: today }), /only dirt/, 'not in water');
+  const dirt = find((x, y) => ['dirt', 'grass'].includes(matterAt(x, y)));
+  act({ act: 'plant', thing: g, at: dirt, day: today });
+  const id = H.plantedId(dirt, today);
+  assert.ok(state.planted.has(id) && !state.things.has(g), 'the gall is the seed now');
+  const tree = H.treeOf(id);
+  assert.deepEqual(
+    tree.at.slice(0, 2),
+    dirt.map((v) => v / 1000),
+  );
+  // the tree law grows it, as it grows every oak: it sprouts when its dirt is wet and warm enough
+  const young = treeNow(tree, today + 10 * 365);
+  assert.ok(young.branches.length > 1, `ten years on: ${young.branches.length} branches`);
+  assert.equal(treeNow(tree, today).branches.length <= 1, true, 'the day it was planted: a seed');
+  // an act on it is an act on a tree; on one never planted, there is no tree
+  const fake = H.plantedId([dirt[0] + 1000, dirt[1]], today);
+  assert.equal(H.check(state, { v: 1, kind: 'outside', by, k: 99, act: 'gather', tree: fake, day: today }), 'that act is out of order');
+  const k = state.k.get(by) + 1;
+  assert.equal(H.check(state, { v: 1, kind: 'outside', by, k, act: 'gather', tree: fake, day: today }), 'there is no such tree');
+});
+
+test('grass gathered from a m² is that much shorter, cut to the ground at last; it grows back by the light, in warm days, to its fullest', () => {
+  const { act, state } = world();
+  const grass = find((x, y) => matterAt(x, y) === 'grass');
+  const full = GRASS.grassOn([], today);
+  assert.equal(full, MATTER_GRASS.full, 'untouched: as full as it stands');
+  let took = 0;
+  for (let i = 0; i < 20; i++) {
+    let f;
+    try {
+      f = act({ act: 'gather', at: grass, day: today });
+    } catch (err) {
+      assert.match(err.message, /cut to the ground/);
+      break;
+    }
+    took += state.made.get(f).grams;
+    act({ act: 'put', thing: f, to: [...grass, 0] });
+  }
+  assert.ok(Math.abs(took - full) < 1e-9, `all of it, and no more: ${took.toFixed(0)} g of ${full}`);
+  assert.equal(H.grassStanding(state, grass, today), 0);
+  // it grows back: by summer days faster than winter ones, and never past its fullest
+  const takes = [{ day: today, grams: full }];
+  const year = Math.floor(today / 365.2422) * 365.2422;
+  const summer = Math.floor(year + 172),
+    winter = Math.floor(year + 355);
+  const inSummer = GRASS.grassOn([{ day: summer, grams: full }], summer + 20);
+  const inWinter = GRASS.grassOn([{ day: winter, grams: full }], winter + 20);
+  assert.ok(inSummer > inWinter, `twenty days on: ${inSummer.toFixed(0)} g in summer, ${inWinter.toFixed(0)} g in winter`);
+  assert.equal(GRASS.grassOn(takes, today + 3 * 365), full, 'in the end, full again');
 });

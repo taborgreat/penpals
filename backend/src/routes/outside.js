@@ -7,7 +7,9 @@ import { outsideNow, outsideLines, stampOutside } from '../store/outside.js';
 //   GET  /api/outside          as it is now: { n, things: [{ id, at | null, by }], broken: [{ tree, list }],
 //                              cuts: [{ id, list }], marks: [{ tree, list }], made: [{ id, kind, matter, ... }] (what
 //                              hands made: law/making.js), edges: [stone], picked: [{ gall: 'tree/tip@laid', day }], combs: [{ tree,
-//                              list: [{ day, grams }] }] (comb taken from its hive: law/life.js), k: { [key]: its last count } }
+//                              list: [{ day, grams }] }] (comb taken from its hive: law/life.js), planted: [{ id (a tree: tree:p…),
+//                              by, day }] (galls pressed into the ground), grass: [{ cell (a m²: x,y), list: [{ day, grams }] }]
+//                              (grass gathered: law/grass.js), k: { [key]: its last count } }
 //   GET  /api/outside/chain    every stamped act, to regrow it (law/hands.js grow)
 //   POST /api/outside/acts     { act, seal }: a stone taken or put, a branch broken, a stick or a tree carved, and
 //                              the creation tree's makings (law/hands.js, law/making.js)

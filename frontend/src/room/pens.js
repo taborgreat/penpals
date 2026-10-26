@@ -1,7 +1,9 @@
 // The pens on the table (rooms.md §3c; law/room.js PENS) as the panel for the pen in hand and the
 // writers take them (one-world.md): each its own matter, its settings its facts on the room's chain.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { room as R } from 'penpals-law';
+import { room as R, matter as M } from 'penpals-law';
+import { OAK_GALL } from 'penpals-law/v2/constants';
+import { PX_PER_M } from '../scene/light/room.js';
 import { PEN_SIZES, BROAD_SIZES, FLEX_PRESETS } from '../ink/nibs.js';
 import { lawPen, lineWidthPx, FLOW_DEFAULT, SPATTER_DEFAULT } from '../ink/pens.js';
 import { SIGNATURE_COLORS } from '../hand/colors.js';
@@ -28,6 +30,41 @@ export const PEN_MADE = Object.freeze({
   },
   broad: { size: '2.4 mm', angle: 35, flow: FLOW_DEFAULT, spatter: SPATTER_DEFAULT.broad, color: INK, dip: false },
 });
+
+// A carved stick in the hand as a pen (outside.md §2.5: a pen is a stick sharpened; §2.6: dipped in the
+// house's jar, it writes). Whether a stick gets a nib law of its own is Tabor's to rule (outside.md), so it
+// stands in as the closest nib: round, as wide as its tip is (law/hands.js tipOf: as fine as it was carved),
+// its own wood the nib's matter. Dry until it is dipped in the jar, it only scratches (the law's dry nib); dipped,
+// it holds the jar's ink (oak gall: rooms.md §3c) as a dip pen's reservoir does.
+//   tip: law/hands.js tipOf ({ r, matter }); dips: how often it has been dipped
+const GALL_HEX = `#${OAK_GALL.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+export function stickPen(tip, dips = 0) {
+  const settings = () => ({ nib: 'pen', size: 2 * tip.r * PX_PER_M });
+  const lp = (law) => {
+    const dipped = dips > 0 && law >= 3;
+    const pen = lawPen(settings(), GALL_HEX, dipped ? FLOW_DEFAULT : 0, law >= 2 ? 0 : undefined, dipped ? { well: DIP_WELL, n: dips } : null, law);
+    if (law >= 4) pen.matter = M.idOf(tip.matter);
+    return pen;
+  };
+  return {
+    id: 'stick',
+    name: 'A carved stick',
+    nib: 'pen',
+    fixedNib: true,
+    stick: true,
+    dipped: dips > 0,
+    flex: { ...FLEX_PRESETS.copperplate },
+    flow: dips > 0 ? FLOW_DEFAULT : 0,
+    color: GALL_HEX,
+    dip: true, // (it takes ink only from the jar)
+    set: {},
+    settings,
+    spatterFor: (law) => (law >= 2 ? 0 : undefined),
+    lawPen: lp,
+    flexOf: () => null,
+    widthAt: (law) => (p) => lineWidthPx(lp(law), p),
+  };
+}
 
 // The pen `id` as its facts `s` have it, as the writers take a pen (the same shape usePen gives):
 // change(patch) sets it (an act); dips: how often it has been dipped (a dip is its next pen act's well).

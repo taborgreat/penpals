@@ -455,6 +455,15 @@ export const TREES = Object.freeze({
   }, // the gall oak: its galls are ink's
 });
 
+// The kinds of grass (outside.md §2.4; law/grass.js): what a meadow IS. Near a real one; Tabor's to set.
+//   full    g of blades a m² stands at its fullest (and does, untouched)
+//   leaf    m² of blades a m² of ground at its fullest (their cover: the light they take)
+//   yield   g of blades grown per MJ of light they take;  warmth  °C: colder days, it does not grow
+//   store   g a m² its roots hold to push new blades with (cut to the ground, it grows back from these)
+export const GRASSES = Object.freeze({
+  meadow: { full: 400, leaf: 3, yield: 1.5, warmth: 5, store: 50 },
+});
+
 // The kinds of being (outside.md Part 4): what each IS, as the life law (law/life.js) reads it; what it
 // does is that law. Near real ones (an oak gall wasp, a bumblebee, a sparrow): Tabor's to set.
 //   of       its matters: { body, cover } (rows above: what it weighs, its colour, how it rots)

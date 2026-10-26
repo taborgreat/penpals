@@ -462,10 +462,15 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // and detailed by the eye's distance: the ground's cells the world's (from its seed: law/outside.js SEED),
   // each stone, limb and stick its own (its seed from its id, its cells on its own shape).
   const WORLD_MIX = grown.seedOfText(LO.SEED);
-  const outMat = (row, kind = null, { shape = 'box', cells = 'own' } = {}) =>
-    Object.assign(gpu.objectMaterial(lights, { kind, seed: WORLD_MIX, pair: pairOfRow(row), shape, cells, webgpu: own, open: true }), { matter: pairOfRow(row), row, each: cells === 'instance' });
+  const outMat = (row, kind = null, { shape = 'box', cells = 'own', cover = null } = {}) =>
+    Object.assign(gpu.objectMaterial(lights, { kind, seed: WORLD_MIX, pair: pairOfRow(row), shape, cells, webgpu: own, open: true, cover: cover && { pair: pairOfRow(cover) } }), {
+      matter: pairOfRow(row),
+      row,
+      each: cells === 'instance',
+      cover: cover && pairOfRow(cover),
+    });
   const outMats = {
-    ground: outMat('dirt', grown.DIRT, { cells: 'world' }),
+    ground: outMat('dirt', grown.DIRT, { cells: 'world', cover: 'grass' }), // (the meadow's grass over its dirt, as much as stands)
     stone: outMat('stone', grown.STONE, { shape: 'ball', cells: 'instance' }),
     chalk: outMat('chalk', grown.STONE, { shape: 'ball', cells: 'instance' }),
     ore: outMat('ore', grown.STONE, { shape: 'ball', cells: 'instance' }),
@@ -656,6 +661,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     const cg = new THREE.BufferGeometry();
     cg.setAttribute('position', was.getAttribute('position'));
     cg.setAttribute('normal', was.getAttribute('normal'));
+    cg.setAttribute('cover', was.getAttribute('cover'));
     cg.setIndex(coarseCells(g, hole));
     G.coarse.geometry = cg;
     was.dispose();
@@ -670,10 +676,17 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     if (nx < 2 || ny < 2) return;
     const dx = ((hole[2] - hole[0]) * g.step) / (nx - 1),
       dy = ((hole[3] - hole[1]) * g.step) / (ny - 1);
-    const pos = new Float32Array(nx * ny * 3);
-    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) pos.set([x0 + i * dx, y0 + j * dy, G.at(x0 + i * dx, y0 + j * dy)], 3 * (j * nx + i));
+    const pos = new Float32Array(nx * ny * 3),
+      cover = new Float32Array(nx * ny);
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++) {
+        const [x, y] = [x0 + i * dx, y0 + j * dy];
+        pos.set([x, y, G.at(x, y)], 3 * (j * nx + i));
+        cover[j * nx + i] = G.cover?.(x, y) ?? 0;
+      }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('cover', new THREE.BufferAttribute(cover, 1));
     geo.setIndex(coarseCells({ nx, ny }, null));
     geo.computeVertexNormals();
     G.fine = new THREE.Mesh(geo, outMats.ground);
@@ -696,10 +709,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) pos.set([g.x0 + i * g.step, g.y0 + j * g.step, g.z[j * g.nx + i]], 3 * (j * g.nx + i));
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('cover', new THREE.BufferAttribute(g.cover ?? new Float32Array(g.nx * g.ny), 1)); // (its grass, of its fullest)
     geo.setIndex(coarseCells(g, null));
     geo.computeVertexNormals();
     for (const m of [outMats.ground, outMats.clay]) m.origin.set(...(o.origin ?? [0, 0]));
-    groundNow = { g, at: o.groundAt ?? null, coarse: new THREE.Mesh(geo, outMats.ground), fine: null, hole: null };
+    groundNow = { g, at: o.groundAt ?? null, cover: o.grassAt ?? null, coarse: new THREE.Mesh(geo, outMats.ground), fine: null, hole: null };
     outsideGroup.add(groundNow.coarse);
     const m4 = new THREE.Matrix4(),
       q = new THREE.Quaternion(),
@@ -1580,6 +1594,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
           const c = colorsOf(l.skyE, l.W, m.matter);
           m.ambient.A.set(...c.A);
           m.ambient.B.set(...c.B);
+          if (m.cover) m.coverAmbient.set(...colorsOf(l.skyE, l.W, m.cover).A);
         }
       if (l.haze) {
         gpu.setSpectrum(lights.haze, l.haze.ext);

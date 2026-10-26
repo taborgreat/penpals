@@ -273,9 +273,11 @@ export function useCarry({ name, me, key = null, room = null, pens = null }) {
       dip: () => pens?.dip(),
       // the pen in the hand set down over `p` (room m): it falls onto what is under it (no p: at its own place)
       penDown(p) {
+        if (pens?.stick) return;
         placeThing(penHeld, p ? restOf(GEOM, p) : penRestOf(GEOM, R.PENS.indexOf(penHeld)));
       },
       penUp() {
+        if (pens?.stick) return; // (a carved stick in the hand is the pen: the house's stay where they lie)
         placeThing(penHeld, null);
       },
       // the window (its sash), its shutters and the door: open or shut (their last open or shut acts), and

@@ -3,6 +3,10 @@
 // the stick it was carved with the stone (rubbed along it); gone and come back, all as it was.
 //   node frontend/e2e/hands.mjs      the built site (npm run build -w frontend first)
 import * as W from './world.mjs';
+import { roomGeometry, ROOM, jarRestOf } from '../src/scene/light/room.js';
+import { seat } from '../src/scene/light/roomCamera.js';
+import { lawOf } from 'penpals-law/laws';
+import { matter as M, fromB64url } from 'penpals-law';
 
 const { step } = W;
 const srv = await W.serve(3127, 'penpals-hands-');
@@ -11,6 +15,7 @@ let failed = null;
 const canvas = (p) => p.locator('.house-scene canvas.scene-canvas');
 const facts = (p) => p.evaluate(() => globalThis.__hands?.facts?.());
 const held = (p) => p.evaluate(() => globalThis.__hands?.held?.());
+const lyingOn = (p) => p.evaluate(() => globalThis.__papers?.lying() ?? []);
 // the head turned to a point (room m), the pointer at the view's middle
 const aimAt = async (p, at) => {
   await p.evaluate((q) => globalThis.__sceneLook.aim(q), at);
@@ -126,6 +131,55 @@ try {
     await until(page, async () => (await facts(page)).cuts.some(([id]) => id === stick), 'the stick carved');
     const cut = (await facts(page)).cuts.find(([id]) => id === stick)[1];
     console.log(`   carved: ${JSON.stringify(cut)}`);
+
+    step('the stick taken home: dipped in the jar, it writes on the paper (outside.md §2.5: a pen is a stick sharpened)');
+    await aimAt(page, [foot[0] + 0.05, foot[1] - 0.35, foot[2]]); // (off the stick: the stone set down beside it)
+    await page.keyboard.press('Shift+E');
+    await until(page, async () => !(await held(page)), 'the stone set down again');
+    await aimAt(page, [foot[0] + 0.15, foot[1], foot[2]]);
+    await page.keyboard.press('e');
+    await until(page, async () => (await held(page)) === stick, 'the stick in the hand');
+    await page.goto(`${srv.base}/u/tam`);
+    await W.worldView(page);
+    await page.waitForFunction(() => !!globalThis.__papers, null, { timeout: 30000 });
+    const [paper] = await (async () => {
+      for (let i = 0; i < 60; i++, await page.waitForTimeout(250)) {
+        const ps = await lyingOn(page);
+        if (ps.length) return ps;
+      }
+      throw new Error('no paper on the table');
+    })();
+    await canvas(page).focus();
+    await page.keyboard.down('s');
+    await page.waitForFunction(() => globalThis.__sceneLook?.pose()?.mode === 'walk', null, { timeout: 10000 });
+    await page.keyboard.up('s');
+    const jar = (await page.evaluate(() => globalThis.__things?.at('jar'))) ?? jarRestOf(roomGeometry(ROOM)); // (where its body is now)
+    await page.evaluate((j) => globalThis.__sceneLook.at([j[0] - 0.2, j[1] - 0.45, 1.3]), jar);
+    await page.waitForTimeout(1000);
+    await aimAt(page, [jar[0], jar[1], jar[2] + 0.04]);
+    await page.keyboard.press('h'); // (the stick is the pen: the house's stay where they lie)
+    await W.panel(page, 'A carved stick in your hand').waitFor({ timeout: 10000 });
+    await page.keyboard.press('e'); // its tip into the jar
+    await page.getByText("It holds the jar's ink.").waitFor({ timeout: 10000 });
+    // to the chair (rooms.md §4: writing happens from the seat): E where nothing else is, and sat
+    const chair = seat(roomGeometry(ROOM)).pos;
+    await page.evaluate((c) => globalThis.__sceneLook.at([c[0], c[1] - 0.1, c[2]]), chair);
+    await page.waitForTimeout(800);
+    await aimAt(page, [chair[0], chair[1] - 1, 0]); // (the floor behind)
+    await page.keyboard.press('e');
+    await page.waitForFunction(() => globalThis.__sceneLook?.pose() === null || globalThis.__sceneLook?.pose()?.mode === 'seated', null, { timeout: 10000 });
+    await page.waitForTimeout(1000);
+    const v2 = await canvas(page).boundingBox();
+    const [stamped] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith(`/api/papers/${paper.paper}/acts`) && r.request().method() === 'POST', { timeout: 30000 }),
+      W.strokesIn(page, { x: v2.x + v2.width / 2 - 60, y: v2.y + v2.height / 2 - 10, width: 120, height: 20 }, W.across([0, 0.5], [1, 0.5]), 12),
+    ]);
+    if (stamped.status() !== 201) throw new Error(`the stick's stroke: ${stamped.status()} ${await stamped.text()}`);
+    const lines = (await (await page.request.get(`${srv.base}/api/papers/${paper.paper}`)).json()).lines;
+    const rec = lawOf(5).decodeCanonical(fromB64url(lines.findLast((l) => l.act.act === 'stroke').act.stroke));
+    const pen = rec.strokes[0].pens[0];
+    console.log(`   its stroke: a nib of ${M.ORDER[pen.matter]}, ${pen.size / 10} px across, dipped (well ${pen.well}), oak gall ${pen.gall}`);
+    if (M.ORDER[pen.matter] !== 'wood' || !pen.well || pen.gall !== 255) throw new Error("the stroke was not the stick's");
   }
 
   step('gone and come back: the stone where it was set down, the branch as it was');

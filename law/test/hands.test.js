@@ -68,6 +68,13 @@ test('carving with a soft stone on hard wood takes nothing; a hard one takes as 
     ).cuts,
     a.cuts,
   );
+  // its tip, as a pen takes it (outside.md §2.5: a pen is a stick sharpened): as thin as it was carved there
+  const whole = H.tipOf(H.grow(lines.slice(0, 2)), stick);
+  assert.ok(whole.r > 0 && whole.length > 0 && whole.matter === 'wood');
+  const end = Math.round(whole.length * 1000);
+  lines.push(line(act({ act: 'carve', thing: stick, tool: stone.id, from: end - 30, to: end, strokes: 50 }), lines.length + 1));
+  const sharp = H.tipOf(H.grow(lines), stick);
+  assert.ok(Math.abs(whole.r - sharp.r - (50 * H.cutOf('stone', 'wood')) / 1e6) < 1e-12, `sharpened: ${(whole.r * 2000).toFixed(1)} mm to ${(sharp.r * 2000).toFixed(1)} mm across`);
   // into a tree: the stone in hand marks its bark
   const mark = line(act({ act: 'carve', tree: tree.id, tool: stone.id, from: 1200, to: 1300, az: 90, strokes: 5 }), 8);
   assert.deepEqual(H.grow([...lines, mark]).marks.get(tree.id), [{ from: 1200, to: 1300, az: 90, depth: 5 * H.cutOf('stone', 'bark') }]);

@@ -26,25 +26,28 @@
 //   'break' tree, branch, day (law/sun.js days: the tree as grown that day)
 //   'carve' thing (a stick) | tree, tool (in the hand), from, to (mm: along the stick from its foot, or up
 //           the trunk), strokes; a tree's also az (°: the side cut into)
-//   'gather' at: [x, y] (mm) | tree, day (its hive's comb)            'twist' a, b    'strike' tool, thing
+//   'gather' at: [x, y] (mm), day | tree, day (its hive's comb)            'twist' a, b    'strike' tool, thing
 //   'bind' stick, stone, string, turns, pull (N: as tight as it was wound)  'swing' thing, at (a tree), to
 //   'rub' tool, thing, strokes, at          'form' thing                    'fire' thing, fire
 //   'pick' tree, tip, laid, day (a gall: the tip it grew on, the day it was laid)   'crush' tool, thing   'mix' cup, thing
 //   'melt' cup, fire                        'pour' cup, into                'dip' string, cup
 //   'pry' stick (in the hand), over (a stone: the fulcrum), thing (a stone: the load), to (where it goes over)
+//   'plant' thing (a gall in the hand), at: [x, y] (mm), day: pressed into the ground there, it is a seed: an oak
+//           planted that day (one-matter.md Phase 7: a gall is a tree's seed), tree:p<x>,<y>@<day>
 // D = sha256(T("outside") ‖ JCS(act)), sealed as any record is.
 import { sha256 } from '@noble/hashes/sha2.js';
 import { T, jcs, utf8, concat, b64url, fromB64url } from './tags.js';
 import { sealOf, verifySeal, isGoodPublicKey } from './keys.js';
 import { MATTER, BEINGS } from './matter.js';
-import { stonesIn, treesIn, treeNow, matterAt, OUTSIDE } from './outside.js';
+import { stonesIn, treesIn, treeNow, matterAt, groundAt, OUTSIDE } from './outside.js';
 import * as MK from './making.js';
 import * as LIFE from './life.js';
+import * as GRASS from './grass.js';
 
 export const V = 1;
 export const BEING = MK.BEING; // (a being's pull, swing, rubbing: law/making.js)
 export const CUT = 20; // µm a stroke takes, for each step the tool is harder (Tabor's to set)
-const ACTS = ['take', 'put', 'break', 'carve', 'gather', 'twist', 'strike', 'bind', 'swing', 'rub', 'form', 'fire', 'pick', 'crush', 'mix', 'melt', 'pour', 'dip', 'pry'];
+const ACTS = ['take', 'put', 'break', 'carve', 'gather', 'twist', 'strike', 'bind', 'swing', 'rub', 'form', 'fire', 'pick', 'crush', 'mix', 'melt', 'pour', 'dip', 'pry', 'plant'];
 
 export const handsDigest = (act) => sha256(concat(T('outside'), utf8(jcs(act))));
 const fields = (o, list) => Object.keys(o).sort().join() === list;
@@ -56,8 +59,10 @@ const goodKey = (s) => {
   }
 };
 const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
-const isId = (s, kind) => typeof s === 'string' && new RegExp(`^${kind}:-?\\d+,-?\\d+(/\\d+)?$`).test(s);
-const featherId = (s) => typeof s === 'string' && /^feather:tree:-?\d+,-?\d+\/\d+\/\d+$/.test(s);
+// a tree: one the seed grew (its cell, i,j) or one planted (p and where, x,y mm, @ the day)
+const TREE = '(?:-?\\d+,-?\\d+|p-?\\d+,-?\\d+@\\d+)';
+const isId = (s, kind) => typeof s === 'string' && new RegExp(`^${kind}:${kind.endsWith('tree') ? TREE : '-?\\d+,-?\\d+'}(/\\d+)?$`).test(s);
+const featherId = (s) => typeof s === 'string' && new RegExp(`^feather:tree:${TREE}/\\d+/\\d+$`).test(s);
 const thingId = (s) => isId(s, 'stone') || isId(s, 'stick:tree') || featherId(s) || (typeof s === 'string' && /^made:\d+$/.test(s));
 const place = (v, n = 3) => Array.isArray(v) && v.length === n && v.every((x) => int(x, -1e9, 1e9));
 // an arm's speed (mm/s): the hand's, as the mouse moved it (outside.md §3.3), no faster than an arm goes
@@ -71,17 +76,27 @@ export function stoneOf(id) {
 }
 export function treeOf(id) {
   const [, i, j] = /^tree:(-?\d+),(-?\d+)$/.exec(id) ?? [];
-  return i === undefined ? null : (treesIn(Number(i), Number(j))[0] ?? null);
+  if (i !== undefined) return treesIn(Number(i), Number(j))[0] ?? null;
+  // a planted one: an oak from that day, where it was planted (whether it was: the hands' facts, plantedIn)
+  const [, x, y, day] = /^tree:p(-?\d+),(-?\d+)@(\d+)$/.exec(id) ?? [];
+  if (x === undefined) return null;
+  const at = [Number(x) / 1000, Number(y) / 1000];
+  return { id, at: [...at, groundAt(...at)], kind: 'oak', planted: Number(day) };
 }
+// how much grass stands on the m² at `at` (mm) on `day` (g), as hands have gathered it (law/grass.js)
+export const grassStanding = (state, at, day) => GRASS.grassOn(state.grass.get(GRASS.cellOf(at[0] / 1000, at[1] / 1000)), day);
+export const plantedId = (at, day) => `tree:p${at[0]},${at[1]}@${day}`;
+// a tree that is there: the seed's, or one planted (a plant act landed)
+const treeThere = (state, id) => (/^tree:p/.test(id ?? '') ? state.planted.has(id) : true) && !!treeOf(id);
 export const stickId = (tree, branch) => `stick:${tree}/${branch}`;
 export const stickOf = (id) => {
-  const [, tree, branch] = /^stick:(tree:-?\d+,-?\d+)\/(\d+)$/.exec(id) ?? [];
+  const [, tree, branch] = new RegExp(`^stick:(tree:${TREE})/(\\d+)$`).exec(id) ?? [];
   return tree ? { tree, branch: Number(branch) } : null;
 };
 const matterOfThing = (id, state = null) => (id.startsWith('stone:') ? stoneOf(id)?.matter : id.startsWith('made:') ? state?.made.get(id)?.matter : id.startsWith('feather:') ? 'feather' : 'wood');
 // a feather fallen under a tree (law/life.js): its tree, and the day it fell
 export const featherOf = (id) => {
-  const [, tree, day] = /^feather:(tree:-?\d+,-?\d+)\/(\d+)\/\d+$/.exec(id) ?? [];
+  const [, tree, day] = new RegExp(`^feather:(tree:${TREE})/(\\d+)/\\d+$`).exec(id) ?? [];
   return tree ? { tree, day: Number(day) } : null;
 };
 
@@ -120,11 +135,12 @@ export function shapeOf(act) {
     take: () => (featherId(act.thing) ? fields(act, 'act,by,day,k,kind,thing,v') && int(act.day, 0, 1e7) : fields(act, 'act,by,k,kind,thing,v')) && thingId(act.thing),
     put: () => fields(act, 'act,by,k,kind,thing,to,v') && thingId(act.thing) && Array.isArray(act.to) && act.to.length === 3 && act.to.every((v) => int(v, -1e9, 1e9)),
     break: () => fields(act, 'act,branch,by,day,k,kind,tree,v') && isId(act.tree, 'tree') && int(act.branch, 1, 1e6) && int(act.day, 0, 1e7),
-    gather: () => (fields(act, 'act,at,by,k,kind,v') && place(act.at, 2)) || (fields(act, 'act,by,day,k,kind,tree,v') && isId(act.tree, 'tree') && int(act.day, 0, 1e7)),
+    gather: () => (fields(act, 'act,at,by,day,k,kind,v') && place(act.at, 2) && int(act.day, 0, 1e7)) || (fields(act, 'act,by,day,k,kind,tree,v') && isId(act.tree, 'tree') && int(act.day, 0, 1e7)),
     twist: () => fields(act, 'a,act,b,by,k,kind,v') && thingId(act.a) && thingId(act.b) && act.a !== act.b,
     strike: () => fields(act, 'act,by,k,kind,speed,thing,tool,v') && thingId(act.tool) && thingId(act.thing) && act.tool !== act.thing && speedOk(act.speed),
     bind: () => fields(act, 'act,by,k,kind,pull,stick,stone,string,turns,v') && [act.stick, act.stone, act.string].every(thingId) && int(act.turns, 1, 50) && int(act.pull, 0, 1000),
     swing: () => fields(act, 'act,at,by,k,kind,speed,thing,to,v') && thingId(act.thing) && isId(act.at, 'tree') && place(act.to) && speedOk(act.speed),
+    plant: () => fields(act, 'act,at,by,day,k,kind,thing,v') && thingId(act.thing) && place(act.at, 2) && int(act.day, 0, 1e7),
     pry: () => fields(act, 'act,by,k,kind,over,stick,thing,to,v') && thingId(act.stick) && isId(act.over, 'stone') && isId(act.thing, 'stone') && act.over !== act.thing && place(act.to),
     rub: () =>
       fields(act, 'act,at,by,k,kind,ms,speed,strokes,thing,tool,v') &&
@@ -182,6 +198,8 @@ export const start = () => ({
   n: 0,
   k: new Map(),
   at: new Map(),
+  planted: new Map(),
+  grass: new Map(),
 });
 const held = (state, id, by) => state.things.get(id)?.at === null && state.things.get(id).by === by;
 const isBroken = (state, tree, branch) => (state.broken.get(tree) ?? []).some((b) => b.branch === branch);
@@ -222,6 +240,18 @@ function bodyOf(state, id) {
   const m = madeOf(state, id);
   return m && { matter: m.matter, r: m.r ?? 0.01, length: m.length };
 }
+// a stick's tip as its carving left it (outside.md §2.5: a pen is a stick sharpened): its radius at its far end,
+// thinned as far as it was carved anywhere within its own width of that end, its length and its matter (m).
+// → { r, length, matter } | null
+export function tipOf(state, id) {
+  const b = bodyOf(state, id);
+  if (!b?.length) return null;
+  const end = Math.round(b.length * 1000),
+    near = end - Math.round(2 * b.r * 1000);
+  const at = [end, ...(state.cuts.get(id) ?? []).map((c) => Math.max(near, Math.min(end, c.to)))];
+  const thinned = Math.max(...at.map((mm) => thinnedAt(state, id, mm))) / 1e6; // (µm cut)
+  return { r: Math.max(0, b.r - thinned), length: b.length, matter: b.matter };
+}
 // a feather lying under its tree on day d (fallen, not rotted: law/life.js), as the hands left the tree
 const featherLies = (state, id, day) => {
   const f = featherOf(id);
@@ -256,7 +286,7 @@ export function check(state, act, ms = null) {
   }
   if (act.act === 'put') return held(state, act.thing, act.by) ? null : 'it is not in that hand';
   if (act.act === 'break') {
-    const tree = treeOf(act.tree);
+    const tree = treeThere(state, act.tree) ? treeOf(act.tree) : null;
     if (!tree) return 'there is no such tree';
     if (isBroken(state, act.tree, act.branch)) return 'it is broken off already';
     const br = branchOf(tree, act.branch, act.day);
@@ -270,11 +300,15 @@ export function check(state, act, ms = null) {
   const is = (id, ...kinds) => (kinds.includes(madeOf(state, id)?.kind) ? null : `${id} is not ${kinds.join(' or ')}`);
   const first = (...whys) => whys.find((w) => w) ?? null;
   if (act.act === 'gather' && act.tree !== undefined) {
-    const tree = treeOf(act.tree);
+    const tree = treeThere(state, act.tree) ? treeOf(act.tree) : null;
     const hive = tree && LIFE.nestsOf(tree, act.day, state).hive;
     return first(free(), tree ? null : 'there is no such tree', hive ? null : 'no hive is on it', hive && hive.wax > 0 ? null : 'its comb is gone');
   }
-  if (act.act === 'gather') return free();
+  if (act.act === 'gather') {
+    // grass: as much as stands on that m² (law/grass.js), gathered short or grown back
+    const grass = matterAt(act.at[0] / 1000, act.at[1] / 1000) === 'grass';
+    return first(free(), grass && grassStanding(state, act.at, act.day) <= 0 ? 'the grass there is cut to the ground' : null);
+  }
   if (act.act === 'twist') return first(mine(act.a), mine(act.b), is(act.a, 'fibre', 'string'), is(act.b, 'fibre', 'string'));
   if (act.act === 'strike') return first(mine(act.tool), near(act.thing), act.thing.startsWith('stone:') ? null : 'only a stone is struck');
   if (act.act === 'bind')
@@ -286,7 +320,11 @@ export function check(state, act, ms = null) {
       act.stone.startsWith('stone:') ? null : 'that is not a stone',
       is(act.string, 'string'),
     );
-  if (act.act === 'swing') return first(mine(act.thing), is(act.thing, 'axe'), treeOf(act.at) ? null : 'there is no such tree');
+  if (act.act === 'swing') return first(mine(act.thing), is(act.thing, 'axe'), treeThere(state, act.at) ? null : 'there is no such tree');
+  if (act.act === 'plant') {
+    const soil = ['dirt', 'grass'].includes(matterAt(act.at[0] / 1000, act.at[1] / 1000));
+    return first(mine(act.thing), is(act.thing, 'gall'), soil ? null : 'only dirt takes a seed', state.planted.has(plantedId(act.at, act.day)) ? 'one is planted there already' : null);
+  }
   // (rubbed no longer than since the being's last act was stamped)
   if (act.act === 'pry') {
     const lv = leverOf(state, act);
@@ -310,7 +348,7 @@ export function check(state, act, ms = null) {
   if (act.act === 'pick')
     return first(
       free(),
-      treeOf(act.tree) ? null : 'there is no such tree',
+      treeThere(state, act.tree) ? null : 'there is no such tree',
       state.picked.has(`${act.tree}/${act.tip}@${act.laid}`) ? 'it is picked already' : null,
       treeOf(act.tree) && LIFE.gallsOf(treeOf(act.tree), act.day, state).some((g) => g.tip === act.tip && g.laid === act.laid) ? null : 'no gall grows there',
     );
@@ -322,7 +360,7 @@ export function check(state, act, ms = null) {
   // carve: the tool in the hand; the stick in the hand or lying, the tree standing
   if (!held(state, act.tool, act.by)) return 'the tool is not in that hand';
   if (act.thing !== undefined && !exists(act.thing)) return 'there is no such thing';
-  if (act.tree !== undefined && !treeOf(act.tree)) return 'there is no such tree';
+  if (act.tree !== undefined && !treeThere(state, act.tree)) return 'there is no such tree';
   return null;
 }
 
@@ -345,7 +383,13 @@ export function apply(state, act, ms = null) {
     make({ kind: 'wax', matter: 'wax', grams });
   } else if (act.act === 'gather') {
     const m = matterAt(act.at[0] / 1000, act.at[1] / 1000);
-    if (m === 'grass') make({ kind: 'fibre', matter: 'grass', grams: MK.handful('grass') });
+    if (m === 'grass') {
+      // a handful, no more than stands there; the m² is that much shorter, and grows back (law/grass.js)
+      const grams = Math.min(MK.handful('grass'), grassStanding(state, act.at, act.day));
+      const cell = GRASS.cellOf(act.at[0] / 1000, act.at[1] / 1000);
+      state.grass.set(cell, [...(state.grass.get(cell) ?? []), { day: act.day, grams }]);
+      make({ kind: 'fibre', matter: 'grass', grams });
+    }
     if (m === 'clay') make({ kind: 'lump', matter: 'clay', grams: MK.handful('clay') });
     if (m === 'water') {
       // water: into a fired cup in the hand (a hand alone lets it run out)
@@ -371,6 +415,11 @@ export function apply(state, act, ms = null) {
     make({ kind: 'axe', matter: 'wood', stick: act.stick, stone: act.stone, string: madeOf(state, act.string), turns: act.turns, pull: act.pull, edge: state.edges.has(act.stone) }, at);
   }
   if (act.act === 'pry') state.things.set(act.thing, { at: [...act.to], by: act.by }); // (tipped over the fulcrum: where it went)
+  if (act.act === 'plant') {
+    // the gall in the ground is a seed: an oak planted there that day (law/tree.js: it sprouts when its dirt is wet and warm)
+    gone(act.thing);
+    state.planted.set(plantedId(act.at, act.day), { by: act.by, day: act.day });
+  }
   if (act.act === 'swing') {
     const axe = madeOf(state, act.thing);
     const stick = bodyOf(state, axe.stick),
