@@ -35,7 +35,11 @@ import { sunAt } from './sun.js';
 // to the window's, floor to ceiling, m), the table against the far wall (its top's width, depth and height,
 // its thickness, and its gap from that wall). Every house is the same shape (frontend scene/light/room.js
 // draws it); where a paper rests on its table is the law's (law/paper.js).
-export const HOUSE = Object.freeze({ size: Object.freeze([3.048, 3.353, 2.438]), table: Object.freeze({ width: 1.4, depth: 0.75, top: 0.74, thick: 0.04, gap: 0.02 }) });
+export const HOUSE = Object.freeze({
+  size: Object.freeze([3.048, 3.353, 2.438]),
+  table: Object.freeze({ width: 1.4, depth: 0.75, top: 0.74, thick: 0.04, gap: 0.02 }),
+  pen: Object.freeze({ length: 0.12, thick: 0.009 }), // a pen's wooden body (its top face takes ink: rooms.md §3c)
+});
 // The table's top in a house (m): { x0, x1, y0, y1, top }
 export function tableOf(house = HOUSE) {
   const [W, D] = house.size,

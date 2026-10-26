@@ -67,6 +67,7 @@ export const SURFACES = Object.freeze({
   'wall-right': Object.freeze({ matter: 'plaster', size: [px(HD), px(HH)] }),
   floor: Object.freeze({ matter: 'wood', size: [px(HW), px(HD)] }),
   ceiling: Object.freeze({ matter: 'plaster', size: [px(HW), px(HD)] }),
+  pen: Object.freeze({ matter: 'wood', size: [px(HOUSE.pen.length), px(HOUSE.pen.thick)] }), // the pen's top face, wherever it lies
 });
 // The ink law a paper or a surface grows under, by its birth.
 export const lawFor = (birth) => (birth?.kind === 'surface' ? SURFACE_LAW : PAPER_LAW);

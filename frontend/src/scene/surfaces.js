@@ -1,17 +1,18 @@
-// The room's surfaces as pages of the book (rooms.md §1, §2): each wall, the
-// floor, the ceiling and the table top holds ink like a journal page, in its
+// The house's surfaces, matter you write on (rooms.md §1, §2): each wall, the
+// floor, the ceiling, the table top and the pen's body holds ink like paper, in its
 // own page frame: x to the right and y down as seen from in front of it (from
 // the seat, for the table and the floor; looking up toward the window, for the
 // ceiling), in page units (1400 a letter's width: light/room.js PX_PER_M a
 // metre), its origin the top left corner. So writing on any of them reads the
 // right way round in its own record, the same as on paper.
 //
-// Pure geometry over the room's shape (light/room.js roomGeometry). The book's
-// surface ids are backend config.book.surfaces'; a room surface of the light's
-// geometry belongs to one of them (the table's top is the table; its edges and
-// underside are not written on).
+// Pure geometry over the room's shape (light/room.js roomGeometry). The surface
+// ids are law/paper.js SURFACES'; a room surface of the light's geometry belongs
+// to one of them (the table's top is the table; its edges and underside are not
+// written on).
 
 import { PX_PER_M } from './light/index.js';
+import { HOUSE } from 'penpals-law/room';
 
 export const SURFACE_IDS = ['table', 'wall-far', 'wall-near', 'wall-left', 'wall-right', 'floor', 'ceiling'];
 // The book's surfaces on the room's things, not on the room (each where its thing lies).
@@ -23,10 +24,10 @@ export const ROOM_SURFACE = { table: 'table-top', 'wall-far': 'wall-far', 'wall-
 // (The pen is cut from the table's wood.)
 export const SEED_NAME = (roomSurfaceId) => (roomSurfaceId.startsWith('table') || roomSurfaceId === 'pen' ? 'table' : roomSurfaceId);
 
-// The pen (rooms.md §3c) is a sheet too: its top face, wherever it lies set down (its
+// The pen (rooms.md §3c) is matter written on too: its top face, wherever it lies set down (its
 // place: room m, the middle of its foot, lying along x, its nib to the right). Its place
 // is a room fact (place acts); the view says where it is now.
-export const PEN_FACE = { length: 0.12, thick: 0.009 };
+export const PEN_FACE = HOUSE.pen; // (law/room.js: its size the law's)
 let penPlace = null;
 export const setPenPlace = (p) => {
   penPlace = p ? [...p] : null;

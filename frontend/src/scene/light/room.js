@@ -162,7 +162,7 @@ export const stamperRestOf = (geom) => [geom.pageRect.x0 - 0.05, geom.pageRect.y
 // The pens (rooms.md §3c; law/room.js PENS: a plain pen, a flex nib, a broad nib): a wooden body and a
 // nib of brass, each lying right of the page toward the writer, side by side, its nib to the right
 // (clear of the candle's holder); and the ink jar beyond them (glass and oak gall ink).
-export const PEN = { length: 0.12, thick: 0.009, tine: 0.012, tineW: 0.0012, apart: 0.03 };
+export const PEN = { length: HOUSE.pen.length, thick: HOUSE.pen.thick, tine: 0.012, tineW: 0.0012, apart: 0.03 };
 export const penRestOf = (geom, k) => [geom.pageRect.x1 + 0.08, geom.pageRect.y0 + 0.02 + k * PEN.apart, geom.table.top];
 export const JAR = { radius: 0.025, height: 0.06, wall: 0.003 }; // (its glass a wall this thick)
 // The pendulum on the desk (Tabor, 2026-10-25: to push and watch swing): a wooden stand (a round foot, a post,

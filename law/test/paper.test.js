@@ -8,6 +8,7 @@ import { keys as K, b64url } from '../index.js';
 import { lawOf } from '../laws.js';
 import { record, samplePath } from '../tools/fixtures.js';
 import { makePaper, makePaperAct, makeSurface, checkBirth, replay, compose, growPaper, startState, refusal, apply, lawFor, LIFT_WINDOW, SURFACES } from '../paper.js';
+import { HOUSE } from '../room.js';
 import { WATER } from '../v2/constants.js';
 
 const L = lawOf(2);
@@ -143,7 +144,7 @@ test("a letter: posted from the hand into someone's mailbox it is theirs; only t
   assert.deepEqual(replay(born.birth, s.lines, { ctx }).problems, []);
 });
 
-test("a book: its owner saves a paper from the hand into their book, at a path; only they take it out; no one marks it there", () => {
+test('a book: its owner saves a paper from the hand into their book, at a path; only they take it out; no one marks it there', () => {
   const s = stamper();
   assert.equal(s.act(ana, 'take', 1000), null);
   assert.match(s.act(bo, 'shelve', 1050, { book: ['letters'] }), /not in your hand/);
@@ -223,6 +224,9 @@ test("a house's wall is matter too: its owner's, where it is for good; its owner
   assert.equal(lawFor(wall.birth), 4);
   assert.throws(() => checkBirth({ ...wall.birth, size: [10, 10] }, wall), /as houses are made/, 'a wall is the size walls are');
   assert.throws(() => makeSurface({ sk: ana.sk, pk: ana.pk, paper: PAPER, surface: 'roof' }), /not a surface/);
+  const pen = makeSurface({ sk: ana.sk, pk: ana.pk, paper: PAPER, surface: 'pen' }); // (its body's top face: rooms.md §3c)
+  assert.equal(pen.birth.family.matter, 'wood');
+  assert.deepEqual(pen.birth.size, [Math.round((HOUSE.pen.length * 1400) / 0.2159), Math.round((HOUSE.pen.thick * 1400) / 0.2159)]);
   const s = stamper(wall.birth);
   assert.deepEqual(s.state().where, { space: ana.id, surface: 'wall-left' });
   assert.equal(s.act(bo, 'take', 100), 'it is part of its house');

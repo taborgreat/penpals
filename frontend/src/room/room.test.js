@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { roomGeometry, hit, ROOM } from '../scene/light/room.js';
 import { CELL_M } from '../scene/light/surface.js';
 import { N } from '../scene/light/axis.js';
-import { SURFACE_IDS, ROOM_SURFACE, PEN_FACE, setPenPlace, surfaceFrame, toRoom, fromRoom, onSurface, surfaceOfHit } from '../scene/surfaces.js';
+import { SURFACE_IDS, THING_SURFACE_IDS, ROOM_SURFACE, PEN_FACE, setPenPlace, surfaceFrame, toRoom, fromRoom, onSurface, surfaceOfHit } from '../scene/surfaces.js';
 import { pieceCorners } from '../scene/marks.js';
 import { roomMeshes, spectrumAt } from '../scene/roomDraw.js';
 import { roomSeedsOf, lobbySeeds, SEED_NAMES } from './seeds.js';
@@ -22,7 +22,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const near = (a, b, e = 1e-9) => a.every((v, i) => Math.abs(v - b[i]) < e);
 
 test("each surface is matter of the house in its own frame (law/paper.js SURFACES): on its room surface, read the right way round, its size the law's", () => {
-  assert.deepEqual([...SURFACE_IDS].sort(), Object.keys(P.SURFACES).sort(), 'the law has every surface the room has');
+  assert.deepEqual([...SURFACE_IDS, ...THING_SURFACE_IDS].sort(), Object.keys(P.SURFACES).sort(), 'the law has every surface the room and its things have');
   for (const id of SURFACE_IDS) {
     const f = surfaceFrame(geom, id);
     assert.deepEqual(f.units, P.SURFACES[id].size, `${id}: the law's size`);
