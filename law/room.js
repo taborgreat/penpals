@@ -39,6 +39,9 @@ export const HOUSE = Object.freeze({
   size: Object.freeze([3.048, 3.353, 2.438]),
   table: Object.freeze({ width: 1.4, depth: 0.75, top: 0.74, thick: 0.04, gap: 0.02 }),
   pen: Object.freeze({ length: 0.12, thick: 0.009 }), // a pen's wooden body (its top face takes ink: rooms.md §3c)
+  // NEEDS RULING (Tabor's to set): how thick the house's shell is (matter.md, Volume: a wall needs something
+  // to burn through): its floor's boards (wood), its walls' and ceiling's plaster
+  shell: Object.freeze({ floor: 0.019, walls: 0.022, ceiling: 0.022 }),
 });
 // The table's top in a house (m): { x0, x1, y0, y1, top }
 export function tableOf(house = HOUSE) {

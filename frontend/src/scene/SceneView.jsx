@@ -161,6 +161,8 @@ const SceneView = forwardRef(function SceneView(
     marks = null,
     flames = null, // a fire's cells alight now (law/fire.js; room m): [[x, y, z]]
     onSeen = null, // (ids) the papers and written surfaces the eye has in view (rooms.md §8: only they grow)
+    ash = null, // what fires left (law/fire.js left): [[x, y, z, 'ash' | 'char', w, thick]] (room m)
+    fireGives = null, // what a fire gives the room now: its light, and what rises into its air (light.js setFires)
     wallWriter = null,
     eye: eyeProp = null,
     fixed: fixedProp = false,
@@ -430,6 +432,7 @@ const SceneView = forwardRef(function SceneView(
     }
     const light = currentLight(now);
     S.view.setLight(light, originOf(page[0], page[1]));
+    S.smokeNow = light.smoke;
     // the candles crackle as they burn (world.md Phase 3): heard a bar ahead (Phase 3c: each placed on
     // the pulse, which may bring it half a leaf sooner), what falls since the frame before (a gap
     // longer than the flicker's frames is time not drawn: nothing in it is heard)
@@ -736,12 +739,20 @@ const SceneView = forwardRef(function SceneView(
     onSeen(ids);
   };
 
-  // a fire's flames (law/fire.js): its cells alight now, room m
+  // a fire's flames (law/fire.js): its cells alight now, room m; what fires left; what a fire gives the room
   useEffect(() => {
     if (!S.view) return;
     S.view.setFire(flames ?? []);
     schedule();
   }, [flames, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!S.view) return;
+    S.view.setAsh(ash ?? []);
+    schedule();
+  }, [ash, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    theLight().setFires(fireGives ?? []);
+  }, [fireGives]);
 
   // ink on the room's surfaces
   const showMarks = () => {
@@ -1141,6 +1152,8 @@ const SceneView = forwardRef(function SceneView(
   // (for the checks, e2e/outside.mjs: what is open now, and the opening under the pointer)
   globalThis.__opens = () => ({ opens: carrying?.opens ?? null, under: openingAt(S.lastPointer) });
   globalThis.__eyeNow = () => ({ gaze: gazeOf(), eye: theLight().state.eye });
+  // (for the checks, e2e/fire.mjs: the room's smoke as drawn: its air's cells with soot, the most of it in one, kg/m³)
+  globalThis.__smokeNow = () => ({ cells: S.smokeNow?.length ?? 0, most: Math.max(0, ...(S.smokeNow ?? []).map((c) => c[3])) });
   // What the hand reaches outside under the pointer (scene/reach.js): through an open opening, or out there.
   // How fast the hand goes at what it works on, `dist` m out (outside.md §3.3: with a stone or a stick in hand
   // the mouse's speed is the arm's): the pointer's ray turning over the last moment, times how far out it is;

@@ -6,6 +6,7 @@
 // Messages in:
 //   { type: 'room', json, bin }                                  the baked room
 //   { type: 'settle', id, sun?: { az, el, cloud? }, present?, even?, candles?: [{ which, at?, height, fed, burntS, spent }],
+//     fires?: [{ pos (room m), K }] (a fire's flames: law/fire.js; after the candles' in flames, each at a watt),
 //     curves?: { [patch]: reflectance } (ink on them, papers lying on them), seeds? }
 // Out, by id:
 //   { id, day, flames: [...], scales: [...], passes, ms }   parts as Float32Array n × N, handed over;
@@ -19,6 +20,7 @@ import { decodeRoom } from './room.js';
 import { roomAbsorption, settleParts, daySources } from './settle.js';
 import { directLight } from './direct.js';
 import { candleState, flameLight } from './candle.js';
+import { blackbody } from './blackbody.js';
 
 let room = null;
 
@@ -32,6 +34,14 @@ export function flamesOf(room, candles = []) {
     return { pos: [spot[0], spot[1], spot[2] + s.flameAt], intensity: flameLight(unit), scale: s.intensity };
   });
 }
+// A fire's flames (law/fire.js) at a watt of light, every way alike: a black body as hot as they are, its share
+// of that watt in each bin (W / sr).
+export const fireFlamesOf = (fires = []) =>
+  fires.map(({ pos, K }) => {
+    const B = blackbody(K);
+    const all = B.reduce((t, v) => t + v, 0);
+    return { pos, intensity: B.map((v) => v / all / (4 * Math.PI)), scale: 0 };
+  });
 
 export function handle(msg) {
   if (msg.type === 'room') {
@@ -41,7 +51,7 @@ export function handle(msg) {
   if (msg.type === 'settle') {
     if (!room) return { id: msg.id, error: 'no room yet' };
     const t0 = performance.now();
-    const flames = flamesOf(room, msg.candles ?? []);
+    const flames = [...flamesOf(room, msg.candles ?? []), ...fireFlamesOf(msg.fires)];
     const absorption = roomAbsorption(room, { curves: msg.curves, seeds: msg.seeds });
     const parts = settleParts(room, absorption, { sun: msg.sun ?? null, flames, present: msg.present ?? true, even: !!msg.even });
     const direct = {};

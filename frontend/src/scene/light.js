@@ -55,7 +55,7 @@ import {
 const MATTER_GLASS = curves.MATTER.glass;
 
 import { frame } from './camera.js';
-import { createRoomAir } from './roomAir.js';
+import { createRoomAir, AIR_DX } from './roomAir.js';
 import { STRIKE } from 'penpals-law/weather';
 import { hazeOf } from './light/smoke.js';
 
@@ -175,6 +175,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     page: paperCurve(paper),
     listeners: new Set(),
     air: null, // the room's air (roomAir.js), begun when it is first drawn
+    fires: [], // what a fire gives the room now (law/fire.js; room/together.js): [{ pos, top, light (W), K, heat (W), smoke (g/s) }]
     open: false, // the window (an act: room/carry.js)
     outside: 0, // the outside air's heat, °C above the room's (the weather's: world.md Phase 4)
     weather: null, // law/weather.js weatherAt, now
@@ -183,6 +184,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     seeds: {}, // whose house: its surfaces' seeds by name (room/seeds.js), as its walls are grown
     ink: { curves: {}, key: '' }, // the patches ink lies on, each its reflectance (scene/inkLight.js)
   };
+  // a fire's flames shining now (law/fire.js)
+  const litFires = () => S.fires.filter((f) => f.light > 0 && f.K > 0);
   // The room's light in parts (the worker's settle): the day and each flame
   // (unit strength), and what of each comes straight from the sun's disk or a
   // flame. What does not (the sky through the window, all that the room
@@ -193,11 +196,21 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     const candles = [0, 1].map((which) => ({ ...(S.candles?.[which] ?? NEW_CANDLE), lit: undefined, which, at: S.candleAt[which] ?? undefined }));
     const cloud = cloudOf(S.weather);
     const closed = !S.opens.door && !S.opens.shutters; // (shut up: no daylight comes in)
-    settle({ sun: sun.el > -6 && !closed ? { az: sun.az, el: sun.el, cloud, opens: S.opens } : null, present: true, direct: true, even: !S.even, candles, curves: S.ink.curves, seeds: S.seeds }).then(
+    const fires = litFires().map((f) => ({ pos: f.pos, K: f.K }));
+    settle({
+      sun: sun.el > -6 && !closed ? { az: sun.az, el: sun.el, cloud, opens: S.opens } : null,
+      present: true,
+      direct: true,
+      even: !S.even,
+      candles,
+      fires,
+      curves: S.ink.curves,
+      seeds: S.seeds,
+    }).then(
       (r) => {
         if (r.even) S.even = r.even;
         if (S.asked !== key) return; // a newer one is coming
-        S.parts = { key, day: r.day, flames: r.flames, sunDirect: r.sunDirect, flameDirect: r.flameDirect };
+        S.parts = { key, day: r.day, flames: r.flames, sunDirect: r.sunDirect, flameDirect: r.flameDirect, fires: fires.length };
         for (const fn of S.listeners) fn();
       },
       (err) => {
@@ -273,6 +286,12 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     get air() {
       return S.air;
     },
+    // What a fire gives the room now (law/fire.js, as room/together.js has it by the clock): its flames' light (W, as
+    // hot as K) from the middle of what is alight, and what rises from its top into the room's air (W of heat, g/s
+    // of smoke): [{ pos, top (room m), light, K, heat, smoke }]
+    setFires(list) {
+      S.fires = list ?? [];
+    },
     // What lets the outside in: { door, shutters } (open or shut: the room's acts)
     setOpens(o) {
       const was = JSON.stringify(S.opens);
@@ -321,8 +340,24 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       });
       // the room's air: the flames' heat and smoke, the window; its soot's haze (scene only)
       S.air ??= createRoomAir(S.geom);
-      S.air.to(date.getTime() / 1000, { flames, open: S.open, door: S.opens.door, outside: S.outside });
+      S.air.to(date.getTime() / 1000, { flames, fires: S.fires, open: S.open, door: S.opens.door, outside: S.outside });
       const haze = hazeOf(S.air.soot());
+      // its smoke where it is (the room's air's cells, and a fire's own under its top), as soot (kg/m³ of its grains)
+      // in each of the room's air's cells: [[x, y, z, kg/m³]], asked again as the air moves
+      if (!S.smokeAt || now - S.smokeAt.ms > 250) {
+        const by = new Map();
+        const share = S.air.sooty();
+        // (µg of soot: of each smoke, its share)
+        for (const [x, y, z, ug] of [
+          ...S.air.cells().map((c) => [...c.slice(0, 3), (c[3] * share) / 1e6]),
+          ...S.fires.flatMap((f) => (f.smokeCells ?? []).map((c) => [...c.slice(0, 3), (c[3] * (f.soot ?? 0)) / 1e6])),
+        ]) {
+          const k = [x, y, z].map((v) => Math.round(v * 1000)).join();
+          by.set(k, [x, y, z, (by.get(k)?.[3] ?? 0) + ug]);
+        }
+        const V = AIR_DX ** 3;
+        S.smokeAt = { ms: now, cells: [...by.values()].map(([x, y, z, ug]) => [x, y, z, (ug * 1e-9) / V]) };
+      }
       const [gw, gd, gh] = S.geom.size;
       const free = (4 * gw * gd * gh) / (2 * (gw * gd + gw * gh + gd * gh)); // the room's mean free path, m
       const through = haze.ext.map((e) => Math.exp(-e * free)); // what of a bounce the smoke lets through
@@ -335,6 +370,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         Math.round(place.az * 2),
         Math.round(place.el * 2),
         ...flames.map((f) => [Math.round(f.height * 2000), ...f.pos.map((v) => Math.round(v * 200))].join(':')),
+        ...litFires().map((f) => [...f.pos.map((v) => Math.round(v * 20)), Math.round(f.K / 100)].join(':')), // (a fire's flames: where, how hot)
         lit ? 1 : 0,
         S.ink.key,
         JSON.stringify(S.seeds),
@@ -353,9 +389,18 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
           if (!part || !fl.intensity) return;
           for (let i = 0; i < n * N; i++) ambient[i] += fl.intensity * (part[i] - direct[i]);
         });
+        // a fire's flames, all their light at patch level (straight and bounced: not drawn per pixel)
+        const fl2 = litFires().slice(0, p.fires ?? 0);
+        fl2.forEach((f, j) => {
+          const part = p.flames[flames.length + j];
+          if (part) for (let i = 0; i < n * N; i++) ambient[i] += f.light * part[i];
+        });
         for (let i = 0; i < n * N; i++) ambient[i] = ambient[i] < 0 ? 0 : ambient[i] * through[i % N];
         const at = S.geom.page * N;
-        for (let b = 0; b < N; b++) pageLight[b] = (p.day[at + b] + flames.reduce((t, fl, k) => t + fl.intensity * (p.flames[k]?.[at + b] ?? 0), 0)) * through[b];
+        for (let b = 0; b < N; b++)
+          pageLight[b] =
+            (p.day[at + b] + flames.reduce((t, fl, k) => t + fl.intensity * (p.flames[k]?.[at + b] ?? 0), 0) + fl2.reduce((t, f, j) => t + f.light * (p.flames[flames.length + j]?.[at + b] ?? 0), 0)) *
+            through[b];
       } else ambient.fill(0);
       // a strike's flash: the clouds lit, as bright every way as its light falls on them here
       const flash = flashOf(S.weather, date.getTime());
@@ -408,6 +453,7 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
         sun,
         flames,
         haze,
+        smoke: S.smokeAt.cells,
         skyE,
         sunOut: level ? level.beam : new Float64Array(N), // (the sun outside: through the clouds, no glass)
         flash, // (the sky's radiance a strike adds, per bin, or null)

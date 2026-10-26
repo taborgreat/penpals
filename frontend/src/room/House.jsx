@@ -153,6 +153,8 @@ export default function House({ name, editable = false, panel = null, onHold = n
           marks={together.scene.marks}
           flames={together.scene.flames}
           onSeen={together.scene.onSeen}
+          ash={together.scene.ash}
+          fireGives={together.scene.fireGives}
           wallWriter={together.scene.wallWriter}
           shelf={shelf}
           beings={together.scene.beings}

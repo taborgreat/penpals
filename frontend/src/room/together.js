@@ -21,16 +21,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, useRoomLines, useThings, useWorld, seatOf, roomAct } from './presence.js';
 import { usePaperFields, createPaperWriter, guessOver, sceneSheetOf, mayMark, sealsOf, strokeOf, paperAct, newPaper as bornPaper, newSurface, stacked, restedAt, wornAt, SEAL_R } from './papers.js';
 import { CELLS } from '../ink/live.js';
-import { waxContext } from './table.js';
+import { waxContext, fireContext } from './table.js';
 import { dripsOnSurface } from './drops.js';
-import { wax as WX, room as R, candle as C, paper as P, fire as F } from 'penpals-law';
+import { wax as WX, room as R, candle as C, paper as P, fire as F, matter as M } from 'penpals-law';
 import { GEOM, theLight, originOf } from '../scene/light.js';
 import { PX_PER_M } from '../scene/light/index.js';
-import { HAND, HOLDER } from '../scene/light/room.js';
+import { HAND } from '../scene/light/room.js';
 import { frameOf, inBox } from '../scene/outside.js';
 import { api } from '../api.js';
 
 const byHand = { on: false }; // (the e2e lights them itself: globalThis.__candles)
+const FIRE_CTX = fireContext(GEOM); // (the room's matter as a fire takes it: law/fire.js)
+const SIGMA = 5.670374419e-8; // W / m² / K⁴ (Stefan–Boltzmann)
 
 // Which candles burn and which are in someone's hand, by the room's signed acts. → { lit, held } ('01' strings)
 function candlesOf(lines) {
@@ -88,49 +90,82 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   // The fires (law/fire.js): each lit candle that came to lie, grown from its kindling off the main thread (every
   // screen grows the same, from the room's chain alone), shown as the world's clock has it: what is alight now,
   // and what of each paper has burnt away so far.
-  const [fires, setFires] = useState(() => new Map()); // id → { t0 (ms), snaps: [[s, burning]], burnt, done }
+  const [fires, setFires] = useState(() => new Map()); // id → { t0 (ms), snaps: [{ t (s), burning, left, light, K, vented, box }], burnt, hottest, done }
   const fireWorkers = useRef(new Map());
   useEffect(() => {
-    const t = GEOM.table;
     for (const k of kindlings) {
       const id = `${k.t}:${k.which}`;
       if (fireWorkers.current.has(id)) continue;
       const w = new Worker(new URL('./fireWorker.js', import.meta.url), { type: 'module' });
       fireWorkers.current.set(id, w);
-      const onTable = k.at[2] > t.top / 2;
-      const ctx = {
-        top: k.at[2],
-        under: 'wood',
-        within: onTable ? [t.x0, t.y0, t.x1, t.y1] : [0, 0, GEOM.size[0], GEOM.size[1]],
-        holder: { radius: HOLDER.radius, height: HOLDER.height },
-        units: PX_PER_M,
-      };
       w.onmessage = ({ data }) => {
         if (data.error) return console.warn('[fire]', data.error);
-        setFires((m) => new Map(m).set(id, { t0: k.t, snaps: [...(m.get(id)?.snaps ?? []), [data.t, data.burning]], burnt: data.burnt, done: data.done }));
+        const { t: at, burning, glow, smoke, soot, left, light, K, vented, box } = data;
+        setFires((m) =>
+          new Map(m).set(id, {
+            t0: k.t,
+            snaps: [...(m.get(id)?.snaps ?? []), { t: at, burning, glow, smoke, soot, left, light, K, vented, box }],
+            burnt: data.burnt,
+            hottest: data.hottest,
+            done: data.done,
+          }),
+        );
         if (data.done) w.terminate();
       };
-      w.postMessage({ id, kindling: k, ctx });
+      w.postMessage({ id, kindling: k, ctx: FIRE_CTX });
     }
   }, [kindlings]);
   useEffect(() => () => fireWorkers.current.forEach((w) => w.terminate()), []);
   // (while one burns, a second at a time: what the clock has come to)
   const [fireNow, setFireNow] = useState(() => Date.now());
-  const burningAny = [...fires.values()].some((f) => !f.done || f.snaps.at(-1)?.[0] * 1000 + f.t0 > fireNow);
+  const burningAny = [...fires.values()].some((f) => !f.done || f.snaps.at(-1)?.t * 1000 + f.t0 > fireNow);
   useEffect(() => {
     if (!burningAny) return undefined;
     const tick = setInterval(() => setFireNow(Date.now()), 1000);
     return () => clearInterval(tick);
   }, [burningAny]);
-  const flames = useMemo(() => {
-    const out = [];
+  // each fire as the clock has it: its cells alight, what it has left (char and ash: they stay), and what it gives
+  // the room: its flames' light (W, their heat: K) and what rises from it into the room's air (W of heat, g/s of
+  // smoke), from over the middle of what is alight
+  const fireNowOf = useMemo(() => {
+    const flames = [],
+      left = [],
+      gives = [];
+    let alight = 0;
     for (const f of fires.values()) {
       const s = (fireNow - f.t0) / 1000;
-      const snap = f.snaps.findLast(([t]) => t <= s);
-      if (snap && !(f.done && s > f.snaps.at(-1)[0])) out.push(...snap[1]);
+      const k = f.snaps.findLastIndex((x) => x.t <= s);
+      if (k < 0) continue;
+      const snap = f.snaps[k],
+        prev = f.snaps[k - 1] ?? { t: 0, light: 0, vented: { heat: 0, smoke: 0 } };
+      left.push(...snap.left);
+      if (f.done && s > f.snaps.at(-1).t) continue;
+      if (!snap.burning.length) continue;
+      alight += snap.burning.length;
+      const dt = snap.t - prev.t || 1;
+      const light = (snap.light - prev.light) / dt;
+      // what glows, each cell as bright as its heat makes it, all of them shining the light its flames gave (W):
+      // ε of a black body's (each cell a round as wide as it is: σT⁴ over π DX²)
+      const glows = snap.glow.reduce((n, c) => n + SIGMA * c[3] ** 4 * Math.PI * F.DX * F.DX, 0);
+      const eps = glows > 0 ? Math.min(1, light / glows) : 0;
+      flames.push(...snap.glow.map((c) => [...c, eps]));
+      const mid = [0, 1, 2].map((a) => snap.burning.reduce((n, c) => n + c[a], 0) / snap.burning.length);
+      gives.push({
+        pos: mid,
+        top: [mid[0], mid[1], snap.box[5]],
+        light,
+        K: snap.K,
+        heat: (snap.vented.heat - prev.vented.heat) / dt,
+        smoke: (snap.vented.smoke - prev.vented.smoke) / dt,
+        smokeCells: snap.smoke, // (its own, under its top: [[x, y, z, µg]])
+        soot: snap.soot, // (ppm of its smoke that is soot)
+      });
     }
-    return out;
+    // (each cell of what is left as it lies: on its cell's floor, a fire's cell wide, as thick as its mass makes it)
+    const ash = left.map(([x, y, z, kind, ug]) => [x, y, z - F.DX / 2, kind, F.DX, (ug * 1e-9) / (M.MATTER[kind].density * F.DX * F.DX)]);
+    return { flames, left, gives, ash, alight };
   }, [fires, fireNow]);
+  const flames = fireNowOf.flames;
   const burnsOf = useCallback(
     (view) =>
       [...fires.values()].flatMap((f) =>
@@ -550,9 +585,18 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
       // (any act on the room's things, as a hand makes it: e2e/fire.mjs knocks a candle over as the house-fire test does)
       act: (a) => roomAct(name, key, roomKey, a),
       // the fires (law/fire.js): kindled, cells alight now, each paper's cells burnt away so far
-      fires: () => ({ kindled: kindlings.length, alight: flames.length, burnt: Object.fromEntries([...fires.values()].flatMap((f) => Object.entries(f.burnt).map(([p, l]) => [p, l.length]))) }),
+      fires: () => ({
+        kindled: kindlings.length,
+        alight: fireNowOf.alight,
+        glowing: flames.length,
+        burnt: Object.fromEntries([...fires.values()].flatMap((f) => Object.entries(f.burnt).map(([p, l]) => [p, l.length]))),
+        left: fireNowOf.left.length, // (cells of char and ash lying)
+        hottest: Object.assign({}, ...[...fires.values()].map((f) => f.hottest)), // (°C each thing reached)
+        gives: fireNowOf.gives,
+        box: [...fires.values()].at(-1)?.snaps.at(-1)?.box ?? null,
+      }),
     };
-  }, [name, body, key, roomKey, candles, kindlings, flames, fires]);
+  }, [name, body, key, roomKey, candles, kindlings, flames, fires, fireNowOf]);
   // (for the checks, e2e/oneworld.mjs: everyone else in the world as this screen sees them, in its frame)
   globalThis.__world = { seen: () => seen.map((b) => ({ name: b.name, house: b.house, at: b.to?.pos ?? null })), opens: () => world.opens };
   // (for the checks, e2e: the papers here and where each lies (room m), the one in your hand, your book)
@@ -574,8 +618,22 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   };
 
   const scene = useMemo(
-    () => ({ sheets: sceneSheets, marks, wallWriter, tableWriter: key ? tableWriter : null, beings: seen, opens: world.opens, onPose: report, heard, papers: key ? hand : null, flames, onSeen }),
-    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key, flames, onSeen],
+    () => ({
+      sheets: sceneSheets,
+      marks,
+      wallWriter,
+      tableWriter: key ? tableWriter : null,
+      beings: seen,
+      opens: world.opens,
+      onPose: report,
+      heard,
+      papers: key ? hand : null,
+      flames,
+      ash: fireNowOf.ash,
+      fireGives: fireNowOf.gives,
+      onSeen,
+    }),
+    [sceneSheets, marks, wallWriter, tableWriter, seen, world.opens, report, heard, hand, key, flames, fireNowOf, onSeen],
   );
   return {
     others,

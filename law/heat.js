@@ -67,11 +67,17 @@
 // visited in index order.
 //
 //   createHeat({ size: [nx, ny, nz], dx (m), dt (s), cellAt: (x, y, z) => matter name | [name, fill] | null (air),
-//                opening?: (x, y, z, k) => whether the edge face beyond (k: up, +x, −x, +y, −y, down) is open })
+//                opening?: (x, y, z, k) => whether the edge face beyond (k: up, +x, −x, +y, −y, down) is open,
+//                from?: { heat (another grid at the same dx and dt), at: [x, y, z] (where its first cell is in this one) } })
 //     (fill: the share of the cell it fills, the rest air: a sheet, a wick, a thin dish)
 //     (dt: about the time warm air takes to rise a cell, dx over its buoyant speed: the caller's grain)
+//     (from: a grid grown larger about what it was: its cells as they were, the rest new from cellAt, its clock
+//      and its counts carried on; the same as if it had always been this large while nothing warm reached its edge)
 //     → { step(), heat(i, nJ), smokeIn(i, µg), outside(mK), openings(opening), settle(s), at(x, y, z), index(x, y, z), total(),
-//         cells, peak, burnt, vented, settled, steps }
+//         cells, peak, burnt, vented, settled, steps, edges (the sides a cell a kelvin or more from the air's heat lies
+//         on after the last step: a bit a side, k as opening's; and the same six bits over (<< 6) where that cell is
+//         matter, not air),
+//         live() (the cells awake: a Set of indices), coords(i) → [x, y, z] }
 
 import { ROWS, MATTER, ORDER, idOf, AIR as ROOM } from './matter.js';
 import { floorDiv } from './v1/int.js';
@@ -128,7 +134,7 @@ export function grainSpeeds(smoke = MATTER.smoke, air = MATTER.air) {
   return { falls, sticks: wanders / film };
 }
 
-export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = false, opening = null }) {
+export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = false, opening = null, from = null }) {
   const N = nx * ny * nz;
   const A = dx * dx,
     V = dx * dx * dx;
@@ -142,6 +148,7 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     held = new Float64Array(N), // µg of liquid in a porous cell's pores
     heldMat = new Uint8Array(N), // and of what
     peak = new Float64Array(N), // each cell's hottest (mK)
+    owedLeft = new Float64Array(N), // (what burning leaves of it not yet a whole µg: ‰ of one)
     vapour = new Float64Array(N), // µg of vapour in an air cell (a liquid boiled into it)
     mist = new Float64Array(N), // µg of it condensed again, drops in the air, falling
     vapourMat = new Uint8Array(N); // (of what)
@@ -276,7 +283,7 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
   }
   // how much liquid a porous cell's pores hold (µg) of a liquid row
   const poresHold = (i, liquid) => floorDiv(m[i] * ROWS[mat[i]].pores * liquid.density, ROWS[mat[i]].density * 1000);
-  const burnt = { mass: 0, smoke: 0, residue: 0 };
+  const burnt = { mass: 0, smoke: 0, residue: 0, light: 0, of: {} }; // (light: nJ its flames shone; of: µg burnt, by matter)
   const boiled = { mass: 0, condensed: 0, fell: 0 }; // what boiled into the air, condensed again, gathered as liquid
   const vented = { smoke: 0, heat: 0, light: 0, vapour: 0 }; // what rose (or shone) out of the grid
   const settled = { smoke: 0 }; // smoke's grains stuck to the faces they met
@@ -394,7 +401,9 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         dP[a] += can;
         need -= can;
       }
-      const left = floorDiv(take * (row.heat.leaves ?? 0), 1000);
+      const owed = take * (row.heat.leaves ?? 0) + owedLeft[i]; // (what of it is left, ‰: a part µg carried to its next)
+      const left = floorDiv(owed, 1000);
+      owedLeft[i] = owed - left * 1000;
       const carried = floorDiv(E[i] * take, m[i] + held[i]); // the heat of what left it goes with it
       let out = take * row.heat.releases + carried; // and the burning's own
       if (soaked) held[i] -= take;
@@ -412,6 +421,7 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       }
       residue[i] += left;
       burnt.mass += take;
+      burnt.of[ORDER[soaked ? heldMat[i] : mat[i]]] = (burnt.of[ORDER[soaked ? heldMat[i] : mat[i]]] ?? 0) + take;
       burnt.residue += left;
       burnt.smoke += take - left;
       // its light: every way alike, to the first matter that way
@@ -419,6 +429,7 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       if (light > 0) {
         const way = floorDiv(light, WAYS.length);
         out -= way * WAYS.length;
+        burnt.light += way * WAYS.length;
         const x0 = i % nx,
           y0 = floorDiv(i, nx) % ny,
           z0 = floorDiv(i, LAYER);
@@ -664,6 +675,7 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     }
     // what stays awake: anything a kelvin or more from the air's heat, smoky, or burning down
     awake.clear();
+    edgesNow = 0;
     for (const i of live) isAwake[i] = 0;
     for (const i of movedList) isMoved[i] = 0;
     for (const i of touchedList) {
@@ -673,8 +685,17 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       if (t >= KELVIN || t <= -KELVIN || residue[i] > 0 || mist[i] > 0)
         awake.add(i); // (smoke at the air's heat goes nowhere; drops fall)
       else if (vapour[i] > 0 && isAir(i) && t < (ROWS[vapourMat[i]].heat.boils - ROOM.temp) * 1000) awake.add(i); // (and vapour cools till it condenses)
+      if (t >= KELVIN || t <= -KELVIN) {
+        // (a cell on the grid's edge that warm: the sides it lies on)
+        const x = i % nx,
+          y = floorDiv(i, nx) % ny,
+          z = floorDiv(i, LAYER);
+        const sides = (z === nz - 1) | ((x === nx - 1) << 1) | ((x === 0) << 2) | ((y === ny - 1) << 3) | ((y === 0) << 4) | ((z === 0) << 5);
+        edgesNow |= isAir(i) ? sides : sides | (sides << 6); // (and the same six bits over: matter there, not air)
+      }
     }
   }
+  let edgesNow = 0;
 
   // Smoke's grains settling for `seconds`: falling a cell's share of the way down, onto what is under
   // it where that is not air; crossing the film to each face it touches (the grid's edges are faces).
@@ -715,6 +736,26 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       }
     settled.smoke += stuck;
     return stuck;
+  }
+
+  // a grid grown larger about `from`: its cells, what was awake, its clock and its counts, carried in
+  if (from) {
+    const o = from.heat.state(),
+      [ox, oy, oz] = from.at,
+      [mx, my] = o.size;
+    const into = (j) => index((j % mx) + ox, (floorDiv(j, mx) % my) + oy, floorDiv(j, mx * my) + oz);
+    const arrays = { mat, m, E, smoke, spent, residue, held, heldMat, peak, owedLeft, vapour, mist, vapourMat, owedOnto, owedDown };
+    for (let j = 0; j < o.n; j++) {
+      const i = into(j);
+      for (const k in arrays) arrays[k][i] = o.arrays[k][j];
+    }
+    for (const j of o.awake) awake.add(into(j));
+    Object.assign(burnt, o.burnt, { of: { ...o.burnt.of } });
+    Object.assign(boiled, o.boiled);
+    Object.assign(vented, o.vented);
+    Object.assign(settled, o.settled);
+    steps = o.steps;
+    outsideT = o.outsideT;
   }
 
   const nameOf = (i) => ORDER[mat[i]];
@@ -785,7 +826,25 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       }
       return { by, matter: all, smoke: sm, vapour: vp, all: all + sm + vp };
     },
-    cells: { mat, m, E, smoke, spent, held, vapour, mist },
+    cells: { mat, m, E, smoke, spent, held, vapour, mist, residue },
+    // all it holds (createHeat's from: a larger grid grown about it)
+    state: () => ({
+      size: [nx, ny, nz],
+      n: N,
+      arrays: { mat, m, E, smoke, spent, residue, held, heldMat, peak, owedLeft, vapour, mist, vapourMat, owedOnto, owedDown },
+      awake: [...awake],
+      burnt,
+      boiled,
+      vented,
+      settled,
+      steps,
+      outsideT,
+    }),
+    get edges() {
+      return edgesNow;
+    },
+    live: () => awake,
+    coords: (i) => [i % nx, floorDiv(i, nx) % ny, floorDiv(i, LAYER)],
     boiled,
     peak,
     burnt,

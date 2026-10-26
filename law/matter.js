@@ -113,6 +113,7 @@ export const MATTER = Object.freeze({
     friction: 500,
     heat: { holds: 1340, conducts: 50, melts: null, boils: null, burns: 233, releases: 16000000, burnRate: 15, leaves: 10, air: 5, shines: 300 },
     becomes: { burnt: 'ash' },
+    soot: 10000, // (cellulose's smoke: about a hundredth of what burns, Tewarson's yields)
     ink: PAPER_INK,
     light: 'paper',
     sound: [20, 20, 20, 20, 30, 40, 50, 50, 50, 50],
@@ -126,6 +127,7 @@ export const MATTER = Object.freeze({
     friction: 450,
     heat: { holds: 2000, conducts: 160, melts: null, boils: null, burns: 300, releases: 18000000, burnRate: 10, leaves: 250, air: 6, shines: 300 },
     becomes: { burnt: 'char' },
+    soot: 15000, // (oak's smoke, Tewarson's yields)
     ink: { drinks: 1, wets: 1000, cap: 120, capStep: 6, capMin: 60, capMax: 200, thirst: 3, rough: 8, fibers: 'grain', fiber: 3 },
     light: 'table',
     sound: [150, 150, 150, 110, 100, 70, 60, 70, 70, 70],

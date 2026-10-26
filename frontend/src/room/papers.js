@@ -6,7 +6,7 @@
 // STAMP_MS is withdrawn here, and you are told, so you can write it again. Lift takes back your own stroke
 // (one of your last LIFT_WINDOW). Wax (rooms.md §3b): the stamper pressed (set to someone's seal), a seal
 // broken: acts like any other. Moves: taken up, let go, posted, saved into a book.
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { keys as K, paper as P, fromB64url } from 'penpals-law';
 import { lawOf, viewBuckets } from 'penpals-law/laws';
 import { createLiveInk, CELLS } from '../ink/live.js';
@@ -131,6 +131,20 @@ export function usePaperFields(views, dripsOf = () => [], burnsOf = () => []) {
     return () => clearInterval(t);
   }, []);
   const asked = useRef(new Map()); // paper → the marks and drips asked for
+  // (one growing a paper at a time: asked again meanwhile, only the newest is grown when it is done, so a paper
+  // burning or dripping a second at a time is never behind by more than one growing)
+  const growing = useRef(new Map()); // paper → the newest asked while one grows: [view, drips, burns] | null
+  const growNow = useCallback((v, drips, burns) => {
+    growing.current.set(v.paper, null);
+    grow(v, drips, burns)
+      .then((r) => setFields((m) => (m.get(v.paper)?.n > r.n ? m : new Map(m).set(v.paper, { field: r.field, n: r.n, facts: r.facts, seals: r.seals }))))
+      .catch((err) => console.warn('[paper]', err.message))
+      .finally(() => {
+        const next = growing.current.get(v.paper);
+        growing.current.delete(v.paper);
+        if (next) growNow(...next);
+      });
+  }, []);
   useEffect(() => {
     for (const v of views) {
       const drips = dripsOf(v);
@@ -138,11 +152,10 @@ export function usePaperFields(views, dripsOf = () => [], burnsOf = () => []) {
       const what = `${marks(v.lines)}:${drips.length}:${burns.length}:${viewBuckets(P.lawFor(v.birth), { ageH: ageOf(v) }).ageH}`;
       if (asked.current.get(v.paper) === what) continue;
       asked.current.set(v.paper, what);
-      grow(v, drips, burns)
-        .then((r) => setFields((m) => (m.get(v.paper)?.n > r.n ? m : new Map(m).set(v.paper, { field: r.field, n: r.n, facts: r.facts, seals: r.seals }))))
-        .catch((err) => console.warn('[paper]', err.message));
+      if (growing.current.has(v.paper)) growing.current.set(v.paper, [v, drips, burns]);
+      else growNow(v, drips, burns);
     }
-  }, [views, dripsOf, burnsOf, hour]);
+  }, [views, dripsOf, burnsOf, hour, growNow]);
   return fields;
 }
 

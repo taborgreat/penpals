@@ -6,15 +6,19 @@
 // rule's settling, every SETTLE_S of the world's clock). Only smoke or moving air computes: a still
 // room costs nothing. A room no one drew meanwhile is caught up in its own steps (while anything
 // moves), then settled in one go. Scene only: none of it is recorded.
-//   createRoomAir(geom) → { to(worldS, { flames, open, outside }), soot() (kg/m³ of the smoke's grains,
-//     the room's mean), smoke() (µg in its air), heat (the grid) }
+// A fire (law/fire.js) gives it what rises out of its own finer grid's top: its heat and its smoke, there. Of its
+// smoke, so much is soot (the grains that darken it) as each source gave: a candle's wax its row's share, a fire's
+// what burnt in it (law/fire.js soot), one share for the room's air (its smoke mixed).
+//   createRoomAir(geom) → { to(worldS, { flames, fires, open, outside }), soot() (kg/m³ of the smoke's grains,
+//     the room's mean), smoke() (µg in its air), sooty() (ppm of it that is soot), cells() ([[x, y, z, µg]]: where
+//     it is), heat (the grid) }
 //   roomAirOf(key, geom): one a space, kept while the page is (a room left and come back to is as it
 //     would have been, watched)
 import { createHeat } from 'penpals-law/heat';
-import { matter } from 'penpals-law';
+import { matter, fire } from 'penpals-law';
 
 const { MATTER, AIR } = matter;
-export const AIR_DX = 0.1; // m (world.md: 10 cm cells)
+export const AIR_DX = fire.AIR_CELL; // m (world.md: 10 cm cells; a fire's finer grid sits in them)
 export const SETTLE_S = 3600; // s of the world's clock between settlings (a grain of time: Tabor's to set)
 const BUDGET_MS = 6; // a frame's share of work catching up (more waits for the next frame)
 
@@ -48,12 +52,16 @@ export function createRoomAir(geom) {
   const clock = () => origin + k * AIR_DT;
   const shine = MATTER.wax.heat.shines / 1000;
   const volume = W * D * H;
+  let fed = 0,
+    sootFed = 0; // (µg of smoke put in, and of soot in it: its share)
+  const sooty = () => (fed > 0 ? sootFed / fed : MATTER.wax.soot);
 
   return {
     heat,
     // the air come to `t` (s, the world's clock): flames ([{ lit, pos (room m), heatRate (W), smokeRate
-    // (g/s) }]: the light's), the window open or not, the door, the outside's heat (°C above the room's air)
-    to(t, { flames = [], open: o = false, door = false, outside = 0 } = {}) {
+    // (g/s) }]: the light's), fires ([{ top (room m), heat (W), smoke (g/s) }]: what rises from each), the window
+    // open or not, the door, the outside's heat (°C above the room's air)
+    to(t, { flames = [], fires = [], open: o = false, door = false, outside = 0 } = {}) {
       if (`${o}|${door}` !== open) {
         open = `${o}|${door}`;
         heat.openings(o || door ? (x, y, z, k) => (o && windowFace(x, y, z, k)) || (door && doorFace(x, y, z, k)) : null);
@@ -65,12 +73,13 @@ export function createRoomAir(geom) {
         return;
       }
       const lit = flames.filter((f) => f.lit && f.smokeRate > 0);
+      const rising = fires.filter((f) => f.heat > 0 || f.smoke > 0);
       const started = performance.now();
       while (origin + (k + 1) * AIR_DT <= t) {
         const last = clock(),
           next = origin + (k + 1) * AIR_DT;
         if (Math.floor(next / SETTLE_S) > Math.floor(last / SETTLE_S)) heat.settle(SETTLE_S);
-        if (!lit.length && !heat.awake) {
+        if (!lit.length && !rising.length && !heat.awake) {
           // still: nothing moves until t but the settling
           const steps = Math.floor((t - origin) / AIR_DT);
           const to = origin + steps * AIR_DT;
@@ -81,7 +90,18 @@ export function createRoomAir(geom) {
         for (const f of lit) {
           const i = heat.index(...cellOf(f.pos));
           heat.heat(i, Math.round(f.heatRate * (1 - shine) * AIR_DT * 1e9));
-          heat.smokeIn(i, Math.round(f.smokeRate * AIR_DT * 1e6));
+          const ug = Math.round(f.smokeRate * AIR_DT * 1e6);
+          heat.smokeIn(i, ug);
+          fed += ug;
+          sootFed += ug * MATTER.wax.soot;
+        }
+        for (const f of rising) {
+          const i = heat.index(...cellOf(f.top));
+          heat.heat(i, Math.round(f.heat * AIR_DT * 1e9));
+          const ug = Math.round(f.smoke * AIR_DT * 1e6);
+          heat.smokeIn(i, ug);
+          fed += ug;
+          sootFed += ug * (f.soot ?? 0);
         }
         heat.step();
         k++;
@@ -89,7 +109,18 @@ export function createRoomAir(geom) {
       }
     },
     smoke: () => heat.total().smoke,
-    soot: () => (heat.total().smoke * (MATTER.wax.soot / 1e6) * 1e-9) / volume,
+    // its smoke where it is: each cell with any, [[x, y, z (room m: its middle), µg]]
+    cells() {
+      const out = [];
+      const { smoke } = heat.cells;
+      for (let i = 0; i < smoke.length; i++) {
+        if (!(smoke[i] > 0)) continue;
+        out.push([mid(i % nx), mid(Math.floor(i / nx) % ny), mid(Math.floor(i / (nx * ny))), smoke[i]]);
+      }
+      return out;
+    },
+    soot: () => (heat.total().smoke * (sooty() / 1e6) * 1e-9) / volume,
+    sooty,
     get at() {
       return origin === null ? null : clock();
     },

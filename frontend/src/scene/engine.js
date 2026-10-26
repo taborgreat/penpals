@@ -29,9 +29,12 @@ import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live update
 import { curves, paperCurve, cellReflectance, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { DROP_PX, DETAIL_PX } from './light/surface.js';
 import { STAMPER, PEN, JAR, PENDULUM, HAND } from './light/room.js';
-import { room as RL, outside as LO } from 'penpals-law';
+import { room as RL, outside as LO, fire as FIRE } from 'penpals-law';
+import { blackbody } from './light/blackbody.js';
+import { hazeOf } from './light/smoke.js';
+import { AIR_DX } from './roomAir.js';
 import * as shine from './light/shine.js';
-import { geomOf, worldOf, cloudOf } from './light.js';
+import { geomOf, worldOf, cloudOf, seenRgb } from './light.js';
 import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf, pairOfRow } from './roomDraw.js';
 import { SIGHT, MAILBOX } from './outside.js';
 import { STONE_SQUAT } from './reach.js';
@@ -1080,12 +1083,14 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     for (const o of [wax, wick, flame]) scene.add(o);
     return { wax, wick, flame };
   });
-  // a fire's flames (law/fire.js: its cells alight), each a flame as a candle's is, a cell's height tall
+  // a fire's flames (law/fire.js glowing: its cells hot enough to glow), each as a candle's flame is drawn, a cell
+  // wide, its glow a black body's as hot as it is (ε of one: as bright as the fire's light makes it), through the eye
   const fireFlames = [];
   let fireCells = [];
+  const glowOf = new Map(); // (a black body's radiance by its heat, to 10 K)
   const placeFire = () => {
     if (!lightOrigin) return;
-    const fh = 0.02 * PX_PER_M; // (a drawing's: two of the fire's cells tall)
+    const fw = FIRE.DX * PX_PER_M;
     while (fireFlames.length < fireCells.length) {
       const f = new THREE.Sprite(gpu.flameMaterial());
       f.center.set(0.5, 0.18);
@@ -1098,8 +1103,92 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       f.visible = !!c;
       if (!c) return;
       f.position.set(...worldOf(c, lightOrigin));
-      f.scale.set(fh * 0.5, fh, 1);
+      f.scale.set(fw, fw * 1.5, 1);
+      const hot = Math.round(c[3] / 10) * 10;
+      if (!glowOf.has(hot)) glowOf.set(hot, blackbody(hot));
+      const seen = lightNow
+        ? seenRgb(
+            lightNow.W,
+            glowOf.get(hot).map((v) => v * c[4]),
+          )
+        : [0, 0, 0];
+      f.material.core.value.setRGB(...seen);
+      f.material.brightness.value = 1;
     });
+  };
+  // the room's smoke where it is (light.js smoke: soot in each of its air's cells): each cell a soft round of it,
+  // as dense as its soot takes light over a cell's width (1 − e^−τ), the colour of the room's light it turns back
+  // there (its grains' scattering of what they take), as the eye sees it
+  const smokePuffs = [];
+  const smokeE = new Float64Array(N);
+  const placeSmoke = (cells, W) => {
+    if (!lightOrigin || !lightNow) return;
+    const shown = [];
+    for (const [x, y, z, soot] of cells ?? []) {
+      const { ext, sca } = hazeOf(soot);
+      let tau = 0;
+      for (let b = 0; b < N - 1; b++) tau += ext[b] * AIR_DX;
+      const alpha = 1 - Math.exp(-tau / (N - 1));
+      if (alpha < 1e-3) continue; // (thinner than any eye tells from clear air)
+      shown.push([x, y, z, alpha, ext, sca]);
+    }
+    while (smokePuffs.length < shown.length) {
+      const p = new THREE.Sprite(gpu.smokeMaterial());
+      p.renderOrder = 9;
+      scene.add(p);
+      smokePuffs.push(p);
+    }
+    const size = AIR_DX * 1.5 * PX_PER_M; // (a cell's width and more: neighbours run into each other, no edges)
+    smokePuffs.forEach((p, k) => {
+      const c = shown[k];
+      p.visible = !!c;
+      if (!c) return;
+      const [x, y, z, alpha, ext, sca] = c;
+      p.position.set(...worldOf([x, y, z], lightOrigin));
+      p.scale.set(size, size, 1);
+      lightAt(GEOM, lightNow.ambient, [x, y, z], smokeE);
+      p.material.core.value.setRGB(
+        ...seenRgb(
+          W,
+          smokeE.map((e, b) => (ext[b] > 0 ? (e * sca[b]) / ext[b] / Math.PI : 0)),
+        ),
+      );
+      p.material.alpha.value = alpha;
+    });
+  };
+  // what a fire left (law/fire.js left): char and ash, each cell of it a square of its own matter lying where it
+  // lies, as thick as its mass makes it
+  const ashMats = {};
+  const ashMeshes = {};
+  let ashCells = [];
+  const placeAsh = () => {
+    if (!lightOrigin) return;
+    const cell = new THREE.Matrix4();
+    for (const kind of ['ash', 'char']) {
+      const list = ashCells.filter((c) => c[3] === kind);
+      let mesh = ashMeshes[kind];
+      if (mesh && mesh.instanceMatrix.count < list.length) {
+        scene.remove(mesh);
+        mesh.dispose();
+        mesh = null;
+      }
+      if (!list.length && !mesh) continue;
+      if (!mesh) {
+        ashMats[kind] ??= Object.assign(gpu.objectMaterial(lights, { kind: null, seed: 0, pair: pairOfRow(kind), shape: 'box', webgpu: own }), { matter: pairOfRow(kind) });
+        mesh = ashMeshes[kind] = new THREE.InstancedMesh(box, ashMats[kind], Math.max(64, list.length * 2));
+        mesh.frustumCulled = false;
+        scene.add(mesh);
+      }
+      list.forEach((c, k) => {
+        const [x, y, z] = worldOf([c[0], c[1], c[2] + c[5] / 2], lightOrigin);
+        const s = c[4] * PX_PER_M;
+        cell.makeScale(s, s, Math.max(c[5], 1e-4) * PX_PER_M).setPosition(x, y, z);
+        mesh.setMatrixAt(k, cell);
+      });
+      mesh.count = list.length;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (list.length) lightHere([mesh], [list[0][0], list[0][1], list[0][2]]);
+    }
   };
   // the bakes: a quad over a chunk's own target
   const bakeScene = new THREE.Scene();
@@ -1614,6 +1703,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lightOrigin = origin;
       for (const s of sheets.values()) lightSheet(s);
       placeFire();
+      placeAsh();
+      placeSmoke(l.smoke, l.W);
       // what lies outside takes the sky's light (on a level face: the light's), and the sun straight
       if (l.sunOut) gpu.setSpectrum(lights.sunOut, l.sunOut);
       if (l.skyE)
@@ -1846,6 +1937,11 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setFire(cells) {
       fireCells = cells ?? [];
       placeFire();
+    },
+    // What fires left (law/fire.js): [[x, y, z (room m: where it lies, its foot), 'ash' | 'char', w (m), thick (m)]]
+    setAsh(cells) {
+      ashCells = cells ?? [];
+      placeAsh();
     },
     // Ink on a surface (scene/marks.js): a mark set, its cells, its live tiles, gone.
     setMark(id, spec) {

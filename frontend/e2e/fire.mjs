@@ -130,10 +130,23 @@ try {
   console.log(`   the paper catching after ${((Date.now() - t0) / 1000).toFixed(0)} s: ${burnt.burnt[paper.paper]} cm² burnt away so far`);
   await page.waitForTimeout(15000);
   const later = await fires(page);
-  console.log(`   15 s on: ${later.alight} cells alight, ${later.burnt[paper.paper]} cm² of the paper burnt away`);
+  console.log(`   15 s on: ${later.alight} cells alight, ${later.glowing} glowing (its flames), ${later.burnt[paper.paper]} cm² of the paper burnt away, ${later.left} cells of ash lying`);
+  const give = later.gives[0];
+  if (give)
+    console.log(
+      `   it gives the room ${give.light.toFixed(1)} W of light (its flames at ${give.K.toFixed(0)} K), ${give.heat.toFixed(1)} W of heat and ${(give.smoke * 1000).toFixed(2)} mg/s of smoke into its air`,
+    );
+  const smoke = await page.evaluate(() => globalThis.__smokeNow?.());
+  console.log(`   the room's smoke drawn: ${smoke.cells} of its air's cells, the densest ${(smoke.most * 1e6).toFixed(3)} mg/m³ of soot`);
+  if (process.env.FIRE_SHOT_MID) await page.screenshot({ path: process.env.FIRE_SHOT_MID });
+  if (!later.glowing) throw new Error('no flame glows');
+  if (!smoke.cells) throw new Error('no smoke in the room');
   // and on the paper itself: its cells gone from its record, as it is grown on this screen
   const holes = await until(page, async () => (await page.evaluate(() => globalThis.__papers?.lying() ?? [])).find((x) => x.paper === paper.paper)?.holes, 'the paper grown with its burns', 30000);
   console.log(`   the paper, grown with them: ${holes} of its cells gone`);
+  const end = await until(page, async () => ((f) => f?.alight === 0 && f.left > 0 && f)(await fires(page)), 'the fire over, its ash lying', 240000);
+  const hot = Object.entries(end.hottest).filter(([k]) => /holder|table|candle|pen|jar|stamper/.test(k));
+  console.log(`   over: ${end.left} cells of ash and char lying; the hottest each got: ${hot.map(([k, v]) => `${k} ${v.toFixed(1)} °C`).join(', ')} (metal melts at 900 °C)`);
   if (process.env.FIRE_SHOT) await page.screenshot({ path: process.env.FIRE_SHOT });
 } catch (err) {
   failed = err;

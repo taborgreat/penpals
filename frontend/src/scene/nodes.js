@@ -1014,6 +1014,22 @@ export function signMaterial(tex) {
   m.colorNode = texture(tex);
   return m;
 }
+// A cell of the room's smoke (world.md 3b; light.js smoke): a soft round of its soot, as dense as `alpha` (what
+// of the light behind it it takes: 1 − e^−τ over a cell), the colour of the room's light it turns back (`core`, as
+// the eye sees it); laid over what is behind it.
+export function smokeMaterial() {
+  const m = new SpriteNodeMaterial({ transparent: true, depthWrite: false });
+  const alpha = uniform(0);
+  const core = uniform(new THREE.Color(0, 0, 0));
+  m.colorNode = Fn(() => {
+    const r = length(uv().sub(vec2(0.5, 0.5))).mul(2);
+    const puff = smoothstep(1, 0.2, r);
+    return vec4(core, puff.mul(alpha));
+  })();
+  m.alpha = alpha;
+  m.core = core;
+  return m;
+}
 export function flameMaterial() {
   const m = new SpriteNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const brightness = uniform(1);

@@ -12,8 +12,9 @@
 // knocked over by what the hands do to any of the room's things), when the caller gives its bodies
 // ({ room, shapes, start }); else where its last place or tilt act put it.
 // A lit candle that comes to lie (knocked over: its body lying) is the heat rule's from then (law/fire.js): its
-// flame is the fire's, which grows from that moment, its candle, its holder and the papers lying there as they
-// were (a kindling: { t, which, at (its foot, room m), way, cd (as it was), lying }); it burns here no more.
+// flame is the fire's, which grows from that moment out of the room's matter as it was then (a kindling: { t, which,
+// at (its foot, room m), way, cd (as it was), candles ([{ which, cd, lit, at, lying }]: each candle then), things
+// (law/bodies.js: where each of the room's things was), lying }); it burns here no more.
 //   createRoomWax({ landing, bodies }) → { advance(lines, until) → drips so far, candle(which), at(), fires() }
 //     (at: the ms the candles have been run to; advance again with a later until, or more lines)
 //     landing([x, y], lying) → { on: 'paper', paper, q } | { on: 'table' | 'floor', at }
@@ -130,7 +131,11 @@ function run(s, lines, until, landing, bodies) {
     s.candles.forEach((c, which) => {
       if (s.bodies && c.lit && c.deg === 90 && c.pos) {
         // lying, alight: the fire's now (law/fire.js), from this moment
-        s.fires.push({ t, which, at: [...c.pos], way: [...c.way], cd: structuredClone(c.cd), lying: s.lying.map((p) => ({ ...p })) });
+        const candles = s.candles.map((x, w) => {
+          const b = s.bodies[CANDLES[w]];
+          return { which: w, cd: structuredClone(x.cd), lit: x.lit, at: b ? [...b.at] : x.pos && [...x.pos], lying: b?.lying ? [...b.lying] : null };
+        });
+        s.fires.push({ t, which, at: [...c.pos], way: [...c.way], cd: structuredClone(c.cd), candles, things: structuredClone(s.bodies), lying: s.lying.map((p) => ({ ...p })) });
         c.lit = false;
       }
       for (const d of stepCandle(c.cd, { lit: c.lit, deg: c.deg })) {

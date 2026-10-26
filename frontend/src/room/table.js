@@ -7,7 +7,7 @@ import { landing, cornerOf } from './drops.js';
 import { PX_PER_M } from '../scene/light/index.js';
 import { HOLDER, STAMPER, PEN, JAR, PENDULUM, HAND, stamperRestOf, penRestOf, jarRestOf, pendulumRestOf } from '../scene/light/room.js';
 import { CANDLE } from 'penpals-law/candle';
-import { PENS } from 'penpals-law/room';
+import { PENS, HOUSE } from 'penpals-law/room';
 
 // Which papers lie in the room, and where, from the room's chain (its lay lines: { kind: 'lay', paper,
 // rest: [x, y, z] mm, size }, rest null when it left). → [{ paper, at, size }]
@@ -71,5 +71,27 @@ export function waxContext({ geom }) {
   return {
     bodies: bodiesContext(geom),
     landing: (p, lying) => landing(geom, p, { papers: lying }),
+  };
+}
+
+// The room's matter as its fire takes it (law/fire.js ctx): the house's shell (law/room.js HOUSE), the table's top
+// and what else stands (its legs, the window's frame, the key corner: as they are drawn, each its law's matter), each
+// thing's shape (its body's: a pen lies along the room's x, its length), a candle's holder, and a paper's units.
+const ROW_OF = { table: 'wood', brass: 'metal' }; // (the drawn matter's name: its row in law/matter.js)
+export function fireContext(geom) {
+  const t = geom.table;
+  const { shapes } = bodiesContext(geom);
+  return {
+    house: {
+      size: geom.size,
+      shell: HOUSE.shell,
+      solids: [
+        { id: 'table', matter: 'wood', box: [t.x0, t.y0, t.bottom, t.x1, t.y1, t.top] },
+        ...geom.objects.filter((o) => o.box).map((o) => ({ id: o.id, matter: ROW_OF[o.matter] ?? o.matter, box: o.box })),
+      ],
+    },
+    shapes: { ...shapes, ...Object.fromEntries(PENS.map((p) => [p, { ...shapes[p], length: PEN.length }])) },
+    holder: { radius: HOLDER.radius, height: HOLDER.height },
+    units: PX_PER_M,
   };
 }
