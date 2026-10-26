@@ -2,7 +2,7 @@
 // a place. A candle taken up (E) and carried along the table into the stamper pushes it out of its way; the
 // stamper taken up and carried past the table's edge, let go (a click) in the air there, falls, and lies on
 // the floor. The bare hand (nothing in it: your own matter) pressed on the pendulum's bob pushes it aside,
-// and drawn back the bob swings. Gone and come back, each is where it came to rest.
+// and drawn back the bob swings; the stamper on the floor is taken up again with E. Gone and come back, each is where it came to rest.
 //   node frontend/e2e/matter.mjs      the built site (npm run build -w frontend first)
 import * as W from './world.mjs';
 import { roomGeometry, ROOM, stamperRestOf } from '../src/scene/light/room.js';
@@ -145,6 +145,17 @@ try {
   }
   console.log(`   pushed ${(aside * 100).toFixed(1)} cm aside; across its swing: ${Math.min(...xs).toFixed(3)} .. ${Math.max(...xs).toFixed(3)} m from where it hung`);
   if (!(Math.max(...xs) > 0.005 && Math.min(...xs) < -0.005)) throw new Error('the bob did not swing');
+
+  step('the stamper lying on the floor taken up again (E); a click lets it go');
+  const fl = await at(page, 'stamper');
+  await aim([fl[0], fl[1], fl[2] + 0.02], [fl[0], fl[1] - 0.7, 1.5]);
+  await takeUp(page, mid);
+  await panel(page, 'The stamper in your hand').waitFor({ timeout: 6000 });
+  const inHand = await at(page, 'stamper');
+  console.log(`   taken up from the floor: now at ${inHand.map((v) => v.toFixed(2)).join(', ')}`);
+  await page.mouse.click(...mid); // let go, where the pointer meets the floor
+  await panel(page, 'The stamper in your hand').waitFor({ state: 'detached', timeout: 10000 });
+  await until(page, async () => (await at(page, 'stamper'))[2] === 0, 'the stamper back on the floor', 10000);
 
   step('gone and come back: each where it came to rest');
   const before = await page.evaluate(() => JSON.stringify(Object.fromEntries(Object.entries(globalThis.__things.bodies()).map(([k, b]) => [k, [b.at.map((v) => +v.toFixed(3)), b.lying]]))));
