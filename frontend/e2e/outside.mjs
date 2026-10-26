@@ -1,6 +1,8 @@
 // The outside (outside.md Phase 4), in a real browser on this machine's GPU: in your house, shut up
 // (the shutters and the door shut) nothing outside is grown and the candles light; the door opened,
-// only what lies beyond it is; out through it, onto the dirt; gone and come back, the same ground.
+// only what lies beyond it is; out through it, onto the dirt; the eye's zoom goes to a stone, a tree and
+// the ground out there (one ray for everything: scene/worldRay.js), each close up its own grown cells;
+// gone and come back, the same ground.
 //   node frontend/e2e/outside.mjs      the built site (npm run build -w frontend first)
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +15,20 @@ let failed = null;
 const shot = (p, name) => p.screenshot({ path: path.join(process.env.OUTSIDE_SHOTS ?? os.tmpdir(), `penpals-outside-${name}.png`) });
 const canvas = (p) => p.locator('.house-scene canvas.scene-canvas');
 const now = (p) => p.evaluate(() => globalThis.__outsideNow ?? null);
+// the fine grain of a picture: each pixel's distance from the mean of its eight neighbours, as a share of the light
+const grain = (d, w, h) => {
+  const lum = (x, y) => d[4 * (y * w + x)] + d[4 * (y * w + x) + 1] + d[4 * (y * w + x) + 2];
+  let off = 0,
+    all = 0;
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++) {
+      let around = 0;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (i || j) around += lum(x + i, y + j);
+      off += Math.abs(lum(x, y) - around / 8);
+      all += lum(x, y);
+    }
+  return off / Math.max(1, all);
+};
 const until = async (p, fn, what, ms = 30000) => {
   const t0 = Date.now();
   for (;;) {
@@ -84,6 +100,54 @@ try {
   if (process.env.OUTSIDE_DEBUG) console.log('   eye:', JSON.stringify(await page.evaluate(() => globalThis.__eyeNow?.())));
   await shot(page, 'out');
   console.log(`   outside: ${out.trees.length} trees and ${out.stones.length} stones about, ${out.houses} other houses`);
+
+  step("the eye's zoom out of doors: scrolled in on a stone, a tree and the ground, it goes to each (no arm limits the eye)");
+  const box = await canvas(page).boundingBox();
+  const mid = [box.x + box.width / 2, box.y + box.height / 2];
+  const me = await page.evaluate(() => globalThis.__sceneLook.pose().pos);
+  const off = (q) => Math.hypot(q[0] - me[0], q[1] - me[1]);
+  const nearest = (list) => list.filter((x) => off(x.at) > 2.5 && off(x.at) < 25).sort((a, b) => off(a.at) - off(b.at))[0];
+  const stone = nearest(out.stones);
+  const tree = nearest(out.trees);
+  const targets = [...(stone ? [['a stone', stone.at]] : []), ...(tree ? [['a tree', [tree.at[0], tree.at[1], tree.at[2] + 1.2]]] : []), ['the ground', [me[0] + 1, me[1] - 7, me[2] - 1.6]]];
+  if (targets.length < 3) console.log(`   (no ${stone ? 'tree' : 'stone'} between 2.5 and 25 m: ${targets.length} of 3)`);
+  // (by day, as the light tool would have it: at night nothing out there is lit enough to show its cells)
+  await page.evaluate(() => globalThis.__sceneLook.sun({ az: 0, el: 45 }));
+  await page.waitForTimeout(6000); // (the eye comes to the daylight)
+  const KIND = { 'a stone': 'stone', 'a tree': 'limb', 'the ground': 'ground' };
+  const flat = [];
+  for (const [what, q] of targets) {
+    await page.evaluate((p) => globalThis.__sceneLook.aim(p), q);
+    await page.mouse.move(mid[0] + 1, mid[1]);
+    await page.mouse.move(...mid);
+    await page.waitForTimeout(300);
+    const eye0 = await page.evaluate(() => globalThis.__sceneLook.eye());
+    const met = await page.evaluate(() => globalThis.__sceneLook.ahead());
+    if (met?.kind !== KIND[what]) throw new Error(`the eye's ray meets ${JSON.stringify(met)}, not ${what}`);
+    // in close: the eye a few cm from it, a cell of its grain a pixel or more (as the table shows its own)
+    for (let k = 0; k < 24 && (await page.evaluate(() => globalThis.__sceneLook.ahead()?.t ?? 0)) > 0.03; k++) {
+      await page.mouse.wheel(0, -120);
+      await page.waitForTimeout(60);
+    }
+    const eye1 = await page.evaluate(() => globalThis.__sceneLook.eye());
+    const near = await page.evaluate(() => globalThis.__sceneLook.ahead());
+    const went = Math.hypot(...eye1.map((v, k) => v - eye0[k]));
+    await page.waitForTimeout(600);
+    // its own cells: the light's fine grain at the middle (each pixel against its eight neighbours: smooth
+    // light leaves none), a share of the light there (by day or night alike)
+    const cells = await W.onScreen(page, { x: mid[0] - 60, y: mid[1] - 60, width: 120, height: 120 }, grain);
+    console.log(
+      `   ${what}, ${met.t.toFixed(1)} m off: the eye went ${went.toFixed(1)} m to it (${(near.t * 100).toFixed(1)} cm left: ${near.kind}, the eye ${(near.clear * 100).toFixed(1)} cm clear); its grain ${(cells * 100).toFixed(2)}% of its light`,
+    );
+    await shot(page, `close-${KIND[what]}`);
+    if (!(near.t < 0.05) || near.kind !== KIND[what]) throw new Error(`the eye did not go to ${what}`);
+    if (cells < 0.002) flat.push(`${what} (${(cells * 100).toFixed(2)}%)`);
+    for (let k = 0; k < 30; k++) await page.mouse.wheel(0, 240); // (back to the head)
+    await page.waitForTimeout(200);
+  }
+  await page.evaluate(() => globalThis.__sceneLook.sun(null));
+  if (flat.length) throw new Error(`no cells of its own: ${flat.join(', ')}`);
+  await shot(page, 'zoomed');
 
   step('gone and come back: the same ground');
   await page.reload();

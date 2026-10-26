@@ -25,7 +25,7 @@
 // The shader's (nodes.js spectral) is this, in its own language. Scene only.
 
 import { matter } from 'penpals-law';
-import { growCell, SUB, KINDS, PLASTER, PLANKS, BOARD, BRASS, WAX, WICK, CLOTH, SKIN, CELL_PX, DROP_PX } from './surface.js';
+import { growCell, SUB, KINDS, PLASTER, PLANKS, BOARD, BRASS, WAX, WICK, CLOTH, SKIN, DIRT, STONE, BARK, CELL_PX, DROP_PX } from './surface.js';
 import { SUN_RADIUS } from './air.js';
 
 export { SUN_RADIUS };
@@ -103,7 +103,19 @@ export const ROUGH = Object.freeze(Object.fromEntries(Object.values(KINDS).map((
 // The paper's own, below its cells (its fibers finer than the grain): as the grower's kinds.
 export const PAPER_SUB = subM2([12, 0.5]);
 // Each grown kind's matter (law/matter.js): how much its faces turn back (null: a metal, its colour).
-export const MATTER_OF = Object.freeze({ [PLASTER]: 'plaster', [PLANKS]: 'wood', [BOARD]: 'wood', [BRASS]: 'metal', [WAX]: 'wax', [WICK]: 'wick', [CLOTH]: 'fiber', [SKIN]: 'skin' });
+export const MATTER_OF = Object.freeze({
+  [PLASTER]: 'plaster',
+  [PLANKS]: 'wood',
+  [BOARD]: 'wood',
+  [BRASS]: 'metal',
+  [WAX]: 'wax',
+  [WICK]: 'wick',
+  [CLOTH]: 'fiber',
+  [SKIN]: 'skin',
+  [DIRT]: 'dirt',
+  [STONE]: 'stone',
+  [BARK]: 'bark',
+});
 export const f0OfKind = (kind) => F0[MATTER_OF[kind]] ?? null;
 
 // A sheet's faces' scatter about a block, as the shade bake has it (nodes.js facesScatter): its top

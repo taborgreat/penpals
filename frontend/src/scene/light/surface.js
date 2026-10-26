@@ -61,8 +61,12 @@ export const WAX = 4;
 export const WICK = 5;
 export const CLOTH = 6;
 export const SKIN = 7;
-export const KINDS = Object.freeze({ plaster: PLASTER, planks: PLANKS, board: BOARD, brass: BRASS, wax: WAX, wick: WICK, cloth: CLOTH, skin: SKIN });
-export const CURVES_OF = Object.freeze(['plaster', 'floor', 'table', 'brass', 'wax', 'wick', 'cloth', 'skin']); // kind → the curve table's light/dark pair
+export const DIRT = 8;
+export const STONE = 9;
+export const BARK = 10;
+export const KINDS = Object.freeze({ plaster: PLASTER, planks: PLANKS, board: BOARD, brass: BRASS, wax: WAX, wick: WICK, cloth: CLOTH, skin: SKIN, dirt: DIRT, stone: STONE, bark: BARK });
+// kind → the curve table's light/dark pair (as its matter's row in law/matter.js names it: dirt, stone, bark)
+export const CURVES_OF = Object.freeze(['plaster', 'floor', 'table', 'brass', 'wax', 'wick', 'cloth', 'skin', 'floor', 'stone', 'table']);
 
 // Hash tags (one stream of randomness per layer).
 const T_CELL = 1,
@@ -88,6 +92,10 @@ const GOLD = 0x9e3779b9;
 //   wick     braided cotton: threads across, charred in patches
 //   cloth    woven: warp and weft threads four cells wide
 //   skin     smooth, with fine pores
+// and the outside's (Tabor's to see and set, as the others are):
+//   dirt     crumbs (4 cells) and clods (64), its tone grain by grain (8) and clod by clod (512)
+//   stone    grains (2 cells) over lumps (32), speckled cell by cell, slow veins
+//   bark     furrows: narrow around a limb (8 cells), long up it (256); plates between (32 by 1024)
 const FINE = {
   [PLASTER]: { b: [4, 4, 7, 7], t: [11, 11, 14, 14], w: [3, 5, 1, 1], jz: 1, jt: 0, base: 48 },
   [BRASS]: { b: [6, 0, 2, 2], t: [9, 9, 12, 12], w: [1, 1, 2, 2], jz: 3, jt: 2, base: 16 },
@@ -95,6 +103,9 @@ const FINE = {
   [WICK]: { b: [0, 2, 2, 2], t: [3, 3, 6, 6], w: [4, 4, 2, 2], jz: 1, jt: 0, base: 64 },
   [CLOTH]: { b: [2, 0, 0, 2], t: [8, 8, 11, 11], w: [4, 4, 1, 1], jz: 2, jt: 1, base: 56 },
   [SKIN]: { b: [2, 2, 5, 5], t: [9, 9, 12, 12], w: [1, 1, 1, 1], jz: 3, jt: 2, base: 48 },
+  [DIRT]: { b: [2, 2, 6, 6], t: [3, 3, 9, 9], w: [4, 4, 5, 3], jz: 1, jt: 0, base: 32 },
+  [STONE]: { b: [1, 1, 5, 5], t: [3, 3, 10, 10], w: [2, 3, 6, 4], jz: 2, jt: 0, base: 32 },
+  [BARK]: { b: [3, 8, 5, 10], t: [4, 9, 9, 12], w: [6, 4, 2, 2], jz: 1, jt: 1, base: 24 },
 };
 const FINE_KINDS = Object.keys(FINE).map(Number);
 // What lies below a cell (matter-fixes §5): the relief finer than the grain, each kind's stand-in for its
@@ -110,6 +121,9 @@ export const SUB = Object.freeze({
   [WICK]: [25, 0.25],
   [CLOTH]: [25, 0.25],
   [SKIN]: [12, 0.5],
+  [DIRT]: [40, 0.5],
+  [STONE]: [8, 0.5],
+  [BARK]: [35, 0.5],
 });
 // a fine kind's constants as the shaders take them
 const fineArgs = (k, u4, u3) => {
@@ -270,6 +284,8 @@ export function objectCells(shape, [x, y, z], normal, [sx, sy, sz]) {
 // Each thing's own seed (matter-fixes §3), from the room's (its owner's key) and the
 // thing's name: the same thing grows the same for everyone who sees it.
 export const thingSeed = (roomMix, name) => lowbias((roomMix ^ fnv(`penpals thing ${name}`)) >>> 0);
+// A seed from words (the world's: law/outside.js SEED), folded as a surface's is.
+export const seedOfText = (text) => seedMix([fnv(text), fnv(text, 0x2545f491)]);
 
 // --- far away: the averaged character ---
 const smoothstep = (a, b, x) => {

@@ -41,6 +41,8 @@ import {
   uv,
   positionLocal,
   positionWorld,
+  positionGeometry,
+  normalGeometry,
   normalLocal,
   normalWorld,
   modelScale,
@@ -72,6 +74,7 @@ import {
   tanh,
   atan,
   attribute,
+  uint,
   code,
   glslFn,
   wgslFn,
@@ -583,10 +586,12 @@ export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
 // A thing's cells where the pixel is, on its own surface (light/surface.js
 // objectCells, the same): counted from its own corner in its own units, scaled by
 // its size, so its grain goes where it goes.
-function cellsOn(shape) {
-  const p = positionLocal,
-    n = normalLocal;
-  const s = modelScale.mul(1 / grown.CELL_PX);
+const WORLD_TILE_M = 2 ** 20 * grown.CELL_M; // (objectMaterial's world cells: a tile of them, m)
+function cellsOn(shape, size = null) {
+  // (one of many drawn at once: its own shape, as big as its instance's size, m)
+  const p = size ? positionGeometry : positionLocal,
+    n = size ? normalGeometry : normalLocal;
+  const s = (size ? modelScale.mul(size) : modelScale).mul(1 / grown.CELL_PX);
   if (shape === 'box') {
     const q = p.add(0.5).mul(s);
     return select(abs(n.z).greaterThan(0.5), q.xy, select(abs(n.x).greaterThan(0.5), q.yz, q.xz));
@@ -603,7 +608,10 @@ function cellsOn(shape) {
 // room, its faces as scattered as its grower's (brass: a metal, its glint its colour).
 // Its seed: each mesh's own (userData.seed), else m.seedBase. Its light: the room's
 // where each mesh is (userData.ambient: { A, B }, colours: matter-fixes §4), else m.ambient's.
-export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu, open = false }) {
+// cells: 'own' (each mesh's, as above); 'world' (the ground: its cells the world's, from where this
+// room's corner lies in it, m.origin, m: the same cells for everyone who looks); 'instance' (many drawn
+// at once, each its own: the instance's attribute `thing` = [its seed, its size x, y, z (m)]).
+export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', webgpu, open = false, cells = 'own' }) {
   const m = new MeshBasicNodeMaterial();
   const [light, dark] = pairUniforms(pair);
   m.ambient = { A: new THREE.Vector3(), B: new THREE.Vector3() };
@@ -613,9 +621,26 @@ export function objectMaterial(L, { kind = null, seed = 0, pair, shape = 'box', 
   const seedU = uniform(seed, 'uint').onObjectUpdate(({ object }) => object.userData.seed ?? m.seedBase);
   const K = kindOf(kind ?? grown.CLOTH);
   const even = uniform(kind === null ? 1 : 0); // (one even tone: no grower's tone, and cloth's faces)
+  const origin = uniform(new THREE.Vector2());
+  m.origin = origin.value;
+  const thing = cells === 'instance' ? attribute('thing', 'vec4') : null;
   m.colorNode = Fn(() => {
     const n = normalize(normalWorld).toVar();
-    const t = clamp(grower(webgpu)({ kind: K.kind, m: seedU, pos: cellsOn(shape), foot: footAt(L) }).y.div(255), 0, 1)
+    // (the world's cells: in tiles of 2^20 (80 m), each its own seed, so a cell is counted from its tile's
+    // corner, never below 0 and never past what a float holds to the cell)
+    const w = positionLocal.xy.add(origin);
+    const tile = floor(w.div(WORLD_TILE_M));
+    const pos = cells === 'world' ? w.sub(tile.mul(WORLD_TILE_M)).mul(1 / grown.CELL_M) : cellsOn(shape, thing?.yzw ?? null);
+    const mU = thing
+      ? seedU.bitXor(uint(thing.x))
+      : cells === 'world'
+        ? seedU.bitXor(
+            uint(tile.x.add(32768))
+              .mul(uint(73856093))
+              .bitXor(uint(tile.y.add(32768)).mul(uint(19349663))),
+          )
+        : seedU;
+    const t = clamp(grower(webgpu)({ kind: K.kind, m: mU, pos, foot: footAt(L) }).y.div(255), 0, 1)
       .mul(float(1).sub(even))
       .toVar();
     const V = normalize(cameraPosition.sub(positionWorld));

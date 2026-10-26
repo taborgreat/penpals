@@ -12,6 +12,7 @@
 // light the shader adds.
 
 import { N, curves, surface as grown } from './light/index.js';
+import { MATTER as LAW } from 'penpals-law/matter';
 
 const { CELL_M } = grown;
 
@@ -95,6 +96,11 @@ export function roomMeshes(geom) {
 export const pairOf = (matter) => {
   const c = curves.MATTER[PAIR[matter]];
   return c.light ? c : { light: c, dark: c }; // (a matter of one curve: grass, a leaf)
+};
+// A row of the law's matter table (law/matter.js): the curves its `light` names.
+export const pairOfRow = (row) => {
+  const c = curves.MATTER[LAW[row].light];
+  return c.light ? c : { light: c, dark: c };
 };
 
 // Each vertex's ambient colours (A, B: linear r, g, b) from the room's

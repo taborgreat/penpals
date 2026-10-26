@@ -140,6 +140,8 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms
   }
   return {
     ways,
+    origin: [F.x0, F.y0], // (this room's corner in the world, m: what is grown is the world's, the same for everyone)
+    groundAt: (x, y) => O.groundAt(...F.toWorld([x, y]).slice(0, 2)) - F.floor, // (its height anywhere, room m)
     ground: { x0: gx0, y0: gy0, step: GROUND_STEP, nx: n, ny: n, z },
     water: water.filter((w) => seen(w.at)),
     clay: clay.filter((c) => seen(c.at)),

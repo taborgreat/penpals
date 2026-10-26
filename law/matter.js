@@ -92,7 +92,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 4100, conducts: 600, melts: 0, boils: 100, burns: null },
     becomes: { boiled: 'char' },
     tension: 60,
-    light: 'water',
+    light: 'ink',
     ior: 1340,
   }, // water, oak gall and iron: its water boils off, what is left chars
   paper: {
@@ -176,7 +176,7 @@ export const MATTER = Object.freeze({
     friction: 600,
     heat: { holds: 790, conducts: 2800, melts: 1200, boils: null, burns: null, fuses: 400000 },
     ink: { drinks: 1, wets: 1000, cap: 20, capStep: 2, capMin: 8, capMax: 40, thirst: 1, rough: 16, fibers: null },
-    light: 'plaster',
+    light: 'stone',
     sound: [10, 10, 10, 10, 15, 20, 20, 20, 20, 20],
     ior: 1540,
   }, // rocks: hard, brittle in pulling; holds metal
@@ -215,7 +215,7 @@ export const MATTER = Object.freeze({
     heat: { holds: 900, conducts: 1000, melts: null, boils: null, burns: null, hardens: 600 },
     becomes: { fired: 'pottery' },
     ink: { drinks: 1, wets: 1000, cap: 300, capStep: 10, capMin: 200, capMax: 400, thirst: 4, rough: 6, fibers: null },
-    light: 'floor',
+    light: 'clay',
     ior: 1500,
   }, // where water meets dirt; fired, it is hard
   ore: {
@@ -236,7 +236,7 @@ export const MATTER = Object.freeze({
     friction: 600,
     heat: { holds: 850, conducts: 1200, melts: 1200, boils: null, burns: null },
     ink: { drinks: 1, wets: 1000, cap: 60, capStep: 4, capMin: 30, capMax: 90, thirst: 6, rough: 8, fibers: null },
-    light: 'floor',
+    light: 'clay',
     ior: 1500,
   }, // clay fired
   grass: {

@@ -4,7 +4,7 @@ import { createView, engineReady, DROP_PX } from './engine.js';
 import { groundOf } from './ground.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
 import { theLight, originOf, withinRoom, returnTo, sunAt, worldClock, GEOM } from './light.js';
-import { roomCamera, hit as roomHit, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
+import { roomCamera, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
 import { surfaceFrame, fromRoom, toRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
 import { poseNow } from '../room/presence.js';
@@ -18,7 +18,8 @@ import { thunder } from '../sound/weather.js';
 import { createPane } from './glass.js';
 import { ask, asWeather } from './askWeather.js';
 import { outsideNear, groundOf as outsideGround, inBox, frameOf, seenFrom } from './outside.js';
-import { reachOutside } from './reach.js';
+import { reachOutside, ARM } from './reach.js';
+import { worldHit } from './worldRay.js';
 import { AIR, BEINGS, MATTER } from 'penpals-law/matter';
 import { dayOf, sunAt as sunToward } from 'penpals-law/sun';
 import * as LIFE from 'penpals-law/life';
@@ -278,14 +279,9 @@ const SceneView = forwardRef(function SceneView(
   function gazeOf() {
     if (!S.pose) return null;
     if (S.outsideNow?.plot && !inBox(GEOM, S.pose.pos)) return 'outside'; // (out of the house: the field in daylight)
-    const h = roomHit(GEOM, S.pose.pos, roomCamera.look(S.pose).forward);
-    if (h?.opening !== undefined) {
-      // looking out through an opening that is open: the outside's light (shut, its wood: the room's)
-      const kind = GEOM.openings[h.opening]?.kind;
-      const o = S.opensNow ?? { door: false, shutters: true };
-      return (kind === 'door' ? o.door : o.shutters !== false) ? 'outside' : null;
-    }
-    return h?.patch ?? null;
+    const h = rayHit(S.pose.pos, roomCamera.look(S.pose).forward);
+    if (!h || h.kind === 'opening') return null; // (an opening shut: its wood, in the room's light)
+    return h.kind === 'room' ? (h.patch ?? null) : 'outside'; // looking out through an opening that is open: the outside's light
   }
   // The pose the page camera is in now (turning it into Look keeps the view).
   function poseOfCam(cam) {
@@ -520,6 +516,7 @@ const SceneView = forwardRef(function SceneView(
     S.view.setStamper(carrying?.stamperAt?.() ?? null, carrying?.stamperLying?.() ?? null); // (the stamper: in the hand, or where it lies)
     S.view.setPendulum(carrying?.pendulumAt?.() ?? null, carrying?.pendulumLying?.() ?? null, carrying?.bobAt?.() ?? null); // (its bob hanging, or swinging)
     S.view.setHands(carrying?.hands?.() ?? []); // (the bare hands reaching in the room: anyone's)
+    if (S.outsideSpec && S.pose) S.view.setEyeNear(eyeNow()?.pos ?? null); // (the ground near the eye, fine)
     S.view.render(cam, Math.max(1, Math.round(S.css[0] * k)), Math.max(1, Math.round(S.css[1] * k)));
     S.shown = cam;
     tellPlace();
@@ -740,6 +737,20 @@ const SceneView = forwardRef(function SceneView(
           schedule();
         },
         pose: () => S.pose,
+        eye: () => eyeNow()?.pos ?? null, // (where the eye is: the head's, or zoomed)
+        // the sun placed as the light tool drags it ({ az, el }), or back to the time of day (null)
+        sun: (place) => {
+          S.override = place;
+          schedule();
+        },
+        // what the ray through the middle of the view meets (scene/worldRay.js): its kind, how far
+        ahead: () => {
+          const c = canvasRef.current?.getBoundingClientRect();
+          if (!c) return null;
+          const { origin: o, dir } = roomRay({ clientX: c.left + c.width / 2, clientY: c.top + c.height / 2 });
+          const h = rayHit(o, dir);
+          return h && { kind: h.kind, t: h.t, clear: clearOf(o) }; // (and how clear of matter the eye is)
+        },
       };
     } else if (!on && S.pose && !S.glide) {
       S.glide = { from: S.pose, to: { ...poseOfCam(S.home), mode: 'seated' }, t0: performance.now(), ms: 600 };
@@ -835,6 +846,20 @@ const SceneView = forwardRef(function SceneView(
     const r = rayThrough(S.shown ?? S.cam, nx, ny, aspect);
     return { origin: pageToRoom(r.origin, origin()), dir: toRoomDir(r.dir) };
   };
+  // One ray for everything (scene/worldRay.js): what a ray meets first, of this house, the others' and the
+  // outside; `hand`: as a hand would (the glass stops it).
+  const rayHit = (o, dir, opts) => worldHit({ geom: GEOM, opens: S.opensNow, houses: S.outsideSpec?.houses ?? [], spec: S.outsideSpec ?? null, ground: S.outsideWalk?.ground ?? null }, o, dir, opts);
+  // How clear of matter the eye is at p (room m): in this house or another's, of its room; out of doors, of
+  // the ground.
+  const clearOf = (p) => {
+    const inHouse = (q) => inBox(GEOM, q) && q[2] >= 0 && q[2] <= GEOM.size[2];
+    if (inHouse(p)) return roomCamera.clearance(GEOM, p, groundNow());
+    const other = (S.outsideSpec?.houses ?? []).find((h) => inHouse([p[0] - h.at[0], p[1] - h.at[1], p[2] - h.at[2]]));
+    if (other) return roomCamera.clearance(GEOM, [p[0] - other.at[0], p[1] - other.at[1], p[2] - other.at[2]]);
+    return S.outsideWalk ? p[2] - S.outsideWalk.ground(p[0], p[1]) : Infinity;
+  };
+  // whether a house stands at (x, y) (room m): its floor there, not the ground
+  const underHouse = (x, y) => inBox(GEOM, [x, y]) || (S.outsideSpec?.houses ?? []).some((h) => inBox(GEOM, [x - h.at[0], y - h.at[1]]));
   // What the pen points at in the room: a book surface and the point on its page,
   // or null. Writing pauses below the minimum angle, measured from the surface (as on paper).
   const MIN_SIN = Math.sin((MIN_WRITE_EL * Math.PI) / 180);
@@ -843,8 +868,8 @@ const SceneView = forwardRef(function SceneView(
     let id = only;
     let t;
     if (!only) {
-      const h = roomHit(GEOM, o, dir);
-      if (!h) return null;
+      const h = rayHit(o, dir);
+      if (h?.kind !== 'room') return null; // (out through an opening, or the others' houses: nothing of this house)
       id = surfaceOfHit(GEOM, h.surface);
       t = h.t;
       if (!id || (h.patch !== undefined && h.patch === GEOM.page)) return null; // the page itself: the paper's own pen
@@ -1020,11 +1045,10 @@ const SceneView = forwardRef(function SceneView(
   function outsideHit(e) {
     if (!e || !S.outsideSpec || !S.outsideWalk || !S.pose) return null;
     const { origin: o, dir } = roomRay(e);
-    if (inBox(GEOM, S.pose.pos)) {
-      const h = roomHit(GEOM, o, dir);
-      if (h && h.opening === undefined) return null; // (a wall between)
-    }
-    return reachOutside(S.outsideSpec, o, dir, S.outsideWalk.ground);
+    const h = reachOutside(S.outsideSpec, o, dir, S.outsideWalk.ground, { under: underHouse });
+    if (!h) return null;
+    const first = rayHit(o, dir, { hand: true });
+    return first && first.t < h.t - 1e-6 ? null : h; // (a wall between: this house's, another's)
   }
   // what is in this being's hands outside (law/hands.js things: held, by you: two hands)
   const heldAll = () => {
@@ -1167,8 +1191,7 @@ const SceneView = forwardRef(function SceneView(
   const openingAt = (e) => {
     if (!e || !carrying?.setOpen) return null;
     const { origin: o, dir } = roomRay(e);
-    const h = roomHit(GEOM, o, dir);
-    return h?.opening === undefined ? null : GEOM.openings[h.opening]?.kind === 'door' ? 'door' : 'window';
+    return rayHit(o, dir)?.opening?.kind ?? null;
   };
   useEffect(
     () =>
@@ -1202,13 +1225,13 @@ const SceneView = forwardRef(function SceneView(
   // Where the paper in the hand is let go: the point the pointer meets (room m), out of the house on the
   // ground; in it, on what the ray meets first (the table, the floor; off a wall it falls to the floor).
   const letGoAt = (e) => {
-    const out = S.pose && S.outsideWalk && !inBox(GEOM, S.pose.pos);
-    const hit = out ? outsideHit(e) : null;
-    if (hit) return hit.kind === 'ground' ? hit.at : [hit.at[0], hit.at[1], S.outsideWalk.ground(hit.at[0], hit.at[1])];
-    if (out) return null;
     const { origin: o, dir } = roomRay(e);
-    const h = roomHit(GEOM, o, dir);
-    return h ? o.map((v, k) => v + dir[k] * h.t) : roomPointOf(e);
+    const h = rayHit(o, dir, { hand: true });
+    if (!h) return roomPointOf(e);
+    if (h.kind === 'room') return h.at; // (in this house: anywhere the pointer meets)
+    if (h.t > ARM) return null; // (out of the hand's reach)
+    if (h.kind === 'ground' || h.kind === 'house' || h.kind === 'opening' || !S.outsideWalk) return h.at; // (off a wall it falls)
+    return [h.at[0], h.at[1], S.outsideWalk.ground(h.at[0], h.at[1])]; // (onto a thing out there: on the ground by it)
   };
   // A thing to pick up under the pointer: the nearest whose upright (its foot up h, r round) the ray passes.
   const pickableAt = (e) => {
@@ -1221,7 +1244,7 @@ const SceneView = forwardRef(function SceneView(
       if (d !== null && (!best || d < best.d)) best = { d, id: t.id };
     }
     if (!best) return null;
-    const wall = roomHit(GEOM, o, dir);
+    const wall = rayHit(o, dir);
     return wall && wall.t < best.d ? null : best.id; // something stands in front of it
   };
   // What the bare hand meets under the pointer: a thing (its upright), or the pendulum's bob; and where (room m).
@@ -1243,7 +1266,7 @@ const SceneView = forwardRef(function SceneView(
       if (d > 0 && (!best || d < best.d)) best = { d };
     }
     if (!best) return null;
-    const wall = roomHit(GEOM, o, dir);
+    const wall = rayHit(o, dir);
     if (wall && wall.t < best.d) return null;
     return o.map((v, k) => v + dir[k] * best.d);
   };
@@ -1552,7 +1575,7 @@ const SceneView = forwardRef(function SceneView(
       if (t !== null && (!best || t < best.t)) best = { t, k };
     });
     if (!best) return false;
-    const wall = roomHit(GEOM, o, dir);
+    const wall = rayHit(o, dir);
     if (wall && wall.t < best.t) return false; // something stands in front of it
     shelf.onOpen?.(shelf.books[best.k].id);
     return true;
@@ -1636,10 +1659,10 @@ const SceneView = forwardRef(function SceneView(
       let next = WK.zoomOut(S.zoom, e.deltaY, S.pose.size ?? 1);
       if (e.deltaY < 0) {
         const { origin: o, dir } = roomRay(e);
-        const h = roomHit(GEOM, o, dir);
-        next = h ? WK.zoomIn(S.zoom, dir, h.t, e.deltaY) : S.zoom;
+        const h = rayHit(o, dir); // (to whatever is there: this house, another's, out of doors)
+        next = h && Number.isFinite(h.t) ? WK.zoomIn(S.zoom, dir, h.t, e.deltaY) : S.zoom;
         // never into what the eye is looking at (the page's own heights, as drawn, included)
-        for (let n = 0; n < 8 && roomCamera.clearance(GEOM, WK.eyeOf(headNow(), next).pos, groundNow()) < roomCamera.GAP; n++) next = next.map((v, k) => (v + S.zoom[k]) / 2);
+        for (let n = 0; n < 8 && clearOf(WK.eyeOf(headNow(), next).pos) < roomCamera.GAP; n++) next = next.map((v, k) => (v + S.zoom[k]) / 2);
       }
       S.zoom = next;
       S.moveUntil = performance.now() + STILL_MS;

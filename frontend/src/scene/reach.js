@@ -1,18 +1,33 @@
 // What a hand reaches for outside (outside.md Phase 5): the nearest thing the pointer's ray meets, out
-// of the outside as it is drawn (scene/outside.js outsideNear), within an arm's reach of the head.
+// of the outside as it is drawn (scene/outside.js outsideNear), within an arm's reach of the head (the
+// eye's ray, scene/worldRay.js, the same tests with no arm's limit).
 //   reachOutside(spec, origin, dir, ground, { reach }) → { kind: 'stone' | 'stick' | 'made' | 'gall' | 'hive' | 'feather' | 'mailbox' | 'door' |
 //     'limb' | 'ground', id, tree?, branch?, tip?, laid?, at (room m: where the ray meets it), t (m along the ray), limb? } | null
 import { MAILBOX } from './outside.js';
 
 export const ARM = 1.8; // m a hand reaches from the head: down to the ground at the feet, a being bending (Tabor's to set)
 export const DOWN = 3; // m to the ground a thing is set down on (at the feet, or a step off)
+export const STONE_SQUAT = 0.6; // a stone as tall as this of its width (drawn so: engine.js; met so: here)
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const along = (o, d, t) => [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t];
 
-// a ray against a ball: the nearer meeting, or null
-function ball(o, d, c, r) {
+// a ray against a ball (`squat`: as tall as this of its width): the nearer meeting, or null
+function ball(o, d, c, r, squat = 1) {
+  if (squat !== 1) {
+    // (in the ball's own room, where it is round: the ray's t is the same there)
+    o = [o[0], o[1], c[2] + (o[2] - c[2]) / squat];
+    d = [d[0], d[1], d[2] / squat];
+    const a = dot(d, d),
+      m = sub(o, c);
+    const b = dot(m, d),
+      cc = dot(m, m) - r * r;
+    const disc = b * b - a * cc;
+    if (disc < 0) return null;
+    const t = (-b - Math.sqrt(disc)) / a;
+    return t > 0 ? t : null;
+  }
   const m = sub(o, c);
   const b = dot(m, d),
     cc = dot(m, m) - r * r;
@@ -38,14 +53,17 @@ function rod(o, d, a, b, r) {
   return Math.hypot(...sub(p, q)) <= r ? { t, s } : null;
 }
 
-export function reachOutside(spec, o, d, ground, { reach = ARM } = {}) {
+// reach: how far along the ray a thing is taken (an arm's; the eye: no limit); far: how far the ground is
+// looked for (the hand's: where a thing is set down; the eye's: as far as the outside is grown); under:
+// (x, y) → whether a house stands there (its floor, not the ground, is under it).
+export function reachOutside(spec, o, d, ground, { reach = ARM, far = DOWN, under = null } = {}) {
   if (!spec) return null;
   let best = null;
   const take = (hit, most = reach) => {
     if (hit && hit.t <= most && (!best || hit.t < best.t)) best = hit;
   };
   for (const s of spec.stones) {
-    const t = ball(o, d, s.at, Math.max(s.r, 0.03));
+    const t = ball(o, d, s.at, Math.max(s.r, 0.03), STONE_SQUAT);
     if (t) take({ kind: 'stone', id: s.id, at: along(o, d, t), t });
   }
   for (const m of spec.made ?? []) {
@@ -86,13 +104,24 @@ export function reachOutside(spec, o, d, ground, { reach = ARM } = {}) {
       const h = rod(o, d, l.from, l.to, Math.max(l.r, 0.015));
       if (h) take({ kind: 'limb', id: tr.id, tree: tr.tree, branch: l.branch, at: along(o, d, h.t), t: h.t, limb: l });
     }
-  // the ground: stepped along the ray until it is under it
-  for (let t = 0.05; t <= DOWN && (!best || t < best.t); t += 0.05) {
+  // the ground: stepped along the ray (the steps growing with the distance) until it is under it, then
+  // the crossing found between the last two steps
+  const below = (t) => {
     const p = along(o, d, t);
-    if (p[2] <= ground(p[0], p[1])) {
-      take({ kind: 'ground', at: [p[0], p[1], ground(p[0], p[1])], t }, DOWN);
-      break;
+    return p[2] <= ground(p[0], p[1]) && !under?.(p[0], p[1]);
+  };
+  for (let a = 0, t = 0.05; t <= far && (!best || a < best.t); a = t, t += Math.max(0.05, t * 0.02)) {
+    if (!below(t)) continue;
+    let lo = a,
+      hi = t;
+    for (let k = 0; k < 12; k++) {
+      const m = (lo + hi) / 2;
+      if (below(m)) hi = m;
+      else lo = m;
     }
+    const p = along(o, d, hi);
+    take({ kind: 'ground', at: [p[0], p[1], ground(p[0], p[1])], t: hi }, far);
+    break;
   }
   return best;
 }

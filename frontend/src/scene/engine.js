@@ -29,11 +29,12 @@ import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live update
 import { curves, paperCurve, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { DROP_PX, DETAIL_PX } from './light/surface.js';
 import { STAMPER, PEN, JAR, PENDULUM, HAND } from './light/room.js';
-import { room as RL } from 'penpals-law';
+import { room as RL, outside as LO } from 'penpals-law';
 import * as shine from './light/shine.js';
 import { geomOf, worldOf, cloudOf } from './light.js';
-import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf } from './roomDraw.js';
+import { roomMeshes, vertexLight, meanLight, lightAt, colorsOf, pairOf, pairOfRow } from './roomDraw.js';
 import { SIGHT, MAILBOX } from './outside.js';
+import { STONE_SQUAT } from './reach.js';
 import { createShadows } from './shadows.js';
 import { createMarks } from './marks.js';
 import { SEED_NAME } from './surfaces.js';
@@ -442,24 +443,33 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   skyMesh.renderOrder = -10;
   skyMesh.visible = false;
   roomGroup.add(skyMesh);
-  const outMat = (matter, kind = null) => Object.assign(gpu.objectMaterial(lights, { kind, seed: 0, pair: pairOf(matter), shape: 'box', webgpu: own, open: true }), { matter });
+  // The outside's matter (Tabor, 2026-10-25): each drawn thing a row of law/matter.js (its colour the row's),
+  // grown cell by cell as the walls are where its row has a grower (light/surface.js: dirt, stone, bark, ...)
+  // and detailed by the eye's distance: the ground's cells the world's (from its seed: law/outside.js SEED),
+  // each stone, limb and stick its own (its seed from its id, its cells on its own shape).
+  const WORLD_MIX = grown.seedOfText(LO.SEED);
+  const outMat = (row, kind = null, { shape = 'box', cells = 'own' } = {}) =>
+    Object.assign(gpu.objectMaterial(lights, { kind, seed: WORLD_MIX, pair: pairOfRow(row), shape, cells, webgpu: own, open: true }), { matter: pairOfRow(row), row, each: cells === 'instance' });
   const outMats = {
-    ground: outMat('grass'),
-    stone: outMat('stone', grown.PLASTER),
-    chalk: outMat('plaster', grown.PLASTER),
-    ore: outMat('ore', grown.PLASTER),
-    wood: outMat('bark', grown.BOARD),
+    ground: outMat('dirt', grown.DIRT, { cells: 'world' }),
+    stone: outMat('stone', grown.STONE, { shape: 'ball', cells: 'instance' }),
+    chalk: outMat('chalk', grown.STONE, { shape: 'ball', cells: 'instance' }),
+    ore: outMat('ore', grown.STONE, { shape: 'ball', cells: 'instance' }),
+    wood: outMat('bark', grown.BARK, { shape: 'round', cells: 'instance' }),
     leaf: outMat('leaf'),
+    grass: outMat('grass'),
     house: outMat('plaster', grown.PLASTER),
     mark: outMat('ink'),
-    stick: outMat('table', grown.BOARD),
+    stick: outMat('bark', grown.BARK, { shape: 'round', cells: 'instance' }),
+    timber: outMat('wood', grown.BOARD),
     water: outMat('water'),
-    clay: outMat('clay', grown.PLASTER),
-    metal: outMat('brass', grown.BRASS),
+    clay: outMat('clay', grown.DIRT, { cells: 'world' }),
+    metal: outMat('metal', grown.BRASS),
     wax: outMat('wax', grown.WAX),
     chitin: outMat('chitin'),
     feather: outMat('feather'),
   };
+
   // A house as it stands in the world (one-world.md: every house the same house): its walls and its roof
   // from outside (the room's walls and ceiling turned out), and inside it what a room has: its surfaces, its
   // table, its window's frame and glass, its door and shutters, open or shut as its acts left them. This
@@ -496,13 +506,13 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     g.userData.house = true; // (its parts' geometry is shared: kept when it goes)
     g.position.set(...h.at);
     for (const sg of shellGeos) g.add(new THREE.Mesh(sg, outMats.house));
-    for (const { geo, wood } of insideGeos) g.add(new THREE.Mesh(geo, wood ? outMats.stick : outMats.house));
+    for (const { geo, wood } of insideGeos) g.add(new THREE.Mesh(geo, wood ? outMats.timber : outMats.house));
     for (const pg of R.panes) g.add(new THREE.Mesh(pg, paneMat));
-    for (const o of GEOM.objects) if (o.box && (o.kind === 'leg' || o.kind === 'frame')) g.add(placeBox(new THREE.Mesh(box, outMats.stick), o.box));
+    for (const o of GEOM.objects) if (o.box && (o.kind === 'leg' || o.kind === 'frame')) g.add(placeBox(new THREE.Mesh(box, outMats.timber), o.box));
     const d = GEOM.door;
-    if (d && !h.opens?.door) g.add(placeBox(new THREE.Mesh(box, outMats.stick), [d.x0, -0.02, d.z0, d.x1, 0.02, d.z1]));
+    if (d && !h.opens?.door) g.add(placeBox(new THREE.Mesh(box, outMats.timber), [d.x0, -0.02, d.z0, d.x1, 0.02, d.z1]));
     const w = GEOM.window;
-    if (h.opens && !h.opens.shutters) g.add(placeBox(new THREE.Mesh(box, outMats.stick), [w.x0, GEOM.size[1] - 0.03, w.z0, w.x1, GEOM.size[1], w.z1]));
+    if (h.opens && !h.opens.shutters) g.add(placeBox(new THREE.Mesh(box, outMats.timber), [w.x0, GEOM.size[1] - 0.03, w.z0, w.x1, GEOM.size[1], w.z1]));
     g.traverse((o) => {
       o.frustumCulled = false;
     });
@@ -590,7 +600,64 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       wings.instanceMatrix.needsUpdate = true;
     }
   }
+  // The ground near the eye (Tabor, 2026-10-25: detail by distance, its heights as its cells are): the law's
+  // heights NEAR_STEP apart out to NEAR_M around the eye, the coarse grid beyond it leaving a hole for it, so
+  // the eye close to the ground meets the ground it is drawn as. (Both a drawing's grain: Tabor's to set.)
+  const NEAR_M = 3,
+    NEAR_STEP = 0.05;
+  let groundNow = null;
+  const coarseCells = (g, hole) => {
+    const idx = [];
+    for (let j = 0; j < g.ny - 1; j++)
+      for (let i = 0; i < g.nx - 1; i++) {
+        if (hole && i >= hole[0] && i < hole[2] && j >= hole[1] && j < hole[3]) continue;
+        const a = j * g.nx + i;
+        idx.push(a, a + 1, a + g.nx + 1, a, a + g.nx + 1, a + g.nx);
+      }
+    return idx;
+  };
+  function placeGroundNear(eye) {
+    const G = groundNow;
+    if (!G?.at || !eye) return;
+    const { g } = G;
+    // the coarse grid's cells the fine patch covers, around the cell the eye is over
+    const ci = Math.floor((eye[0] - g.x0) / g.step),
+      cj = Math.floor((eye[1] - g.y0) / g.step);
+    const n = Math.ceil(NEAR_M / g.step);
+    const hole = [Math.max(0, ci - n), Math.max(0, cj - n), Math.min(g.nx - 1, ci + n + 1), Math.min(g.ny - 1, cj + n + 1)];
+    if (G.hole && hole.every((v, k) => v === G.hole[k])) return;
+    G.hole = hole;
+    // (a new geometry: an index changed in place is not sent again)
+    const was = G.coarse.geometry;
+    const cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', was.getAttribute('position'));
+    cg.setAttribute('normal', was.getAttribute('normal'));
+    cg.setIndex(coarseCells(g, hole));
+    G.coarse.geometry = cg;
+    was.dispose();
+    if (G.fine) {
+      outsideGroup.remove(G.fine);
+      G.fine.geometry.dispose();
+    }
+    const x0 = g.x0 + hole[0] * g.step,
+      y0 = g.y0 + hole[1] * g.step;
+    const nx = Math.round(((hole[2] - hole[0]) * g.step) / NEAR_STEP) + 1,
+      ny = Math.round(((hole[3] - hole[1]) * g.step) / NEAR_STEP) + 1;
+    if (nx < 2 || ny < 2) return;
+    const dx = ((hole[2] - hole[0]) * g.step) / (nx - 1),
+      dy = ((hole[3] - hole[1]) * g.step) / (ny - 1);
+    const pos = new Float32Array(nx * ny * 3);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) pos.set([x0 + i * dx, y0 + j * dy, G.at(x0 + i * dx, y0 + j * dy)], 3 * (j * nx + i));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(coarseCells({ nx, ny }, null));
+    geo.computeVertexNormals();
+    G.fine = new THREE.Mesh(geo, outMats.ground);
+    G.fine.frustumCulled = false;
+    outsideGroup.add(G.fine);
+  }
   function placeOutside(o) {
+    groundNow = null;
     for (const c of [...outsideGroup.children]) {
       outsideGroup.remove(c);
       if (c.userData.house) continue; // (a house: its parts' geometry is shared)
@@ -599,31 +666,37 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     }
     skyMesh.visible = !!o;
     if (!o) return;
-    // the dirt: its heights on a grid
+    // the dirt: its heights on a grid (finer near the eye: placeGroundNear)
     const g = o.ground;
     const pos = new Float32Array(g.nx * g.ny * 3);
     for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) pos.set([g.x0 + i * g.step, g.y0 + j * g.step, g.z[j * g.nx + i]], 3 * (j * g.nx + i));
-    const idx = [];
-    for (let j = 0; j < g.ny - 1; j++)
-      for (let i = 0; i < g.nx - 1; i++) {
-        const a = j * g.nx + i;
-        idx.push(a, a + 1, a + g.nx + 1, a, a + g.nx + 1, a + g.nx);
-      }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setIndex(idx);
+    geo.setIndex(coarseCells(g, null));
     geo.computeVertexNormals();
-    outsideGroup.add(new THREE.Mesh(geo, outMats.ground));
+    for (const m of [outMats.ground, outMats.clay]) m.origin.set(...(o.origin ?? [0, 0]));
+    groundNow = { g, at: o.groundAt ?? null, coarse: new THREE.Mesh(geo, outMats.ground), fine: null, hole: null };
+    outsideGroup.add(groundNow.coarse);
     const m4 = new THREE.Matrix4(),
       q = new THREE.Quaternion(),
       zUp = new THREE.Vector3(0, 0, 1);
-    const instanced = (geom, mat, list, set) => {
+    // many of a kind at once; each its own matter where its material grows each one's cells (`each`): its
+    // seed from its id (`seedId`, else its own), its size as its matrix scales it
+    const sp = new THREE.Vector3(),
+      sq = new THREE.Quaternion(),
+      ss = new THREE.Vector3();
+    const instanced = (geom, mat, list, set, seedId = (it, k) => it.id ?? `${it.at}:${k}`) => {
       if (!list.length) return;
       const im = new THREE.InstancedMesh(geom, mat, list.length);
+      const each = mat.each ? new Float32Array(4 * list.length) : null;
       list.forEach((it, k) => {
         set(it);
         im.setMatrixAt(k, m4);
+        if (!each) return;
+        m4.decompose(sp, sq, ss);
+        each.set([grown.thingSeed(WORLD_MIX, String(seedId(it, k))) & 0xffffff, ss.x, ss.y, ss.z], 4 * k);
       });
+      if (each) im.geometry = geom.clone().setAttribute('thing', new THREE.InstancedBufferAttribute(each, 4));
       im.frustumCulled = false;
       outsideGroup.add(im);
     };
@@ -632,13 +705,13 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         pebble,
         outMats[m],
         o.stones.filter((s) => (s.matter ?? 'stone') === m),
-        (s) => m4.compose(new THREE.Vector3(...s.at), q.identity(), new THREE.Vector3(s.r, s.r, s.r * 0.6)),
+        (s) => m4.compose(new THREE.Vector3(...s.at), q.identity(), new THREE.Vector3(s.r, s.r, s.r * STONE_SQUAT)),
       );
     // the ground's matter: ponds standing level, clay at their edges (a cell each)
     const flat = new THREE.PlaneGeometry(o.ground.step, o.ground.step);
     instanced(flat, outMats.water, o.water ?? [], (w) => m4.compose(new THREE.Vector3(w.at[0], w.at[1], w.level), q.identity(), new THREE.Vector3(1, 1, 1)));
     instanced(flat, outMats.clay, o.clay ?? [], (c) => m4.compose(new THREE.Vector3(c.at[0], c.at[1], c.at[2] + 0.01), q.identity(), new THREE.Vector3(1, 1, 1)));
-    const limbs = o.trees.flatMap((t) => t.limbs.filter((l) => l.r > 0));
+    const limbs = o.trees.flatMap((t) => t.limbs.filter((l) => l.r > 0).map((l) => ({ ...l, id: t.id })));
     instanced(rod, outMats.wood, limbs, (l) => {
       const a = new THREE.Vector3(...l.from),
         b = new THREE.Vector3(...l.to);
@@ -666,7 +739,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     // on its trunk, as big as its wax; a nest of grass in its fork, its eggs in it; feathers fallen under the trees
     instanced(pebble, outMats.wood, o.galls ?? [], (g) => m4.compose(new THREE.Vector3(...g.at), q.identity(), new THREE.Vector3(g.r, g.r, g.r)));
     instanced(pebble, outMats.wax, o.hives ?? [], (h) => m4.compose(new THREE.Vector3(...h.at), q.identity(), new THREE.Vector3(h.r, h.r, h.r)));
-    instanced(pebble, outMats.ground, o.nests ?? [], (n) => m4.compose(new THREE.Vector3(...n.at), q.identity(), new THREE.Vector3(n.r, n.r, n.r / 2)));
+    instanced(pebble, outMats.grass, o.nests ?? [], (n) => m4.compose(new THREE.Vector3(...n.at), q.identity(), new THREE.Vector3(n.r, n.r, n.r / 2)));
     instanced(
       pebble,
       outMats.chalk,
@@ -708,7 +781,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       fire: [0.12, 0.12, 0.08],
     };
     const MAT = {
-      grass: outMats.ground,
+      grass: outMats.grass,
       clay: outMats.clay,
       pottery: outMats.clay,
       bark: outMats.wood,
@@ -1385,6 +1458,10 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setOutside(o) {
       placeOutside(o);
       if (!o) placeLife(null);
+    },
+    // where the eye is (room m): the ground near it drawn fine
+    setEyeNear(eye) {
+      placeGroundNear(eye);
     },
     // the beings near, where each is now: [{ at (room m), r, matter, flying, span, heading }]
     setLife(list) {

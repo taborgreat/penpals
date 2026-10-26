@@ -7,7 +7,7 @@
 //   node frontend/e2e/grower.mjs              headless Chromium (software GL; no WebGPU adapter there)
 //   node frontend/e2e/grower.mjs --webgpu     also the full Chromium on this machine's GPU, for WebGPU
 import { chromium } from 'playwright';
-import { growCell, growMean, seedMix, thingSeed, SURFACE_GLSL, SURFACE_WGSL, PLASTER, PLANKS, BOARD, BRASS, WAX, WICK, CLOTH, SKIN, DEFAULT_SEEDS } from '../src/scene/light/surface.js';
+import { growCell, growMean, seedMix, thingSeed, SURFACE_GLSL, SURFACE_WGSL, PLASTER, PLANKS, BOARD, BRASS, WAX, WICK, CLOTH, SKIN, DIRT, STONE, BARK, DEFAULT_SEEDS } from '../src/scene/light/surface.js';
 
 const N = 128; // cells a side per block
 const mixOf = (seed) => (typeof seed === 'number' ? seed : seedMix(seed)); // (a thing's seed is already mixed)
@@ -27,6 +27,10 @@ const BLOCKS = [
   { kind: WICK, seed: [11, 13], ox: 0, oy: 0 },
   { kind: CLOTH, seed: [0x0badf00d, 5], ox: 2000, oy: 700 },
   { kind: SKIN, seed: [21, 34], ox: 900, oy: 900 },
+  // the outside's: the ground far out in the world, a stone, a limb's bark
+  { kind: DIRT, seed: [0x5eed, 0x9e3779b9], ox: 400000, oy: 650000 },
+  { kind: STONE, seed: [7, 0x80000001], ox: 300, oy: 1200 },
+  { kind: BARK, seed: [0xabcdef, 42], ox: 5000, oy: 90000 },
 ];
 // The averaged character: positions (cells, fractional) and footprints. Every
 // position is a multiple of 1/16, exact in float32, so the GPU and JS read the
