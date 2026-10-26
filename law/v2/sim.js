@@ -178,7 +178,8 @@ import { MATTER, ROWS, idOf, cellNg, DROP_M } from '../matter.js';
 import { makeGrower } from '../grow.js';
 
 const PAPER = MATTER.paper;
-const NIB = MATTER.metal; // (a nib is metal)
+const METAL = MATTER.metal; // (a pen's nib: the pen's matter unless it says another, format 5)
+const nibOf = (pen) => (pen?.matter !== undefined ? ROWS[pen.matter] : METAL);
 const PAPER_ID = idOf('paper');
 const SHEET_NG = cellNg(PAPER, PAPER.ink.thickness / 1e6); // a cell of a sheet, all of it
 // a dent level's slice of a cell of this matter (ng): a cut that deep takes this much
@@ -629,6 +630,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   // --- the nib ---
 
   let pen = null;
+  let nib = METAL; // what the nib is (its matter's row: law/matter.js)
   let penGall = false;
   let abs0 = 0,
     abs1 = 0,
@@ -643,6 +645,7 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
   function setPen(p) {
     if (batch) flushTick();
     pen = p;
+    nib = nibOf(p);
     penGall = isGall(p.rgb);
     abs0 = penGall ? 0 : ABS_Q[p.rgb[0]];
     abs1 = penGall ? 0 : ABS_Q[p.rgb[1]];
@@ -770,10 +773,11 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
           tear(t, i);
           continue;
         }
-      } else if (!drop && cutting && m.hardness < NIB.hardness) {
-        // (14) the nib cuts what is softer than it, wet or dry: the softer, the more (paper's rate the paper's own)
+      } else if (!drop && cutting && m.hardness < nib.hardness) {
+        // (14) the nib cuts what is softer than it, wet or dry: the more, the harder the nib is than it
+        // (a metal nib on paper at the paper's own rate; a stone harder, a stick of wood softer)
         const was = t.wearA[i] >> WEAR_SHIFT;
-        t.wearA[i] += floorDiv(floorDiv((moving ? WEAR_Q[p] : WEAR_Q[p] >> WEAR_STILL) * fw[k], top) * (NIB.hardness - m.hardness), NIB.hardness - PAPER.hardness);
+        t.wearA[i] += floorDiv(floorDiv((moving ? WEAR_Q[p] : WEAR_Q[p] >> WEAR_STILL) * fw[k], top) * (nib.hardness - m.hardness), METAL.hardness - PAPER.hardness);
         const level = t.wearA[i] >> WEAR_SHIFT;
         if (m === PAPER) {
           const dry = m.ink.wear;

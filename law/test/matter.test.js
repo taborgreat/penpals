@@ -186,6 +186,29 @@ test('Phase 4: a nib cuts only what is softer than it: metal and stone give the 
   assert.ok(wax.res.cuts.byMatter[idOf('wax')] > 0, 'wax is cut');
 });
 
+test("Phase 4: a tool's own matter is its nib (format 5): a stone cuts wood more than metal does, a stick of wood cuts wood not at all and paper less than a metal nib", () => {
+  // the same scrape with a nib of `matter` (law/matter.js ORDER), or the pen's metal
+  const by = (tool) => {
+    const r = scrub(255, 40);
+    if (tool) r.strokes[0].pens[0].matter = idOf(tool);
+    return r;
+  };
+  const on = (tool, matter) => grow(by(tool), { matter }).res.cuts;
+  const metal = on(null, 'wood'),
+    stone = on('stone', 'wood'),
+    stick = on('wood', 'wood');
+  assert.ok(stone.removed > metal.removed && metal.removed > 0, `the harder the tool, the more: stone ${stone.removed}, metal ${metal.removed}`);
+  assert.equal(stick.removed, 0, 'wood takes nothing off wood');
+  const paperByStick = on('wood', 'paper'),
+    paperByMetal = on(null, 'paper');
+  assert.ok(paperByStick.removed > 0 && paperByStick.removed < paperByMetal.removed, 'a stick wears paper, less than a metal nib');
+  // the record: format 5 only when a nib says its matter; without, the bytes as they always were
+  assert.equal(L4.encodeActs(by('stone'))[4], 5);
+  assert.ok(L4.encodeActs(by(null))[4] < 5);
+  assert.deepEqual(L4.decodeCanonical(L4.encodeActs(by('stone'))).strokes[0].pens[0].matter, idOf('stone'));
+  assert.throws(() => lawOf(3).decodeCanonical(L4.encodeActs(by('stone'))), /format/, 'law 3 does not take it');
+});
+
 // Water poured from a vessel onto one spot: a pour mark every 50 ms for `ms`.
 const pour = (ms, amt = 10000) => ({ orgX: 10, orgY: 10, strokes: [], marks: Array.from({ length: ms / 50 }, (_, k) => ({ kind: 'pour', t: k * 50, x: 400, y: 2000, amt })) });
 // Dirt lying flat, or falling toward +x: 100 height units a cell (about 38°: at the law's grain, a
