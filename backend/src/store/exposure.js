@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { readJson, writeJson, serial } from '../files.js';
 import { userDir } from './accounts.js';
-import { dirOf } from './letters.js';
 import { now as clock } from '../clock.js';
 
 // Exposure (law v2: fading): how often each record has been seen, counted at
@@ -11,14 +10,13 @@ import { now as clock } from '../clock.js';
 // written, only when someone views a look.
 //
 //   data/users/<id>/exposure.json     { <inkId>: views }
-//   data/letters/<id>/exposure.json   { ink: views }
 //
 // Who has already been counted today is kept in memory only, as hashes of
 // (day, viewer, record): nothing about viewers is written to disk. After a
 // restart a viewer may be counted once more that day; nothing else changes.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const files = { user: (id) => path.join(userDir(id), 'exposure.json'), letter: (id) => path.join(dirOf(id), 'exposure.json') };
+const files = { user: (id) => path.join(userDir(id), 'exposure.json') };
 const counts = new Map(); // file → { inkId: views } (read once, then kept)
 let today = -1;
 let seenToday = new Set();
@@ -35,7 +33,7 @@ export async function viewsOf(scope, id, ink = 'ink') {
 
 // Count this view (if this viewer has not been counted for this record today)
 // and return the record's views. `viewer` is the account id or the IP key.
-// `keep` says whether the record still exists (a deleted letter is not recreated).
+// `keep` says whether the record still exists (a deleted one is not recreated).
 export async function countView(scope, id, ink, viewer, { now = clock(), keep = () => true } = {}) {
   const day = Math.floor(now / DAY_MS);
   if (day !== today) {

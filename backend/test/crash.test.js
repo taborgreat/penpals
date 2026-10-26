@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { client } from './helpers.js';
-import { person, register, bookInk, FAMILY, K, R, S, b64url } from './device.js';
+import { person, register, bookInk } from './device.js';
 
 const SERVE = fileURLToPath(new URL('./serve.js', import.meta.url));
 const FSCK = fileURLToPath(new URL('../scripts/fsck.js', import.meta.url));
@@ -106,29 +106,6 @@ test('ink: a crash after the seed or after the line, then the same upload again 
     const report = fsck(dir);
     assert.equal(report.status, 0, report.stdout + report.stderr);
   }
-});
-
-test('letters: a crash before letter.json leaves no letter, and sending again works', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'penpals-crash-'));
-  dirs.push(dir);
-  const ana = person(33, 'ana');
-  let s = await serve(dir);
-  const c0 = client(s.base);
-  assert.equal((await register(c0, ana)).status, 201);
-  const cookie = c0.cookieHeader();
-  await s.stop();
-  const made = R.makeInk({ sk: ana.sk, pk: ana.pk, sheet: K.newSheetId(), use: 'letter', family: FAMILY, acts: S.write(ana.writer, 'hi', 2) });
-  const body = { line: made.line, seed: b64url(made.seed), background: 'plain', page: { width: 800, height: 1100 } };
-  s = await crashThenRecover(dir, 'letter:before-meta', (base) => client(base, { cookie }).post('/api/letters', body));
-  try {
-    assert.equal(fs.readdirSync(path.join(dir, 'letters')).length, 0, 'the unfinished letter folder was swept');
-    const c = client(s.base, { cookie });
-    const again = await c.post('/api/letters', body);
-    assert.equal(again.status, 201, JSON.stringify(again.data));
-  } finally {
-    await s.stop();
-  }
-  assert.equal(fsck(dir).status, 0);
 });
 
 test('a torn last line in a chain is cut off at start, and the next line lands whole', async () => {

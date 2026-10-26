@@ -9,11 +9,10 @@ test('/ and /u/<name> open the world, at that person’s house', () => {
 });
 
 test('no route serves the removed pages', () => {
-  for (const p of ['/write', '/write/tabor', '/proofs', '/hand', '/u/tabor/home', '/u/tabor/some-page']) assert.equal(pageAt(p).page, 'not-found', p);
+  for (const p of ['/write', '/write/tabor', '/proofs', '/hand', '/inbox', '/u/tabor/home', '/u/tabor/some-page']) assert.equal(pageAt(p).page, 'not-found', p);
 });
 
-test('kept outside the world: the inbox, the .book viewer, the dev pages (dev only)', () => {
-  assert.equal(pageAt('/inbox').page, 'inbox');
+test('kept outside the world: the .book viewer, the dev pages (dev only)', () => {
   assert.equal(pageAt('/book').page, 'book');
   for (const p of ['/hand-lab', '/law-check', '/scene-check', '/pad-check']) {
     assert.equal(pageAt(p, { labs: true }).page, p.slice(1));

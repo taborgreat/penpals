@@ -153,17 +153,6 @@ a:hover {
   box-shadow: inset 0 -2px 0 var(--wax);
 }
 
-.user-menu {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.user-menu .handle {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  text-decoration: none;
-}
-
 .airmail {
   height: 6px;
   background: repeating-linear-gradient(-45deg, var(--air-red) 0 12px, transparent 12px 18px, var(--air-blue) 18px 30px, transparent 30px 36px);
@@ -689,58 +678,8 @@ ul.people a:hover {
   color: var(--wax);
 }
 
-/* Mailbox rows are envelopes with an airmail edge. */
-.envelope {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  text-align: left;
-  padding: 14px 18px 14px 30px;
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-soft);
-  overflow: hidden;
-}
-.envelope::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 10px;
-  background: repeating-linear-gradient(-45deg, var(--air-red) 0 7px, var(--surface) 7px 10px, var(--air-blue) 10px 17px, var(--surface) 17px 20px);
-}
-.envelope > span:first-child {
-  flex: 1;
-  min-width: 12em;
-}
-
-.badge {
-  display: inline-block;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--wax);
-  color: var(--wax-text);
-}
-
 /* ---------- Letters ---------- */
 
-.letter-box {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
 canvas.letter {
   width: 100%;
   height: auto;
@@ -858,13 +797,7 @@ canvas.letter {
   opacity: 1;
   font-weight: 600;
 }
-.calibration-text {
-  margin: 0;
-  padding: 10px 14px;
-  border-left: 3px solid var(--muted);
-  font-size: 1.1em;
-  line-height: 1.5;
-}
+
 /* the key, kept: its 24 words in reading order, and the private key on one line */
 .key-words {
   display: grid;
@@ -913,9 +846,7 @@ h2 .hand {
 .nav .hand {
   font-size: 1.15em;
 }
-.nav .mailbox-link .hand {
-  font-size: 0.95em;
-}
+
 .nav .logout {
   margin-left: 4px;
 }
@@ -1044,21 +975,6 @@ a:focus-visible .username.signed {
 button.danger:hover:not(:disabled) {
   color: var(--wax);
 }
-.write-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-}
-.write-panel .row {
-  justify-content: flex-start;
-}
-.write-panel .spacer {
-  flex: 1;
-}
 
 /* A page: a fixed canvas scaled to fit, its writing placed on it. */
 .journal-page {
@@ -1089,17 +1005,7 @@ button.danger:hover:not(:disabled) {
   opacity: 0;
   z-index: 1;
 }
-.journal-page.scene-3d .journal-scene {
-  z-index: 5;
-}
-/* a pad letter: its ink and its scene lie over it, so it takes its size from the column (at most 80vh tall, like a photo) */
-.pad-letter {
-  width: 100%;
-}
-.letter-scene {
-  position: absolute;
-  inset: 0;
-}
+
 .monk-scene {
   position: absolute;
   inset: 0;
@@ -1581,22 +1487,7 @@ details.download .hint {
   position: absolute;
   inset: 0;
 }
-.scene-on.scene-2d .pad-page canvas.guide {
-  position: relative;
-  z-index: 3;
-  mix-blend-mode: multiply;
-}
-.scene-on.scene-2d .pad-page canvas.ink {
-  z-index: 4;
-  opacity: 0;
-}
-.scene-on.scene-3d .pad-scene {
-  z-index: 5;
-  pointer-events: auto;
-}
-.scene-on.scene-3d .pad-view {
-  visibility: hidden;
-}
+
 :where(.scene-view) {
   position: relative;
 } /* (no weight: a view's own placement wins) */

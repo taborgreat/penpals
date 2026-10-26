@@ -5,7 +5,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { authRouter } from '../src/routes/auth.js';
 import { booksRouter } from '../src/routes/books.js';
-import { lettersRouter } from '../src/routes/letters.js';
 import { proofsRouter } from '../src/routes/proofs.js';
 import { roomsRouter, sharedRouter } from '../src/routes/rooms.js';
 import { socialRouter } from '../src/routes/social.js';
@@ -33,15 +32,9 @@ const WORLD = {
     "a being's hands on the outside: a stone taken or put, a branch broken, a stick or a tree carved; gathered, twisted, struck, bound, swung, rubbed, formed, fired, picked, crushed, mixed, melted, poured, dipped",
     'law/hands.js, law/making.js: the wood breaks past its strength, the harder takes the softer, the heat rule, the matter rows; possession',
   ],
-  'POST /api/letters': ['a letter written: its acts, sealed', 'the ink law'],
 };
 // owed: paths that change the world without an act and a rule of the law yet, and what they wait for
 const OWED = {
-  'POST /api/letters/photo': 'a photographed page has no acts (one-world.md: photographing a page is in the rulings)',
-  'POST /api/letters/:id/send': 'the mail: to become carrying the sheet to their mailbox (one-world.md), once there is an outside to walk',
-  'POST /api/letters/:id/open': 'the mail: to become taking the oldest sheet out of your mailbox',
-  'POST /api/letters/:id/save': 'keeping a letter: to become setting the sheet down in your house',
-  'DELETE /api/letters/:id/save': 'letting a kept letter go: to become picking it up and taking it away',
   'POST /api/proofs': 'a live proof: kept or removed is in the rulings (one-world.md)',
   'POST /api/proofs/:id/answer': 'a live proof answered (ink, sealed): kept or removed is in the rulings',
 };
@@ -63,7 +56,6 @@ const NOT_WORLD = [
 const MOUNTS = [
   ['/api/auth', authRouter],
   ['/api/books', booksRouter],
-  ['/api/letters', lettersRouter],
   ['/api/proofs', proofsRouter],
   ['/api/rooms', roomsRouter],
   ['/api/shared', sharedRouter],

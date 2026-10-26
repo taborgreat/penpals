@@ -14,7 +14,6 @@ lawRouter.get('/', (req, res) => {
     caps: {
       maxActsBytes: config.book.maxActsBytes,
       maxSignatureActsBytes: config.book.maxSignatureActsBytes,
-      maxLetterActsBytes: config.book.maxLetterActsBytes,
       scale: { min: 4, max: 640, one: 64 },
       maxCells: config.render.maxCells,
     },

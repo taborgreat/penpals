@@ -6,7 +6,7 @@ import { httpError } from './files.js';
 export { createSession, deleteSession, deleteUserSessions } from './store/sessions.js';
 
 // Sessions are a 30-day httpOnly cookie for browsing and layout; every mark
-// (ink, letters, opens) also needs the key (a seal), which no cookie carries.
+// (ink, opens, the world's acts) also needs the key (a seal), which no cookie carries.
 export const COOKIE = 'penpals_session';
 
 export function setSessionCookie(res, token) {

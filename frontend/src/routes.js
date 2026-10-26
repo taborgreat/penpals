@@ -2,13 +2,12 @@ import { matchRoutes } from 'react-router-dom';
 
 // The site's addresses (one-world.md): the whole site is one page, the world.
 // `/` is the lobby until you are in, then your house; `/u/<name>` opens the
-// world at that person's house. Outside the world: the inbox (until letters
-// are ruled), the .book viewer (until it is ruled in or out of the world), and
-// the dev pages. Anything else is not a page.
+// world at that person's house. Outside the world: the .book viewer (until it is
+// ruled in or out of the world), and the dev pages. Anything else is not a page;
+// letters are sheets carried to a mailbox, in the world.
 export const ROUTES = [
   { path: '/', page: 'world' },
   { path: '/u/:username', page: 'world' },
-  { path: '/inbox', page: 'inbox' },
   { path: '/book', page: 'book' },
   { path: '/hand-lab', page: 'hand-lab', lab: true },
   { path: '/law-check', page: 'law-check', lab: true },

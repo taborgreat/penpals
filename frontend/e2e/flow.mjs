@@ -10,7 +10,8 @@
 // check the book with the law's verifier; log in with the password.
 // Not here until they exist in the world: letters (a sheet carried to a
 // mailbox, one-world.md), the pad's own checks (the write page is gone; the
-// pad is in /pad-check), the scene's dev tools (Moments, Cut: /scene-check).
+// pad is in /pad-check), the scene's dev tools (Moments, Cut: /scene-check). Letters are sheets carried to a
+// mailbox (e2e/mail.mjs).
 // No shortcuts: every request is the one the site makes.
 //   node frontend/e2e/flow.mjs         the built site, served by the backend (run `npm run build -w frontend` first)
 //   node frontend/e2e/flow.mjs --dev   through a Vite dev server proxying /api, as `npm run dev` runs it
@@ -22,6 +23,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { roomGeometry, ROOM, cornerOf } from '../src/scene/light/room.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'penpals-e2e-'));
@@ -568,9 +570,24 @@ try {
     await visitor.close();
   }
 
-  step('log out (from the mailbox, until the world has a way), then log in with the 24 words');
-  await page.goto(`${base}/inbox`);
-  await page.locator('button.logout').click();
+  // signing out on this device: at the key corner of your own house, its panel's "Sign out here" (one-world.md)
+  const signOutHere = async () => {
+    await page.goto(`${base}/u/tabor`);
+    await page.locator('.journal-scene[data-gpu]').waitFor({ timeout: 60000 });
+    await page.locator('.journal-scene canvas.scene-canvas').focus();
+    await page.waitForTimeout(1500);
+    if (await panel(page, 'The pen in your hand').count()) await page.keyboard.press('h'); // (the pen set down: the hand free)
+    await page.keyboard.down('s');
+    await page.waitForFunction(() => globalThis.__sceneLook?.pose()?.mode === 'walk', null, { timeout: 15000 });
+    await page.keyboard.up('s');
+    const [cx, cy] = cornerOf(roomGeometry(ROOM));
+    await page.evaluate(([x, y]) => globalThis.__sceneLook.at([x - 0.25, y + 0.25, 1.6]), [cx, cy]);
+    await panel(page, 'Your account').waitFor({ timeout: 20000 });
+    await panel(page, 'Your account').locator('button.logout').click();
+  };
+
+  step('sign out here (at the key corner of your house), then log in with the 24 words');
+  await signOutHere();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
   await openWith(page, { unlock: false, way: 'words', secret: words, done: () => panel(page, 'The pen in your hand').waitFor({ timeout: 60000 }) }); // (the eye opens as it did when you registered)
@@ -581,7 +598,6 @@ try {
   await tab.getByText('Unlock to write').waitFor({ timeout: 20000 });
   await openWith(tab, { unlock: true, way: 'key', secret: privateKey, done: () => panel(tab, 'The pen in your hand').waitFor({ timeout: 60000 }) }); // (unlocked, the pen is in your hand)
   await tab.close();
-  console.log('   (letters: not in the world yet; a letter is a sheet carried to a mailbox, one-world.md)');
 
   step('open the .book in the viewer: it checks here too');
   await page.goto(`${base}/book`);
@@ -589,9 +605,8 @@ try {
   await page.getByText('The book checks.').waitFor({ timeout: 60000 });
   await page.getByText(/And with your key: 1 closed sheet grown again here/).waitFor({ timeout: 60000 });
 
-  step('log out, then log in with the password backup');
-  await page.goto(`${base}/inbox`);
-  await page.locator('button.logout').click();
+  step('sign out here again, then log in with the password backup');
+  await signOutHere();
   await page.goto(base);
   await page.locator('#in-name').waitFor();
   await openWith(page, { unlock: false, way: 'password', secret: 'correct horse battery', done: () => panel(page, 'The pen in your hand').waitFor({ timeout: 60000 }) });

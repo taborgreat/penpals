@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import { listDirs, readJson, serial, serialAll, writeJson } from '../files.js';
 
 // Accounts: data/users/<id>/account.json. Private, never part of a book:
-//   { id, username, usernameLower, publicKey, createdAt, private, lettersSent, settings: {} }
+//   { id, username, usernameLower, publicKey, createdAt, private, settings: {} }
 // There is no password: the account is its public key (keys.md, "there is no
 // account, there is a key"). account.json is written last when an account is
 // made, so a folder without one is a registration that never finished.
@@ -22,7 +22,6 @@ const byKey = new Map(); // public key (b64url) → id
 
 const blank = (fields) => ({
   private: false,
-  lettersSent: 0,
   settings: {},
   ...fields,
 });

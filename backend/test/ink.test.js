@@ -209,7 +209,7 @@ test('the privacy canary: no secret is in any response, request or file', async 
   for (const c of [app.ana, app.bo, app.cy]) for (const b of c.sent) scan('a request body', b.replaceAll(w.ink.seedText, ''));
   // every GET a visitor can make
   const viewers = { owner: app.ana, friend: app.bo, stranger: app.cy, anonymous: client(app.base) };
-  const gets = ['/api/auth/me', '/api/users', '/api/users/ana', '/api/books/ana', '/api/books/ana/ink', '/api/signatures?names=ana,bo,cy', '/api/letters/top', '/api/law'];
+  const gets = ['/api/auth/me', '/api/users/ana', '/api/books/ana', '/api/books/ana/ink', '/api/signatures?names=ana,bo,cy', '/api/law'];
   // and every ink's scene (heights and colours of the sheet: never its seed or paper), inflated before scanning
   const chainNow = (await app.ana.get('/api/books/ana/ink')).data
     .toString('utf8')

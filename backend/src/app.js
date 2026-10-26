@@ -5,7 +5,6 @@ import path from 'node:path';
 import { config } from './config.js';
 import { sessionMiddleware, requireOrigin } from './auth.js';
 import { loadAccounts, usersDir, accountFile, userDir } from './store/accounts.js';
-import { loadLetters } from './store/letters.js';
 import { loadProofs } from './store/proofs.js';
 import { loadCache, cacheStats } from './store/cache.js';
 import { sweepTemps, truncateTornTail, listDirs, httpError } from './files.js';
@@ -13,7 +12,6 @@ import { createPool } from './render/pool.js';
 import { setPool } from './services.js';
 import { authRouter } from './routes/auth.js';
 import { usersRouter } from './routes/users.js';
-import { lettersRouter } from './routes/letters.js';
 import { proofsRouter } from './routes/proofs.js';
 import { socialRouter } from './routes/social.js';
 import { signaturesRouter } from './routes/signatures.js';
@@ -91,7 +89,6 @@ export async function createApp() {
   await checkFormat();
   await recover();
   const accounts = await loadAccounts();
-  const letters = await loadLetters();
   const proofs = await loadProofs();
   await loadCache();
   await loadShared(); // which table every shared sheet lies on (rooms.md §5)
@@ -111,7 +108,6 @@ export async function createApp() {
   app.use('/api/books', booksRouter);
   app.use('/api/signatures', signaturesRouter);
   app.use('/api/users', express.json({ limit: '64kb' }), usersRouter);
-  app.use('/api/letters', lettersRouter);
   app.use('/api/proofs', proofsRouter);
   app.use('/api/social', express.json({ limit: '64kb' }), socialRouter);
   app.use('/api/rooms', roomsRouter);
@@ -128,8 +124,6 @@ export async function createApp() {
 
   app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
-    if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: `File too large (max ${config.maxInkBytes / 1024} KB).`, code: 'too_large' });
-    if (err.name === 'MulterError') return res.status(400).json({ error: `Bad upload: ${err.message}.`, code: 'bad_upload' });
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'That is too big to send.', code: 'too_large' });
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'That is not valid JSON.', code: 'bad_json' });
     const status = err.status ?? 500;
@@ -145,7 +139,7 @@ export async function createApp() {
   return {
     app,
     pool,
-    summary: { accounts, letters, proofs, cache: cacheStats() },
+    summary: { accounts, proofs, cache: cacheStats() },
     close: () => pool.close(),
   };
 }

@@ -21,7 +21,7 @@ export function settleOnServer({ law, acts, seed, family, scale = 64, png = fals
 
 // A closed sheet's film (law/v1/film.js), deflated: made by the pool, kept on disk.
 export function filmOnServer({ law, acts, seed, family, box, key }) {
-  return pool.run({ film: true, law, acts, paperKey: K.paperKeyOf(seed), family, box }, { key, priority: 'view', timeout: config.render.timeoutMs.letter });
+  return pool.run({ film: true, law, acts, paperKey: K.paperKeyOf(seed), family, box }, { key, priority: 'view', timeout: config.render.timeoutMs.film });
 }
 
 // The moment a record's look is drawn at: how long it has aged and how often it

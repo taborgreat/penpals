@@ -511,7 +511,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
   // Writing in 3D: the pointer's page point comes by ray from the scene; the chase
   // runs on its screen motion exactly as in 2D (1. chase, 2. convert, 3. store, 4. pen).
   const sheets3d = useMemo(() => (live ? [{ id: 'live', box: [0, 0, Math.ceil(pageW * 2), Math.ceil(height * 2)], origin: [0, 0], cellPx: 0.5, live }] : []), [live, pageW, height]);
-  const writer3d = useMemo(() => {
+  const writer3d = (() => {
     const screen = (ev) => ({ x: ev.clientX - sizeRef.current.left, y: ev.clientY - sizeRef.current.top });
     const point = (p, ev, type) => ({ x: p.x, y: p.y, t: ev.timeStamp || performance.now(), p: ev.pressure || 0.5, pen: type === 'pen' });
     return {
@@ -552,7 +552,7 @@ export default function WriteMode({ getStrokes, draftRef, nib, pageW, height, ro
         schedule();
       },
     };
-  });
+  })(); // (made again each render, as it reads what the render has)
   useEffect(() => {
     if (view3d) live?.scene?.(true);
     schedule();

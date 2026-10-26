@@ -6,7 +6,6 @@ import { findByName, getAccount } from '../store/accounts.js';
 import { bookBytes, chainBytes, edit, getSkeleton, inkLine, sheetLine, openSeed, digestOf, landInk, landOpen, dryRunEdit, NEW_INK } from '../store/books.js';
 import { CLIENT_OPS, SCALE, allItems, familyFor } from '../store/ops.js';
 import { seedOf } from '../store/seeds.js';
-import { sheetUsedInLetters } from '../store/letters.js';
 import { readCached, writeCached, lookPath, lookName, filmPath, scenePath } from '../store/cache.js';
 import { sightOf, windowed } from '../sight.js';
 import { countView, viewsOf } from '../store/exposure.js';
@@ -260,7 +259,6 @@ booksRouter.post('/me/ink', requireAuth, inkJson, async (req, res) => {
     throw httpError(400, 'wrong_paper', place?.surface !== undefined ? 'Write on the matter of that surface.' : 'Write on your own paper family.');
   const seed = decodeField(req.body.seed, 64, 'seed');
   R.verifySeedFor(body, seed);
-  if (sheetUsedInLetters(account.id, body.sheet)) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
   const existing = await sheetLine(account.id, body.sheet);
   if (existing && !Buffer.from(await digestOf(account.id, existing)).equals(Buffer.from(D))) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
   const then = place ? { ...place, op: 'add' } : null;
@@ -283,7 +281,6 @@ booksRouter.put('/me/signature', requireAuth, inkJson, async (req, res) => {
   const { account, body, D } = await checkSheetFromMe(req, line, 'signature', config.book.maxSignatureActsBytes);
   if (body.name !== account.username) throw httpError(400, 'bad_signature', 'A signature is your own name.');
   const seed = R.verifyOpenFor(body, D, line.open);
-  if (sheetUsedInLetters(account.id, body.sheet)) throw httpError(409, 'sheet_used', 'That sheet already holds other writing.');
   const settled = await confirmFacts(body, seed, { ua: req.get('user-agent') ?? '' });
   const out = await landInk(account.id, { line: { ink: body, seal: line.seal, open: line.open }, D, seed: null, then: { op: 'signature' } });
   await writeCached(lookPath(account.id, out.ink, 64, body.law, FRESH), Buffer.from(settled.png)).catch(() => {});

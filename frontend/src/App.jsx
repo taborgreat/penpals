@@ -1,9 +1,8 @@
 import { lazy, Suspense } from 'react';
-import { Link, NavLink, useLocation, useRoutes } from 'react-router-dom';
+import { Link, useLocation, useRoutes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth.jsx';
 import { routesFor, pageAt } from './routes.js';
 import World from './pages/World.jsx';
-import Inbox from './pages/Inbox.jsx';
 import NotFound from './pages/NotFound.jsx';
 import BookViewer from './pages/BookViewer.jsx';
 import Hand from './components/Hand.jsx';
@@ -24,7 +23,6 @@ const lab = (Page) => (
 // What each address in routes.js opens.
 const PAGES = {
   world: () => <World />,
-  inbox: () => <Inbox />,
   book: () => <BookViewer />,
   'hand-lab': () => lab(HandLab),
   'law-check': () => lab(LawCheck),
@@ -33,7 +31,7 @@ const PAGES = {
   'not-found': () => <NotFound />,
 };
 
-// You, your mailbox, and the way out, in that order.
+// You, and the way out (your mailbox is by your door: one-world.md).
 function UserMenu() {
   const { user, loading, logout } = useAuth();
   if (loading) return null;
@@ -43,9 +41,6 @@ function UserMenu() {
       <Link to={`/u/${user.username}`} className="handle" title="Your house">
         <Username name={user.username} />
       </Link>
-      <NavLink to="/inbox" className="mailbox-link">
-        <Hand>mailbox</Hand>
-      </NavLink>
       <button type="button" className="quiet logout" onClick={logout}>
         <Hand>log out</Hand>
       </button>
@@ -54,7 +49,7 @@ function UserMenu() {
 }
 
 // The world is the whole page (one-world.md): no header, no footer. The few
-// pages outside it (the inbox, the .book viewer, the dev pages) keep the desk's.
+// pages outside it (the .book viewer, the dev pages) keep the desk's.
 export default function App() {
   const { pathname } = useLocation();
   const routes = useRoutes(routesFor({ labs: LABS }).map((r) => ({ path: r.path, element: PAGES[r.page]() })));

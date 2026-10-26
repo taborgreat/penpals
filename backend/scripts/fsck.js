@@ -4,15 +4,13 @@
 // The public part of every book is checked the way any reader checks a .book
 // (law/verify.js: seals, ids, one record per sheet, opens, layout). Then what
 // only the server holds: every closed sheet has its seed and the seed is the
-// one its record committed to; unlock.json is well formed; letters are sealed
-// by their sender and name their files; no chain has a torn tail. --regrow also
+// one its record committed to; unlock.json is well formed; no chain has a torn tail. --regrow also
 // grows every sheet again (closed ones from their private seeds) and compares
 // the facts. Exit 0 when nothing is wrong. Notes are things recovery will tidy
 // at the next start, or harmless leftovers of a crash (a seed whose record
 // never landed).
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { config } from '../src/config.js';
 import { verify as V, record as R, keys as K, unlock as U, fromB64url, b64url } from 'penpals-law';
 
@@ -21,7 +19,7 @@ const deep = args.includes('--regrow');
 const root = config.dataDir;
 const problems = [];
 const notes = [];
-const counts = { accounts: 0, lines: 0, seeds: 0, letters: 0 };
+const counts = { accounts: 0, lines: 0, seeds: 0 };
 
 const readText = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null);
 const readJson = (f) => {
@@ -161,54 +159,10 @@ for (const id of dirs(path.join(root, 'users'))) {
   }
 }
 
-// Letters: sealed by the sender, naming exactly their files; one use per sheet.
-const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
-const letterSheets = new Map();
-for (const id of dirs(path.join(root, 'letters'))) {
-  const dir = path.join(root, 'letters', id);
-  const meta = readJson(path.join(dir, 'letter.json'));
-  if (!meta) {
-    notes.push(`letters/${id} has no letter.json: unfinished (swept at the next start)`);
-    continue;
-  }
-  counts.letters++;
-  const sender = accounts.get(meta.senderId);
-  if (!sender) {
-    problems.push(`letters/${id}: its sender is not an account`);
-    continue;
-  }
-  const line = readJson(path.join(dir, 'ink.line.json'));
-  try {
-    if (!line) throw new Error('no sealed line');
-    const pk = fromB64url(sender.publicKey, 32);
-    if (line.ink.key !== sender.publicKey) throw new Error('sealed by another key');
-    if (line.ink.kind === 'ink') R.checkInkBody(line.ink, { maxActsBytes: config.book.maxLetterActsBytes });
-    else R.checkPhotoBody(line.ink);
-    R.verifySealed(line, pk);
-    if (line.ink.sheet !== meta.sheet) throw new Error('letter.json names another sheet');
-    if (line.ink.kind === 'ink') {
-      const seed = fromB64url(readText(path.join(dir, 'sheet.seed')) ?? '', 64);
-      if (b64url(K.commitOf(seed)) !== line.ink.commit) throw new Error('its seed is not the committed one');
-      if (deep && !R.regrow(line.ink, seed).ok) throw new Error('does not regrow to its record');
-    } else {
-      const png = path.join(dir, 'ink.png');
-      if (!fs.existsSync(png) || sha(fs.readFileSync(png)) !== line.ink.png) throw new Error('the scan is not the sealed one');
-      const strokes = path.join(dir, 'ink.strokes');
-      const have = fs.existsSync(strokes) ? sha(fs.readFileSync(strokes)) : null;
-      if (have !== line.ink.strokes) throw new Error('the strokes are not the sealed ones');
-    }
-    const key = `${meta.senderId}|${meta.sheet}`;
-    if (letterSheets.has(key) || sheetsOf.get(meta.senderId)?.has(meta.sheet)) throw new Error(`sheet ${meta.sheet} is used twice`);
-    letterSheets.set(key, id);
-  } catch (err) {
-    problems.push(`letters/${id}: ${err.message}`);
-  }
-}
-
 const ok = problems.length === 0;
 if (args.includes('--json')) console.log(JSON.stringify({ ok, counts, problems, notes }, null, 1));
 else {
-  console.log(`${root}: ${counts.accounts} accounts, ${counts.lines} chain lines, ${counts.seeds} seeds, ${counts.letters} letters`);
+  console.log(`${root}: ${counts.accounts} accounts, ${counts.lines} chain lines, ${counts.seeds} seeds`);
   for (const n of notes) console.log(`  note: ${n}`);
   for (const p of problems) console.log(`  PROBLEM: ${p}`);
   console.log(ok ? 'the data checks' : 'THE DATA DOES NOT CHECK');

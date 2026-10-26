@@ -15,7 +15,7 @@ function makeCanvas(width, height) {
   return c;
 }
 
-// The finished letter. `asset` is { img, data } as LetterView loads it; `paper` null = transparent.
+// The finished sheet. `asset` is { img, data } as its look loads; `paper` null = transparent.
 function paintFinished({ img, data }, inkColor, paper) {
   const c = document.createElement('canvas');
   if (img) paintLetter(c, img, { inkColor, paper });
