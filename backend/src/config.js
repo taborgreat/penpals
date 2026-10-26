@@ -17,9 +17,10 @@ export const config = {
   host: env.HOST || '0.0.0.0', // every network this machine is on (the LAN too); HOST=127.0.0.1 for this machine only
 
   // Everything lives in files here (books.md, keys.md): accounts, books, the world's chains,
-  // sessions. There is no database. FORMAT marks the layout; older data is refused.
+  // sessions. There is no database. FORMAT marks the layout; older data is refused (3: papers
+  // are matter, a book is its chain).
   dataDir: env.DATA_DIR || path.join(backendRoot, 'data'),
-  format: 2,
+  format: 3,
   frontendDist: path.resolve(backendRoot, '..', 'frontend', 'dist'),
   production: env.NODE_ENV === 'production',
 

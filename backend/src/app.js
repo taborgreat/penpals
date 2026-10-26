@@ -32,7 +32,7 @@ async function checkFormat() {
   const file = path.join(config.dataDir, 'FORMAT');
   if (fss.existsSync(file)) {
     const f = JSON.parse(await fs.readFile(file, 'utf8'));
-    if (f.penpals !== config.format) throw new Error(`${config.dataDir} holds data format ${f.penpals}; this server reads format ${config.format}.`);
+    if (f.penpals !== config.format) throw new Error(`${config.dataDir} holds data format ${f.penpals}; this server reads format ${config.format}. Move it away to start clean.`);
     return;
   }
   // Indexes and caches are rebuilt on every start: on their own they are not data.
