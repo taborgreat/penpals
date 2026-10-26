@@ -3,7 +3,8 @@
 // empty room). Each signed-in person in it is one being; their coming and
 // going and their coarse motion are acts, stamped here in arrival order and
 // appended to the room's own chain (data/users/<owner>/room.chain):
-//   { n, at, by: <username>, kind: 'enter' | 'leave' | 'move', pose? }
+//   { n, at, by: <username>, kind: 'enter' | 'leave' } | { n, at, by, kind: 'move', d } (d: the pose less the
+//   being's last on this chain since it came in, a few bytes: law/being.js encodeMove)
 // What a being does to the room's things (rooms.md §3b, §3c; matter-fixes §2: light a
 // candle or put it out, pick a thing up or set it down, tilt the candle in its hand)
 // is an act sealed by its key (law/room.js), stamped here as it came:
@@ -183,8 +184,9 @@ export async function move(ownerId, userId, pose) {
   const now = Date.now();
   if (now - b.lastMove < 1000 / B.MAX_RATE) return null; // at most five a second
   b.lastMove = now;
+  const last = b.pose;
   b.pose = B.quantize(pose);
-  const line = await record(ownerId, r, { by: b.name, kind: 'move', pose: b.pose });
+  const line = await record(ownerId, r, { by: b.name, kind: 'move', d: B.encodeMove(last, b.pose) });
   tellAll(r, 'being', { kind: 'move', name: b.name, pose: b.pose });
   const at = { name: b.name, house: getAccount(ownerId)?.publicKey, pose: worldPose(ownerId, b.pose) };
   world.set(b.name, at);

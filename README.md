@@ -41,7 +41,7 @@ proxies `/api`), `RENDER_WORKERS` (render threads; `0` renders inline), `ORIGINS
 Without Vite: `npm run build` then `npm start`. Express serves `frontend/dist` itself.
 
 A data directory of another layout is refused at start (its `FORMAT` says which; this is
-format 3): move it away to start clean. Old data is never migrated.
+format 4): move it away to start clean. Old data is never migrated.
 
 ### Checks
 

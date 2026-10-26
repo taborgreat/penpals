@@ -14,6 +14,7 @@
 // flying the body follows the head's heading: the caller gives body = yaw.)
 
 import { MAX_RING, PLOT_M } from './world.js';
+import { b64url, fromB64url } from './tags.js';
 
 export const NECK_YAW = 70;
 export const NECK_PITCH = 80;
@@ -47,6 +48,44 @@ export function quantize(pose) {
   const q = (v, k) => Math.round(v * k) / k;
   const n = neck(pose.body ?? pose.yaw, pose.yaw, pose.pitch);
   return { pos: pose.pos.map((v) => q(v, 1000)), yaw: q(n.yaw, 10), pitch: q(n.pitch, 10), body: q(n.body, 10), size: q(pose.size ?? 1, 1e4) };
+}
+
+// A motion act as its chain keeps it (rooms.md §4: small, delta-encoded like strokes): the pose's whole
+// numbers (mm; tenths of a degree; size in ten-thousandths) less the same being's last pose on that chain
+// (since it came in: null, from nothing), each a zigzag varint, as b64url. Its time is its line's.
+const UNITS = (p) => [...p.pos.map((v) => Math.round(v * 1000)), Math.round(p.yaw * 10), Math.round(p.pitch * 10), Math.round((p.body ?? p.yaw) * 10), Math.round((p.size ?? 1) * 1e4)];
+export function encodeMove(last, pose) {
+  const now = UNITS(pose),
+    was = last ? UNITS(last) : now.map(() => 0);
+  const out = [];
+  for (let k = 0; k < now.length; k++) {
+    let v = now[k] - was[k];
+    v = v >= 0 ? 2 * v : -2 * v - 1; // (zigzag)
+    for (; v >= 0x80; v = Math.floor(v / 0x80)) out.push((v % 0x80) | 0x80);
+    out.push(v);
+  }
+  return b64url(Uint8Array.from(out));
+}
+// → the pose it moved to (quantized), from the being's last on the chain (null: from nothing)
+export function decodeMove(last, d) {
+  const bytes = fromB64url(d);
+  const was = last ? UNITS(last) : [0, 0, 0, 0, 0, 0, 0];
+  const v = [];
+  let i = 0;
+  for (let k = 0; k < 7; k++) {
+    let n = 0,
+      m = 1,
+      b;
+    do {
+      if (i >= bytes.length) throw new Error('a motion act cut short');
+      b = bytes[i++];
+      n += (b & 0x7f) * m;
+      m *= 0x80;
+    } while (b & 0x80);
+    v.push(was[k] + (n % 2 === 0 ? n / 2 : -(n + 1) / 2));
+  }
+  if (i !== bytes.length) throw new Error('a motion act too long');
+  return { pos: v.slice(0, 3).map((x) => x / 1000), yaw: v[3] / 10, pitch: v[4] / 10, body: v[5] / 10, size: v[6] / 1e4 };
 }
 
 // A pose as anyone may send it: numbers in range, anywhere in the world (a house's room is a place in the

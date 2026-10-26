@@ -1,7 +1,7 @@
 // The being (rooms.md §4, Tests: "Neck law", "The being").
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { neck, isAct, quantize, checkPose, glide, NECK_YAW, NECK_PITCH, STEP_M, MAX_RATE, wrap } from '../being.js';
+import { neck, isAct, quantize, checkPose, glide, encodeMove, decodeMove, NECK_YAW, NECK_PITCH, STEP_M, MAX_RATE, wrap } from '../being.js';
 
 test('the neck law: the head never past 70° of the body or 80° up or down; past it the body turns by exactly the excess', () => {
   // a small look is just the head
@@ -53,4 +53,20 @@ test('the being: motion acts only past the step or the angle, at most five a sec
   const mid = glide(at(0, 0), at(1, 90), 0.5);
   assert.ok(Math.abs(mid.pos[0] - 0.5) < 1e-9 && Math.abs(mid.yaw - 45) < 1e-9);
   assert.deepEqual(glide(at(0), at(1), 1).pos, at(1).pos);
+});
+
+test('motion acts are small: delta-encoded like strokes, a few bytes each, and read back exactly', () => {
+  let last = null;
+  let bytes = 0;
+  const poses = [];
+  for (let k = 0; k < 40; k++) {
+    const pose = quantize({ pos: [1.2 + 0.06 * k, 2.4 - 0.01 * k, 1.6], yaw: -170 + 9 * k, pitch: 5 - k / 4, body: -170 + 9 * k, size: 1 });
+    const d = encodeMove(last, pose);
+    if (k) bytes += d.length;
+    assert.deepEqual(decodeMove(last, d), pose, `act ${k}`);
+    poses.push(pose);
+    last = pose;
+  }
+  assert.ok(bytes / 39 < 16, `${(bytes / 39).toFixed(1)} characters a step`);
+  assert.throws(() => decodeMove(null, ''), /cut short/);
 });
