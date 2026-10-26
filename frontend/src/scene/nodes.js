@@ -69,7 +69,6 @@ import {
   sin,
   smoothstep,
   exp,
-  log,
   asin,
   tanh,
   atan,
@@ -167,6 +166,7 @@ export function setSpectrum(u, values, k = 1, from = 0) {
 }
 const binsOf = (curve) => [0, 1, 2, 3].map((g) => vec4(curve[4 * g], curve[4 * g + 1], curve[4 * g + 2], curve[4 * g + 3]));
 const INK = curves.INK.map(binsOf); // what each of the law's three channels drinks, per bin
+const GALL = binsOf(curves.GALL); // and oak gall, a GALL_ABS of it (law/v2/look.js lookAbs)
 
 // The light as uniforms (light.js, in the world: page px with the room's axes),
 // and the height scale. maps: the shadows' depth maps (shadows.js), when things block light.
@@ -279,9 +279,10 @@ function flameReach(q, k, L) {
   return lit;
 }
 
-// What a point reflects per bin: its surface's curve through the ink's
-// absorbance a (the law's three channels, natural units).
-const reflectance = (surface, a) => INK[0].map((_, g) => surface.element(g).mul(exp(INK[0][g].mul(a.x).add(INK[1][g].mul(a.y)).add(INK[2][g].mul(a.z)).negate())));
+// What a point reflects per bin: its surface's curve (bin group g → its vec4) through the ink's absorbances
+// (law/v2/look.js lookAbs: a.xyz the law's three channels, natural units; a.w oak gall, of GALL_ABS).
+const throughInk = (surface, a) => INK[0].map((_, g) => surface(g).mul(exp(INK[0][g].mul(a.x).add(INK[1][g].mul(a.y)).add(INK[2][g].mul(a.z)).add(GALL[g].mul(a.w)).negate())));
+const reflectance = (surface, a) => throughInk((g) => surface.element(g), a);
 const plainly = (surface) => [0, 1, 2, 3].map((g) => surface.element(g));
 // The share of the sun's disk seen through the window from p (light/direct.js
 // sunAperture, in world px): the soft-edged patch of sun.
@@ -541,8 +542,7 @@ export function roomMaterial(L, { kind, seed, pair, normal, axes = null, top = f
 // A mark on a surface (rooms.md §2: a wall written on is a sheet): the
 // surface's own cells grown under it, the same seed and the same cells (where
 // there is no ink it is the surface itself), drinking through the ink (`ink`:
-// its look, colour to alpha over white as the chunks take it: the law's
-// transmittance; its absorbance −ln T by the INK basis), lit like the surface: the room's light as a
+// its absorbances, as the chunks take them: law/v2/look.js lookAbs), lit like the surface: the room's light as a
 // spectrum at its corners (attributes amb0..amb3, from the surface's own
 // vertices), the sun and the flames per pixel. Drawn just over the surface.
 export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
@@ -555,12 +555,11 @@ export function markMaterial(L, { kind, seed, pair, normal, ink, webgpu }) {
   m.colorNode = Fn(() => {
     const ht = grower(webgpu)({ kind: K.kind, m: seedU, pos: attribute('cellPos', 'vec2'), foot: footAt(L) });
     const t = clamp(ht.y.div(255), 0, 1).toVar();
-    const ink4 = at(inkTex, down()).toVar();
-    const a = log(max(mix(vec3(1), ink4.rgb, ink4.a), vec3(1 / 512))).negate(); // as a chunk takes its colour (colour to alpha over white)
+    const a = at(inkTex, down()).toVar(); // its absorbances, as a chunk takes them
     const E = [0, 1, 2, 3].map((g) => attribute(`amb${g}`, 'vec4'));
     const V = normalize(cameraPosition.sub(positionWorld));
     const surf = toned(light, dark, t); // (four vec4s, not a uniform array)
-    const R = surf.map((r, g) => r.mul(exp(INK[0][g].mul(a.x).add(INK[1][g].mul(a.y)).add(INK[2][g].mul(a.z)).negate())));
+    const R = throughInk((g) => surf[g], a);
     return spectral(R, vec3(normalU), float(0), vec3(1), float(K.m2), V, L, null, { indirect: E, slab: true, f0: K.f0, metal: K.metal });
   })();
   m.seed = seedU;
@@ -715,14 +714,14 @@ const fixed = (c) => (node, pick) => {
 };
 const valueOf = (c) => (c ? fixed(c) : each);
 
-// A chunk's own textures and numbers, as nodes. c: { heightTex, colorTex, detailTex,
+// A chunk's own textures and numbers, as nodes. c: { heightTex, inkTex, detailTex,
 // bandTex, surfRT, shadeRT, realDetail (0 or 1), cellPx, valid, origin (world x
 // of the chunk's left edge, world y of its top: texture v runs down the page), size }.
 function chunkNodes(K, c = null) {
   const each = valueOf(c);
   return {
     H: each(texture(K.blank.half), (c) => c.heightTex),
-    C: each(texture(K.blank.color), (c) => c.colorTex),
+    C: each(texture(K.blank.ink), (c) => c.inkTex),
     D: each(texture(K.blank.byte), (c) => c.detailTex),
     B: each(texture(K.blank.byte), (c) => c.bandTex),
     SF: each(texture(K.blank.surface), (c) => c.surfRT.texture), // (targets from the start: engine.js blank)
@@ -763,7 +762,8 @@ export function alignMaterial(K, c = null) {
       // over the chunk's own cells (CHUNK × CHUNK: a row a 256-byte multiple, as a read back wants),
       // at the very points the chunk samples them (the bakes and the drawing take the same row order)
       const q = down().mul(K.CHUNK).add(K.APRON).div(K.TEXN).toVar();
-      return vec4(at(u.H, q).r, at(u.SF, q).r, at(u.C, q).a, at(u.SH, q).r);
+      const a = at(u.C, q);
+      return vec4(at(u.H, q).r, at(u.SF, q).r, float(1).sub(exp(max(max(a.x, a.y), max(a.z, a.w)).negate())), at(u.SH, q).r); // (the ink: how much of the light it drinks at most)
     })(),
   );
 }
@@ -898,6 +898,7 @@ export function shadeBake(L, K, c = null) {
 export function chunkMaterial(L, K, c = null) {
   const m = new MeshBasicNodeMaterial();
   const u = chunkNodes(K, c);
+  const room = [0, 1, 2, 3].map((g) => valueOf(c)(uniform(new THREE.Vector4()), (c) => c.room[g])); // the room's light where its sheet lies (engine.js lightSheet)
   const detail = detailOf(u, K);
   const core = down();
   const toTex = (k) => k.mul(K.CHUNK).add(K.APRON).div(K.TEXN);
@@ -936,15 +937,11 @@ export function chunkMaterial(L, K, c = null) {
     });
     const ink = between(u.C, q, K.TEXN, L).toVar();
     const V = normalize(cameraPosition.sub(positionWorld)).toVar();
-    // the ink's absorbance per channel: its look is the light it lets through
-    // (colour to alpha over white: the law's transmittance), and ink sunk into the
+    // the ink by its absorbances (the law's three channels and oak gall), and ink sunk into the
     // fibers drinks more at grazing angles
-    const through = max(mix(vec3(1), ink.rgb, ink.a), vec3(1 / 512));
     const graze = clamp(V.z, 0, 1).oneMinus();
-    const a = log(through)
-      .negate()
-      .mul(float(1).add(graze.mul(0.35).mul(hf.b.div(24))));
-    return spectral(reflectance(L.paper, a), n, sf.a, shade, m2, V, L, () => at(u.B, q).r);
+    const a = ink.mul(float(1).add(graze.mul(0.35).mul(hf.b.div(24))));
+    return spectral(reflectance(L.paper, a), n, sf.a, shade, m2, V, L, () => at(u.B, q).r, { indirect: room.map((r) => r.mul(sf.a)) });
   })();
   return m;
 }
@@ -958,6 +955,8 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
   const G = texture(K.generic);
   const detailScale = each(uniform(new THREE.Vector2(1, 1)), (c) => c.detailScale);
   const cellPx = each(uniform(1), (c) => c.cellPx);
+  // the room's light where it lies (a sheet's: engine.js lightSheet); the page under the sheets, the page's
+  const room = shadowed ? null : [0, 1, 2, 3].map((g) => each(uniform(new THREE.Vector4()), (c) => c.room[g]));
   const m2 = float(K.genericM2 ?? shine.PAPER_SUB); // its faces as scattered as blank paper's (shadeBake's, of the grain)
   const d = 3 / 256; // three cells of the grain
   const g = (q) => at(G, q).r.mul(DETAIL_PX);
@@ -967,7 +966,7 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
     const gy = g(q.add(vec2(0, d))).sub(g(q.sub(vec2(0, d))));
     const n = normalize(vec3(gx.negate().div(cellPx.mul(6)), gy.div(cellPx.mul(6)), 1)).toVar(); // (page y down, world y up: as the surface's)
     const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(plainly(L.paper), n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), m2, V, L, null);
+    return spectral(plainly(L.paper), n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), m2, V, L, null, room ? { indirect: room } : {});
   })();
   return m;
 }

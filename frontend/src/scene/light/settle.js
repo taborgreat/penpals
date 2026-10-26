@@ -13,7 +13,7 @@ import { N } from './axis.js';
 import { sunLight, toward } from './air.js';
 import { outsideAt, deckOf, evenSky } from './outside.js';
 import { MATTER } from './curves.js';
-import { paperCurve, grownCurve, patchAbsorption } from './matter.js';
+import { grownCurve, patchAbsorption } from './matter.js';
 import { directLight } from './direct.js';
 import { solve } from './bounce.js';
 import { PLASTER, PLANKS, BOARD, defaultSeed, growMean } from './surface.js';
@@ -29,16 +29,14 @@ const KIND = { plaster: PLASTER, floor: PLANKS, table: BOARD };
 const SEED_OF = (surface) => (surface.id.startsWith('table') ? 'table' : surface.id);
 
 // Every patch's absorption by its matter: the grown surfaces by their average
-// tone (their own seeds; rooms.md passes the owner's), the page by `page` (its
-// paper and ink, matter.js pageCurve). Patches can be overridden (a wall
-// written on) through `curves`: { [patchIndex]: reflectance }.
-export function roomAbsorption(room, { page = paperCurve([0xf7, 0xf3, 0xea]), seeds = {}, curves = {} } = {}) {
-  return patchAbsorption(room.patches, (p, i) => curves[i] ?? patchCurve(room, i, { page, seeds }));
+// tone (their own seeds; rooms.md passes the owner's). Patches can be overridden (a wall
+// written on, a paper lying on the table) through `curves`: { [patchIndex]: reflectance }.
+export function roomAbsorption(room, { seeds = {}, curves = {} } = {}) {
+  return patchAbsorption(room.patches, (p, i) => curves[i] ?? patchCurve(room, i, { seeds }));
 }
-// A patch's own reflectance, nothing written on it: the page's paper, or its surface's grown average.
-export function patchCurve(room, i, { page = paperCurve([0xf7, 0xf3, 0xea]), seeds = {} } = {}) {
+// A patch's own reflectance, nothing written on it, nothing lying on it: its surface's grown average.
+export function patchCurve(room, i, { seeds = {} } = {}) {
   const p = room.patches[i];
-  if (p.matter === 'paper') return page;
   const name = SEED_OF(room.surfaces[p.surface]);
   return grownCurve(p.matter, meanTone(KIND[p.matter], seeds[name] ?? defaultSeed(name)));
 }

@@ -127,13 +127,22 @@ try {
   }
   console.log(`   grown as stamped: ${after} pixels darker than the bare wall`);
   if (after < 150) throw new Error('the stamped writing does not show on the wall');
-  // and in the room's light: the patch the ink lies on drinks what its cells do (light-waves §4), the light settled anew
+  // and in the room's light: the patch the ink lies on drinks what its cells do (light-waves §4), the light settled anew;
+  // and the table's under the paper lying on it gives back what the paper does (a paper is matter, lying anywhere)
   const inLight = await until(
     page,
-    async () => ((s) => (s?.ink?.length && s.parts && s.asked === s.parts.key ? s : null))(await page.evaluate(() => globalThis.__sceneLight?.state)),
-    "the wall's ink in the room's light",
+    async () =>
+      ((s) => (s?.wall && s.table && s.parts && s.asked === s.parts.key ? s : null))(
+        await page.evaluate(() => {
+          const L = globalThis.__sceneLight;
+          const s = L?.state;
+          const on = (id) => (s?.ink ?? []).filter((i) => L.geom.surfaces[L.geom.patches[i].surface].id === id).length;
+          return s && { ...s, wall: on('wall-left'), table: on('table-top') };
+        }),
+      ),
+    "the wall's ink and the paper in the room's light",
   );
-  console.log(`   in the room's light: ${inLight.ink.length} patch(es) of the wall take the ink's own curves`);
+  console.log(`   in the room's light: ${inLight.wall} patch(es) of the wall take the ink's own curves, ${inLight.table} of the table the paper's lying on it`);
   await canvas(page).focus();
   await page.keyboard.press('h'); // (the pen let go: it falls to the floor under the wall)
   await panel(page, 'The pen in your hand').waitFor({ state: 'detached', timeout: 10000 });

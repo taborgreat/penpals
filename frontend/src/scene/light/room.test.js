@@ -59,7 +59,7 @@ test('the room is a few hundred patches; the page is exactly one; the window is 
   const page = geom.patches.filter((p) => p.kind === 'page');
   assert.equal(page.length, 1);
   assert.equal(geom.patches[geom.page].kind, 'page');
-  assert.equal(geom.patches[geom.page].matter, 'paper');
+  assert.equal(geom.patches[geom.page].matter, 'table', "the place in front of the seat is the table's: a paper lies there as anywhere");
   assert.ok(Math.abs(geom.patches[geom.page].area - ROOM.page.size[0] * ROOM.page.size[1]) < 1e-12);
   assert.ok(geom.openings.every((o) => o.matter === (o.kind === 'door' ? 'wood' : 'glass')));
   // the patches cover each surface exactly (holes included)

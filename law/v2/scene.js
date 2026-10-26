@@ -6,6 +6,7 @@
 //   above    what stands on it, in drops: a bead while wet, the film once dry
 //   depth    how far the liquid sank (levels of THICK)
 //   rgba     the ink as it looks now (age and light applied), colour to alpha
+//   abs      (sceneField) the same ink by its absorbances, for lighting by wavelength (look.js lookAbs)
 //   flags    1 torn (a hole: the page behind), 2 wet (a glossy bead)
 //
 // The paper's own fibers (paperDetail) need the paper: only own and open sheets
@@ -22,7 +23,7 @@
 // every cell of the box: i16 surface | u16 above | u8 depth | u8 r g b a | u8 flags
 
 import { TORN, THICK, TILE } from './constants.js';
-import { lookRGB, lookRGBA, heightOf, inkColor, hasInk } from './look.js';
+import { lookRGB, lookRGBA, lookAbs, heightOf, inkColor, hasInk } from './look.js';
 import { makePaper } from './paper.js';
 
 export const TORN_BIT = 1;
@@ -41,6 +42,7 @@ export function sceneField(cells, box, view = {}) {
   const f = blank(box);
   const [x0, y0, w, h] = box;
   if (w && h) f.rgba.set(lookRGBA(lookRGB(cells, box, view), box));
+  f.abs = lookAbs(cells, box, view);
   for (const c of cells) {
     const lx = c[1] - x0,
       ly = c[0] - y0;

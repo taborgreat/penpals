@@ -6,7 +6,7 @@ import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly,
 import { theLight, originOf, withinRoom, returnTo, sunAt, worldClock, GEOM } from './light.js';
 import { roomCamera, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
 import { patchCurve } from './light/settle.js';
-import { markedCurves } from './inkLight.js';
+import { markedCurves, papersCurves } from './inkLight.js';
 import { surfaceFrame, fromRoom, toRoom, onSurface, surfaceOfHit, setPenPlace } from './surfaces.js';
 import { RoomContext } from '../room/RoomContext.js';
 import { poseNow } from '../room/presence.js';
@@ -648,7 +648,6 @@ const SceneView = forwardRef(function SceneView(
       }
       const was = placed ? a.spec : {};
       if (s.field && s.field !== was.field) view.setField(s.id, s.field);
-      if (s.look && s.look !== was.look) view.setLook(s.id, s.look.rgba, s.look.box);
       if (s.detail && s.detail !== was.detail) view.setDetail(s.id, s.detail.data, s.detail.box);
       let unsub = placed ? a.unsub : null;
       if (s.live && (!placed || s.live !== was.live)) {
@@ -672,14 +671,20 @@ const SceneView = forwardRef(function SceneView(
     schedule();
   }, [seeds, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // the ink on its surfaces in the room's light (light-waves §4): each patch it lies on refuses what its
-  // cells do (scene/inkLight.js), the room's light settled anew
+  // the ink on its surfaces and the papers lying about, in the room's light (light-waves §4): each patch they
+  // lie on refuses what their cells do (scene/inkLight.js), the room's light settled anew
   useEffect(() => {
     const light = theLight();
     const room = light.geom;
-    const stamped = (marks ?? []).flatMap((m) => (m.rgba ? [m] : m.ink ? [{ ...m, ...m.ink }] : [])); // (as stamped: a live mark's ink beside its guess)
-    light.setInk(markedCurves(room, stamped, (i) => patchCurve(room, i, { seeds: seeds ?? {} })));
-  }, [marks, seeds]);
+    const stamped = (marks ?? []).flatMap((m) => (m.abs ? [m] : m.ink ? [{ ...m, ...m.ink }] : [])); // (as stamped: a live mark's ink beside its guess)
+    const inked = markedCurves(room, stamped, (i) => patchCurve(room, i, { seeds: seeds ?? {} }));
+    const lying = (sheets ?? []).flatMap((s) => {
+      if (s.held || !s.size) return [];
+      const [x0, y1, z] = pageToRoom([s.origin[0], s.origin[1], s.lift ?? 0], origin());
+      return [{ x0, y0: y1 - s.size[1] / PX_PER_M, x1: x0 + s.size[0] / PX_PER_M, y1, z, cells: s.box[2] * s.box[3], abs: s.field?.abs }];
+    });
+    light.setInk({ ...inked, ...papersCurves(room, lying, (i) => inked[i] ?? patchCurve(room, i, { seeds: seeds ?? {} }), light.paper) });
+  }, [marks, seeds, sheets, page[0], page[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ink on the room's surfaces
   const showMarks = () => {
@@ -700,7 +705,7 @@ const SceneView = forwardRef(function SceneView(
         a?.unsub?.();
         view.setMark(m.id, m);
       }
-      if (m.rgba && (!same || m.rgba !== a.spec.rgba)) view.putMark(m.id, m.box[0], m.box[1], m.box[2], m.box[3], m.rgba);
+      if (m.abs && (!same || m.abs !== a.spec.abs)) view.putMark(m.id, m.box[0], m.box[1], m.box[2], m.box[3], m.abs);
       let unsub = same ? a.unsub : null;
       if (m.live && (!same || m.live !== a.spec.live)) {
         unsub?.();

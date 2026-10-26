@@ -9,12 +9,13 @@
 // shows through, as in the published look).
 //
 //   down(pt, pen, hasP) · point(pt) · pen(pen) · up() · advanceTo(ms) · undo()
-//   changed()            tiles that changed since the last call, as RGBA
+//   changed()            tiles that changed since the last call, as RGBA (and, for the scene, their heights and
+//                        the ink by its absorbances: absTile)
 //   cut(x0, y0, x1, y1)  rows for a side view or the scene right now (settledCells' layout,
 //                        plus [14]: the bead standing on a wet cell now, in drops)
 //   finish(actsBytes)    settle everything: { cells, box, facts } exactly as grow()
 
-import { createSim, filmLevel, heldE } from './sim.js';
+import { createSim, filmLevel, heldE, GALL_ABS } from './sim.js';
 import { settledCells, boxOf, factsDigest, GN } from './look.js';
 import { TILE, TICK_MS, P_NONE, SCALE_ONE, W_SAT, W_WET, GALL_FRESH, TORN, DENT_SHIFT, DEPTH_SHIFT, THICK, WEAR_SHIFT, DENT_Z, FILM_Q } from './constants.js';
 import { EXP8 } from '../v1/tables.js';
@@ -49,6 +50,19 @@ export function heightTile(t, hf = new Int16Array(TT * 4)) {
     hf[4 * i + 3] = (t.flags[i] & TORN ? 1 : 0) | (t.W[i] >= W_WET ? 2 : 0);
   }
   return hf;
+}
+
+// One tile's ink by its absorbances, for lighting by wavelength (look.js lookAbs: the same units): the three
+// channels as natural absorbance, oak gall at its fresh tint as a share of GALL_ABS; a torn cell none.
+export function absTile(t, out = new Float32Array(TT * 4)) {
+  const { F, P, FG, G, flags } = t;
+  out.fill(0);
+  for (let i = 0; i < TT; i++) {
+    if (flags[i] & TORN) continue;
+    for (let ch = 0; ch < 3; ch++) out[4 * i + ch] = (F[3 * i + ch] + P[3 * i + ch]) / 1024;
+    if (FG) out[4 * i + 3] = ((FG[i] + G[i]) * GALL_FRESH) / 256 / GALL_ABS;
+  }
+  return out;
 }
 
 function paint(t, rgba = new Uint8ClampedArray(TT * 4)) {
@@ -91,7 +105,9 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
   const shown = new Map();
   const scratchC = new Uint8ClampedArray(TT * 4); // a tile's colour, drawn here first
   const scratchH = new Int16Array(TT * 4); // and its heights
+  const scratchA = new Float32Array(TT * 4); // and its ink's absorbances
   const shownH = new Map();
+  const shownA = new Map();
   const done = [];
   let cur = null;
   // A dip pen dips where its sealed record will (sim.js grow: at each pen act, which carries its
@@ -184,7 +200,8 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
       return sim.activeTiles;
     },
     // With { heights: true } each tile also carries its height field for the
-    // scene (heightTile): beads rising and sinking show even where no colour changes.
+    // scene (heightTile): beads rising and sinking show even where no colour changes;
+    // and its ink by its absorbances (absTile), as the scene lights it.
     // (drawn into scratch: a tile that did not change costs nothing; one that did
     // gets buffers of its own, handed over, and what was shown is kept in place)
     changed({ heights = false } = {}) {
@@ -193,16 +210,20 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
         const rgba = paint(t, scratchC);
         const key = `${t.tx},${t.ty}`;
         const hf = heights ? heightTile(t, scratchH) : null;
+        const abs = heights ? absTile(t, scratchA) : null;
         const before = shown.get(key);
         const beforeH = heights ? shownH.get(key) : null;
-        if (before && same(before, rgba) && (!heights || (beforeH && same(beforeH, hf)))) continue;
+        const beforeA = heights ? shownA.get(key) : null;
+        if (before && same(before, rgba) && (!heights || (beforeH && same(beforeH, hf) && beforeA && same(beforeA, abs)))) continue;
         if (before) before.set(rgba);
         else shown.set(key, rgba.slice());
         if (heights) {
           if (beforeH) beforeH.set(hf);
           else shownH.set(key, hf.slice());
+          if (beforeA) beforeA.set(abs);
+          else shownA.set(key, abs.slice());
         }
-        out.push(heights ? { tx: t.tx, ty: t.ty, rgba: rgba.slice(), hf: hf.slice() } : { tx: t.tx, ty: t.ty, rgba: rgba.slice() });
+        out.push(heights ? { tx: t.tx, ty: t.ty, rgba: rgba.slice(), hf: hf.slice(), abs: abs.slice() } : { tx: t.tx, ty: t.ty, rgba: rgba.slice() });
       }
       return out;
     },
@@ -212,6 +233,7 @@ export function createLive({ paperKey, family, keep = 24, law = 2 }) {
       for (const key of shown.keys()) sim.redraw(...key.split(',').map(Number));
       shown.clear();
       shownH.clear();
+      shownA.clear();
     },
     // Rows (look.js settledCells layout) for the cells in a rectangle, as they
     // are now: wet pigment counted with fixed, and at [14] the water standing

@@ -160,6 +160,29 @@ export function lookRGB(cells, box, { ageH = 0, views = 0 } = {}) {
   return out;
 }
 
+// The ink by its absorbances over the box at a view (cleanup-and-speed.md §7.2): what a renderer lighting it
+// by wavelength takes instead of the look's colour (the scene: each channel through its own curve, oak gall
+// through its own). Per cell 4 floats: the three channels as natural absorbance (the facts' 1/1024), faded by
+// light, wax over them as the look has it; and oak gall at its darkness, faded, as a share of GALL_ABS (the gall
+// curve's unit: frontend scene/light/curves.js GALL). A torn cell holds none. A view: never facts.
+export function lookAbs(cells, box, { ageH = 0, views = 0 } = {}) {
+  const [x0, y0, w, h] = box;
+  const out = new Float32Array(w * h * 4);
+  for (const c of cells) {
+    const lx = c[1] - x0,
+      ly = c[0] - y0;
+    if (lx < 0 || ly < 0 || lx >= w || ly >= h) continue;
+    if (c[11] & TORN) continue;
+    const f = fadeByLight(views, c[7]);
+    const a = [c[2], c[3], c[4]].map((v, k) => (v * f[k]) / 256);
+    if (c[15]) waxOver(c, a);
+    const k = 4 * (ly * w + lx);
+    for (let ch = 0; ch < 3; ch++) out[k + ch] = a[ch] / 1024;
+    if (c[5]) out[k + 3] = (c[5] * (GALL_FRESH + ((256 - GALL_FRESH) * gallDark(c, ageH)) / 256) * f[3]) / 65536 / GALL_ABS;
+  }
+  return out;
+}
+
 // The published picture: colour to alpha from white (exact over white), as v1.
 export function lookRGBA(rgb, box) {
   const [, , w, h] = box;

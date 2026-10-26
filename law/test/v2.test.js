@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { grow, darkAt, heldE } from '../v2/sim.js';
-import { settledCells, boxOf, lookRGB, factsDigest, lookDigest, gallDark, fadeByLight, sideView, heightOf } from '../v2/look.js';
+import { settledCells, boxOf, lookRGB, lookAbs, factsDigest, lookDigest, gallDark, fadeByLight, sideView, heightOf } from '../v2/look.js';
 import { sceneField, liveField, encodeScene, decodeScene, paperDetail, sceneWindow } from '../v2/scene.js';
 import { momentsOf, bandOf } from '../v2/moments.js';
 import { createLive, createPlayback } from '../v2/live.js';
@@ -547,6 +547,33 @@ test('oak gall over blue: only where gall reached darkens; the blue is unchanged
   assert.ok(blue > 200 && changed > 200);
   assert.equal(wrong, 0, 'no pixel without gall changes');
   assert.equal(lighter, 0, 'age only darkens');
+});
+
+test('the ink by its absorbances (cleanup §7.2): each channel as the look lets light through; oak gall apart, darkening with age', () => {
+  const { cells, box } = grown('gallOverBlue');
+  const look = lookRGB(cells, box, { ageH: 0 });
+  const fresh = lookAbs(cells, box, { ageH: 0 }),
+    aged = lookAbs(cells, box, { ageH: AGE_CAP_H });
+  let pigment = 0,
+    gall = 0,
+    off = 0;
+  for (const c of cells) {
+    const i = (c[0] - box[1]) * box[2] + (c[1] - box[0]);
+    if (i < 0 || i >= box[2] * box[3]) continue;
+    if (c[5] === 0 && ink(c) > 0) {
+      pigment++;
+      for (let ch = 0; ch < 3; ch++) if (Math.abs(255 * Math.exp(-fresh[4 * i + ch]) - look[3 * i + ch]) > 3) off++;
+      assert.equal(fresh[4 * i + 3], 0, 'no gall where none is');
+    }
+    if (c[5] > 0) {
+      gall++;
+      assert.ok(aged[4 * i + 3] >= fresh[4 * i + 3] && fresh[4 * i + 3] > 0, 'gall darkens, never lightens');
+      for (let ch = 0; ch < 3; ch++) assert.equal(aged[4 * i + ch], fresh[4 * i + ch], 'age touches only the gall');
+    }
+  }
+  console.log(`absorbances: ${pigment} pigment cells (${off} channels off the look by more than 3/255), ${gall} with gall`);
+  assert.ok(pigment > 200 && gall > 200);
+  assert.equal(off, 0, "each channel lets through what the look's colour does");
 });
 
 test('uneven darkening: at a day the hairline is further along than the pool; at the cap the pool is darkest', () => {

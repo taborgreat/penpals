@@ -10,6 +10,7 @@ import { newPaperAt } from './together.js';
 import { poseNow, GLIDE_MS, seatAt, seatOf, seatedHead } from './presence.js';
 import { paper as P } from 'penpals-law';
 import { TILE } from 'penpals-law/v1/constants';
+import { toHalf } from '../scene/half.js';
 import { CELLS } from '../ink/live.js';
 
 const geom = roomGeometry(ROOM);
@@ -46,35 +47,38 @@ test('a new paper lies wholly on its owner’s table: the first in front of the 
 });
 
 test('your guess: your live ink over the stamped sheet where it has ink, the stamped sheet everywhere else', () => {
-  // a stamped field over cells 0..31 × 0..15 (two tiles), red ink everywhere in it
+  // a stamped field over cells 0..31 × 0..15 (two tiles), red ink everywhere in it (its absorbances: green and blue drunk)
   const box = [0, 0, 32, 16];
   const n = 32 * 16;
-  const field = { box, rgba: new Uint8Array(n * 4), surface: new Int16Array(n).fill(3), above: new Uint16Array(n).fill(2), depth: new Uint16Array(n), flags: new Uint8Array(n) };
-  for (let k = 0; k < n; k++) field.rgba.set([200, 0, 0, 255], 4 * k);
-  // your live tile 0 has blue in its first cell only; tile 2 lies outside the field
+  const RED = [0, 2, 2, 0],
+    BLUE = [2, 2, 0, 0];
+  const field = { box, abs: new Float32Array(n * 4), surface: new Int16Array(n).fill(3), above: new Uint16Array(n).fill(2), depth: new Uint16Array(n), flags: new Uint8Array(n) };
+  for (let k = 0; k < n; k++) field.abs.set(RED, 4 * k);
+  // your live tile 0 has blue in its first cell only; tile 2 lies outside the field (as the worker sends them: half floats)
   const tile = (tx, blue) => {
-    const rgba = new Uint8ClampedArray(TILE * TILE * 4);
-    if (blue) rgba.set([0, 0, 200, 255], 0);
-    return { tx, ty: 0, rgba, hf: new Uint16Array(TILE * TILE * 4) };
+    const abs = new Uint16Array(TILE * TILE * 4);
+    if (blue) abs.set(BLUE.map(toHalf), 0);
+    return { tx, ty: 0, abs, hf: new Uint16Array(TILE * TILE * 4) };
   };
+  const halved = (a) => a.map(toHalf);
   const listeners = [];
   const live = { tiles: () => [tile(0, true), tile(2, false)], onTiles: (fn) => listeners.push(fn) };
   const g = guessOver(live, field);
   const [t0, t2] = g.tiles();
-  assert.deepEqual([...t0.rgba.subarray(0, 4)], [0, 0, 200, 255], 'your stroke, at once');
-  assert.deepEqual([...t0.rgba.subarray(4, 8)], [200, 0, 0, 255], 'the stamped ink beside it');
+  assert.deepEqual([...t0.abs.subarray(0, 4)], halved(BLUE), 'your stroke, at once');
+  assert.deepEqual([...t0.abs.subarray(4, 8)], halved(RED), 'the stamped ink beside it');
   assert.notEqual(t0.hf[4], 0, 'the stamped heights too');
   assert.ok(
-    t2.rgba.every((v) => v === 0),
+    t2.abs.every((v) => v === 0),
     'no ink where neither has any',
   );
   // your guess cleared (the live sheet reset: empty tiles): the stamped sheet shows, whole
   let got = null;
   g.onTiles((tiles) => (got = tiles));
   listeners[0]([tile(0, false)]);
-  assert.deepEqual([...got[0].rgba.subarray(0, 4)], [200, 0, 0, 255]);
+  assert.deepEqual([...got[0].abs.subarray(0, 4)], halved(RED));
   // with nothing stamped yet, the guess is your ink alone
-  assert.equal(guessOver(live, null).tiles()[0].rgba[2], 200);
+  assert.equal(guessOver(live, null).tiles()[0].abs[0], toHalf(2));
 });
 
 test('timeout: an act unstamped after 8 seconds is withdrawn (and its writer told)', async (t) => {

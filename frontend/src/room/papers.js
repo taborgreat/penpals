@@ -146,32 +146,33 @@ export function usePaperFields(views, dripsOf = () => []) {
 
 // Your guess over the stamped paper (rooms.md §6: your own ink shows at once): the live tiles of what you
 // have written and not yet seen grown, laid over the grown field where they hold ink or water, the field
-// everywhere else. As SceneView's `live` for the paper: { tiles(), onTiles(fn) }.
+// everywhere else (the scene's: heights and the ink's absorbances, half floats). As SceneView's `live` for the
+// paper: { tiles(), onTiles(fn) }.
 export function guessOver(live, field) {
   const blend = (t) => {
     if (!field) return t;
     const [bx, by, bw, bh] = field.box;
-    const rgba = new Uint8ClampedArray(t.rgba);
     const hf = t.hf ? new Uint16Array(t.hf) : new Uint16Array(TILE * TILE * 4);
+    const abs = t.abs ? new Uint16Array(t.abs) : new Uint16Array(TILE * TILE * 4);
     for (let j = 0; j < TILE; j++)
       for (let i = 0; i < TILE; i++) {
         const k = j * TILE + i;
-        if (rgba[4 * k + 3] || hf[4 * k + 1]) continue; // your ink (or water) here: the guess
+        if (abs[4 * k] || abs[4 * k + 1] || abs[4 * k + 2] || abs[4 * k + 3] || hf[4 * k + 1]) continue; // your ink (or water) here: the guess
         const x = t.tx * TILE + i - bx,
           y = t.ty * TILE + j - by;
         if (x < 0 || y < 0 || x >= bw || y >= bh) {
-          rgba.fill(0, 4 * k, 4 * k + 4);
           hf.fill(0, 4 * k, 4 * k + 4);
+          abs.fill(0, 4 * k, 4 * k + 4);
           continue;
         }
         const f = y * bw + x;
-        rgba.set(field.rgba.subarray(4 * f, 4 * f + 4), 4 * k);
+        for (let c = 0; c < 4; c++) abs[4 * k + c] = toHalf(field.abs[4 * f + c]);
         hf[4 * k] = toHalf(field.surface[f] + field.above[f]);
         hf[4 * k + 1] = toHalf(field.above[f]);
         hf[4 * k + 2] = toHalf(field.depth[f]);
         hf[4 * k + 3] = toHalf(field.flags[f]);
       }
-    return { tx: t.tx, ty: t.ty, rgba, hf };
+    return { tx: t.tx, ty: t.ty, hf, abs };
   };
   return { tiles: () => live.tiles().map(blend), onTiles: (fn) => live.onTiles((tiles) => fn(tiles.map(blend))) };
 }

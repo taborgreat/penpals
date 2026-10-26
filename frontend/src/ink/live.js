@@ -12,7 +12,7 @@
 //   ink.cut(x0, y0, x1, y1) → { width, height, rgba }: a side view through the sheet as it is now (law 2)
 //   ink.moments()      → { box, at } | null: when each cell's ink went down, as written so far (law 2)
 //   ink.scene(on)      tiles carry their height field (the scene); ink.onTiles(fn) gets each batch,
-//                      ink.tiles() all tiles so far: [{ tx, ty, rgba, hf? }]
+//                      ink.tiles() all tiles so far: [{ tx, ty, rgba, hf?, abs? }] (hf, abs: half floats)
 //   ink.play(canvas)   → { duration, play(onDone), stop() }: the sheet written out again, physics and all
 //   ink.nib            { reservoir (what is left in a dipped nib, of its fill: 1 never dipped), drops, W (thrown: law drops of water) }
 //   ink.destroy()
@@ -33,7 +33,7 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
   const ctx = canvas.getContext('2d');
   const listeners = new Set();
   const tileListeners = new Set();
-  const tileStore = new Map(); // `tx,ty` → the latest { tx, ty, rgba, hf? }
+  const tileStore = new Map(); // `tx,ty` → the latest { tx, ty, rgba, hf?, abs? }
   let sceneWanted = false;
   const pending = new Map(); // id → { resolve, reject }
   let nextId = 1;
@@ -74,7 +74,7 @@ export function createLiveInk({ paperKey, family, size, pen, law = CURRENT }) {
       }
     } else if (m.type === 'reset') {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const cleared = [...tileStore.values()].map((t) => ({ tx: t.tx, ty: t.ty, rgba: new Uint8ClampedArray(1024), hf: new Int16Array(1024) }));
+      const cleared = [...tileStore.values()].map((t) => ({ tx: t.tx, ty: t.ty, rgba: new Uint8ClampedArray(1024), hf: new Int16Array(1024), abs: new Uint16Array(1024) }));
       tileStore.clear();
       for (const fn of tileListeners) fn(cleared);
       notify();

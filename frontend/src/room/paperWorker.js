@@ -14,7 +14,7 @@ globalThis.onmessage = ({ data }) => {
     const law = family?.matter ? P.SURFACE_LAW : P.PAPER_LAW;
     const field = grown ? sceneField(grown.cells, grown.box, viewBuckets(law, { ageH })) : null;
     const out = { id, field, n: lines.length, facts: grown ? b64url(grown.facts) : null, seals: grown ? grown.seals.map((x) => x.took) : [] };
-    globalThis.postMessage(out, field ? [field.surface.buffer, field.above.buffer, field.depth.buffer, field.rgba.buffer, field.flags.buffer] : []);
+    globalThis.postMessage(out, field ? [field.surface.buffer, field.above.buffer, field.depth.buffer, field.rgba.buffer, field.abs.buffer, field.flags.buffer] : []);
   } catch (err) {
     globalThis.postMessage({ id, error: String(err?.message ?? err) });
   }

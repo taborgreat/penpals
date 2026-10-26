@@ -24,7 +24,7 @@
 
 import * as THREE from 'three';
 import { frame } from './camera.js';
-import { toHalf } from './half.js';
+import { toHalf, halves } from './half.js';
 import { TILE } from 'penpals-law/v1/constants'; // the law's tiles: live updates come in these
 import { curves, paperCurve, cellReflectance, surface as grown, outsideMap, DIAMETER, PX_PER_M, N } from './light/index.js';
 import { DROP_PX, DETAIL_PX } from './light/surface.js';
@@ -154,11 +154,6 @@ const linear = (tex) => {
   return own(tex);
 };
 const halfTex = (data, w, h) => linear(new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.HalfFloatType));
-const colorTex = (data, w, h) => {
-  const t = linear(new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.UnsignedByteType));
-  t.colorSpace = THREE.NoColorSpace; // the law's transmittance per channel, as it is (the shader takes its absorbance)
-  return t;
-};
 const byteTex = (data, w, h) => linear(new THREE.DataTexture(data, w, h, THREE.RedFormat, THREE.UnsignedByteType));
 const bakeTarget = (type, n = TEXN) => {
   const rt = new THREE.RenderTarget(n, n, { type, depthBuffer: false, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
@@ -178,7 +173,7 @@ function blank() {
   if (blanks) return blanks;
   blanks = {
     half: halfTex(new Uint16Array(4), 1, 1),
-    color: colorTex(new Uint8Array(4), 1, 1),
+    ink: halfTex(new Uint16Array(4), 1, 1),
     byte: byteTex(new Uint8Array(1), 1, 1),
     rgba: linear(new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType)),
   };
@@ -193,7 +188,7 @@ let stage = null;
 function stages() {
   stage ??= {
     h: halfTex(new Uint16Array(STAGE * STAGE * 4), STAGE, STAGE),
-    c: colorTex(new Uint8Array(STAGE * STAGE * 4), STAGE, STAGE),
+    c: halfTex(new Uint16Array(STAGE * STAGE * 4), STAGE, STAGE),
     box: new THREE.Box2(new THREE.Vector2(), new THREE.Vector2()),
     at: new THREE.Vector2(),
   };
@@ -351,6 +346,22 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       a.B.set(...B);
     }
   };
+  // A sheet takes the room's light where it lies (light-waves §4: a paper lies anywhere), as a thing does:
+  // the room's settled light at its middle, less the sun's and the flames' own (light.js indirect), into its
+  // chunks' and its flat paper's `room` (four vec4s).
+  let lightOrigin = null; // the room's point at the world's origin (setLight)
+  const sheetE = new Float64Array(N);
+  const lightSheet = (s) => {
+    if (!lightNow || !lightOrigin) return;
+    const g = s.group.position;
+    const at = [
+      (s.origin[0] + g.x + (s.w * s.cellPx) / 2) / PX_PER_M + lightOrigin[0],
+      (g.y - s.origin[1] - (s.h * s.cellPx) / 2) / PX_PER_M + lightOrigin[1],
+      g.z / PX_PER_M + lightOrigin[2] + 0.001,
+    ];
+    lightAt(GEOM, lightNow.ambient, at, sheetE);
+    s.room.forEach((v, k) => v.set(sheetE[4 * k], sheetE[4 * k + 1], sheetE[4 * k + 2], sheetE[4 * k + 3]));
+  };
   const K = { APRON, CHUNK, TEXN, generic: generic(), blank: blank(), genericM2 };
   // each kind of material once, for every chunk (a chunk's own textures and numbers go
   // per object); with WebGPU, each chunk and sheet its own (nodes.js says why)
@@ -373,7 +384,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   // pen's first touch.
   const stand = {
     heightTex: K.blank.half,
-    colorTex: K.blank.color,
+    inkTex: K.blank.ink,
     detailTex: K.blank.byte,
     bandTex: K.blank.byte,
     surfRT: baked.surface,
@@ -383,6 +394,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     valid: new THREE.Vector4(2, 2, 3, 3),
     origin: new THREE.Vector2(),
     size: 1,
+    room: Array.from({ length: 4 }, () => new THREE.Vector4()),
   };
   stand.mats = own ? { chunk: gpu.chunkMaterial(lights, K, stand), surface: gpu.surfaceBake(lights, K, stand), shade: gpu.shadeBake(lights, K, stand) } : mats;
   let warm = new THREE.Mesh(lodGeo[2], stand.mats.chunk);
@@ -1075,7 +1087,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       cx,
       cy,
       h: new Uint16Array(n * 4).fill(HALF_ZERO), // heights, half floats: (top, above, depth, flags)
-      col: new Uint8Array(n * 4),
+      ink: new Uint16Array(n * 4), // the ink by its absorbances, half floats: (three channels, oak gall)
       det: new Uint8Array(n),
       band: new Uint8Array(n),
       rects: [], // live rectangles to upload: [x, y, w, h] texels
@@ -1084,9 +1096,10 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       shadeDirty: true,
       realDetail: 0,
       cellPx: sheet.cellPx,
+      room: sheet.room, // (the light where the sheet lies)
     };
     c.heightTex = halfTex(c.h, TEXN, TEXN);
-    c.colorTex = colorTex(c.col, TEXN, TEXN);
+    c.inkTex = halfTex(c.ink, TEXN, TEXN);
     c.detailTex = byteTex(c.det, TEXN, TEXN);
     c.bandTex = byteTex(c.band, TEXN, TEXN);
     c.surfRT = bakeTarget(THREE.HalfFloatType);
@@ -1129,7 +1142,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   }
   const chunkAt = (sheet, cx, cy) => sheet.chunks.get(keyOf(cx, cy)) ?? makeChunk(sheet, cx, cy);
   function freeChunk(c) {
-    for (const t of [c.heightTex, c.colorTex, c.detailTex, c.bandTex]) t.dispose();
+    for (const t of [c.heightTex, c.inkTex, c.detailTex, c.bandTex]) t.dispose();
     c.surfRT.dispose();
     c.shadeRT.dispose();
     for (const m of Object.values(c.mats ?? {})) m.dispose();
@@ -1158,7 +1171,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
 
   // Cells into the chunks, from a box of half-float heights and RGBA colour
   // (w × h cells, x0, y0 in the sheet's cells), as whole rows.
-  function putBox(sheet, x0, y0, w, h, hf, rgba, live) {
+  function putBox(sheet, x0, y0, w, h, hf, abs, live) {
     const cx0 = Math.max(x0, sheet.x0),
       cy0 = Math.max(y0, sheet.y0);
     const cx1 = Math.min(x0 + w, sheet.x0 + sheet.w),
@@ -1170,7 +1183,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         const src = (y - y0) * w + (ax - x0),
           dst = (y - oy) * TEXN + (ax - ox);
         c.h.set(hf.subarray(src * 4, (src + n) * 4), dst * 4);
-        c.col.set(rgba.subarray(src * 4, (src + n) * 4), dst * 4);
+        c.ink.set(abs.subarray(src * 4, (src + n) * 4), dst * 4);
       }
       if (live && !c.full && c.rects.length < MAX_RECTS * 4) c.rects.push(ax - ox, ay - oy, n, by - ay);
       else {
@@ -1214,18 +1227,18 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       for (const c of s.chunks.values()) {
         if (c.full) {
           c.heightTex.needsUpdate = true;
-          c.colorTex.needsUpdate = true;
+          c.inkTex.needsUpdate = true;
           c.full = false;
           c.rects.length = 0;
           c.surfDirty = true;
-          stats.uploadBytes += TEXN * TEXN * 12;
+          stats.uploadBytes += TEXN * TEXN * 16;
         } else if (c.rects.length) {
           const ht = onGpu(c.heightTex),
-            ct = onGpu(c.colorTex);
+            ct = onGpu(c.inkTex);
           if (device && !(ht && ct)) {
             // (not on the GPU yet: the whole chunk goes up with its first draw)
             c.heightTex.needsUpdate = true;
-            c.colorTex.needsUpdate = true;
+            c.inkTex.needsUpdate = true;
             c.rects.length = 0;
           }
           for (let i = 0; i < c.rects.length; i += 4) {
@@ -1237,14 +1250,14 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
             if (device) {
               const size = { width: w, height: h };
               device.queue.writeTexture({ texture: ht, origin: { x, y } }, c.h, { offset: at * c.h.BYTES_PER_ELEMENT, bytesPerRow: TEXN * 4 * c.h.BYTES_PER_ELEMENT, rowsPerImage: h }, size);
-              device.queue.writeTexture({ texture: ct, origin: { x, y } }, c.col, { offset: at, bytesPerRow: TEXN * 4, rowsPerImage: h }, size);
-              stats.uploadBytes += w * h * 12;
+              device.queue.writeTexture({ texture: ct, origin: { x, y } }, c.ink, { offset: at * c.ink.BYTES_PER_ELEMENT, bytesPerRow: TEXN * 4 * c.ink.BYTES_PER_ELEMENT, rowsPerImage: h }, size);
+              stats.uploadBytes += w * h * 16;
               continue;
             }
             for (let r = 0; r < h; r++) {
               const from = ((y + r) * TEXN + x) * 4;
               st.h.image.data.set(c.h.subarray(from, from + w * 4), r * STAGE * 4);
-              st.c.image.data.set(c.col.subarray(from, from + w * 4), r * STAGE * 4);
+              st.c.image.data.set(c.ink.subarray(from, from + w * 4), r * STAGE * 4);
             }
             st.box.min.set(0, 0);
             st.box.max.set(w, h);
@@ -1252,8 +1265,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
             st.h.needsUpdate = true;
             st.c.needsUpdate = true;
             renderer.copyTextureToTexture(st.h, c.heightTex, st.box, st.at);
-            renderer.copyTextureToTexture(st.c, c.colorTex, st.box, st.at);
-            stats.uploadBytes += w * h * 12;
+            renderer.copyTextureToTexture(st.c, c.inkTex, st.box, st.at);
+            stats.uploadBytes += w * h * 16;
           }
           c.rects.length = 0;
           c.surfDirty = true;
@@ -1378,12 +1391,12 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     // (page px of cell x0, y0) with `cellPx` page px a cell.
     setSheet(id, { x0, y0, w, h, origin, cellPx }) {
       view.removeSheet(id);
-      const sheet = { id, x0, y0, w, h, origin, cellPx, chunks: new Map(), group: new THREE.Group() };
+      const sheet = { id, x0, y0, w, h, origin, cellPx, chunks: new Map(), group: new THREE.Group(), room: lights.indirect.array.map((v) => v.clone()) };
       sheet.slab = slab(sheet);
       sheet.group.add(sheet.slab);
       // the paper itself, lit, where no chunk holds anything: one flat sheet under
       // the chunks (drawn first, writing no depth, so a chunk always shows over it)
-      const grain = { detailScale: new THREE.Vector2(w / 256, h / 256), cellPx };
+      const grain = { detailScale: new THREE.Vector2(w / 256, h / 256), cellPx, room: sheet.room };
       sheet.base = new THREE.Mesh(lodGeo[2], own ? asBase(gpu.flatMaterial(lights, K, grain)) : mats.base);
       sheet.base.userData.c = grain;
       sheet.base.renderOrder = 0;
@@ -1392,12 +1405,16 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       sheet.group.add(sheet.base);
       held.add(sheet.group);
       sheets.set(id, sheet);
+      lightSheet(sheet);
       return sheet;
     },
     // A sheet in the hand (one-world.md: the held sheet follows the hand): drawn moved by [dx, dy] (page px)
     // and lifted z (page px) from where it lies, until it is set down (where a move puts it anew).
     liftSheet(id, [dx, dy] = [0, 0], z = 0) {
-      sheets.get(id)?.group.position.set(dx, -dy, z);
+      const s = sheets.get(id);
+      if (!s) return;
+      s.group.position.set(dx, -dy, z);
+      lightSheet(s);
     },
     removeSheet(id) {
       const s = sheets.get(id);
@@ -1408,7 +1425,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       held.remove(s.group);
       sheets.delete(id);
     },
-    // A whole field (law/v2/scene.js: surface, above, depth, rgba, flags over the box).
+    // A whole field (law/v2/scene.js: surface, above, depth, abs, flags over the box).
     setField(id, f) {
       const s = sheets.get(id);
       const [bx, by, w, h] = f.box;
@@ -1419,21 +1436,15 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
         hf[4 * k + 2] = toHalf(f.depth[k]);
         hf[4 * k + 3] = toHalf(f.flags[k]);
       }
-      putBox(s, bx, by, w, h, hf, f.rgba, false);
+      putBox(s, bx, by, w, h, hf, halves(f.abs), false);
     },
-    // A flat look (law 1 ink, or anything without heights): colour only.
-    setLook(id, rgba, box) {
-      const s = sheets.get(id);
-      const [bx, by, w, h] = box;
-      putBox(s, bx, by, w, h, new Uint16Array(w * h * 4).fill(HALF_ZERO), rgba, false);
-    },
-    // Live tiles from the ink worker: 16 × 16 cells, RGBA and the height field as
-    // half floats (ink/live.js: { tx, ty, rgba, hf }).
+    // Live tiles from the ink worker: 16 × 16 cells, the height field and the ink's
+    // absorbances as half floats (ink/live.js: { tx, ty, hf, abs }).
     setTiles(id, tiles) {
       const s = sheets.get(id);
       if (!s) return;
       const t0 = performance.now();
-      for (const t of tiles) putBox(s, t.tx * TILE, t.ty * TILE, TILE, TILE, t.hf ?? EMPTY_TILE, t.rgba, true);
+      for (const t of tiles) putBox(s, t.tx * TILE, t.ty * TILE, TILE, TILE, t.hf ?? EMPTY_TILE, t.abs ?? EMPTY_TILE, true);
       stats.tiles += tiles.length;
       stats.tilesMs += performance.now() - t0;
     },
@@ -1560,6 +1571,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       lights.window.value.set(x0, x1, z0, z1);
       lights.wallY.value = W([0, g.size[1], 0])[1];
       gpu.setSpectrum(lights.indirect, l.indirect);
+      lightOrigin = origin;
+      for (const s of sheets.values()) lightSheet(s);
       // what lies outside takes the sky's light (on a level face: the light's), and the sun straight
       if (l.sunOut) gpu.setSpectrum(lights.sunOut, l.sunOut);
       if (l.skyE)
@@ -1783,8 +1796,8 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     setMark(id, spec) {
       marks.set(id, spec);
     },
-    putMark(id, x0, y0, w, h, rgba) {
-      marks.put(id, x0, y0, w, h, rgba);
+    putMark(id, x0, y0, w, h, abs) {
+      marks.put(id, x0, y0, w, h, abs);
     },
     setMarkTiles(id, tiles) {
       const t0 = performance.now();

@@ -4,17 +4,19 @@
 // is a sheet's cells in its record's own frame, set at `origin` on its surface's
 // page (page units, scene/surfaces.js) at `cellUnits` page units a cell. It is
 // cut into pieces of MARK_CHUNK cells a side, each a quad with its own small
-// texture (its look: colour to alpha over white, the law's transmittance), so
+// texture (its ink by its absorbances, half floats: law/v2/look.js lookAbs), so
 // live writing uploads only the piece the pen is in.
 
 import * as THREE from 'three';
 import { N, surface as grown } from './light/index.js';
 import { surfaceFrame, toRoom, ROOM_SURFACE, SEED_NAME } from './surfaces.js';
 import { pairOf, spectrumAt } from './roomDraw.js';
+import { halves } from './half.js';
 
 export const MARK_CHUNK = 256; // cells a side of a piece
 const LIFT = 0.0002; // m: a piece is drawn this far off its surface (and nudged in the depth test)
 const KIND = { plaster: grown.PLASTER, floor: grown.PLANKS, table: grown.BOARD };
+const EMPTY = new Uint16Array(16 * 16 * 4); // (a tile with no ink: half 0)
 
 // The corners of a piece of a mark: where on its surface (room m, lifted), in
 // the surface's own cells, in its texture (uv.y up, as every plane's: its row dy
@@ -78,9 +80,8 @@ export function createMarks({ gpu, lights, group, geom, meshes, seedOf, webgpu }
     for (let g = 0; g < 4; g++) geo.setAttribute(`amb${g}`, new THREE.BufferAttribute(new Float32Array(16), 4).setUsage(THREE.DynamicDrawUsage));
     geo.setIndex([0, 1, 3, 0, 3, 2]);
     geo.computeBoundingSphere();
-    const data = new Uint8Array(MARK_CHUNK * MARK_CHUNK * 4); // colour to alpha: nothing yet (alpha 0)
-    const tex = new THREE.DataTexture(data, MARK_CHUNK, MARK_CHUNK, THREE.RGBAFormat, THREE.UnsignedByteType);
-    tex.colorSpace = THREE.NoColorSpace; // the look as the law gives it (colour to alpha), not a colour to convert
+    const data = new Uint16Array(MARK_CHUNK * MARK_CHUNK * 4); // its absorbances: none yet (half 0)
+    const tex = new THREE.DataTexture(data, MARK_CHUNK, MARK_CHUNK, THREE.RGBAFormat, THREE.HalfFloatType);
     tex.magFilter = tex.minFilter = THREE.LinearFilter;
     tex.generateMipmaps = false;
     tex.needsUpdate = true;
@@ -119,8 +120,10 @@ export function createMarks({ gpu, lights, group, geom, meshes, seedOf, webgpu }
       marks.set(id, mk);
       return mk;
     },
-    // Cells x0..x0+w, y0..y0+h of the mark's record (its own cell frame): RGBA, w × h.
-    put(id, x0, y0, w, h, rgba) {
+    // Cells x0..x0+w, y0..y0+h of the mark's record (its own cell frame): its ink by its absorbances, w × h × 4
+    // (half floats, or numbers: halved here).
+    put(id, x0, y0, w, h, abs) {
+      if (!(abs instanceof Uint16Array)) abs = halves(abs);
       const mk = marks.get(id);
       if (!mk) return;
       const [bx, by, bw, bh] = mk.box;
@@ -139,15 +142,15 @@ export function createMarks({ gpu, lights, group, geom, meshes, seedOf, webgpu }
           if (px1 <= px0 || py1 <= py0) continue;
           for (let y = py0; y < py1; y++) {
             const from = ((y - y0) * w + (px0 - x0)) * 4;
-            pc.data.set(rgba.subarray(from, from + (px1 - px0) * 4), ((y - pc.y0) * MARK_CHUNK + (px0 - pc.x0)) * 4);
+            pc.data.set(abs.subarray(from, from + (px1 - px0) * 4), ((y - pc.y0) * MARK_CHUNK + (px0 - pc.x0)) * 4);
           }
           pc.tex.needsUpdate = true;
         }
       }
     },
-    // Live tiles of a mark being written (ink/live.js: 16 × 16 cells, RGBA).
+    // Live tiles of a mark being written (ink/live.js: 16 × 16 cells, their absorbances as half floats).
     tiles(id, tiles) {
-      for (const t of tiles) api.put(id, t.tx * 16, t.ty * 16, 16, 16, t.rgba);
+      for (const t of tiles) api.put(id, t.tx * 16, t.ty * 16, 16, 16, t.abs ?? EMPTY);
     },
     remove(id) {
       const mk = marks.get(id);

@@ -32,7 +32,8 @@ const room = fs.existsSync(path.join(baked, 'room.ff'))
     })();
 const PLAIN = [0xf7, 0xf3, 0xea];
 const paper = paperCurve(PLAIN);
-const curveOf = (page) => (p) => (p.matter === 'paper' ? page : p.matter === 'plaster' ? grownCurve('plaster', 96) : grownCurve(p.matter, 128));
+// (a paper lying where the page is, in front of the seat: it covers that patch, scene/inkLight.js papersCurves)
+const curveOf = (page) => (p) => (p.kind === 'page' ? page : p.matter === 'plaster' ? grownCurve('plaster', 96) : grownCurve(p.matter, 128));
 const absorption = (page = paper) => patchAbsorption(room.patches, curveOf(page));
 const of = (light, i) => light.slice(i * N, (i + 1) * N);
 const lum = (s) => xyzOf(s, CMF, LUMENS)[1];

@@ -211,6 +211,10 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
     get geom() {
       return S.geom;
     },
+    // blank paper's reflectance (N): every paper's (one kind of paper: law/paper.js)
+    get paper() {
+      return S.page;
+    },
     get state() {
       const at = S.geom.page * N;
       return { room: !!S.room, parts: S.parts && { key: S.parts.key, day: Array.from(S.parts.day.slice(at, at + N)) }, asked: S.asked, eye: S.eye, ink: Object.keys(S.ink.curves).map(Number) };
@@ -225,8 +229,8 @@ export function createLight({ settle = null, geom = GEOM, paper = DEFAULT_PAPER 
       S.seeds = seeds ?? {};
       if (JSON.stringify(S.seeds) !== was) for (const fn of S.listeners) fn();
     },
-    // Ink on its surfaces (scene/inkLight.js markedCurves): { [patch]: reflectance }; the room's light
-    // settles anew when it changes (light-waves §4: ink changes the light)
+    // Ink on its surfaces and papers lying on them (scene/inkLight.js markedCurves, papersCurves): { [patch]:
+    // reflectance }; the room's light settles anew when it changes (light-waves §4: ink changes the light)
     setInk(curves) {
       const key = Object.entries(curves ?? {})
         .map(([p, R]) => `${p}:${R.map((v) => Math.round(v * 1000)).join('.')}`)

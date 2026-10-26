@@ -117,7 +117,9 @@ export function roomGeometry(spec = ROOM) {
           normal: s.normal,
           area: (rect[1] - rect[0]) * (rect[3] - rect[2]),
           kind: hole ? hole[4] : s.kind,
-          matter: hole ? (hole[4] === 'window' ? 'glass' : hole[4] === 'door' ? 'wood' : 'paper') : s.matter,
+          // (the page's hole: the place on the table in front of the seat, where the eye settles (light.js): the
+          // table's own matter, a paper lying there as it lies anywhere, scene/inkLight.js papersCurves)
+          matter: hole ? (hole[4] === 'window' ? 'glass' : hole[4] === 'door' ? 'wood' : s.matter) : s.matter,
         };
         if (hole?.[4] === 'window' || hole?.[4] === 'door') {
           cells.push(-1 - openings.length);
@@ -144,6 +146,41 @@ export function roomGeometry(spec = ROOM) {
     return [x, y, tb.top]; // standing on the table, beside the paper
   });
   return { units: 'm', size: [W, D, H], window: win, door, table: tb, pageRect: pg, pageOrigin, pxPerM: PX_PER_M, surfaces: out, patches, openings, page, candles, objects: objectsOf(spec, win, tb, candles) };
+}
+
+// The patch at (u, v) on a surface (its own m: a point of its grid), or negative (an opening's).
+export function patchOn(s, u, v) {
+  const line = (lines, x) => {
+    let lo = 0,
+      hi = lines.length - 2;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lines[mid] <= x) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  return s.grid.cells[line(s.grid.v, v) * (s.grid.u.length - 1) + line(s.grid.u, u)];
+}
+// The patch a thing lying at p (room m) lies on: the highest face turned up under it, no more than `within`
+// below it (a paper on the table, on the floor), or -1 (none: it is in the air).
+export function patchUnder(geom, p, within = 0.02) {
+  let best = -1,
+    top = -Infinity;
+  for (const s of geom.surfaces) {
+    const z = s.origin[2];
+    if (s.normal[2] < 0.99 || z > p[2] + 1e-3 || p[2] - z > within || z <= top) continue;
+    const dx = p[0] - s.origin[0],
+      dy = p[1] - s.origin[1];
+    const u = dx * s.u[0] + dy * s.u[1],
+      v = dx * s.v[0] + dy * s.v[1];
+    if (u < 0 || v < 0 || u > s.size[0] || v > s.size[1]) continue;
+    const k = patchOn(s, u, v);
+    if (k < 0) continue;
+    best = k;
+    top = z;
+  }
+  return best;
 }
 
 // The room's things that the light's geometry leaves out (too small to matter

@@ -13,7 +13,8 @@
 //   { type: 'look', id, body, seed, scale, view? }  an open sheet's look, grown here: RGBA and its box
 //   { type: 'scene', on }                         the sheet being written: tiles carry heights from now on
 //   { type: 'liveMoments', id, acts }             the sheet being written, its moments (law 2): when each cell's ink went down
-// Out: { type: 'tiles', tiles: [{ tx, ty, rgba }], nib? } (and 'reset'), replies by id. nib (with each
+// Out: { type: 'tiles', tiles: [{ tx, ty, rgba, hf?, abs? }], nib? } (and 'reset'), replies by id. With the scene on,
+// each tile's heights (hf) and its ink by its absorbances (abs: law/v2/live.js absTile), as half floats. nib (with each
 // batch's answer): { reservoir (what is left in a dipped nib, of its fill), drops, W (thrown so far) }.
 import { lawOf, CURRENT } from 'penpals-law/laws';
 import { halves } from '../scene/half.js';
@@ -33,13 +34,16 @@ function growBody(body, seed, scale = 64) {
 }
 const plays = new Map();
 
-// Tiles out: RGBA, and the heights (when the scene is on) as half floats, the
-// renderer's own format; both buffers handed over, not copied.
+// Tiles out: RGBA, and the heights and the ink's absorbances (when the scene is on) as half floats, the
+// renderer's own format; the buffers handed over, not copied.
 function out(tiles) {
-  for (const t of tiles) if (t.hf) t.hf = halves(t.hf, new Uint16Array(t.hf.buffer, t.hf.byteOffset, t.hf.length)); // in place: each value read before it is written
+  for (const t of tiles) {
+    if (t.hf) t.hf = halves(t.hf, new Uint16Array(t.hf.buffer, t.hf.byteOffset, t.hf.length)); // in place: each value read before it is written
+    if (t.abs) t.abs = halves(t.abs);
+  }
   return tiles;
 }
-const handed = (tiles) => tiles.flatMap((t) => (t.hf ? [t.rgba.buffer, t.hf.buffer] : [t.rgba.buffer]));
+const handed = (tiles) => tiles.flatMap((t) => [t.rgba.buffer, ...(t.hf ? [t.hf.buffer] : []), ...(t.abs ? [t.abs.buffer] : [])]);
 const postTiles = (tiles, extra = {}) => {
   if (tiles.length || extra.type) postMessage({ type: 'tiles', tiles: out(tiles), ...extra }, handed(tiles));
 };

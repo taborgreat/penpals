@@ -6,7 +6,7 @@
 // Messages in:
 //   { type: 'room', json, bin }                                  the baked room
 //   { type: 'settle', id, sun?: { az, el, cloud? }, present?, even?, candles?: [{ which, at?, height, fed, burntS, spent }],
-//     page?: reflectance (N), curves?: { [patch]: reflectance }, seeds? }
+//     curves?: { [patch]: reflectance } (ink on them, papers lying on them), seeds? }
 // Out, by id:
 //   { id, day, flames: [...], scales: [...], passes, ms }   parts as Float32Array n × N, handed over;
 //     scales: each flame's strength now (candleState intensity), to start combining from;
@@ -42,7 +42,7 @@ export function handle(msg) {
     if (!room) return { id: msg.id, error: 'no room yet' };
     const t0 = performance.now();
     const flames = flamesOf(room, msg.candles ?? []);
-    const absorption = roomAbsorption(room, { page: msg.page, curves: msg.curves, seeds: msg.seeds });
+    const absorption = roomAbsorption(room, { curves: msg.curves, seeds: msg.seeds });
     const parts = settleParts(room, absorption, { sun: msg.sun ?? null, flames, present: msg.present ?? true, even: !!msg.even });
     const direct = {};
     if (msg.direct) {
