@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { keys as K } from 'penpals-law';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -18,6 +18,22 @@ function Account({ writer }) {
   const [shown, setShown] = useState(false); // the words and the private key, on screen
   const [error, setError] = useState(null);
   const on = !!user?.passwordBackup;
+  // whether your house is private: only you come into it and see its book (rooms.md §4; one-world.md keeps it)
+  const [closed, setClosed] = useState(null);
+  useEffect(() => {
+    api
+      .get('/api/social')
+      .then((d) => setClosed(!!d.private))
+      .catch(() => {});
+  }, []);
+  const shut = async (value) => {
+    setError(null);
+    try {
+      setClosed((await api.post('/api/social/private', { private: value })).private);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
   const everywhere = async () => {
     if (!window.confirm('Sign out on every device, this one too?')) return;
     setError(null);
@@ -76,6 +92,17 @@ function Account({ writer }) {
           </button>
         )}
       </section>
+      {closed !== null && (
+        <section className="stack">
+          <p>
+            Your house: <strong>{closed ? 'private' : 'open'}</strong>.{' '}
+            <button type="button" className="quiet" onClick={() => shut(!closed)}>
+              {closed ? 'Open it' : 'Make it private'}
+            </button>
+          </p>
+          <p className="muted">{closed ? 'Only you come into it and read its book; others see its closed door.' : 'Anyone may walk in through its door and read its book.'}</p>
+        </section>
+      )}
       <p className="row">
         <button type="button" className="quiet logout" onClick={logout} title="Ends this device's session">
           Sign out here

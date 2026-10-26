@@ -39,3 +39,10 @@ test('the account corner is a place on the floor, clear of the chair', () => {
   assert.ok(!atCorner(GEOM, standUp(GEOM, { yaw: 0, pitch: 0 })));
   assert.ok(x > 0 && x < GEOM.size[0] && y > 0 && y < GEOM.size[1]);
 });
+
+test('out of doors on a free plot, nothing in hand: the plot (your house may stand here); holding something, what you hold', () => {
+  assert.equal(panelFor({ signedIn: true, freePlot: [2, -1] }), 'plot');
+  assert.equal(panelFor({ signedIn: true, freePlot: [2, -1], holding: 'paper' }), 'paper');
+  assert.equal(panelFor({ signedIn: false, freePlot: [2, -1] }), 'sign-in');
+  assert.equal(panelFor({ signedIn: true, freePlot: null }), null);
+});

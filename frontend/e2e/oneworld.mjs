@@ -1,7 +1,8 @@
 // One world (one-world.md: one space), in two real browsers on this machine's GPU: ana and bo, each in
 // their own house. Both walk out of their doors and see each other out there, where each is; every house is
 // the same house, standing where its room is. Ana walks to bo's house and in through his open door: she is in
-// his house, standing where she came in, a being there; bo sees her in his house.
+// his house, standing where she came in, a being there; bo sees her in his house. Bo walks out onto a free plot
+// beside hers and moves his house there with one act; both see it there after reload.
 //   node frontend/e2e/oneworld.mjs      the built site (npm run build -w frontend first)
 import * as W from './world.mjs';
 import { roomGeometry, ROOM } from '../src/scene/light/room.js';
@@ -90,6 +91,42 @@ try {
     'bo sees ana in his house',
   );
   console.log(`   bo sees ana in his house at ${inHis.at.map((v) => v.toFixed(2)).join(', ')} m`);
+
+  step("bo walks out onto a free plot beside ana's house and moves his house there with one act; both see it there");
+  const plots = async () => (await (await fetch(`${base}/api/world`)).json()).houses;
+  const before = await plots();
+  const anaPlot = before.find((h) => h.name === 'ana').plot;
+  const taken = new Set(before.map((h) => h.plot.join()));
+  const free = [
+    [anaPlot[0], anaPlot[1] - 1],
+    [anaPlot[0] - 1, anaPlot[1]],
+    [anaPlot[0], anaPlot[1] + 1],
+  ].find((q) => !taken.has(q.join()));
+  const boPlot = before.find((h) => h.name === 'bo').plot;
+  await outDoors(bo);
+  // (his room's frame: the plot's centre, its corner half a house back; a plot is PLOT_M a side)
+  const PLOT_M = (await (await fetch(`${base}/api/world`)).json()).plotM;
+  const there = [(free[0] - boPlot[0]) * PLOT_M + geom.size[0] / 2, (free[1] - boPlot[1]) * PLOT_M + geom.size[1] / 2, 1.6];
+  await bo.evaluate((q) => globalThis.__sceneLook.at(q), there);
+  const offer = W.panel(bo, 'A free plot');
+  await offer.waitFor({ timeout: 20000 });
+  await offer.getByRole('button', { name: 'Move my house here' }).click();
+  await bo.waitForURL(/\/u\/bo$/, { timeout: 30000 });
+  const after = await until(bo, async () => ((h) => h?.plot.join() === free.join() && h)((await plots()).find((x) => x.name === 'bo')), 'his house on the plot');
+  console.log(`   bo's house moved from ${boPlot.join(', ')} to ${after.plot.join(', ')}, beside ana's at ${anaPlot.join(', ')}`);
+  await ana.goto(`${base}/u/ana`); // (home: she had walked into his house)
+  await W.worldView(ana);
+  await ana.waitForTimeout(2000);
+  await outDoors(ana);
+  const seen = await until(ana, async () => (await ana.evaluate(() => globalThis.__outsideNow?.others ?? [])).find((h) => h.name === 'bo'), 'ana sees his house');
+  const moved = [(free[0] - anaPlot[0]) * PLOT_M, (free[1] - anaPlot[1]) * PLOT_M];
+  if (Math.abs(seen.at[0] - moved[0]) > 0.01 || Math.abs(seen.at[1] - moved[1]) > 0.01) throw new Error(`ana sees his house at ${seen.at.join()}, not where it moved to (${moved.join()})`);
+  console.log(
+    `   ana sees it there: its corner ${seen.at
+      .slice(0, 2)
+      .map((v) => v.toFixed(1))
+      .join(', ')} m from hers`,
+  );
 } catch (err) {
   failed = err;
 } finally {
@@ -101,4 +138,4 @@ if (failed) {
   console.error('FAILED:', failed.message);
   process.exit(1);
 }
-console.log('ok: two beings out of doors see each other where they are; every house the same house; in through his door, into his house');
+console.log('ok: two beings out of doors see each other where they are; every house the same house; in through his door, into his house; a house moved beside another, seen there');

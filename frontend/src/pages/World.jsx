@@ -7,9 +7,10 @@ import House from '../room/House.jsx';
 import Panel from '../components/Panel.jsx';
 import AuthPanel from '../components/AuthPanel.jsx';
 import AccountPanel from '../components/AccountPanel.jsx';
+import KeyGate from '../components/KeyGate.jsx';
 import { RoomContext } from '../room/RoomContext.js';
 import { roomSeedsOf } from '../room/seeds.js';
-import { placeHouse } from '../room/world.js';
+import { placeHouse, moveHouse } from '../room/world.js';
 import { panelFor } from '../room/panel.js';
 import { useKey } from '../keys/session.js';
 
@@ -56,7 +57,7 @@ function Home({ name }) {
   if (!owner) return null;
   const mine = !!user && user.username.toLowerCase() === owner.username.toLowerCase();
   const kind = panelFor({ signedIn: !!user, mine, ...place, holding: inHands ?? place?.holding ?? null });
-  const panel = <WorldPanel kind={kind} />; // (what the house's own things need, the house shows: room/House.jsx)
+  const panel = <WorldPanel kind={kind} place={place} me={user?.username ?? null} />; // (what the house's own things need, the house shows: room/House.jsx)
   if (!room)
     return (
       <>
@@ -73,7 +74,7 @@ function Home({ name }) {
 }
 
 // The panel's forms, by what it is for.
-function WorldPanel({ kind }) {
+function WorldPanel({ kind, place, me }) {
   if (kind === 'sign-in')
     return (
       <Panel title="Come in" wide>
@@ -86,5 +87,38 @@ function WorldPanel({ kind }) {
         <AccountPanel />
       </Panel>
     );
+  if (kind === 'plot')
+    return (
+      <Panel title="A free plot">
+        <KeyGate>{(key) => <MoveHere writer={key} plot={place.freePlot} me={me} />}</KeyGate>
+      </Panel>
+    );
   return null;
+}
+
+// Your house onto the plot you stand on (one-world.md: one move act, like moving a table); everyone
+// sees it there. The world opens again at it.
+function MoveHere({ writer, plot, me }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const move = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await moveHouse(writer, plot);
+      window.location.assign(`/u/${encodeURIComponent(me)}`);
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack">
+      <p className="muted">No house stands here. Yours may.</p>
+      <button type="button" className="primary" disabled={busy} onClick={move}>
+        Move my house here
+      </button>
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
 }

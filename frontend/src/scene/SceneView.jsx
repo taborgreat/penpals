@@ -20,6 +20,7 @@ import { thunder } from '../sound/weather.js';
 import { createPane } from './glass.js';
 import { ask, asWeather } from './askWeather.js';
 import { outsideNear, groundOf as outsideGround, inBox, frameOf, seenFrom } from './outside.js';
+import { world as WORLD } from 'penpals-law';
 import { reachOutside, ARM } from './reach.js';
 import { worldHit } from './worldRay.js';
 import { AIR, BEINGS, MATTER } from 'penpals-law/matter';
@@ -261,6 +262,14 @@ const SceneView = forwardRef(function SceneView(
   // The world: where the being is and what it holds, told to the room when it changes (the panel follows it: room/panel.js).
   S.beingIn = { world, onBeing: inRoom?.onBeing ?? null, holding: carrying?.kind ?? (papers?.held ? 'paper' : null), pen: penMode };
   S.papersNow = papers;
+  // the plot the being stands on, out of doors, if no house stands on it (law/world.js): [i, j] or null
+  function freePlotUnder() {
+    const o = S.outsideNow;
+    if (!S.pose || !o?.plot || inBox(GEOM, S.pose.pos)) return null;
+    const [x, y] = frameOf(GEOM, o.plot).toWorld(S.pose.pos);
+    const plot = [Math.round(x / WORLD.PLOT_M), Math.round(y / WORLD.PLOT_M)];
+    return (o.houses ?? []).some((h) => h.plot?.[0] === plot[0] && h.plot?.[1] === plot[1]) ? null : plot;
+  }
   function tellPlace() {
     const b = S.beingIn;
     if (!b.world || !b.onBeing) return;
@@ -271,6 +280,7 @@ const SceneView = forwardRef(function SceneView(
       atCorner: !!S.pose && WK.atCorner(GEOM, S.pose),
       holding: b.holding,
       pen: b.pen,
+      freePlot: freePlotUnder(),
     };
     const key = JSON.stringify(place);
     if (key === S.placeKey) return;
