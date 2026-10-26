@@ -140,3 +140,47 @@ test('a cell part full (a sheet, a wick): it holds its share of a whole cell of 
   const h = createHeat({ size: [2, 1, 1], dx: 0.01, cellAt: (x) => (x === 0 ? ['paper', 0.01] : 'paper') });
   assert.equal(Math.round(h.cells.m[1] / 100), Math.round(h.cells.m[0]));
 });
+
+test('boiling: a liquid past its boiling heat boils into the air as vapour, its heat of boiling taken; below it, or with no boiling heat, never; nothing lost', () => {
+  const { h, i } = lone('water', 150);
+  const m0 = h.cells.m[i];
+  h.step();
+  const w = find(h, 'water'); // (it falls, a liquid with air under it)
+  assert.ok(h.boiled.mass > 0 && h.cells.m[w] === m0 - h.boiled.mass, 'some of it boiled');
+  assert.ok(Math.abs(where(h, w).T - C(100)) < 1000, `what is left at its boiling heat: ${(where(h, w).T / 1000 + AIR.temp).toFixed(1)} °C`);
+  const t = h.total();
+  assert.equal(t.by.water + t.vapour + h.vented.vapour, m0, 'every µg: liquid, vapour, or gone up out of the box');
+  // the heat past its boiling heat is what boiled it: as much as its heat of boiling takes
+  const past = heatOf(MATTER.water, m0, C(150)) - heatOf(MATTER.water, m0, C(100));
+  assert.ok(Math.abs(past - h.boiled.mass * MATTER.water.heat.vaporizes) <= MATTER.water.heat.vaporizes, 'its heat of boiling');
+  const below = lone('water', 90);
+  below.h.step();
+  assert.equal(below.h.boiled.mass, 0, 'below its boiling heat');
+  const molten = lone('metal', 1000);
+  molten.h.step();
+  assert.equal(molten.h.boiled.mass, 0, 'a matter with no boiling heat');
+});
+
+test('its vapour, cooling in the air below its boiling heat, condenses, and the drops fall; every µg kept', () => {
+  const h = createHeat({ size: [1, 1, 6], dx: 0.004, dt: 0.02, cellAt: (x, y, z) => (z === 0 ? 'water' : null) });
+  const i = h.index(0, 0, 0);
+  const m0 = h.cells.m[i];
+  h.heat(i, heatOf(MATTER.water, m0, C(110)) - h.cells.E[i]);
+  for (let k = 0; k < 4000 && !h.boiled.condensed; k++) h.step();
+  assert.ok(h.boiled.mass > 0, 'it boiled');
+  for (let k = 0; k < 4000 && !h.cells.mist[h.index(0, 0, 1)]; k++) h.step();
+  assert.ok(h.boiled.condensed > 0, 'cooled, it condenses');
+  const t = h.total();
+  assert.equal(t.by.water + t.vapour, m0, 'every µg: liquid, vapour or drops');
+});
+
+test('water boiled under a cool ceiling comes back down into itself: boiled, condensed, fallen, joined; every µg kept', () => {
+  const h = createHeat({ size: [1, 1, 4], dx: 0.004, dt: 0.02, cellAt: (x, y, z) => (z === 0 ? 'water' : null) });
+  const i = h.index(0, 0, 0);
+  const m0 = h.cells.m[i];
+  h.heat(i, heatOf(MATTER.water, m0, C(104)) - h.cells.E[i]);
+  for (let k = 0; k < 20000 && !(h.boiled.fell > 0 && h.total().vapour === 0); k++) h.step();
+  assert.ok(h.boiled.mass > 0, 'it boiled');
+  assert.ok(h.boiled.fell > 0, 'and fell back into it');
+  assert.equal(h.cells.m[i] + h.total().vapour, m0, 'every µg');
+});

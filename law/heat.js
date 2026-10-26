@@ -6,6 +6,14 @@
 //            through the air's film; air holds heat too.
 //   Phase    past its melting heat a cell takes its heat of melting and is liquid;
 //            cooling, it gives it back and sets (phaseOf: the candle's wax is this).
+//            Past its boiling heat, a liquid with air at a face boils: the heat past it goes
+//            into its heat of boiling, and what boiled is vapour in that air, as hot as it
+//            boiled, its heat of boiling with it. Vapour goes with its air (rising, out of an
+//            opening); in air cooler than its boiling heat it condenses as fast as the heat it
+//            gives up warms that air to its boiling heat, and what condensed is drops in the
+//            air (mist) that fall a cell a step; onto their own liquid they join it, and
+//            gathered on anything else to a cell's worth, they are that liquid again. (Below its boiling heat, how much the air holds
+//            before it is dew is the air's humidity: not a state of it yet.)
 //   Fire     a release loop: a burnable cell past its ignition heat, touching air,
 //            breaks apart as fast as its matter burns over the faces it shows the
 //            air, and no faster than the fresh air there lets it (each matter burns
@@ -76,6 +84,7 @@ const WAYS = [];
 for (const sz of [1, 0, -1]) for (const sy of [1, 0, -1]) for (const sx of [1, 0, -1]) if (sx || sy || sz) WAYS.push([sx, sy, sz]);
 const meltsOf = (row) => row.heat.melts !== null && row.heat.melts !== undefined && !!row.heat.fuses;
 const burnsOf = (row) => row.heat.burns !== null && row.heat.burns !== undefined && !!row.heat.releases;
+const boilsOf = (row) => row.heat.boils !== null && row.heat.boils !== undefined && !!row.heat.vaporizes;
 
 // A cell's temperature above the room's air (mK) and how much of it is liquid (of 65536), from its
 // mass (µg) and heat (nJ above the air): sensible to its melting heat, then its heat of melting,
@@ -132,7 +141,10 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
     residue = new Float64Array(N), // µg a burning cell leaves, gathering
     held = new Float64Array(N), // µg of liquid in a porous cell's pores
     heldMat = new Uint8Array(N), // and of what
-    peak = new Float64Array(N); // each cell's hottest (mK)
+    peak = new Float64Array(N), // each cell's hottest (mK)
+    vapour = new Float64Array(N), // µg of vapour in an air cell (a liquid boiled into it)
+    mist = new Float64Array(N), // µg of it condensed again, drops in the air, falling
+    vapourMat = new Uint8Array(N); // (of what)
   const index = (x, y, z) => (z * ny + y) * nx + x;
   const muOf = (row) => Math.round(row.density * V * 1e9); // µg in a whole cell of it
   const AIR_MU = muOf(MATTER.air);
@@ -221,8 +233,14 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         // soaked: it and what it holds warm together (what it holds stays liquid)
         Tc[i] = floorDiv(E[i] * 1000, m[i] * ROWS[mat[i]].heat.holds + held[i] * ROWS[heldMat[i]].heat.holds);
         Lc[i] = 0;
+      } else if (vapour[i] + mist[i] > 0) {
+        // air with vapour or drops in it: they warm together (what is in it as its liquid's row: molten)
+        const w = vapour[i] + mist[i],
+          liq = ROWS[vapourMat[i]];
+        Tc[i] = floorDiv((E[i] - w * (liq.heat.fuses ?? 0)) * 1000, m[i] * ROWS[mat[i]].heat.holds + w * liq.heat.holds);
+        Lc[i] = 0;
       } else phaseInto(ROWS[mat[i]], m[i], E[i], i);
-      capC[i] = floorDiv(m[i] * ROWS[mat[i]].heat.holds, 8000);
+      capC[i] = floorDiv(m[i] * ROWS[mat[i]].heat.holds + (vapour[i] + mist[i]) * ROWS[vapourMat[i]].heat.holds, 8000);
       stamp[i] = steps;
     }
     return Tc[i];
@@ -259,7 +277,8 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
   // how much liquid a porous cell's pores hold (µg) of a liquid row
   const poresHold = (i, liquid) => floorDiv(m[i] * ROWS[mat[i]].pores * liquid.density, ROWS[mat[i]].density * 1000);
   const burnt = { mass: 0, smoke: 0, residue: 0 };
-  const vented = { smoke: 0, heat: 0, light: 0 }; // what rose (or shone) out of the grid
+  const boiled = { mass: 0, condensed: 0, fell: 0 }; // what boiled into the air, condensed again, gathered as liquid
+  const vented = { smoke: 0, heat: 0, light: 0, vapour: 0 }; // what rose (or shone) out of the grid
   const settled = { smoke: 0 }; // smoke's grains stuck to the faces they met
   // how many of a cell's faces are the grid's edge
   const edges = (i) => {
@@ -421,6 +440,29 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       airs.forEach((a, k) => add(a, k === 0 ? out - share * (airs.length - 1) : share));
       dS[airs[0]] += take - left; // (the smoke into the air above it, else beside it)
     }
+    // boiling: a liquid past its boiling heat with air at a face: the heat past it goes into its heat of
+    // boiling, and what boiled goes into that air (above it first) as vapour, as hot as it boiled
+    for (const i of live) {
+      if (isAir(i) || held[i] > 0 || m[i] <= 0) continue;
+      const row = ROWS[mat[i]];
+      if (!boilsOf(row) || !meltsOf(row)) continue;
+      tOf(i);
+      const BOIL = (row.heat.boils - ROOM.temp) * 1000;
+      if (Lc[i] !== 65536 || Tc[i] <= BOIL) continue;
+      const air = around(i).find((j) => j >= 0 && isAir(j) && (vapour[j] + mist[j] === 0 || vapourMat[j] === mat[i]));
+      if (air === undefined) continue; // (nowhere to go: it waits, hotter)
+      const dm = Math.min(m[i], floorDiv(E[i] - heatOf(row, m[i], BOIL), row.heat.vaporizes));
+      if (dm <= 0) continue;
+      const hot = heatOf(row, dm, BOIL);
+      m[i] -= dm;
+      E[i] -= dm * row.heat.vaporizes + hot;
+      stamp[i] = -1;
+      vapour[air] += dm;
+      vapourMat[air] = mat[i];
+      add(air, hot + (m[i] === 0 ? E[i] : 0)); // (all of it boiled: what heat it had left goes with it)
+      if (m[i] === 0) E[i] = 0;
+      boiled.mass += dm;
+    }
     for (const i of touchedList) {
       E[i] += dE[i];
       dE[i] = 0;
@@ -460,6 +502,9 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       [residue[i], residue[j]] = [residue[j], residue[i]];
       [held[i], held[j]] = [held[j], held[i]];
       [heldMat[i], heldMat[j]] = [heldMat[j], heldMat[i]];
+      [vapour[i], vapour[j]] = [vapour[j], vapour[i]];
+      [mist[i], mist[j]] = [mist[j], mist[i]];
+      [vapourMat[i], vapourMat[j]] = [vapourMat[j], vapourMat[i]];
       stamp[i] = stamp[j] = -1;
       touched.add(i);
       touched.add(j);
@@ -484,6 +529,8 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         // out through the opening: it goes, and the outside's air comes in in its place
         vented.smoke += smoke[i];
         vented.heat += E[i];
+        vented.vapour += vapour[i] + mist[i];
+        vapour[i] = mist[i] = 0;
         smoke[i] = 0;
         spent[i] = 0;
         E[i] = heatOf(MATTER.air, m[i], outsideT);
@@ -495,6 +542,8 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         // out of an open grid's top: it goes, and the room's air comes in under it
         vented.smoke += smoke[i];
         vented.heat += E[i];
+        vented.vapour += vapour[i] + mist[i];
+        vapour[i] = mist[i] = 0;
         smoke[i] = 0;
         spent[i] = 0;
         E[i] = 0;
@@ -557,6 +606,62 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       if (!liquid && !loose) continue;
       swap(i, j);
     }
+    // vapour in air cooler than its boiling heat condenses, as fast as the heat it gives up warms that air
+    // to its boiling heat; the drops fall a cell a step, and gathered on what is under them to a cell's
+    // worth, they are that liquid again (in the air's place)
+    for (const a of Int32Array.from(touchedList.filter((c) => isAir(c) && (vapour[c] > 0 || mist[c] > 0))).sort()) {
+      const row = ROWS[vapourMat[a]];
+      const BOIL = (row.heat.boils - ROOM.temp) * 1000;
+      const w = vapour[a] + mist[a];
+      // (the heat of the air and what is in it at a temperature T)
+      const heatAt = (T) => floorDiv((m[a] * ROWS[mat[a]].heat.holds + w * row.heat.holds) * T, 1000) + w * (row.heat.fuses ?? 0);
+      if (vapour[a] > 0 && tOf(a) < BOIL) {
+        const dm = Math.min(vapour[a], floorDiv(heatAt(BOIL) - E[a], row.heat.vaporizes));
+        if (dm > 0) {
+          vapour[a] -= dm;
+          mist[a] += dm;
+          E[a] += dm * row.heat.vaporizes;
+          stamp[a] = -1;
+          boiled.condensed += dm;
+        }
+      }
+      if (!(mist[a] > 0)) continue;
+      const below = a >= LAYER ? a - LAYER : -1;
+      // the drops' own heat, at the air's temperature (they go with it)
+      const T = tOf(a);
+      const q = floorDiv(mist[a] * row.heat.holds * T, 1000) + mist[a] * (row.heat.fuses ?? 0);
+      if (below >= 0 && isAir(below)) {
+        if (vapour[below] + mist[below] > 0 && vapourMat[below] !== vapourMat[a]) continue; // (another's drops under it)
+        mist[below] += mist[a];
+        vapourMat[below] = vapourMat[a];
+        E[below] += q;
+        E[a] -= q;
+        mist[a] = 0;
+        stamp[a] = stamp[below] = -1;
+        touched.add(below);
+        continue;
+      }
+      if (below >= 0 && mat[below] === vapourMat[a] && held[below] === 0) {
+        // onto its own liquid: they join
+        m[below] += mist[a];
+        E[below] += q;
+        E[a] -= q;
+        boiled.fell += mist[a];
+        mist[a] = 0;
+        stamp[a] = stamp[below] = -1;
+        touched.add(below);
+        continue;
+      }
+      if (mist[a] >= muOf(row) && vapour[a] === 0) {
+        // a cell's worth on what is under it: the liquid in the air's place, with its heat
+        mat[a] = vapourMat[a];
+        m[a] = mist[a];
+        E[a] = q;
+        boiled.fell += mist[a];
+        mist[a] = 0;
+        stamp[a] = -1;
+      }
+    }
     // what stays awake: anything a kelvin or more from the air's heat, smoky, or burning down
     awake.clear();
     for (const i of live) isAwake[i] = 0;
@@ -565,7 +670,9 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
       isTouched[i] = 0;
       const t = tOf(i);
       if (t > peak[i]) peak[i] = t;
-      if (t >= KELVIN || t <= -KELVIN || residue[i] > 0) awake.add(i); // (smoke at the air's heat goes nowhere)
+      if (t >= KELVIN || t <= -KELVIN || residue[i] > 0 || mist[i] > 0)
+        awake.add(i); // (smoke at the air's heat goes nowhere; drops fall)
+      else if (vapour[i] > 0 && isAir(i) && t < (ROWS[vapourMat[i]].heat.boils - ROOM.temp) * 1000) awake.add(i); // (and vapour cools till it condenses)
     }
   }
 
@@ -670,11 +777,16 @@ export function createHeat({ size: [nx, ny, nz], dx, dt = 1, cellAt, open = fals
         if (held[i] > 0) by[ORDER[heldMat[i]]] = (by[ORDER[heldMat[i]]] ?? 0) + held[i];
         all += m[i] + residue[i] + held[i];
       }
-      let sm = 0;
-      for (let i = 0; i < N; i++) sm += smoke[i];
-      return { by, matter: all, smoke: sm, all: all + sm };
+      let sm = 0,
+        vp = 0;
+      for (let i = 0; i < N; i++) {
+        sm += smoke[i];
+        vp += vapour[i] + mist[i];
+      }
+      return { by, matter: all, smoke: sm, vapour: vp, all: all + sm + vp };
     },
-    cells: { mat, m, E, smoke, spent, held },
+    cells: { mat, m, E, smoke, spent, held, vapour, mist },
+    boiled,
     peak,
     burnt,
     vented,
