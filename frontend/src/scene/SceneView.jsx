@@ -31,7 +31,6 @@ import { BAR } from '../sound/music.js';
 import { penHand, recordSounds, dipTap } from '../sound/pen.js';
 import { acoustics } from '../sound/room.js';
 import { crackles } from '../sound/candle.js';
-import { RULED, RULE_ABS } from '../book/ruled.js';
 import { isPhone } from './support.js';
 import { rainNear } from './rain.js';
 import * as WK from './keys.js';
@@ -149,7 +148,6 @@ const SceneView = forwardRef(function SceneView(
     ground = false,
     onFlat,
     paper = null,
-    rule = 0, // the page's ruled lines, px apart (book/ruled.js; 0: none)
     tools = true,
     toolsHost = null,
     className = '',
@@ -817,11 +815,6 @@ const SceneView = forwardRef(function SceneView(
       schedule();
     }
   }, [paper?.join(), ready]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!S.view) return;
-    S.view.setRule(rule ? { spacing: rule, width: RULED.width, abs: RULE_ABS, size: page } : null);
-    schedule();
-  }, [rule, page[0], page[1], ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
     camera: () => S.shown ?? S.cam,

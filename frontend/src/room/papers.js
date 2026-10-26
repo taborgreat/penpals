@@ -17,6 +17,8 @@ import { strokesToActs } from '../ink/capture.js';
 import { roomToPage, PAPER_PX } from '../scene/light/index.js';
 import { cornerOf } from './drops.js';
 import { api } from '../api.js';
+import { RULED, ruleSpacing } from '../book/ruled.js';
+import { rgbOf } from '../ink/pens.js';
 
 export const STAMP_MS = 8000; // an act unstamped this long is withdrawn (Tabor's to set)
 export const SEAL_CELL = 2; // paper cells a stamper's face pixel presses: 32 of them about 5 mm (Tabor's to set)
@@ -209,7 +211,40 @@ export function newSurface(key, surface) {
   return { view, ready: api.post('/api/papers', made) };
 }
 // A new paper of yours, lying on your own table at `at` (room m).
-export const newPaper = (key, family, at) => api.post('/api/papers', P.makePaper({ sk: key.sk, pk: key.pk, paper: K.newSheetId(), family, at }));
+// size: law/paper.js SIZES (half or full); rule: lines this far apart (mm: book/ruled.js RULE_MM), or 0. Ruled,
+// its lines are ink like any other (nothing is painted): ruled across it in a stationer's pale blue, a hairline
+// wide, stroke by stroke, as its owner's first acts.
+export async function newPaper(key, family, at, { size = P.SIZES.half, rule = 0 } = {}) {
+  const made = P.makePaper({ sk: key.sk, pk: key.pk, paper: K.newSheetId(), family, at, size });
+  const born = await api.post('/api/papers', made);
+  if (!rule) return born;
+  const view = { paper: made.birth.paper, lines: [] };
+  for (const y of ruleLines(size, rule)) await paperAct(key, view, 'stroke', { stroke: ruledStroke(y, size[0]) });
+  return born;
+}
+// where a paper's ruled lines lie (its units, from its top): the first a line below it, to a line from its foot
+export function ruleLines(size, mm) {
+  const apart = ruleSpacing(mm, size[0]);
+  const out = [];
+  for (let y = apart; y <= size[1] - apart; y += apart) out.push(y);
+  return out;
+}
+// one ruled line across a paper `width` across at `y` (its units), a margin in from each side: the PNKA of
+// one stroke, drawn as a ruling pen draws it (steady, a hairline, the ruling's blue)
+const RULE_PEN = { nib: 0, size: Math.max(5, Math.round(RULED.width * 5)), flex: 0, flow: 10, rgb: rgbOf(RULED.color), angle: 0 };
+export function ruledStroke(y, width) {
+  const margin = Math.round(width / 20),
+    n = Math.ceil((width - 2 * margin) / 10);
+  const x = [],
+    ys = [],
+    t = [];
+  for (let i = 0; i <= n; i++) {
+    x.push(i * 100); // (tenths of a unit, from its start)
+    ys.push(0);
+    t.push(i * 30); // (a unit in 3 ms: a steady hand along a rule)
+  }
+  return lawOf(P.PAPER_LAW).encodeActs({ orgX: margin, orgY: Math.round(y), strokes: [{ gap: 0, hasP: false, kind: 2, synthP: false, x, y: ys, t, p: null, pens: [{ at: 0, ...RULE_PEN }] }] });
+}
 
 // The writer for one paper (or a house's surface): key (keys/session.js), view (backend store/papers.js
 // viewOf), pen: the pen in the hand, as the law takes it (room/pens.js lawPen: its nib, its ink, its well);

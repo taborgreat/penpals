@@ -13,7 +13,8 @@
 // → { others, report, body, candles (law/wax.js createRoomWax), candleLit(which), lightCandle(which, on),
 //     papers (lying here: [{ view, at (room m), field, grown, facts, seals, mayWrite }]), held (the paper in
 //     your hand: its view, or null), book (the papers in your book), notice, clearNotice, tool, useTool(t),
-//     stamperFor(name), newPaper() (one more on your table, somewhere on it), lift() (your last stroke on the
+//     stamperFor(name), newPaper({ size, rule }) (one more on your table, somewhere on it: half or full, ruled or
+//     not), lift() (your last stroke on the
 //     paper you last wrote on), shelve(path), takeOut(view), scene: { sheets, tableWriter, beings, onPose,
 //     heard, papers (the hand on them: SceneView's) } }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -402,7 +403,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   }, [world.beings, frame, me, others]);
   const actions = {
     // one more paper on your own table, somewhere on it
-    newPaper: () => (key && family ? bornPaper(key, family, newPaperAt(GEOM)).catch(fail) : null),
+    newPaper: ({ size = P.SIZES.half, rule = 0 } = {}) => (key && family ? bornPaper(key, family, newPaperAt(GEOM, size), { size, rule }).catch(fail) : null),
     lift: () => lastWritten.current?.lift(),
     useTool: (t) => setTool(t),
     // the stamper set to someone: their seal's face, from their signature (backend routes/signatures.js)

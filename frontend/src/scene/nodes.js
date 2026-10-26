@@ -182,8 +182,6 @@ export function lightUniforms(paper, dropPx, maps = null) {
     indirect: spectrumUniform(), // the room's settled light at the page, less the sun's and the flames' own
     W: [spectrumUniform(), spectrumUniform(), spectrumUniform()], // the eye: radiance → linear r, g, b
     paper: spectrumUniform(), // the paper's reflectance per bin
-    rule: uniform(new THREE.Vector4(0, 1, 0, 0)), // the page's ruled lines (book/ruled.js): px apart (0: none), their width, the page's w, h
-    ruleAbs: uniform(new THREE.Vector3()), // their printing's absorbance by the ink's three channels
     bandOn: uniform(0),
     dropPx: uniform(dropPx), // page px a drop of height (the relief's exaggeration in it)
     crisp: uniform(0), // the page close up: 1 crisp cells, 0 smooth (bicubic)
@@ -285,20 +283,6 @@ function flameReach(q, k, L) {
 // absorbance a (the law's three channels, natural units).
 const reflectance = (surface, a) => INK[0].map((_, g) => surface.element(g).mul(exp(INK[0][g].mul(a.x).add(INK[1][g].mul(a.y)).add(INK[2][g].mul(a.z)).negate())));
 const plainly = (surface) => [0, 1, 2, 3].map((g) => surface.element(g));
-// The page's ruled lines where they are printed (book/ruled.js): ink the paper drinks light by, a line's
-// height apart from the top down, within the page (world: page px, y up), their edges a px soft.
-function ruleAt(L) {
-  const px = positionWorld.x,
-    py = positionWorld.y.negate();
-  const sp = max(L.rule.x, 1);
-  const k = floor(py.div(sp).add(0.5));
-  const d = py.sub(k.mul(sp)).abs();
-  const half = L.rule.y.mul(0.5);
-  const line = smoothstep(half.add(0.5), half.sub(0.5), d);
-  const inside = step(0.5, L.rule.x).mul(step(0, px)).mul(step(px, L.rule.z)).mul(step(0, py)).mul(step(py, L.rule.w)).mul(step(1, k));
-  return L.ruleAbs.mul(line.mul(inside));
-}
-
 // The share of the sun's disk seen through the window from p (light/direct.js
 // sunAperture, in world px): the soft-edged patch of sun.
 function aperture(p, Ls, L) {
@@ -960,7 +944,7 @@ export function chunkMaterial(L, K, c = null) {
     const a = log(through)
       .negate()
       .mul(float(1).add(graze.mul(0.35).mul(hf.b.div(24))));
-    return spectral(reflectance(L.paper, a.add(ruleAt(L))), n, sf.a, shade, m2, V, L, () => at(u.B, q).r);
+    return spectral(reflectance(L.paper, a), n, sf.a, shade, m2, V, L, () => at(u.B, q).r);
   })();
   return m;
 }
@@ -983,7 +967,7 @@ export function flatMaterial(L, K, c = null, shadowed = false) {
     const gy = g(q.add(vec2(0, d))).sub(g(q.sub(vec2(0, d))));
     const n = normalize(vec3(gx.negate().div(cellPx.mul(6)), gy.div(cellPx.mul(6)), 1)).toVar(); // (page y down, world y up: as the surface's)
     const V = normalize(cameraPosition.sub(positionWorld));
-    return spectral(reflectance(L.paper, ruleAt(L)), n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), m2, V, L, null);
+    return spectral(plainly(L.paper), n, float(1), shadowed ? restShade(L, L.onPage) : vec3(1), m2, V, L, null);
   })();
   return m;
 }

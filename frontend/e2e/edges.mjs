@@ -2,7 +2,8 @@
 // table, one stroke from the paper before you on off its edge goes on onto the table under it, the paper's
 // half on the paper's chain and the rest on the table's own (its wood), each grown by its own matter; a
 // hard scrape back and forth over one place wears the paper through (its fibres loose) and, through the
-// hole, cuts the table's wood (its shavings loose).
+// hole, cuts the table's wood (its shavings loose). A new paper, a full page ruled: its lines are ink, ruled
+// stroke by stroke as it is made.
 //   node frontend/e2e/edges.mjs      the built site (npm run build -w frontend first)
 import { paper as P } from 'penpals-law';
 import * as W from './world.mjs';
@@ -66,9 +67,27 @@ try {
   const torn = paperNow.g.cells.filter((c) => c[11] & 1).length; // (law/v2/constants.js TORN)
   const fluff = paperNow.g.cuts?.byMatter?.[0] ?? 0; // (law/matter.js: paper is matter 0, wood 1)
   const shavings = (tableNow.g.cuts?.byMatter?.[1] ?? 0) - (onTable.g.cuts?.byMatter?.[1] ?? 0); // (the scrape's: the line before it shaved some too)
-  console.log(`   the paper: ${torn} cells worn through, ${(fluff / 1e6).toFixed(2)} mg of its fibres loose; the table, through the hole: ${(shavings / 1e6).toFixed(2)} mg more of its wood shaved off, loose`);
+  console.log(
+    `   the paper: ${torn} cells worn through, ${(fluff / 1e6).toFixed(2)} mg of its fibres loose; the table, through the hole: ${(shavings / 1e6).toFixed(2)} mg more of its wood shaved off, loose`,
+  );
   if (!torn) throw new Error('the scrape did not wear the paper through');
   if (!(shavings > 0)) throw new Error('the scrape did not go on into the table');
+
+  step('at the table, nothing in hand: a new paper, a full page, ruled 8 mm apart: its lines ruled in ink as it is made');
+  await canvas(page).focus();
+  await page.keyboard.press('h'); // (the pen let go: hands free at the table)
+  const atTable = panel(page, 'At your table');
+  await atTable.waitFor({ timeout: 15000 });
+  await atTable.locator('select').nth(2).selectOption('full');
+  await atTable.locator('select').nth(3).selectOption('8');
+  const had = new Set((await lyingOn(page)).map((x) => x.paper));
+  await atTable.getByRole('button', { name: 'New paper' }).click();
+  const fresh = await until(page, async () => (await lyingOn(page)).find((x) => !had.has(x.paper)), 'the new paper on the table', 30000);
+  const ruled = await until(page, async () => ((v) => (v.lines.length >= 20 ? v : null))(await (await page.request.get(`${base}/api/papers/${fresh.paper}`)).json()), 'its lines ruled', 60000);
+  const g = grown(ruled);
+  console.log(`   a ${ruled.birth.size.join(' × ')} paper, ${ruled.lines.length} lines ruled on it in ink (${g.inked} cells)`);
+  if (ruled.birth.size[1] !== 1400) throw new Error('not a full page');
+  if (!ruled.lines.every((l) => l.act.act === 'stroke')) throw new Error('its lines are not strokes');
 } catch (err) {
   failed = err;
 } finally {

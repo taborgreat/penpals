@@ -214,3 +214,15 @@ test('a dip pen (rooms.md §3c): only a dip puts its well in the record; between
   assert.deepEqual(wells, [[2], [], [2]], 'the first stroke and the one after the dip carry it');
   assert.equal(rec.format, 3);
 });
+
+test('a ruled paper: its lines are ink, ruled stroke by stroke as its first acts; each a hairline of the ruling blue across it', async () => {
+  const { ruleLines, ruledStroke } = await import('./papers.js');
+  const lines = ruleLines(P.SIZES.half, 8);
+  assert.ok(lines.length >= 10 && lines.every((y, k) => k === 0 || y > lines[k - 1]), `${lines.length} lines`);
+  const rec = lawOf(P.PAPER_LAW).decodeCanonical(ruledStroke(lines[0], P.SIZES.half[0]));
+  assert.equal(rec.strokes.length, 1, 'one stroke an act');
+  const s = rec.strokes[0];
+  const along = s.x.at(-1) / 10;
+  assert.ok(along > P.SIZES.half[0] * 0.8 && along < P.SIZES.half[0], `across it: ${along} of ${P.SIZES.half[0]}`);
+  assert.ok(s.y.every((v) => v === 0) && rec.orgY === lines[0], 'level, where its line is');
+});

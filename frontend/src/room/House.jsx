@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { useKey } from '../keys/session.js';
 import { useHouse } from './useHouse.js';
+import { RULE_MM } from '../book/ruled.js';
+import { paper as P } from 'penpals-law';
 import SceneView from '../scene/SceneView.jsx';
 import { roomSeedsOf } from './seeds.js';
 import { useTogether } from './together.js';
@@ -213,6 +215,8 @@ const RANGE = [...Array(16).keys()];
 function NewPaper({ family, onFamily, onNew }) {
   const f = family ?? { grain: 8, weight: 8, tooth: 0 };
   const pick = (field) => (e) => onFamily({ ...f, [field]: Number(e.target.value) });
+  const [page, setPage] = useState('half');
+  const [rule, setRule] = useState(0);
   return (
     <div className="stack paper-panel">
       <div className="field" title="The paper the next one is grown on">
@@ -230,7 +234,25 @@ function NewPaper({ family, onFamily, onNew }) {
           </label>
         ))}
       </div>
-      <button type="button" className="primary" onClick={onNew} disabled={!family}>
+      <label className="field">
+        <span>Page</span>
+        <select value={page} onChange={(e) => setPage(e.target.value)}>
+          <option value="half">half</option>
+          <option value="full">full</option>
+        </select>
+      </label>
+      <label className="field" title="Ruled: its lines ruled in ink as it is made, this far apart">
+        <span>Lines</span>
+        <select value={rule} onChange={(e) => setRule(Number(e.target.value))}>
+          <option value={0}>none</option>
+          {RULE_MM.map((mm) => (
+            <option key={mm} value={mm}>
+              {mm} mm apart
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="button" className="primary" onClick={() => onNew({ size: P.SIZES[page], rule })} disabled={!family}>
         New paper
       </button>
       <p className="meta">It lies somewhere on your table. Pick up a pen to write on it; E takes a paper up, and lets it go.</p>
