@@ -85,7 +85,7 @@ import * as WK from './keys.js';
 //   heard       { on(fn) }: others' strokes as they come, fn({ origin (the sheet's, page px), rec, seed }):
 //               each heard from where it was written (world.md Phase 2). Writers' nib?() (the pen, the
 //               matter it is on, its ink's reservoir and drops thrown) is how your own pen is heard
-//   hand        { holding, pickables: [{ id, at: [x, y, z] (its foot, room m), r, h }], pick(id),
+//   hand        { holding, pickables: [{ id, at: [x, y, z] (its foot, room m), r, ry? (across, else r), h }], pick(id),
 //               hover(at), down(at), tiltBy(degrees) }: a thing in the hand (rooms.md §3b): a click on
 //               a pickable picks it up; held, it follows the pointer over the table (at: the point
 //               there, room m), E held makes the mouse tilt it, a click sets it down
@@ -537,6 +537,7 @@ const SceneView = forwardRef(function SceneView(
     S.view.setPens(drawn);
     S.view.setJar(carrying?.jarAt?.() ?? null, carrying?.jarLying?.() ?? null);
     S.view.setStamper(carrying?.stamperAt?.() ?? null, carrying?.stamperLying?.() ?? null); // (the stamper: in the hand, or where it lies)
+    S.view.setHeaps(carrying?.heaps?.() ?? []); // (loose matter taken up: each heap where it is)
     S.view.setPendulum(carrying?.pendulumAt?.() ?? null, carrying?.pendulumLying?.() ?? null, carrying?.bobAt?.() ?? null); // (its bob hanging, or swinging)
     S.view.setHands(carrying?.hands?.() ?? []); // (the bare hands reaching in the room: anyone's)
     if (S.outsideSpec && S.pose) S.view.setEyeNear(eyeNow()?.pos ?? null); // (the ground near the eye, fine)
@@ -1383,7 +1384,7 @@ const SceneView = forwardRef(function SceneView(
       const q = { x: x - l.origin[0], y: y - l.origin[1] };
       if (q.x >= 0 && q.y >= 0 && q.x <= l.size[0] && q.y <= l.size[1]) best = { t, paper: l.paper, q };
     }
-    return best && { paper: best.paper, q: best.q };
+    return best && { paper: best.paper, q: best.q, at: [o[0] + dir[0] * best.t, o[1] + dir[1] * best.t, o[2] + dir[2] * best.t] };
   };
   // Where the paper in the hand is let go: the point the pointer meets (room m), out of the house on the
   // ground; in it, on what the ray meets first (the table, the floor; off a wall it falls to the floor).
@@ -1402,7 +1403,8 @@ const SceneView = forwardRef(function SceneView(
     const { origin: o, dir } = roomRay(e);
     let best = null;
     for (const t of carrying.pickables) {
-      const b = [t.at[0] - t.r, t.at[1] - t.r, t.at[2], t.at[0] + t.r, t.at[1] + t.r, t.at[2] + t.h];
+      const ry = t.ry ?? t.r; // (as wide across as along, unless it says)
+      const b = [t.at[0] - t.r, t.at[1] - ry, t.at[2], t.at[0] + t.r, t.at[1] + ry, t.at[2] + t.h];
       const d = rayBox(o, dir, b);
       if (d !== null && (!best || d < best.d)) best = { d, id: t.id };
     }
@@ -1416,7 +1418,8 @@ const SceneView = forwardRef(function SceneView(
     const { origin: o, dir } = roomRay(e);
     let best = null;
     for (const t of carrying.pickables ?? []) {
-      const d = rayBox(o, dir, [t.at[0] - t.r, t.at[1] - t.r, t.at[2], t.at[0] + t.r, t.at[1] + t.r, t.at[2] + t.h]);
+      const ry = t.ry ?? t.r;
+      const d = rayBox(o, dir, [t.at[0] - t.r, t.at[1] - ry, t.at[2], t.at[0] + t.r, t.at[1] + ry, t.at[2] + t.h]);
       if (d !== null && (!best || d < best.d)) best = { d };
     }
     const c = carrying.bobAt?.();
@@ -1922,7 +1925,14 @@ const SceneView = forwardRef(function SceneView(
         return;
       }
       const on = papers && !papers.held ? paperAt(S.lastPointer) : null; // a paper under the pointer, taken up (it is matter: anyone's hand may)
-      if (on) papers.take(on.paper);
+      // (loose matter on it under the fingertip, it first: a pinch, a heap in the hand: one-matter.md Phase 4)
+      if (on)
+        papers.pinch(on.paper, on.q).then(
+          (heap) => (heap ? carrying.holdHeap({ ...heap, at: on.at }) : papers.take(on.paper)),
+          (err) => console.warn('[pinch]', err?.message ?? err),
+        );
+      else if (papers?.pinchAsh && S.lastPointer && papers.pinchAsh(roomPointOf(S.lastPointer)))
+        carrying.holdHeap(papers.pinchAsh(roomPointOf(S.lastPointer))); // (a fire's ash where nothing has a chain: a heap in the hand)
       else if (openingAt(S.lastPointer) === 'door') carrying.setOpen('door', !carrying.opens.door);
       else if (openingAt(S.lastPointer) === 'window') {
         // the window, round: its sash opened; shut, and its shutters shut; the shutters opened again

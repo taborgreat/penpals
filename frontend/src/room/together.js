@@ -19,7 +19,23 @@
 //     heard, papers (the hand on them: SceneView's) } }
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRoom, useRoomLines, useThings, useWorld, seatOf, roomAct } from './presence.js';
-import { usePaperFields, createPaperWriter, guessOver, sceneSheetOf, mayMark, sealsOf, strokeOf, paperAct, newPaper as bornPaper, newSurface, stacked, restedAt, wornAt, SEAL_R } from './papers.js';
+import {
+  usePaperFields,
+  createPaperWriter,
+  guessOver,
+  sceneSheetOf,
+  mayMark,
+  sealsOf,
+  strokeOf,
+  paperAct,
+  newPaper as bornPaper,
+  newSurface,
+  stacked,
+  restedAt,
+  wornAt,
+  looseUnder,
+  SEAL_R,
+} from './papers.js';
 import { CELLS } from '../ink/live.js';
 import { waxContext, fireContext } from './table.js';
 import { dripsOnSurface } from './drops.js';
@@ -127,18 +143,27 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
   // each fire as the clock has it: its cells alight, what it has left (char and ash: they stay), and what it gives
   // the room: its flames' light (W, their heat: K) and what rises from it into the room's air (W of heat, g/s of
   // smoke), from over the middle of what is alight
+  // (a fire's ash taken up off what has no chain: law/room.js heap, from { fire, at }: what lay within a fingertip of
+  // where each was taken is in its heap now, not lying)
+  const ashTaken = useMemo(() => {
+    const by = new Map();
+    for (const l of lines) if (l.act?.act === 'heap' && l.act.from?.fire) by.set(l.act.from.fire, [...(by.get(l.act.from.fire) ?? []), l.act.from.at.map((v) => v / 1000)]);
+    return by;
+  }, [lines]);
+  const FINGER = MK.BEING.finger / 2;
   const fireNowOf = useMemo(() => {
     const flames = [],
       left = [],
       gives = [];
     let alight = 0;
-    for (const f of fires.values()) {
+    for (const [id, f] of fires) {
       const s = (fireNow - f.t0) / 1000;
       const k = f.snaps.findLastIndex((x) => x.t <= s);
       if (k < 0) continue;
       const snap = f.snaps[k],
         prev = f.snaps[k - 1] ?? { t: 0, light: 0, vented: { heat: 0, smoke: 0 } };
-      left.push(...snap.left);
+      const taken = ashTaken.get(id) ?? [];
+      left.push(...snap.left.filter((c) => !taken.some(([x, y]) => (c[0] - x) ** 2 + (c[1] - y) ** 2 <= FINGER * FINGER)).map((c) => [...c, id]));
       if (f.done && s > f.snaps.at(-1).t) continue;
       if (!snap.burning.length) continue;
       alight += snap.burning.length;
@@ -166,8 +191,17 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
     }
     // (each cell of what is left as it lies: on its cell's floor, a fire's cell wide, as thick as its mass makes it)
     const ash = left.map(([x, y, z, kind, ug]) => [x, y, z - F.DX / 2, kind, F.DX, (ug * 1e-9) / (M.MATTER[kind].density * F.DX * F.DX)]);
-    return { flames, left, gives, ash, alight };
-  }, [fires, fireNow]);
+    // what a fingertip at p (room m) on it would take up: all the char and ash lying within it, on the face under p
+    const ashUnder = (p) => {
+      const under = left.filter((c) => (c[0] - p[0]) ** 2 + (c[1] - p[1]) ** 2 <= FINGER * FINGER && Math.abs(c[2] - F.DX / 2 - p[2]) < F.DX);
+      if (!under.length) return null;
+      const by = {};
+      for (const c of under) by[c[3]] = (by[c[3]] ?? 0) + Math.round(c[4] * 1000); // (µg: ng)
+      const matter = Object.entries(by).reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+      return { matter, ng: Object.values(by).reduce((n, v) => n + v, 0), at: [...p], from: { fire: under[0][5], at: [Math.round(p[0] * 1000), Math.round(p[1] * 1000)] } };
+    };
+    return { flames, left, gives, ash, alight, ashUnder };
+  }, [fires, fireNow, ashTaken]);
   const flames = fireNowOf.flames;
   const burnsOf = useCallback(
     (view) =>
@@ -501,6 +535,22 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
         const p = placedRef.current.find((x) => x.view.paper === paper);
         if (p && key) moved(paperAct(key, p.view, 'take'));
       },
+      // a fingertip at q (its units) on a paper lying here: what lies loose under it taken up (one-matter.md
+      // Phase 4; law/paper.js pinch), stamped; → { matter (what most of it is), ng, from } (a heap for the hand:
+      // law/room.js heap), or null with nothing loose there
+      // a fingertip at p (room m) on a fire's char and ash lying on what has no chain: all of it under it taken
+      // up → { matter, ng, at, from } (a heap for the hand: law/room.js heap) | null
+      pinchAsh: (p) => (p ? fireNowOf.ashUnder(p) : null),
+      async pinch(paper, q) {
+        const p = placedRef.current.find((x) => x.view.paper === paper);
+        if (!p || !key || P.lawFor(p.view.birth) < 5) return null;
+        const under = await looseUnder(paper, q);
+        if (!under.ng) return null;
+        const sent = paperAct(key, p.view, 'pinch', { pinch: { x: Math.max(0, Math.round(q.x * 10)), y: Math.max(0, Math.round(q.y * 10)) } });
+        await sent.then(refresh, (err) => (fail(err), refresh(), Promise.reject(err)));
+        const matter = Object.entries(under.by).reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+        return { matter, ng: under.ng, from: { paper, k: sent.k } };
+      },
       put(at) {
         if (!held || !key) return;
         const out = !inBox(GEOM, at) && frame;
@@ -621,6 +671,7 @@ export function useTogether({ name, key, room: roomKey = null, me, mine: myRoom 
         alight: fireNowOf.alight,
         flames: flames.length, // (drawn: a flame over each cell alight)
         burnt: Object.fromEntries([...fires.values()].flatMap((f) => Object.entries(f.burnt).map(([p, l]) => [p, l.length]))),
+        holes: Object.fromEntries([...fires.values()].flatMap((f) => Object.entries(f.burnt).map(([p, l]) => [p, l]))), // (each paper's cells burnt away: its units)
         left: fireNowOf.left.length, // (cells of char and ash lying)
         hottest: Object.assign({}, ...[...fires.values()].map((f) => f.hottest)), // (°C each thing reached)
         gives: fireNowOf.gives,

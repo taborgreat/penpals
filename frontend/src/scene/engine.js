@@ -434,6 +434,9 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
   for (const g of R.panes) roomGroup.add(new THREE.Mesh(g, paneMat));
   const box = new THREE.BoxGeometry(1, 1, 1);
   const disc = new THREE.CylinderGeometry(1, 1, 1, 32).rotateX(Math.PI / 2);
+  const cone = new THREE.ConeGeometry(1, 1, 24).rotateX(Math.PI / 2); // (a heap: its tip up, its foot round)
+  const heapMeshes = new Map(),
+    heapMats = {};
   // the door and the window's shutters (outside.md Phase 4): wood; open, out of the way (the door swung
   // out, the shutters folded back: not drawn)
   const doorMat = Object.assign(gpu.objectMaterial(lights, { kind: grown.BOARD, seed: grown.thingSeed(seedOf('table'), 'door'), pair: pairOf('table'), webgpu: own }), { matter: 'table' });
@@ -1918,6 +1921,30 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     },
     // The jar (rooms.md §3c), room m: its foot [x, y, z] (in the hand, or where it stands); null: not drawn.
     // lying: the way it lies (law/bodies.js), or null standing.
+    // The heaps of loose matter (law/bodies.js heapShape): [{ id, at (room m: its foot), r, h, matter }], each a cone
+    // of its matter at its angle of repose.
+    setHeaps(list) {
+      const seen = new Set();
+      for (const hp of list) {
+        seen.add(hp.id);
+        let mesh = heapMeshes.get(hp.id);
+        if (!mesh) {
+          heapMats[hp.matter] ??= Object.assign(gpu.objectMaterial(lights, { kind: null, seed: 0, pair: pairOfRow(hp.matter), shape: 'round', webgpu: own }), { matter: pairOfRow(hp.matter) });
+          mesh = new THREE.Mesh(cone, heapMats[hp.matter]);
+          heapMeshes.set(hp.id, mesh);
+          shadows.add(mesh);
+          roomGroup.add(mesh);
+        }
+        mesh.scale.set(hp.r, hp.r, hp.h);
+        mesh.position.set(hp.at[0], hp.at[1], hp.at[2] + hp.h / 2);
+        lightHere([mesh], hp.at);
+      }
+      for (const [id, mesh] of heapMeshes)
+        if (!seen.has(id)) {
+          roomGroup.remove(mesh);
+          heapMeshes.delete(id);
+        }
+    },
     setJar(at, lying = null) {
       jar.visible = !!at;
       if (!at) return;

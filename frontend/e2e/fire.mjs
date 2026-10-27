@@ -5,7 +5,7 @@
 // cells burnt away on the paper's record as they go, the same on every screen.
 //   node frontend/e2e/fire.mjs      the built site (npm run build -w frontend first)
 import * as W from './world.mjs';
-import { roomGeometry, ROOM, HOLDER } from '../src/scene/light/room.js';
+import { roomGeometry, ROOM, HOLDER, PX_PER_M } from '../src/scene/light/room.js';
 import { candle as Cn } from 'penpals-law';
 
 const { CANDLE } = Cn;
@@ -145,9 +145,34 @@ try {
   // and on the paper itself: its cells gone from its record, as it is grown on this screen
   const holes = await until(page, async () => (await page.evaluate(() => globalThis.__papers?.lying() ?? [])).find((x) => x.paper === paper.paper)?.holes, 'the paper grown with its burns', 30000);
   console.log(`   the paper, grown with them: ${holes} of its cells gone`);
-  const end = await until(page, async () => ((f) => f?.alight === 0 && f.left > 0 && f)(await fires(page)), 'the fire over, its ash lying', 240000);
+  const end = await until(page, async () => ((f) => f?.alight === 0 && f)(await fires(page)), 'the fire over', 240000);
   const hot = Object.entries(end.hottest).filter(([k]) => /holder|table|candle|pen|jar|stamper/.test(k));
-  console.log(`   over: ${end.left} cells of ash and char lying; the hottest each got: ${hot.map(([k, v]) => `${k} ${v.toFixed(1)} °C`).join(', ')} (metal melts at 900 °C)`);
+  console.log(
+    `   over: ${end.left} cells of char and ash lying off the papers (each paper's its own record's); the hottest each got: ${hot.map(([k, v]) => `${k} ${v.toFixed(1)} °C`).join(', ')} (metal melts at 900 °C)`,
+  );
+
+  step('the candle in the hand set down; E on where the paper burnt: its ash taken up, a heap in the hand');
+  for (let tries = 0; await page.evaluate(() => !!globalThis.__things.bodies()['candle-1']?.held); tries++) {
+    if (tries === 4) throw new Error('the candle in the hand was not set down');
+    await aim([2.0, 3.1, top], [2.0, 2.3, 1.6]); // (well clear of the paper)
+    await page.keyboard.press('e');
+    await page.waitForTimeout(1500);
+  }
+  const lies = (await page.evaluate(() => globalThis.__papers.lying())).find((x) => x.paper === paper.paper);
+  const size = (await (await page.request.get(`${srv.base}/api/papers/${paper.paper}`)).json()).birth.size;
+  // (where it burnt farthest north: past the fallen candle and the pens, which the hand would take first)
+  const spots = end.holes[paper.paper].map((hole) => [lies.at[0] + (hole.x + hole.w / 2 - size[0] / 2) / PX_PER_M, lies.at[1] - (hole.y + hole.h / 2 - size[1] / 2) / PX_PER_M, top]);
+  const spot = spots.reduce((a, b) => (b[1] > a[1] ? b : a));
+  await aim(spot, [spot[0], spot[1] - 0.05, 1.3]); // (from over it: past nothing else the hand would meet first)
+  await page.keyboard.press('e');
+  const heap = await until(
+    page,
+    async () => (await page.evaluate(() => Object.entries(globalThis.__things.bodies()).find(([id, b]) => id.startsWith('heap:') && b.held))) ?? null,
+    'a heap of its ash in the hand',
+    20000,
+  );
+  console.log(`   ${heap[0]}: ${heap[1].shape.matter}, a cone ${(heap[1].shape.r * 1000).toFixed(2)} mm round`);
+  if (heap[1].shape.matter !== 'ash') throw new Error(`a heap of ${heap[1].shape.matter}, not ash`);
   if (process.env.FIRE_SHOT) await page.screenshot({ path: process.env.FIRE_SHOT });
 } catch (err) {
   failed = err;

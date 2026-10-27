@@ -313,9 +313,9 @@ test('a pinch takes up what lies loose under a fingertip, and no more; what it t
   // under the fingertip nothing is left; past it, all as it was
   const r2 = (MK.BEING.finger / 2 / CELL_M) ** 2;
   const [cx, cy] = [(200 / 10) * 2, (200 / 10) * 2]; // (cells: two a unit)
-  assert.ok(loose(after).every((c) => (c[1] - cx) ** 2 + (c[2] - cy) ** 2 > r2 - 4));
+  assert.ok(loose(after).every((c) => (c[1] - cx) ** 2 + (c[0] - cy) ** 2 > r2 - 4));
   assert.ok(
-    loose(before).some((c) => (c[1] - cx) ** 2 + (c[2] - cy) ** 2 > r2 + 4),
+    loose(before).some((c) => (c[1] - cx) ** 2 + (c[0] - cy) ** 2 > r2 + 4),
     'fluff lay past its reach too',
   );
   // the act as anyone checks it

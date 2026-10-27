@@ -36,13 +36,11 @@ test('a lit candle lying toward the page: it burns on the table, and the paper c
   while (!fire.done && fire.t < 120) fire.step(Math.round(1 / DT));
   const now = fire.heat.total();
   assert.ok(fire.done, `over at ${fire.t.toFixed(0)} s: nothing in it can catch again`);
-  // what it left: ash where the paper was, lying on the table; how hot its holder got (still a holder: metal melts
-  // far past it), and the light its flames shone
-  const left = fire.left();
-  assert.ok(
-    left.some((c) => c[3] === 'ash' && Math.abs(c[2] - (top + 0.005)) < 1e-9),
-    'ash lying on the table',
-  );
+  // what it left: the paper's ash is its own record's (its burns lay it loose on it: law/v2/sim.js 18), none of it
+  // the fire's; how hot its holder got (still a holder: metal melts far past it), and the light its flames shone
+  const [w, h] = page.size.map((v) => v / U);
+  const onPaper = (c) => Math.abs(c[0] - page.at[0] / 1000) <= w / 2 && Math.abs(c[1] - page.at[1] / 1000) <= h / 2 && Math.abs(c[2] - (top + 0.005)) < 1e-9;
+  assert.ok(!fire.left().some(onPaper), "the paper's ash is its record's");
   const hot = fire.hottest();
   assert.ok(hot['holder-0'] > 20 && hot['holder-0'] < MATTER.metal.heat.melts, `its holder reached ${hot['holder-0'].toFixed(1)} °C`);
   assert.ok(hot.table >= 20, 'the table warmed');

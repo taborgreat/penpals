@@ -112,7 +112,17 @@ function grow(view, drips, burns = []) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
     waiting.set(id, { resolve, reject });
-    worker.postMessage({ id, lines: view.lines, drips, burns, seed: view.open.seed, family: view.birth.family, law: P.lawFor(view.birth), ageH: ageOf(view) });
+    worker.postMessage({ id, paper: view.paper, lines: view.lines, drips, burns, seed: view.open.seed, family: view.birth.family, law: P.lawFor(view.birth), ageH: ageOf(view) });
+  });
+}
+// What lies loose under a fingertip at q (a paper's units) on a paper, as its last growing had it (law/v2/sim.js 19:
+// what a pinch there takes up). → Promise<{ ng, by: { [matter]: ng } }>
+export function looseUnder(paper, q) {
+  if (!worker) return Promise.resolve({ ng: 0, by: {} });
+  return new Promise((resolve, reject) => {
+    const id = nextId++;
+    waiting.set(id, { resolve, reject });
+    worker.postMessage({ type: 'loose', id, paper, x: Math.max(0, Math.round(q.x * 10)), y: Math.max(0, Math.round(q.y * 10)) });
   });
 }
 const marks = (lines) => lines.filter((l) => P.MARKS.includes(l.act.act)).length;
@@ -204,10 +214,11 @@ export function withinStamp(sent, ms = STAMP_MS) {
 // Your acts on papers, counted on per paper from your last in its chain (and those sent since).
 const counts = new Map(); // paper → your last k
 const countOf = (key, view) => Math.max(counts.get(view.paper) ?? 0, 0, ...view.lines.filter((l) => l.act.by === key.publicKey).map((l) => l.act.k));
+// (→ the stamping, its act's count with it: k)
 export function paperAct(key, view, act, fields = {}) {
   const k = countOf(key, view) + 1;
   counts.set(view.paper, k);
-  return api.post(`/api/papers/${view.paper}/acts`, P.makePaperAct({ sk: key.sk, pk: key.pk, paper: view.paper, k, act, ...fields }));
+  return Object.assign(api.post(`/api/papers/${view.paper}/acts`, P.makePaperAct({ sk: key.sk, pk: key.pk, paper: view.paper, k, act, ...fields })), { k });
 }
 // A surface of your house (law/paper.js SURFACES), matter of its own once you write on it: → { view (as the
 // stamper will have it), ready (its birth stamped) }

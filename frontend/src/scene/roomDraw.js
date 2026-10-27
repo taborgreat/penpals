@@ -11,7 +11,7 @@
 // what its dark curve adds (B); a cell of tone t shows A + t·B, plus the direct
 // light the shader adds.
 
-import { N, curves, surface as grown } from './light/index.js';
+import { N, curves, surface as grown, paperCurve } from './light/index.js';
 import { MATTER as LAW } from 'penpals-law/matter';
 
 const { CELL_M } = grown;
@@ -97,9 +97,16 @@ export const pairOf = (matter) => {
   const c = curves.MATTER[PAIR[matter]];
   return c.light ? c : { light: c, dark: c }; // (a matter of one curve: grass, a leaf)
 };
-// A row of the law's matter table (law/matter.js): the curves its `light` names.
+// A row of the law's matter table (law/matter.js): the curves its `light` names (paper's, and what is paper's
+// stuff, a wick's, a fibre's: the page's own, light/paper.js paperCurve).
+const PAPER_PAIR = (() => {
+  const c = paperCurve([0xf7, 0xf3, 0xea]); // (one kind of paper: law/paper.js; the page's colour)
+  return { light: c, dark: c };
+})();
 export const pairOfRow = (row) => {
-  const c = curves.MATTER[LAW[row].light];
+  const name = LAW[row].light;
+  const c = curves.MATTER[name];
+  if (!c) return name === 'paper' ? PAPER_PAIR : null;
   return c.light ? c : { light: c, dark: c };
 };
 

@@ -359,11 +359,13 @@ export function kindle({ at, way, which = 0, cd, candles = null, things = {}, ly
     // the cells alight now (room m: their middles)
     burning: () => [...h.live()].filter((i) => h.at(...h.coords(i)).burning).map(middle),
     burnt: (paper) => burnt.get(paper) ?? [],
-    // what fire left, where it lies: char and ash (room m: their cells' middles; µg)
+    // what fire left, where it lies: char and ash (room m: their cells' middles; µg); not what a paper's own record
+    // has (its burns lay their ash loose on it: law/v2/sim.js 18)
     left() {
       const out = [];
       const { mat, m, residue } = h.cells;
       for (let i = 0; i < mat.length; i++) {
+        if (owner[i]?.startsWith('paper:')) continue;
         if (mat[i] === CHAR || mat[i] === ASH) out.push([...middle(i), mat[i] === CHAR ? 'char' : 'ash', m[i] + residue[i]]);
         else if (residue[i] > 0) out.push([...middle(i), MATTER[h.at(...h.coords(i)).matter]?.becomes?.burnt ?? 'ash', residue[i]]);
       }

@@ -79,7 +79,7 @@ export function roomAct(name, key, room, act, { keepalive = false, k = null } = 
   const url = `/api/rooms/${encodeURIComponent(name)}/act`;
   if (keepalive) return fetch(url, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(made) }).catch(() => {});
   s.queue = s.queue.then(() => api.post(url, made).catch(() => {}));
-  return s.queue;
+  return Object.assign(s.queue, { act: made.act }); // (the act as made: a heap's name is its own)
 }
 
 const SEAT_X = [0, -0.45, 0.45, -0.9, 0.9]; // m from the middle seat (the owner's), along the table

@@ -54,7 +54,9 @@ export const footNow = (bodies, thing, ms = Date.now()) => (bodies[thing] ? body
 export const candleFoot = (bodies, which, ms) => footNow(bodies, `candle-${which}`, ms);
 // a body falling now (let go above where it rests, not yet down)
 const fallingNow = (b, ms) => !!b.fell && ms > b.fell.ms && bodyAt(b, ms)[2] > b.at[2];
-const KIND = (thing) => (thing.startsWith('candle-') ? 'candle' : R.PENS.includes(thing) ? 'pen' : thing);
+const KIND = (thing) => (thing.startsWith('candle-') ? 'candle' : R.PENS.includes(thing) ? 'pen' : R.isHeap(thing) ? 'heap' : thing);
+// a thing's shape: its own (a heap's: law/bodies.js heapShape), else its kind's
+const shapeOf = (bodies, thing) => bodies[thing]?.shape ?? BODIES.shapes[thing];
 const SWING_LASTS_MS = 120000; // a swing is drawn as it goes this long at most (law/string.js: it dies down long before)
 // how far the candle held by `by` leans (its last tilt act), else upright
 const tiltOf = (lines, thing, by) => {
@@ -110,6 +112,11 @@ export function useCarry({ name, me, key = null, room = null, pens = null }) {
     if (!name || !me || !key || !room) return null;
     // an act on a thing: sent, and shown done until the room's chain has it
     const act = (a) => {
+      if (a.act === 'heap') {
+        const sent = roomAct(name, key, room, a);
+        setPending((p) => [...p, { at: new Date().toISOString(), act: sent.act }]);
+        return sent;
+      }
       if (a.act === 'place' || a.act === 'tilt' || a.act === 'carry') {
         const mm = (p) => p.map((v) => Math.round(v * 1000));
         const shown = {
@@ -155,9 +162,12 @@ export function useCarry({ name, me, key = null, room = null, pens = null }) {
     // where the hand finds a thing: standing, its foot up its height; lying, along its length, as thick as it is
     const pickable = (thing, kind, id) => {
       const b = bodies[thing],
-        s = BODIES.shapes[thing];
+        s = shapeOf(bodies, thing);
       const foot = footNow(bodies, thing);
-      if (b?.lying) return { id, kind, at: [foot[0] + (b.lying[0] * s.h) / 2, foot[1] + (b.lying[1] * s.h) / 2, foot[2]], r: s.h / 2 + 0.01, h: 2 * s.r };
+      // (lying: its length along the way it lies, its round across: the box about that)
+      const [lx, ly] = b?.lying ? b.lying.map(Math.abs) : [0, 0];
+      if (b?.lying)
+        return { id, kind, at: [foot[0] + (b.lying[0] * s.h) / 2, foot[1] + (b.lying[1] * s.h) / 2, foot[2]], r: (lx * s.h) / 2 + ly * s.r + 0.01, ry: (ly * s.h) / 2 + lx * s.r + 0.01, h: 2 * s.r };
       return { id, kind, at: foot, r: s.r + 0.01, h: kind === 'pen' ? s.h * 2 : s.h };
     };
     const penHeld = pens?.held ?? 'pen';
@@ -172,9 +182,12 @@ export function useCarry({ name, me, key = null, room = null, pens = null }) {
           : [
               ...[0, 1].filter((w) => free(`candle-${w}`)).map((w) => pickable(`candle-${w}`, 'candle', w)),
               ...(free('stamper') ? [pickable('stamper', 'stamper', 'stamper')] : []),
-              ...R.PENS.filter((id) => free(id) && !bodies[id]?.held).map((id) => ({ ...pickable(id, 'pen', id), r: PEN.length / 2 })),
+              ...R.PENS.filter((id) => free(id) && !bodies[id]?.held).map((id) => ({ ...pickable(id, 'pen', id), r: PEN.length / 2, ry: PEN.thick / 2 + 0.01 })), // (a pen lies along the room's x: its length that way, its thickness across)
               ...(free('jar') ? [pickable('jar', 'jar', 'jar')] : []),
               ...(free('pendulum') ? [pickable('pendulum', 'pendulum', 'pendulum')] : []),
+              ...Object.keys(bodies)
+                .filter((id) => R.isHeap(id) && !bodies[id].held && free(id))
+                .map((id) => pickable(id, 'heap', id)),
             ],
       // take it up: → its kind (a pen taken up is the pen in the hand: SceneView's pen)
       pick(id) {
@@ -194,6 +207,20 @@ export function useCarry({ name, me, key = null, room = null, pens = null }) {
         placeThing(thing, null);
         return KIND(thing);
       },
+      // loose matter taken up (law/room.js heap: { matter, ng, at (room m: where), from }): a heap, in the hand
+      holdHeap(heap) {
+        const sent = act({ act: 'heap', heap });
+        const thing = sent.act.thing;
+        put({ thing, which: null, at: [heap.at[0], heap.at[1], heap.at[2] + HAND_M], tilt: 0 });
+        upright(held.current.at);
+        setHolding(thing);
+        return thing;
+      },
+      // the heaps in the room (law/bodies.js): each where it is (in the hand, or where it lies), its shape
+      heaps: () =>
+        Object.entries(live.current.bodies).flatMap(([id, b]) =>
+          R.isHeap(id) && b.shape ? [{ id, at: held.current?.thing === id ? held.current.at : footNow(live.current.bodies, id), ...b.shape }] : [],
+        ),
       // where the jar is now (room m): in the hand, or where it lies (and the way it lies, if it does)
       jarAt: () => (held.current?.thing === 'jar' ? held.current.at : footNow(live.current.bodies, 'jar')),
       jarLying: () => (held.current?.thing === 'jar' ? null : (live.current.bodies.jar?.lying ?? null)),
