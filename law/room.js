@@ -16,6 +16,11 @@
 //                                  carried does (Tabor, 2026-10-25: with nothing in it, the hand is your own matter)
 //            act 'open' | 'shut'   thing: the window (its sash: world.md Phase 3, what comes in through it),
 //                                  its shutters, or the door (outside.md Phase 4: shut, each is a wall)
+//            act 'heap'            thing: heapOf(by, k), matter (a row), ng, at: [x, y, z] (mm: where it was taken up),
+//                                  from: { paper, k } (the pinch that took it: law/paper.js) | { fire, at: [x, y] } (a
+//                                  fire's, law/fire.js left: what lay there, taken up off what has no chain): loose matter
+//                                  taken up, a heap in by's hand from then (one-matter.md Phase 4; Tabor, 2026-10-26:
+//                                  loose matter off a paper is a heap in the room), carried and let go as any thing is
 //            act 'set'             thing: a pen, set: its settings; the stamper, set: { name } its face (their facts: one-world.md, the panel for the pen
 //                                  in hand): what its nib is set to, its flow and spatter, its ink, and whether it
 //                                  is a dip pen (its line fading until it is dipped in the jar: rooms.md §3c)
@@ -92,8 +97,9 @@ const mm = (v) => Math.round(v * 1000);
 const inRoom = (p) => Array.isArray(p) && p.length === 3 && p.every((v, k) => Number.isInteger(v) && v >= -1000 && v <= REACH_MM[k] + 1000);
 
 // An act, made and sealed on the device (positions in room m: made whole millimetres here).
-export function makeRoomAct({ sk, pk, room, k, act, thing, to, pos, deg, set }) {
-  const body = { v: 2, kind: 'room', room, by: b64url(pk), k, act, thing };
+export function makeRoomAct({ sk, pk, room, k, act, thing, to, pos, deg, set, heap }) {
+  const body = { v: 2, kind: 'room', room, by: b64url(pk), k, act, thing: act === 'heap' ? heapOf(b64url(pk), k) : thing };
+  if (act === 'heap') Object.assign(body, { matter: heap.matter, ng: heap.ng, at: heap.at.map(mm), from: heap.from });
   if (act === 'place') body.to = to === null ? null : to.map(mm);
   if (act === 'set') body.set = set;
   if (act === 'carry') body.pos = pos.map(mm);
@@ -119,10 +125,13 @@ export function checkRoomAct(body) {
     set: 'act,by,k,kind,room,set,thing,v',
     open: 'act,by,k,kind,room,thing,v',
     shut: 'act,by,k,kind,room,thing,v',
+    heap: 'act,at,by,from,k,kind,matter,ng,room,thing,v',
   }[body.act];
   if (!want || Object.keys(body).sort().join() !== want) throw bad('not a room act');
   if (body.v !== 2 || body.kind !== 'room' || !isKey(body.room) || !isKey(body.by) || !Number.isInteger(body.k) || body.k < 1) throw bad('a malformed room act');
-  if (body.act === 'reach' ? body.thing !== 'hand' : !THINGS.includes(body.thing)) throw bad('not a thing in a room');
+  if (body.act === 'reach' ? body.thing !== 'hand' : !THINGS.includes(body.thing) && !isHeap(body.thing)) throw bad('not a thing in a room');
+  if (body.act === 'heap') checkHeap(body);
+  else if (isHeap(body.thing) && body.act !== 'place' && body.act !== 'carry') throw bad('a heap is only carried and let go');
   if (body.act === 'reach' && body.pos !== null && !inRoom(body.pos)) throw bad('a malformed reach');
   if ((body.act === 'light' || body.act === 'out' || body.act === 'tilt') && !CANDLES.includes(body.thing)) throw bad('only a candle is lit, put out or tilted');
   if ((body.act === 'open' || body.act === 'shut') !== OPENINGS.includes(body.thing)) throw bad('only a window, its shutters or a door is opened or shut, and they are only opened or shut');
@@ -137,6 +146,29 @@ export function checkRoomAct(body) {
   return body;
 }
 
+// A heap (loose matter taken up: one-matter.md Phase 4): its name is its maker's and its act's, so no one names
+// another's; its matter a row's; how much of it; where it was taken up, and from what.
+export const heapOf = (by, k) => `heap:${by.slice(0, 11)}.${k}`;
+export const isHeap = (thing) => typeof thing === 'string' && /^heap:[A-Za-z0-9_-]{11}\.[1-9][0-9]{0,9}$/.test(thing);
+export const HEAP_MAX_NG = 1e12; // (a handful of anything loose and more: law/making.js HAND is 0.2 l)
+function checkHeap(body) {
+  if (body.thing !== heapOf(body.by, body.k)) throw bad("a heap is named by its maker's act");
+  if (typeof body.matter !== 'string' || !/^[a-z]{2,16}$/.test(body.matter)) throw bad('a heap is of a matter');
+  if (!Number.isInteger(body.ng) || body.ng < 1 || body.ng > HEAP_MAX_NG) throw bad('a heap holds some ng');
+  if (!inRoom(body.at)) throw bad('a heap is taken up in the room');
+  const f = body.from;
+  const ok =
+    f &&
+    typeof f === 'object' &&
+    ((Object.keys(f).sort().join() === 'k,paper' && typeof f.paper === 'string' && f.paper.length <= 64 && Number.isInteger(f.k) && f.k >= 1) ||
+      (Object.keys(f).sort().join() === 'at,fire' &&
+        typeof f.fire === 'string' &&
+        f.fire.length <= 64 &&
+        Array.isArray(f.at) &&
+        f.at.length === 2 &&
+        f.at.every((v) => Number.isInteger(v) && v >= -1000 && v <= 5000)));
+  if (!ok) throw bad('a heap names what it was taken from');
+}
 // A pen's settings, as its nib takes them: every field, each a plain value in its range.
 const PEN_FIELDS = {
   pen: ['color', 'dip', 'flow', 'size', 'spatter'],

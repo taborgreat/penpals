@@ -7,10 +7,11 @@ import assert from 'node:assert/strict';
 import { keys as K, b64url } from '../index.js';
 import { lawOf } from '../laws.js';
 import { record, samplePath } from '../tools/fixtures.js';
-import { makePaper, makePaperAct, makeSurface, checkBirth, replay, compose, growPaper, startState, refusal, apply, lawFor, LIFT_WINDOW, SURFACES, PAPER_LAW } from '../paper.js';
+import { makePaper, makePaperAct, makeSurface, checkBirth, replay, compose, growPaper, startState, refusal, apply, lawFor, checkPaperAct, LIFT_WINDOW, SURFACES, PAPER_LAW } from '../paper.js';
 import { HOUSE } from '../room.js';
 import { WATER, TORN } from '../v2/constants.js';
-import { idOf } from '../matter.js';
+import { idOf, CELL_M } from '../matter.js';
+import * as MK from '../making.js';
 
 const L = lawOf(2);
 const keyOf = (n) => {
@@ -279,6 +280,46 @@ test("a house's wall is matter too: its owner's, where it is for good; its owner
   assert.ok(grown.cells.length > 0, 'ink on the plaster');
   const asPaper = growPaper(s.lines, { seed: checkBirth(wall.birth, wall).seed, family: FAMILY, law: lawFor(wall.birth) });
   assert.notEqual(b64url(grown.facts), b64url(asPaper.facts), 'on plaster it is not as on paper');
+});
+
+test('a pinch takes up what lies loose under a fingertip, and no more; what it took is counted (law 5)', () => {
+  const r = record(
+    [
+      {
+        path: samplePath(
+          (u) => [20 + 130 * Math.abs(((u * 40) % 2) - 1), 20],
+          () => 30,
+          { pressure: () => 1 },
+        ),
+        pen: { ...BLUE, flow: 0 },
+        start: 0,
+        hasP: true,
+      },
+    ],
+    [0, 0],
+  );
+  const s = stamper();
+  assert.equal(s.act(ana, 'stroke', 1000, { stroke: L.encodeActs(r) }), null);
+  const loose = (g) => g.cells.filter((c) => c[19] > 0);
+  const sum = (cells) => cells.reduce((n, c) => n + c[19], 0);
+  const before = growPaper(s.lines, { seed, family: FAMILY, law: PAPER_LAW });
+  // a fingertip at the scrape's left end (its units: tenths)
+  assert.equal(s.act(bo, 'pinch', 9000, { pinch: { x: 200, y: 200 } }), null, "anyone's fingers, where it lies");
+  const after = growPaper(s.lines, { seed, family: FAMILY, law: PAPER_LAW });
+  const taken = after.cuts.taken;
+  assert.ok(taken > 0, 'something taken up');
+  assert.equal(sum(loose(after)), sum(loose(before)) - taken, 'what is gone from it is what was taken');
+  assert.deepEqual(Object.keys(after.cuts.takenBy), ['paper'], 'its fluff, paper');
+  // under the fingertip nothing is left; past it, all as it was
+  const r2 = (MK.BEING.finger / 2 / CELL_M) ** 2;
+  const [cx, cy] = [(200 / 10) * 2, (200 / 10) * 2]; // (cells: two a unit)
+  assert.ok(loose(after).every((c) => (c[1] - cx) ** 2 + (c[2] - cy) ** 2 > r2 - 4));
+  assert.ok(
+    loose(before).some((c) => (c[1] - cx) ** 2 + (c[2] - cy) ** 2 > r2 + 4),
+    'fluff lay past its reach too',
+  );
+  // the act as anyone checks it
+  assert.throws(() => checkPaperAct({ v: 3, kind: 'paper', paper: s.lines[0].act.paper, by: bo.id, k: 1, act: 'pinch', pinch: { x: -1, y: 0 } }), /malformed pinch/);
 });
 
 test('a breath across a paper blows what lies loose on it along it, as far as the jet carries it; nothing is lost (law 5)', () => {

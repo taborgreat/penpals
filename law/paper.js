@@ -18,6 +18,8 @@
 //            'press' press: { x, y, depth, angle, tiltX, tiltY, cell, w, h, face, for }   'break' break: { seal, from, to }
 //            'blow' blow: { x, y (where the breath meets it: tenths of its units), dir (0..359), dist (mm from the
 //            mouth) }: a breath across it (law 5: what lies loose on it is blown), anyone's, where it lies
+//            'pinch' pinch: { x, y (where the fingertip is: tenths of its units) }: what lies loose under it taken
+//            up (law 5: it is a heap in that being's hand, law/room.js), anyone's, where it lies
 //     moves  'take'                into by's hand, from where it lies (out of a mailbox or a book: its owner's)
 //            'put'   space, at     out of by's hand, let go in a space (a house, by its owner's key; or
 //                                  'outside') at [x, y, z] (mm: room or world): it falls flat until it rests
@@ -113,7 +115,7 @@ export function makeSurface({ sk, pk, paper, surface }) {
 }
 
 // An act on a paper (places in m: made whole millimetres here).
-export function makePaperAct({ sk, pk, paper, k, act, stroke = null, lift = null, press = null, broke = null, space = null, at = null, to = null, book = null, blow = null }) {
+export function makePaperAct({ sk, pk, paper, k, act, stroke = null, lift = null, press = null, broke = null, space = null, at = null, to = null, book = null, blow = null, pinch = null }) {
   const body = { v: 3, kind: 'paper', paper, by: b64url(pk), k, act };
   if (act === 'stroke') body.stroke = b64url(stroke);
   if (act === 'lift') body.lift = lift;
@@ -123,6 +125,7 @@ export function makePaperAct({ sk, pk, paper, k, act, stroke = null, lift = null
   if (act === 'post') body.to = to;
   if (act === 'shelve') body.book = [...book];
   if (act === 'blow') body.blow = { x: blow.x, y: blow.y, dir: blow.dir, dist: blow.dist };
+  if (act === 'pinch') body.pinch = { x: pinch.x, y: pinch.y };
   checkPaperAct(body);
   return { act: body, seal: b64url(sign(sk, sealMsg(paperDigest(body)))) };
 }
@@ -142,6 +145,7 @@ export function checkPaperAct(body) {
     break: 'act,break,by,k,kind,paper,v',
     take: 'act,by,k,kind,paper,v',
     blow: 'act,blow,by,k,kind,paper,v',
+    pinch: 'act,by,k,kind,paper,pinch,v',
     put: 'act,at,by,k,kind,paper,space,v',
     post: 'act,by,k,kind,paper,to,v',
     shelve: 'act,book,by,k,kind,paper,v',
@@ -158,6 +162,8 @@ export function checkPaperAct(body) {
     if (!b || typeof b !== 'object' || Object.keys(b).sort().join() !== 'dir,dist,x,y' || !int(b.x, 0, MAX_COORD) || !int(b.y, 0, MAX_COORD) || !int(b.dir, 0, 359) || !int(b.dist, 1, 10000))
       throw bad('a malformed breath');
   }
+  if (body.act === 'pinch' && !point([body.pinch?.x, body.pinch?.y])) throw bad('a malformed pinch');
+  if (body.pinch && Object.keys(body.pinch).sort().join() !== 'x,y') throw bad('a malformed pinch');
   if (body.act === 'put' && ((body.space !== 'outside' && !isKey(body.space)) || !isPlace(body.at))) throw bad('a paper is let go in a space, at a place');
   if (body.act === 'post' && !isKey(body.to)) throw bad('a letter names its mailbox by its key');
   if (body.act === 'shelve' && !isBook(body.book)) throw bad('a book is named by its path');
@@ -259,6 +265,7 @@ export function refusal(state, act) {
   }
   if (act.act === 'put' || act.act === 'post') return w.hand === act.by ? null : 'it is not in your hand';
   if (act.act === 'blow') return w.space ? (state.law >= 5 ? null : 'a breath is law 5') : 'it is not lying anywhere'; // (anyone's breath: it marks nothing)
+  if (act.act === 'pinch') return w.space ? (state.law >= 5 ? null : 'a pinch is law 5') : 'it is not lying anywhere'; // (anyone's fingers: they mark nothing)
   if (act.act === 'shelve') return w.hand !== act.by ? 'it is not in your hand' : state.owner !== act.by ? 'only its owner saves it into their book' : null;
   if (act.act === 'press' || act.act === 'break') {
     if (act.by !== state.owner) return 'only its owner presses or breaks a seal';
@@ -332,7 +339,7 @@ const asWater = (s) => ({ ...s, pens: s.pens.map((p, i) => (i === 0 || p.rgb ? {
 // lines: stamped, allowed (replay first); drips: those that landed on it (wax.js dripsOn); burns: its cells burnt
 // away (law/fire.js burntOn: [{ t (ms on its clock), x, y, w, h }]), each at its moment as a drip is.
 // → the PNKA record (law 3's format) of all its strokes and its wax.
-const MARKED = new Set(['stroke', 'drip', 'press', 'break', 'blow', 'burn']);
+const MARKED = new Set(['stroke', 'drip', 'press', 'break', 'blow', 'burn', 'pinch']);
 export function compose(lines, drips = [], burns = []) {
   const L = lawOf(SURFACE_LAW); // (reads every stroke a paper's or a surface's law takes)
   const lifted = new Set(lines.filter((l) => l.act.act === 'lift').map((l) => l.act.lift));
@@ -397,6 +404,7 @@ export function compose(lines, drips = [], burns = []) {
 function markOf(a, t) {
   if (a.act === 'drip') return { kind: 'drip', t, x: a.drip.x, y: a.drip.y, amt: a.drip.amt, heat: a.drip.heat };
   if (a.act === 'blow') return { kind: 'blow', t, x: a.blow.x, y: a.blow.y, dir: a.blow.dir, dist: a.blow.dist };
+  if (a.act === 'pinch') return { kind: 'pinch', t, x: a.pinch.x, y: a.pinch.y };
   if (a.act === 'burn') return { kind: 'burn', t, x: a.burn.x, y: a.burn.y, w: a.burn.w, h: a.burn.h };
   if (a.act === 'press') {
     const q = a.press;

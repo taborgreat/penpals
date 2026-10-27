@@ -28,6 +28,7 @@ import { userDir, findByKey, getAccount } from './accounts.js';
 import { houseOf, allHouses } from './world.js';
 import { being as B, room as R, outside as O } from 'penpals-law';
 import { now as clock } from '../clock.js';
+import { paperOf } from './papers.js';
 
 export const MAX_BEINGS = 8; // how many may be in a room at once (Tabor's to set)
 // A being stays this long after its last stream closes, so the acts it sent as it went (the
@@ -50,6 +51,7 @@ function stateOf(lines) {
     if (a.act === 'place') things[a.thing] = { ...things[a.thing], at: a.to === null ? null : metres(a.to), by: nameOf(a.by) };
     if (a.act === 'set') things[a.thing] = { ...things[a.thing], set: a.set };
     if (a.act === 'open' || a.act === 'shut') things[a.thing] = { ...things[a.thing], open: a.act === 'open' };
+    if (a.act === 'heap') things[a.thing] = { at: null, by: nameOf(a.by), heap: { matter: a.matter, ng: a.ng } };
   }
   return { things, lit, counted };
 }
@@ -216,6 +218,11 @@ export async function act(ownerId, userId, owner, { act: a, seal } = {}) {
   const count = `${a.by}.${a.k}`;
   if (r.counted.has(count)) return { why: 'That act was stamped already.', status: 409 };
   const held = r.things[a.thing];
+  if (a.act === 'heap') {
+    // loose matter taken up (one-matter.md Phase 4): off a paper, only by the pinch that took it, its own
+    if ('paper' in a.from && !paperOf(a.from.paper)?.lines.some((l) => l.act.act === 'pinch' && l.act.by === a.by && l.act.k === a.from.k))
+      return { why: 'No pinch of yours took that up.', status: 409 };
+  } else if (R.isHeap(a.thing) && !held) return { why: 'There is no such heap.', status: 409 };
   const holding = held && held.at === null && held.by !== b.name && [...r.beings.values()].some((x) => x.name === held.by); // (one gone: it is anyone's)
   if (a.act === 'place' && holding) return { why: 'Someone else is holding it.', status: 409 };
   if (a.act === 'tilt') {
@@ -232,9 +239,10 @@ export async function act(ownerId, userId, owner, { act: a, seal } = {}) {
   if (a.act === 'place') r.things[a.thing] = { ...r.things[a.thing], at: a.to === null ? null : metres(a.to), by: b.name };
   if (a.act === 'set') r.things[a.thing] = { ...r.things[a.thing], set: a.set };
   if (a.act === 'open' || a.act === 'shut') r.things[a.thing] = { ...r.things[a.thing], open: a.act === 'open' };
+  if (a.act === 'heap') r.things[a.thing] = { at: null, by: b.name, heap: { matter: a.matter, ng: a.ng } };
   if (a.act === 'light' || a.act === 'out') r.lit[a.thing] = a.act === 'light';
   const line = await record(ownerId, r, { act: a, seal });
-  if (a.act === 'place' || a.act === 'set' || a.act === 'open' || a.act === 'shut') tellAll(r, 'thing', { thing: a.thing, ...r.things[a.thing] });
+  if (a.act === 'place' || a.act === 'set' || a.act === 'open' || a.act === 'shut' || a.act === 'heap') tellAll(r, 'thing', { thing: a.thing, ...r.things[a.thing] });
   if (a.act === 'open' || a.act === 'shut') {
     const now = { ...(await opensOf(ownerId)), [a.thing]: a.act === 'open' };
     opens.set(owner.publicKey, now);

@@ -62,7 +62,7 @@ const SPATTER = 0x40;
 const WELL = 0x80;
 const MATTER_BIT = 0x100;
 const GALL_BIT = 0x200;
-export const MARK_KINDS = ['drip', 'press', 'break', 'pour', 'blow', 'burn'];
+export const MARK_KINDS = ['drip', 'press', 'break', 'pour', 'blow', 'burn', 'pinch'];
 export const POUR_MAX = 1 << 20; // drops a pour mark lands at most (more is several marks)
 const bad = (msg) => new LawError('acts', msg);
 
@@ -125,8 +125,9 @@ export function encodeActs(rec) {
   const w = new Writer();
   for (const b of MAGIC) w.byte(b);
   const masks = rec.strokes.flatMap((s) => s.pens.map((pen) => pen.mask ?? penMask(pen)));
-  const format =
-    masks.some((m) => m & GALL_BIT) || rec.marks?.some((m) => m.kind === 'blow' || m.kind === 'burn')
+  const format = rec.marks?.some((m) => m.kind === 'pinch')
+    ? 7
+    : masks.some((m) => m & GALL_BIT) || rec.marks?.some((m) => m.kind === 'blow' || m.kind === 'burn')
       ? 6
       : masks.some((m) => m & MATTER_BIT)
         ? 5
@@ -203,6 +204,8 @@ export function encodeActs(rec) {
       } else if (m.kind === 'burn') {
         w.varint(m.w);
         w.varint(m.h);
+      } else if (m.kind === 'pinch') {
+        // (its place is all of it)
       } else {
         w.varint(m.x1);
         w.varint(m.y1);
@@ -231,13 +234,13 @@ function penMask(pen) {
 
 // --- decode (validates every canonical rule) ---
 
-// maxFormat: the highest format the reader's law takes (2 for law 2, 3 for law 3, 5 for law 4, 6 for law 5).
+// maxFormat: the highest format the reader's law takes (2 for law 2, 3 for law 3, 5 for law 4, 7 for law 5).
 export function decodeActs(bytes, { maxFormat = 2 } = {}) {
   if (!(bytes instanceof Uint8Array)) throw bad('acts are bytes');
   const r = new Reader(bytes);
   for (const b of MAGIC) if (r.byte() !== b) throw bad('not PNKA');
   const format = r.byte();
-  if (format < 1 || format > Math.min(6, maxFormat)) throw bad('unknown PNKA format');
+  if (format < 1 || format > Math.min(7, maxFormat)) throw bad('unknown PNKA format');
   const reserved = format === 1 ? 0xc0 : format === 2 ? 0x80 : format < 5 ? 0 : format === 5 ? ~0x1ff : ~0x3ff;
   const orgX = r.varint();
   const orgY = r.varint();
@@ -357,7 +360,7 @@ function readMarks(r, format) {
   };
   for (let k = 0; k < n; k++) {
     const kind = MARK_KINDS[r.byte() - 1];
-    if (!kind || (kind === 'pour' && format < 4) || ((kind === 'blow' || kind === 'burn') && format < 6)) throw bad('unknown mark');
+    if (!kind || (kind === 'pour' && format < 4) || ((kind === 'blow' || kind === 'burn') && format < 6) || (kind === 'pinch' && format < 7)) throw bad('unknown mark');
     t += r.varint();
     if (t > MAX_DURATION) throw bad('too long');
     const m = { kind, t, x: coord(), y: coord() };
@@ -376,6 +379,8 @@ function readMarks(r, format) {
       m.w = r.varint();
       m.h = r.varint();
       if (m.w < 1 || m.h < 1 || m.w > MAX_COORD || m.h > MAX_COORD) throw bad('burn out of range');
+    } else if (kind === 'pinch') {
+      // (its place is all of it)
     } else if (kind === 'press') {
       m.depth = r.byte();
       m.angle = r.byte();

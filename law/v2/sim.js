@@ -86,6 +86,9 @@
 //  18. burnt (matter.md, the house fire; law/fire.js grows the fire, no one writes it): the cells of a rectangle of
 //      the sheet burnt away at their moment: gone (a hole), all they held with them (as smoke), and what their row
 //      leaves burnt (its ash) lying loose where they were.
+//  19. a pinch (one-matter.md Phase 4: loose matter can be picked up): a fingertip (law/making.js BEING.finger
+//      across) at a cell takes up all that lies loose under it. It is in the hand now (a heap in the room: law/
+//      room.js): nothing is deleted, what is taken is counted (cuts.taken, and by matter).
 //
 // Nothing computes on a dry tile: every new rule runs inside the loops over
 // wet tiles (flow, settle, revive, dry), under the nib (stamp), or over warm
@@ -637,6 +640,28 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
       if (tl.looseA[il] < ng) tl.looseM[il] = m; // (what lies there most is what it is)
       tl.looseA[il] += ng;
       cuts.blown = (cuts.blown ?? 0) + ng;
+    }
+  }
+  // (19) A fingertip at cell (cx, cy): all that lies loose under it, taken up.
+  function pinch(cx, cy) {
+    const r = MK_BEING.finger / 2 / CELL_M; // cells
+    const r2 = r * r;
+    for (const t of tiles.values()) {
+      if (!t.looseA) continue;
+      for (let i = 0; i < TT; i++) {
+        const ng = t.looseA[i];
+        if (!ng) continue;
+        const dx = t.tx * TILE + (i % TILE) - cx,
+          dy = t.ty * TILE + Math.floor(i / TILE) - cy;
+        if (dx * dx + dy * dy > r2) continue;
+        if (journals.length) cow(t);
+        if (dirty) dirty.add(t);
+        const m = ORDER[t.looseM[i]];
+        t.looseA[i] = 0;
+        cuts.loose -= ng;
+        cuts.taken = (cuts.taken ?? 0) + ng;
+        cuts.takenBy = { ...cuts.takenBy, [m]: (cuts.takenBy?.[m] ?? 0) + ng };
+      }
     }
   }
   // A cell's face worn as far as `level` of `strength`: the sheet's fibers that have gone, shed.
@@ -1551,6 +1576,11 @@ export function createSim({ paperKey, family, scale = SCALE_ONE, orgX = 0, orgY 
     if (m.kind === 'blow') {
       if (law < 5) throw new LawError('acts', 'a breath is law 5');
       blow(cx, cy, m.dir, m.dist);
+      return;
+    }
+    if (m.kind === 'pinch') {
+      if (law < 5) throw new LawError('acts', 'a pinch is law 5');
+      pinch(cx, cy);
       return;
     }
     if (m.kind === 'pour') {

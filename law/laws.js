@@ -114,8 +114,8 @@ LAWS[4] = Object.freeze({
 LAWS[5] = Object.freeze({
   ...LAWS[4],
   law: 5,
-  decodeActs: (bytes) => v2acts.decodeActs(bytes, { maxFormat: 6 }),
-  decodeCanonical: (bytes) => v2acts.decodeCanonical(bytes, { maxFormat: 6 }),
+  decodeActs: (bytes) => v2acts.decodeActs(bytes, { maxFormat: 7 }),
+  decodeCanonical: (bytes) => v2acts.decodeCanonical(bytes, { maxFormat: 7 }),
   settledCells: (tiles) => v2look.settledCells(tiles, { law: 5 }),
   grow: (rec, opts) => v2sim.grow(rec, { ...opts, law: 5 }),
   createLive: (sheet) => v2live.createLive({ ...sheet, law: 5 }),

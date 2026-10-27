@@ -98,3 +98,35 @@ test('a pendulum: its bob hangs still from its arm; pushed aside by a hand, it s
   assert.ok(Math.abs(at(600000)[1] - tied[1]) < 1e-3, 'and comes to rest under its arm');
   assert.ok(near(bodiesOf(lines, ctx).get('pendulum').at, [1.2, 2.2, 0.74]), 'its stand where it stood');
 });
+
+test('a heap of loose matter taken up is a body in its maker’s hand: let go, it falls and rests; its shape its matter’s', async () => {
+  const { heapShape } = await import('../bodies.js');
+  const R = await import('../room.js');
+  const { keys: K, b64url } = await import('../index.js');
+  const { MATTER } = await import('../matter.js');
+  // its shape: a cone of its matter at its angle of repose (tan θ its friction), as much of it as it is
+  const s = heapShape('ash', 2e6);
+  assert.ok(Math.abs(s.h / s.r - MATTER.ash.friction / 1000) < 1e-12);
+  assert.ok(Math.abs((Math.PI * s.r * s.r * s.h) / 3 - (2e6 * 1e-12) / MATTER.ash.density) < 1e-15);
+  // made by an act, in the hand; carried and let go over the table, it falls onto it
+  const heap = 'heap:abcdefghijk.3';
+  const B = bodiesOf(
+    [act({ act: 'heap', thing: heap, matter: 'ash', ng: 2e6, at: mm([1.6, 2.3, 0.75]), from: { fire: 'f', at: [1600, 2300] } }), carry(heap, [1.7, 2.3, 0.9]), letGo(heap, [1.7, 2.3, 0.9])],
+    { room, shapes, start },
+  );
+  const h = B.get(heap);
+  assert.equal(h.held, null);
+  assert.ok(near(h.at, [1.7, 2.3, 0.74]), `on the table: ${h.at}`);
+  assert.deepEqual(h.shape, s);
+  // the act as anyone checks it: named by its maker's act, of a matter, some of it, from somewhere
+  const sk = K.skFromK(new Uint8Array(32).fill(9));
+  const ana = { sk, pk: K.publicKeyOf(sk) };
+  const made = R.makeRoomAct({ sk: ana.sk, pk: ana.pk, room: b64url(ana.pk), k: 3, act: 'heap', heap: { matter: 'paper', ng: 5000, at: [1.6, 2.3, 0.75], from: { paper: 'p', k: 2 } } });
+  assert.equal(made.act.thing, R.heapOf(b64url(ana.pk), 3));
+  assert.ok(R.verifyRoomActSeal(made.act, made.seal));
+  assert.throws(() => R.checkRoomAct({ ...made.act, thing: 'heap:zzzzzzzzzzz.3' }), /named by its maker/);
+  assert.throws(() => R.checkRoomAct({ ...made.act, ng: 0 }), /some ng/);
+  assert.throws(() => R.checkRoomAct({ ...made.act, act: 'light' }), /not a room act|only a candle/);
+  // carried and let go as any thing; nothing else is done to it
+  assert.doesNotThrow(() => R.checkRoomAct({ v: 2, kind: 'room', room: b64url(ana.pk), by: b64url(ana.pk), k: 4, act: 'place', thing: made.act.thing, to: null }));
+});

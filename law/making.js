@@ -37,7 +37,7 @@
 import { MATTER, AIR } from './matter.js';
 
 export const HAND = 0.0002; // m³ a hand holds (a handful: Tabor's to set)
-export const BEING = Object.freeze({ pull: 300, swing: 10, breath: 6, mouth: 0.01 }); // N a hand pulls (and presses); m/s the fastest an arm's end goes, swung or rubbing; m/s a breath blown, out of a mouth m wide (Tabor's to set)
+export const BEING = Object.freeze({ pull: 300, swing: 10, breath: 6, mouth: 0.01, finger: 0.012 }); // N a hand pulls (and presses); m/s the fastest an arm's end goes, swung or rubbing; m/s a breath blown, out of a mouth m wide; a fingertip m across (what a pinch takes up from) (Tabor's to set)
 export const FIBRE_LENGTH = 0.3; // m: a grass blade, twisted along its length (Tabor's to set)
 export const BIND = 0.3; // g of metal a gram of gall's tannin binds black (Tabor's to set)
 export const CORRODES = 0.2; // the share of its paper's strength a gram of free metal a gram of ink eats a year (Tabor's to set)

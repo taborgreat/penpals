@@ -335,6 +335,27 @@ test('things: acts sealed by their being; a candle picked up is held (no one els
   back.close();
 });
 
+test('heaps: loose matter taken up is a heap in the hand, carried and let go as a thing; off a paper only by the pinch that took it', async () => {
+  const host = await stream(ana, 'ana');
+  await host.until('here');
+  // a fire's ash, taken up off the bare table
+  const ash = roomAct(ana, ana, { act: 'heap', heap: { matter: 'ash', ng: 40000, at: [1.6, 2.8, 0.745], from: { fire: '1:0', at: [1600, 2800] } } });
+  assert.equal((await doIn(ana, ana, ash)).status, 200, 'taken up');
+  const told = await host.until('thing', (d) => d.thing === ash.act.thing);
+  assert.deepEqual(told.data, { thing: ash.act.thing, at: null, by: 'ana', heap: { matter: 'ash', ng: 40000 } });
+  // let go: it lies where it was let go; nothing else is done to a heap
+  assert.equal((await doIn(ana, ana, roomAct(ana, ana, { act: 'carry', thing: ash.act.thing, pos: [1.7, 2.8, 0.9] }))).status, 200);
+  assert.equal((await doIn(ana, ana, roomAct(ana, ana, { act: 'place', thing: ash.act.thing, to: [1.7, 2.8, 0.9] }))).status, 200);
+  assert.throws(() => R.makeRoomAct({ sk: ana.sk, pk: ana.pk, room: b64url(ana.pk), k: 99, act: 'set', thing: ash.act.thing, set: { name: 'x' } }), /only carried and let go/, 'a heap is not set');
+  // off a paper: only by a pinch of hers on it
+  const fake = roomAct(ana, ana, { act: 'heap', heap: { matter: 'paper', ng: 5000, at: [1.6, 2.8, 0.745], from: { paper: 'p' + 'a'.repeat(26), k: 7 } } });
+  assert.equal((await doIn(ana, ana, fake)).status, 409, 'no pinch took that up');
+  // and a heap no one made is no thing
+  const none = roomAct(ana, ana, { act: 'place', thing: 'heap:aaaaaaaaaaa.9', to: null });
+  assert.equal((await doIn(ana, ana, none)).status, 409, 'no such heap');
+  host.close();
+});
+
 test("pens: a pen's settings are its facts: set only by the hand holding it, told to everyone in the room, kept when the room sleeps", async () => {
   const host = await stream(ana, 'ana');
   await host.until('here');

@@ -21,6 +21,8 @@
 //            stand's arm); pushed, it goes aside as far as they touch, never farther from where it hangs than its
 //            string, and let go there it swings as the string law has it, until it hangs still again.
 //   startBodies(start) → state;  stepBodies(state, line, ctx) (a stamped room line: { at, act });  bodiesOf(lines, ctx)
+//   Heaps   loose matter taken up (law/room.js heap) is a body from then: made in its maker's hand, its shape its own
+//            (heapShape: a cone of its matter at its angle of repose), kept in its state (shape)
 //   state: { [thing]: { at: [x, y, z] (its foot, m), lying: null | [ux, uy] (the way its length lies from its foot),
 //     held: the key holding it | null, moved: ms (the act it came to rest by), fell: { from: [x, y, z], ms } | null
 //     (let go above where it rests: falling from there then) } } (plain data: copied as any state is)
@@ -44,8 +46,27 @@ const hyp = (x, y) => Math.sqrt(x * x + y * y);
 
 export const startBodies = (start) => Object.fromEntries(Object.entries(start).map(([thing, at]) => [thing, { at: at.slice(), lying: null, held: null, moved: 0, fell: null }]));
 
-export function stepBodies(S, l, { room, shapes }) {
+// A heap of loose matter (law/room.js heap): a cone of it at its angle of repose (a heap of grains stands as steep
+// as their friction on each other holds them: tan θ = μ), as much of it as it is (its row's density: its grains'
+// own, the air between them not counted). → { r, h, matter } (m)
+export function heapShape(matter, ng) {
+  const row = MATTER[matter];
+  const V = (ng * 1e-12) / row.density; // m³
+  const tan = row.friction / 1000;
+  const r = Math.cbrt((3 * V) / (Math.PI * tan));
+  return { r, h: r * tan, matter };
+}
+
+export function stepBodies(S, l, { room, shapes: made }) {
   const a = l.act;
+  // (each heap's shape is its own: made by its heap act)
+  const heaps = Object.entries(S).filter(([, b]) => b.shape);
+  const shapes = heaps.length ? { ...made, ...Object.fromEntries(heaps.map(([id, b]) => [id, b.shape])) } : made;
+  if (a?.kind === 'room' && a.act === 'heap') {
+    // loose matter taken up: a heap in its maker's hand, where it was taken up
+    if (!S[a.thing] && MATTER[a.matter]) S[a.thing] = { at: mm(a.at), lying: null, held: a.by, moved: msOf(l), fell: null, shape: heapShape(a.matter, a.ng) };
+    return S;
+  }
   const isHand = a?.kind === 'room' && a.act === 'reach' && !!shapes.hand;
   if (a?.kind !== 'room' || (!isHand && (!S[a.thing] || !shapes[a.thing]))) return S;
   const T = room.table;
