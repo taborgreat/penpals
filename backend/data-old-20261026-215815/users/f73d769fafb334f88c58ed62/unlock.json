@@ -1,0 +1,20 @@
+{
+ "oprfKey": "NCMga9ZIpA-pAiExtqk_tm8e0-9gn6TZumdvW6kSIAo",
+ "keyring": {
+  "v": 1,
+  "kdf": {
+   "alg": "argon2id",
+   "t": 2,
+   "m": 19456,
+   "p": 1,
+   "salt": "d0QF0HyLTb7qlKeSTtw0bA"
+  },
+  "openers": [
+   {
+    "kind": "password",
+    "nonce": "XhN9kpeObaGTmgWfMEwn0tKqdbPLNSGk",
+    "ct": "k9eLJEdWEn-8ripLCT9e9szdgvARaJuLZzMhCQfFd5NxtKENgJjgR04-TyREKDSK"
+   }
+  ]
+ }
+}
