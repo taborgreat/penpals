@@ -378,7 +378,9 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
     slab: gpu.slabMaterial(lights, K),
   };
   // a sheet's base: drawn first, writing no depth, kept out of the chunks' footprints
-  const asBase = (m) => Object.assign(m, { depthWrite: false, stencilWrite: true, stencilWriteMask: 0, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc });
+  // (the base: drawn only where no chunk's footprint is in the stencil, so it never meets a chunk; it writes depth, so
+  // what lies under the paper, the table's own ink, wax, a heap, stays under it)
+  const asBase = (m) => Object.assign(m, { depthWrite: true, stencilWrite: true, stencilWriteMask: 0, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc });
   asBase(mats.base);
   // the bakes are drawn into these, then copied into the chunk's own (two bake pipelines in all)
   const baked = { surface: bakeTarget(THREE.HalfFloatType), shade: bakeTarget(THREE.UnsignedByteType) };
@@ -1581,7 +1583,7 @@ export function createView(target, { host = null, invalidate = () => {}, seeds =
       sheet.slab = slab(sheet);
       sheet.group.add(sheet.slab);
       // the paper itself, lit, where no chunk holds anything: one flat sheet under
-      // the chunks (drawn first, writing no depth, so a chunk always shows over it)
+      // the chunks (drawn after their footprints, only outside them: asBase)
       const grain = { detailScale: new THREE.Vector2(w / 256, h / 256), cellPx, room: sheet.room };
       sheet.base = new THREE.Mesh(lodGeo[2], own ? asBase(gpu.flatMaterial(lights, K, grain)) : mats.base);
       sheet.base.userData.c = grain;
