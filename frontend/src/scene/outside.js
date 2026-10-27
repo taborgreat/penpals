@@ -26,6 +26,7 @@ import * as GRASS from 'penpals-law/grass';
 import { limbsOf } from 'penpals-law/tree';
 
 export const SIGHT = 40; // m the outside is grown out to around what sees it (Tabor's to set)
+export const LIVELY = 3; // the oaks nearest the house whose life runs (Tabor's to set, 2026-10-26: only those, for the frames)
 export const GROUND_STEP = 1; // m between the ground's drawn heights (a drawing's grain)
 // A house's mailbox (one-world.md): where it stands from the house's corner (m: beside its door, a step out
 // from the wall the door is in), how big its box is and how high on its post. Tabor's to set.
@@ -53,6 +54,15 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms
   const [X, Y] = F.toWorld(centre);
   const others = houses.filter((h) => WORLD.plotKey(h.plot) !== WORLD.plotKey(plot));
   const got = O.near(X, Y, SIGHT, { houses: [...houses, { plot }], day });
+  // the oaks whose life runs: the house's nearest (the rest stand still: what lives in every oak was too much
+  // to fly at once)
+  const [HX, HY] = F.toWorld([W / 2, D / 2, 0]);
+  const lively = new Set(
+    [...got.trees]
+      .sort((a, b) => Math.hypot(a.at[0] - HX, a.at[1] - HY) - Math.hypot(b.at[0] - HX, b.at[1] - HY))
+      .slice(0, LIVELY)
+      .map((t) => t.id),
+  );
   // and the oaks planted from galls (law/hands.js plant), grown by the same law as the seed's
   for (const id of facts?.planted?.keys() ?? []) {
     const t = H.treeOf(id);
@@ -166,19 +176,22 @@ export function outsideNear(geom, plot, { opens, at = null, houses = [], day, ms
       .filter(({ at: p }) => seen(p))
       .map(({ t, at: p }) => {
         // what lives in it (law/life.js: replayed to today, as the hands left it; before its shape today,
-        // so the oak grows on through its seasons in order)
-        const L = LIFE.lifeOf(t, day, facts);
-        life.push({ tree: t, L });
-        for (const g of L.galls.values()) galls.push({ tree: t.id, tip: g.tip, laid: g.laid, at: F.toRoom(g.at), r: GALL_R });
-        const { hive, nest } = LIFE.nestsOf(t, day, facts);
-        if (hive && hive.wax > 0) hives.push({ tree: t.id, at: F.toRoom(hive.at), r: ballOf(hive.wax, 'wax') });
-        if (nest && nest.grass > 0) {
-          const r = ballOf(nest.grass, 'grass'),
-            at = F.toRoom(nest.at);
-          nests.push({ tree: t.id, at, r, eggs: nest.eggs.map((e, k) => ({ at: [at[0] + r * 0.4 * Math.cos(k * 2.4), at[1] + r * 0.4 * Math.sin(k * 2.4), at[2] + r * 0.3], r: EGG_R })) });
+        // so the oak grows on through its seasons in order): only in the oaks nearest the house (Tabor,
+        // 2026-10-26: the rest stand still)
+        const L = lively.has(t.id) ? LIFE.lifeOf(t, day, facts) : null;
+        if (L) {
+          life.push({ tree: t, L });
+          for (const g of L.galls.values()) galls.push({ tree: t.id, tip: g.tip, laid: g.laid, at: F.toRoom(g.at), r: GALL_R });
+          const { hive, nest } = LIFE.nestsOf(t, day, facts);
+          if (hive && hive.wax > 0) hives.push({ tree: t.id, at: F.toRoom(hive.at), r: ballOf(hive.wax, 'wax') });
+          if (nest && nest.grass > 0) {
+            const r = ballOf(nest.grass, 'grass'),
+              at = F.toRoom(nest.at);
+            nests.push({ tree: t.id, at, r, eggs: nest.eggs.map((e, k) => ({ at: [at[0] + r * 0.4 * Math.cos(k * 2.4), at[1] + r * 0.4 * Math.sin(k * 2.4), at[2] + r * 0.3], r: EGG_R })) });
+          }
+          for (const f of L.feathers) if (!things.has(f.id)) feathers.push(feather(f.id, F.toRoom(f.at)));
+          for (const x of LIFE.lyingAt(t, L, ms)) dead.push({ at: F.toRoom(x.at), r: LIFE.bodyOf(x.kind).r, matter: BEINGS[x.kind].of.cover ?? BEINGS[x.kind].of.body });
         }
-        for (const f of L.feathers) if (!things.has(f.id)) feathers.push(feather(f.id, F.toRoom(f.at)));
-        for (const x of LIFE.lyingAt(t, L, ms)) dead.push({ at: F.toRoom(x.at), r: LIFE.bodyOf(x.kind).r, matter: BEINGS[x.kind].of.cover ?? BEINGS[x.kind].of.body });
         const { limbs, leaves } = limbsOf(O.treeNow(t, day));
         const lift = ([x, y, zz]) => [x - t.at[0] + p[0], y - t.at[1] + p[1], zz + p[2]];
         const off = gone(t);
