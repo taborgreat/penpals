@@ -46,8 +46,10 @@ import { exp, log, pow, sin, cos } from './dmath.js';
 
 // Where the outside's life stands at the world's start (the seed's): the share of oaks with gall bugs
 // in them and how many galls they had laid the autumn before; the share with a hive on their trunk, its
-// bugs, its comb (g) and its store (kJ); the share with a pair of birds. The world's makeup: Tabor's to set.
-export const START = Object.freeze({ gallbug: { share: 0.5, galls: 6 }, hivebug: { share: 0.1, bugs: 100, wax: 50, store: 500 }, bird: { share: 0.4 } });
+// bugs, its comb (g) and its store (kJ); the share with birds, and how many pairs. The world's makeup: Tabor's to
+// set (2026-10-26, for the demo: ten times the life: galls 6 → 60, hives 0.1 → every oak, birds 0.4 → every oak, four
+// pairs each).
+export const START = Object.freeze({ gallbug: { share: 0.5, galls: 60 }, hivebug: { share: 1, bugs: 100, wax: 50, store: 500 }, bird: { share: 1, pairs: 4 } });
 
 const G = 9.81;
 const RHO = MATTER.air.density;
@@ -317,7 +319,14 @@ function startOf(tree) {
   }
   if (draw(tree.id, 8) < S.bird.share && (!BEINGS.bird.drinks || waterNear(tree.at[0], tree.at[1], BEINGS.bird.reach))) {
     const B = BEINGS.bird;
-    L.birds = { adults: [0, 1].map((k) => ({ id: k, born: EPOCH - Math.floor(B.lives * draw(tree.id, 9, k)), store: storeOf('bird') })), nest: null, bred: null, moult: null, next: 2 };
+    const n = 2 * (S.bird.pairs ?? 1);
+    L.birds = {
+      adults: Array.from({ length: n }, (_, k) => ({ id: k, born: EPOCH - Math.floor(B.lives * draw(tree.id, 9, k)), store: storeOf('bird') })),
+      nest: null,
+      bred: null,
+      moult: null,
+      next: n,
+    };
   }
   return L;
 }
@@ -452,7 +461,7 @@ function birdsDay(tree, L, d, w, hours, leaves) {
   });
   const year = yearOf(d);
   // its oak's leaves out: a pair builds a nest in a fork, of grass gathered as fast as they eat
-  if (leaves && P.adults.length === 2 && P.bred !== year && P.nest?.year !== year) {
+  if (leaves && P.adults.length >= 2 && P.bred !== year && P.nest?.year !== year) {
     const forks = T().branches.filter((b) => b.parent !== null);
     if (forks.length) {
       const f = forks[Math.floor(draw(tree.id, 10, year) * forks.length)];
@@ -463,12 +472,12 @@ function birdsDay(tree, L, d, w, hours, leaves) {
   if (N && N.year === year && P.bred !== year) {
     if (N.grass < B.nest.grams) N.grass = Math.min(B.nest.grams, N.grass + P.adults.length * B.gut * hours);
     else if (P.adults.length) {
-      if (P.adults.length === 2) for (let k = 0; k < B.lays && N.eggs.length < B.clutch && !N.full; k++) N.eggs.push({ laid: d, on: d + Math.ceil(B.grows / ((B.warm ?? w) - B.above)) });
+      if (P.adults.length >= 2) for (let k = 0; k < B.lays && N.eggs.length < B.clutch && !N.full; k++) N.eggs.push({ laid: d, on: d + Math.ceil(B.grows / ((B.warm ?? w) - B.above)) });
       if (N.eggs.length >= B.clutch) N.full = true; // (its clutch laid: no more this season)
       // the eggs kept at its warmth; crossing `grows`, they fly (the pair short: one stays, the rest go)
       const flown = N.eggs.filter((e) => e.on <= d);
       N.eggs = N.eggs.filter((e) => e.on > d);
-      for (const e of flown) if (P.adults.length < 2) P.adults.push({ id: P.next++, born: d, store: full / 2, from: e.laid });
+      for (const e of flown) if (P.adults.length < 2 * (START.bird.pairs ?? 1)) P.adults.push({ id: P.next++, born: d, store: full / 2, from: e.laid });
       if (N.eggs.length === 0 && flown.length) {
         P.bred = year;
         P.moult = { from: d, year };
