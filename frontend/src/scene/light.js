@@ -62,8 +62,16 @@ import { hazeOf } from './light/smoke.js';
 export { PX_PER_M };
 const DEFAULT_PAPER = [0xf7, 0xf3, 0xea]; // the page the room settles with (and the eye looks at)
 
-// The sun by the clock: { az, el } in degrees (light/air.js sunPlace).
-export const sunAt = (date) => sunPlace(date);
+// The sun by the clock: { az, el } in degrees (light/air.js sunPlace). (A dev server only, never the built site:
+// the room's sun held where it stands at DEV_HOUR o'clock that day, Pacific, so the day can be looked at while it is
+// night; null: the world's own.)
+const DEV_HOUR = import.meta.env?.DEV ? 9 : null;
+export const sunAt = (date) => {
+  if (DEV_HOUR === null) return sunPlace(date);
+  const p = Object.fromEntries(worldWall.formatToParts(new Date(date.getTime())).map((x) => [x.type, x.value]));
+  const back = ((Number(p.hour) % 24) - DEV_HOUR) * 3600000 + Number(p.minute) * 60000 + Number(p.second) * 1000;
+  return sunPlace(new Date(date.getTime() - back));
+};
 
 // The clouds, as the light takes them: to a hundredth (the room's light settles anew past each), never
 // all of it (a deck that turned back every last ray would be night at noon).
@@ -85,15 +93,8 @@ function flashOf(w, ms) {
 // moment `date` as its wall clock reads it (what sunPlace reads), the instant itself
 // unchanged. Never the viewer's own clock.
 const worldWall = new Intl.DateTimeFormat('en-US', { timeZone: WORLD_ZONE, hour12: false, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
-// (a dev server only, never the built site: its wall clock read as if it were this hour, the minutes going on, so
-// the day can be looked at while it is night; null: the world's own)
-const DEV_HOUR = import.meta.env?.DEV ? 13 : null;
 export function worldClock(date) {
-  let parts = Object.fromEntries(worldWall.formatToParts(date).map((x) => [x.type, x.value]));
-  if (DEV_HOUR !== null) {
-    const ahead = ((DEV_HOUR - (Number(parts.hour) % 24) + 24) % 24) * 3600000;
-    parts = Object.fromEntries(worldWall.formatToParts(new Date(date.getTime() + ahead)).map((x) => [x.type, x.value]));
-  }
+  const parts = Object.fromEntries(worldWall.formatToParts(date).map((x) => [x.type, x.value]));
   const h = Number(parts.hour) % 24;
   return {
     getFullYear: () => Number(parts.year),
