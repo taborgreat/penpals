@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { createView, engineReady, DROP_PX } from './engine.js';
 import { groundOf } from './ground.js';
 import { camera2d, camera3d, pageAt, canWrite, orbit, zoomBy, panBy, flyTo, fly, lerpCam, chaseFollow, frame, rayThrough, MIN_WRITE_EL } from './camera.js';
-import { theLight, originOf, withinRoom, returnTo, sunAt, worldClock, GEOM } from './light.js';
+import { theLight, originOf, withinRoom, returnTo, sunAt, worldClock, devMs, GEOM } from './light.js';
 import { roomCamera, pageToRoom, roomToPage, PX_PER_M } from './light/index.js';
 import { patchCurve } from './light/settle.js';
 import { markedCurves, papersCurves } from './inkLight.js';
@@ -466,7 +466,7 @@ const SceneView = forwardRef(function SceneView(
     // sitting sings, a wing beats while it flies)
     const lifeNow = S.outsideSpec?.life;
     if (lifeNow?.length) {
-      const ms = worldS * 1000;
+      const ms = devMs(worldS * 1000); // (a dev server's: as at its held hour)
       const F = frameOf(GEOM, S.outsideNow.plot);
       const list = [];
       for (const { tree, L } of lifeNow)
