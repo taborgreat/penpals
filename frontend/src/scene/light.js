@@ -65,7 +65,7 @@ const DEFAULT_PAPER = [0xf7, 0xf3, 0xea]; // the page the room settles with (and
 // The sun by the clock: { az, el } in degrees (light/air.js sunPlace). (A dev server only, never the built site:
 // the room's sun held where it stands at DEV_HOUR o'clock that day, Pacific, so the day can be looked at while it is
 // night; null: the world's own.)
-const DEV_HOUR = import.meta.env?.DEV ? 9 : null;
+const DEV_HOUR = import.meta.env?.DEV ? 22 : null;
 export const sunAt = (date) => {
   if (DEV_HOUR === null) return sunPlace(date);
   const p = Object.fromEntries(worldWall.formatToParts(new Date(date.getTime())).map((x) => [x.type, x.value]));
