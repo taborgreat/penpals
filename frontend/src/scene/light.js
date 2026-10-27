@@ -85,8 +85,15 @@ function flashOf(w, ms) {
 // moment `date` as its wall clock reads it (what sunPlace reads), the instant itself
 // unchanged. Never the viewer's own clock.
 const worldWall = new Intl.DateTimeFormat('en-US', { timeZone: WORLD_ZONE, hour12: false, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+// (a dev server only, never the built site: its wall clock read as if it were this hour, the minutes going on, so
+// the day can be looked at while it is night; null: the world's own)
+const DEV_HOUR = import.meta.env?.DEV ? 13 : null;
 export function worldClock(date) {
-  const parts = Object.fromEntries(worldWall.formatToParts(date).map((x) => [x.type, x.value]));
+  let parts = Object.fromEntries(worldWall.formatToParts(date).map((x) => [x.type, x.value]));
+  if (DEV_HOUR !== null) {
+    const ahead = ((DEV_HOUR - (Number(parts.hour) % 24) + 24) % 24) * 3600000;
+    parts = Object.fromEntries(worldWall.formatToParts(new Date(date.getTime() + ahead)).map((x) => [x.type, x.value]));
+  }
   const h = Number(parts.hour) % 24;
   return {
     getFullYear: () => Number(parts.year),
